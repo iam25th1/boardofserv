@@ -1,0 +1,127 @@
+.userRow {
+  display: flex;
+  justify-content: flex-end;
+  margin: var(--s-5) 0;
+}
+
+.userGroup {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-1);
+  max-width: 85%;
+}
+
+.bubble {
+  background: var(--surface-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  padding: var(--s-3) var(--s-4);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: var(--lh-body);
+}
+
+.userActions {
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+  padding-top: var(--s-1);
+}
+.userGroup:hover .userActions,
+.userGroup:focus-within .userActions {
+  opacity: 1;
+}
+
+.editor {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--r-lg);
+  padding: var(--s-3);
+}
+.editArea {
+  width: 100%;
+  border: none;
+  background: transparent;
+  resize: none;
+  outline: none;
+  line-height: var(--lh-body);
+}
+.editActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s-2);
+  padding-top: var(--s-2);
+}
+
+.assistantRow {
+  margin: var(--s-5) 0;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-2);
+}
+.who {
+  font-weight: var(--w-semibold);
+  font-size: var(--t-sm);
+  color: var(--ink);
+}
+.model {
+  font-size: var(--t-xs);
+  color: var(--muted);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-full);
+  padding: 0 var(--s-2);
+  line-height: 1.5;
+  cursor: default;
+}
+.model[data-serv="true"] {
+  color: var(--accent);
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
+}
+
+.body {
+  position: relative;
+}
+
+.caret {
+  display: inline-block;
+  width: 0.5em;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+  border-radius: 1px;
+  animation: blink 1s steps(2, start) infinite;
+}
+@keyframes blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .caret {
+    animation: none;
+    opacity: 0.8;
+  }
+}
+
+.actions {
+  display: flex;
+  gap: var(--s-1);
+  margin-top: var(--s-2);
+  opacity: 0.55;
+  transition: opacity var(--dur) var(--ease);
+}
+.assistantRow:hover .actions,
+.assistantRow:focus-within .actions {
+  opacity: 1;
+}
