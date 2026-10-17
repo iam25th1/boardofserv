@@ -1,0 +1,18 @@
+node_modules/
+.next/
+dist/
+out/
+# Secrets. Never commit.
+.env
+.env.*
+!.env.example
+# Local tooling
+.DS_Store
+*.log
+coverage/
+.drizzle/
+playwright-report/
+test-results/
+screenshots/
+
+*.tsbuildinfo

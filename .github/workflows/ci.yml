@@ -1,0 +1,22 @@
+name: gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run gate
+        env:
+          # Build-time only placeholders. No real secret is needed to gate, and
+          # none is present in CI. The secret-leak test enforces that.
+          NEXT_PUBLIC_PRIVY_APP_ID: ci-placeholder
