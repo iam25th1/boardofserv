@@ -1,0 +1,103 @@
+/*
+ * boardofserv design tokens. The single source of every colour, type, space,
+ * radius and motion value. Components reference these variables, never literals.
+ * Direction: "Workbench". Warm paper, ink text, one deep teal accent, one
+ * characterful serif note. No purple, no gradients, no side colour bars.
+ *
+ * Font families are injected by next/font in the root layout as --font-ui
+ * (Hanken Grotesk, humanist UI face) and --font-display (Fraunces, used only
+ * for the wordmark and the one empty-state welcome line).
+ */
+
+:root {
+  /* Surfaces and ink (light) */
+  --paper: #f6f7f6;
+  --surface: #ffffff;
+  --surface-2: #f1f3f2;
+  --ink: #16211e;
+  --muted: #5b6b66;
+  --faint: #8a9a94;
+  --hairline: #e2e6e3;
+
+  /* Accent and semantics (light) */
+  --accent: #12685c;
+  --accent-strong: #0e554b;
+  --accent-soft: #e6f0ed;
+  --on-accent: #ffffff;
+  --warning: #9a5a00;
+  --warning-soft: #fbefd9;
+  --danger: #a5342f;
+  --danger-soft: #f7e3e1;
+
+  /* Type */
+  --font-ui: var(--font-hanken), system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
+  --t-xs: 0.75rem;
+  --t-sm: 0.875rem;
+  --t-base: 1rem;
+  --t-md: 1.125rem;
+  --t-lg: 1.333rem;
+  --t-xl: 1.602rem;
+  --t-2xl: 2.074rem;
+  --lh-tight: 1.2;
+  --lh-snug: 1.4;
+  --lh-body: 1.6;
+  --w-regular: 400;
+  --w-medium: 500;
+  --w-semibold: 600;
+  --measure: 46rem;
+
+  /* Space (4px base) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-8: 48px;
+  --s-10: 64px;
+
+  /* Radius */
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-full: 999px;
+
+  /* Motion */
+  --dur-fast: 120ms;
+  --dur: 220ms;
+  --dur-slow: 320ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* Elevation, one soft shadow only */
+  --shadow-1: 0 1px 2px rgba(16, 33, 30, 0.06), 0 2px 8px rgba(16, 33, 30, 0.05);
+  --shadow-2: 0 8px 28px rgba(16, 33, 30, 0.14);
+
+  /* Layout */
+  --rail-w: 17rem;
+  --header-h: 3.5rem;
+  --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
+
+:root[data-theme="dark"] {
+  --paper: #0e1513;
+  --surface: #15201c;
+  --surface-2: #1c2a25;
+  --ink: #e8eeeb;
+  --muted: #9db0a9;
+  --faint: #6f837c;
+  --hairline: #273630;
+
+  --accent: #3fb8a3;
+  --accent-strong: #5ccbb7;
+  --accent-soft: #16302a;
+  --on-accent: #07110e;
+  --warning: #e0a24a;
+  --warning-soft: #2a2113;
+  --danger: #e08585;
+  --danger-soft: #2a1716;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 8px 28px rgba(0, 0, 0, 0.5);
+  --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+}
