@@ -1,0 +1,24 @@
+import { desc, eq } from "drizzle-orm";
+import { getUserFromRequest } from "@/lib/auth-route";
+import { db } from "@/lib/db";
+import { conversations } from "@/lib/db/schema";
+
+export const runtime = "nodejs";
+
+export async function GET(req: Request) {
+  const user = await getUserFromRequest(req);
+  if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+  const rows = await db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.userId, user.id))
+    .orderBy(desc(conversations.updatedAt));
+  return Response.json({ conversations: rows });
+}
+
+export async function POST(req: Request) {
+  const user = await getUserFromRequest(req);
+  if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+  const [row] = await db.insert(conversations).values({ userId: user.id }).returning();
+  return Response.json({ conversation: row });
+}

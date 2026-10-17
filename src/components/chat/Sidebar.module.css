@@ -1,0 +1,124 @@
+.rail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: var(--rail-w);
+  background: var(--surface);
+  border-right: 1px solid var(--hairline);
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  color: var(--faint);
+}
+.search svg {
+  position: absolute;
+  left: var(--s-3);
+  pointer-events: none;
+}
+.search :global(input) {
+  padding-left: calc(var(--s-5) + var(--s-1));
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s-3) var(--s-2);
+}
+
+.empty {
+  color: var(--faint);
+  font-size: var(--t-sm);
+  padding: var(--s-3);
+}
+
+.group {
+  margin-bottom: var(--s-3);
+}
+.group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.groupLabel {
+  font-size: var(--t-xs);
+  font-weight: var(--w-semibold);
+  color: var(--faint);
+  padding: var(--s-1) var(--s-2);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  border-radius: var(--r-md);
+}
+.item:hover,
+.item[data-active="true"] {
+  background: var(--surface-2);
+}
+.item[data-active="true"] .title {
+  color: var(--ink);
+  font-weight: var(--w-medium);
+}
+
+.itemBtn {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: var(--s-2);
+  cursor: pointer;
+  color: var(--muted);
+}
+.title {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--t-sm);
+}
+
+.itemMenu {
+  opacity: 0;
+  padding-right: var(--s-1);
+  transition: opacity var(--dur) var(--ease);
+}
+.item:hover .itemMenu,
+.item:focus-within .itemMenu,
+.item[data-active="true"] .itemMenu {
+  opacity: 1;
+}
+
+.foot {
+  border-top: 1px solid var(--hairline);
+  padding: var(--s-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.shortcuts {
+  background: none;
+  border: none;
+  text-align: left;
+  color: var(--muted);
+  font-size: var(--t-xs);
+  padding: var(--s-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.shortcuts:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
