@@ -1,0 +1,51 @@
+.dock {
+  padding: var(--s-2) var(--s-4) var(--s-4);
+  background: var(--paper);
+  border-top: 1px solid var(--hairline);
+}
+
+.composer {
+  max-width: var(--measure);
+  margin: 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-2);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4);
+  box-shadow: var(--shadow-1);
+  transition: border-color var(--dur) var(--ease);
+}
+.composer:focus-within {
+  border-color: var(--accent);
+}
+.composer[data-disabled="true"] {
+  opacity: 0.6;
+}
+
+.area {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  resize: none;
+  line-height: var(--lh-body);
+  padding: var(--s-2) 0;
+  max-height: 200px;
+}
+.area::placeholder {
+  color: var(--faint);
+}
+
+.send {
+  padding-bottom: 2px;
+}
+
+.hint {
+  max-width: var(--measure);
+  margin: var(--s-2) auto 0;
+  text-align: center;
+  font-size: var(--t-xs);
+  color: var(--faint);
+}
