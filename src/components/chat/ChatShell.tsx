@@ -1,0 +1,346 @@
+"use client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { usePrivy } from "@privy-io/react-auth";
+import { useApi } from "@/lib/useApi";
+import { useOpenServLink } from "@/lib/useOpenServLink";
+import type { AccountDTO, ConversationDTO } from "@/lib/types";
+import { Button, Dialog, IconButton, TextInput, useToast } from "@/components/ui";
+import { MenuIcon, CloseIcon, PlusIcon } from "@/components/icons";
+import { animateSlideIn } from "@/lib/motion";
+import { Sidebar } from "./Sidebar";
+import { AccountMenu } from "./AccountMenu";
+import { MessageList } from "./MessageList";
+import { Composer } from "./Composer";
+import { EmptyState } from "./EmptyState";
+import { ShortcutsDialog } from "./ShortcutsDialog";
+import { Wordmark } from "./Wordmark";
+import type { MessageView } from "./Message";
+import styles from "./ChatShell.module.css";
+
+export function ChatShell() {
+  const api = useApi();
+  const link = useOpenServLink();
+  const { logout } = usePrivy();
+  const toast = useToast();
+
+  const [conversations, setConversations] = useState<ConversationDTO[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<MessageView[]>([]);
+  const [streaming, setStreaming] = useState<{ content: string; source?: string | null; sourceLabel?: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [account, setAccount] = useState<AccountDTO | null>(null);
+  const [linking, setLinking] = useState(false);
+  const [query, setQuery] = useState("");
+  const [drawer, setDrawer] = useState(false);
+  const [shortcuts, setShortcuts] = useState(false);
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [prefill, setPrefill] = useState<{ text: string; nonce: number } | null>(null);
+
+  const stopRef = useRef<(() => void) | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const drawerRef = useRef<HTMLDivElement>(null);
+
+  const refreshConversations = useCallback(async () => {
+    try {
+      setConversations(await api.listConversations());
+    } catch {
+      // list stays as it was; a transient error should not blank the sidebar
+    }
+  }, [api]);
+
+  const refreshAccount = useCallback(async () => {
+    try {
+      setAccount(await api.getAccount());
+    } catch {
+      setAccount(null);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void refreshConversations();
+    void refreshAccount();
+  }, [refreshConversations, refreshAccount]);
+
+  const openConversation = useCallback(
+    async (id: string) => {
+      setActiveId(id);
+      setError(null);
+      setStreaming(null);
+      setDrawer(false);
+      try {
+        const rows = await api.getMessages(id);
+        setMessages(rows.map((m) => ({ id: m.id, role: m.role, content: m.content, source: m.source, sourceLabel: m.sourceLabel })));
+      } catch {
+        setMessages([]);
+      }
+    },
+    [api],
+  );
+
+  const startNew = useCallback(() => {
+    setActiveId(null);
+    setMessages([]);
+    setStreaming(null);
+    setError(null);
+    setDrawer(false);
+    setTimeout(() => (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus(), 30);
+  }, []);
+
+  const run = useCallback(
+    (body: { conversationId?: string; content?: string; regenerate?: boolean; editMessageId?: string }) => {
+      setBusy(true);
+      setError(null);
+      setStreaming({ content: "" });
+      let convoId = body.conversationId ?? activeId ?? undefined;
+      stopRef.current = api.sendChat({ ...body, conversationId: convoId }, (e) => {
+        if (e.type === "meta") {
+          convoId = e.conversationId;
+          if (!activeId) setActiveId(e.conversationId);
+          setStreaming((s) => (s ? { ...s, source: e.source, sourceLabel: e.label } : s));
+        } else if (e.type === "delta") {
+          setStreaming((s) => (s ? { ...s, content: s.content + e.text } : s));
+        } else if (e.type === "done") {
+          setStreaming((cur) => {
+            if (cur && cur.content.trim()) {
+              setMessages((prev) => [
+                ...prev,
+                { id: e.messageId ?? crypto.randomUUID(), role: "assistant", content: cur.content, source: e.source, sourceLabel: e.label },
+              ]);
+            }
+            return null;
+          });
+          setBusy(false);
+          stopRef.current = null;
+          void refreshConversations();
+          void refreshAccount();
+        } else if (e.type === "error") {
+          setStreaming(null);
+          setBusy(false);
+          stopRef.current = null;
+          setError(e.message);
+        }
+      });
+    },
+    [api, activeId, refreshConversations, refreshAccount],
+  );
+
+  const send = useCallback(
+    (text: string) => {
+      const optimistic: MessageView = { id: crypto.randomUUID(), role: "user", content: text };
+      setMessages((prev) => [...prev, optimistic]);
+      run({ conversationId: activeId ?? undefined, content: text });
+    },
+    [activeId, run],
+  );
+
+  const stop = useCallback(async () => {
+    stopRef.current?.();
+    stopRef.current = null;
+    setBusy(false);
+    setStreaming(null);
+    if (activeId) await openConversation(activeId);
+  }, [activeId, openConversation]);
+
+  const regenerate = useCallback(() => {
+    if (!activeId) return;
+    setMessages((prev) => {
+      const idx = [...prev].reverse().findIndex((m) => m.role === "assistant");
+      if (idx === -1) return prev;
+      return prev.slice(0, prev.length - 1 - idx);
+    });
+    run({ conversationId: activeId, regenerate: true });
+  }, [activeId, run]);
+
+  const edit = useCallback(
+    (id: string, content: string) => {
+      setMessages((prev) => {
+        const i = prev.findIndex((m) => m.id === id);
+        if (i === -1) return prev;
+        return [...prev.slice(0, i), { ...prev[i]!, content }];
+      });
+      run({ conversationId: activeId ?? undefined, editMessageId: id, content });
+    },
+    [activeId, run],
+  );
+
+  const retry = useCallback(() => {
+    if (activeId) run({ conversationId: activeId, regenerate: true });
+  }, [activeId, run]);
+
+  const doLink = useCallback(async () => {
+    setLinking(true);
+    try {
+      await link();
+      await refreshAccount();
+      toast.show({ title: "OpenServ account linked" });
+    } catch {
+      toast.show({ title: "Could not link OpenServ. Try again.", tone: "danger" });
+    } finally {
+      setLinking(false);
+    }
+  }, [link, refreshAccount, toast]);
+
+  const doRename = useCallback(async () => {
+    if (!renameId || !renameValue.trim()) return;
+    await api.renameConversation(renameId, renameValue.trim());
+    setRenameId(null);
+    void refreshConversations();
+  }, [api, renameId, renameValue, refreshConversations]);
+
+  const doDelete = useCallback(async () => {
+    if (!deleteId) return;
+    await api.deleteConversation(deleteId);
+    if (deleteId === activeId) startNew();
+    setDeleteId(null);
+    void refreshConversations();
+  }, [api, deleteId, activeId, startNew, refreshConversations]);
+
+  // Keyboard shortcuts.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.shiftKey && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        startNew();
+      } else if (mod && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      } else if (mod && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus();
+      } else if (e.key === "?" && !["INPUT", "TEXTAREA"].includes((e.target as HTMLElement)?.tagName)) {
+        e.preventDefault();
+        setShortcuts(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [startNew]);
+
+  useEffect(() => {
+    if (drawer && drawerRef.current) animateSlideIn(drawerRef.current, "x");
+  }, [drawer]);
+
+  const accountMenu = <AccountMenu account={account} linking={linking} onLink={doLink} onSignOut={() => void logout()} />;
+  const notReady = account !== null && !account.linked;
+
+  const sidebar = (
+    <Sidebar
+      ref={searchRef}
+      conversations={conversations}
+      activeId={activeId}
+      query={query}
+      onQuery={setQuery}
+      onNew={startNew}
+      onSelect={openConversation}
+      onRename={(id) => {
+        setRenameId(id);
+        setRenameValue(conversations.find((c) => c.id === id)?.title ?? "");
+      }}
+      onDelete={(id) => setDeleteId(id)}
+      onOpenShortcuts={() => setShortcuts(true)}
+      footer={accountMenu}
+    />
+  );
+
+  return (
+    <div className={styles.app}>
+      <aside className={styles.railDesktop}>{sidebar}</aside>
+
+      {drawer && (
+        <div className={styles.scrim} onMouseDown={() => setDrawer(false)}>
+          <div className={styles.drawer} ref={drawerRef} onMouseDown={(e) => e.stopPropagation()}>
+            {sidebar}
+          </div>
+        </div>
+      )}
+
+      <main className={styles.main}>
+        <header className={styles.topbar}>
+          <IconButton label="Open conversations" variant="quiet" onClick={() => setDrawer(true)}>
+            <MenuIcon />
+          </IconButton>
+          <div className={styles.topbarMark}>
+            <Wordmark />
+          </div>
+          <IconButton label="New conversation" variant="quiet" onClick={startNew}>
+            <PlusIcon />
+          </IconButton>
+        </header>
+
+        {messages.length === 0 && !streaming ? (
+          <EmptyState onPick={(text) => setPrefill({ text, nonce: Date.now() })} />
+        ) : (
+          <MessageList
+            messages={messages}
+            streaming={streaming}
+            error={error}
+            busy={busy}
+            onRetry={retry}
+            onRegenerate={regenerate}
+            onEdit={edit}
+          />
+        )}
+
+        <Composer
+          conversationKey={activeId ?? "new"}
+          busy={busy}
+          disabled={notReady}
+          prefill={prefill?.text}
+          prefillNonce={prefill?.nonce}
+          onSend={send}
+          onStop={stop}
+        />
+        {notReady && (
+          <div className={styles.linkBanner} role="status">
+            <span>Link your OpenServ account to get replies from SERV.</span>
+            <Button size="sm" onClick={doLink} disabled={linking}>
+              {linking ? "Linking..." : "Link now"}
+            </Button>
+          </div>
+        )}
+      </main>
+
+      <ShortcutsDialog open={shortcuts} onClose={() => setShortcuts(false)} />
+
+      <Dialog
+        open={renameId !== null}
+        onClose={() => setRenameId(null)}
+        title="Rename conversation"
+        actions={
+          <>
+            <Button variant="ghost" onClick={() => setRenameId(null)}>
+              Cancel
+            </Button>
+            <Button onClick={doRename} disabled={!renameValue.trim()}>
+              Save
+            </Button>
+          </>
+        }
+      >
+        <TextInput value={renameValue} onChange={(e) => setRenameValue(e.target.value)} aria-label="Conversation title" autoFocus />
+      </Dialog>
+
+      <Dialog
+        open={deleteId !== null}
+        onClose={() => setDeleteId(null)}
+        title="Delete this conversation?"
+        actions={
+          <>
+            <Button variant="ghost" onClick={() => setDeleteId(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={doDelete}>
+              Delete
+            </Button>
+          </>
+        }
+      >
+        <p className={styles.confirmText}>This removes the conversation and its messages. It cannot be undone.</p>
+      </Dialog>
+    </div>
+  );
+}

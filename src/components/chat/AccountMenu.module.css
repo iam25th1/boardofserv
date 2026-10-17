@@ -1,0 +1,122 @@
+.wrap {
+  position: relative;
+}
+
+.trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  background: none;
+  border: none;
+  padding: var(--s-2);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  text-align: left;
+}
+.trigger:hover {
+  background: var(--surface-2);
+}
+
+.avatar {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  color: var(--on-accent);
+  display: grid;
+  place-items: center;
+  font-size: var(--t-sm);
+  font-weight: var(--w-semibold);
+}
+
+.triggerText {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.email {
+  font-size: var(--t-sm);
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.state {
+  font-size: var(--t-xs);
+  color: var(--muted);
+}
+.state[data-state="low"] {
+  color: var(--warning);
+}
+
+.panel {
+  position: absolute;
+  bottom: calc(100% + var(--s-2));
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  padding: var(--s-2);
+  z-index: 20;
+}
+
+.section {
+  padding: var(--s-2);
+  border-bottom: 1px solid var(--hairline);
+}
+.label {
+  font-size: var(--t-xs);
+  color: var(--faint);
+  margin-bottom: 2px;
+}
+.value {
+  font-size: var(--t-sm);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.creditRow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+.chip {
+  font-size: var(--t-xs);
+  padding: 2px var(--s-2);
+  border-radius: var(--r-full);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.chip[data-state="low"] {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.topup {
+  font-size: var(--t-xs);
+}
+
+.rowActions {
+  padding-top: var(--s-1);
+}
+.action {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  background: none;
+  border: none;
+  padding: var(--s-2);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-size: var(--t-sm);
+  cursor: pointer;
+  text-align: left;
+}
+.action:hover {
+  background: var(--surface-2);
+}
