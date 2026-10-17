@@ -1,0 +1,12 @@
+.mark {
+  font-family: var(--font-display);
+  font-weight: var(--w-medium);
+  font-size: var(--t-lg);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  line-height: 1;
+}
+
+.lg {
+  font-size: var(--t-2xl);
+}
