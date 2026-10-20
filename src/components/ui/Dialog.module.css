@@ -1,0 +1,71 @@
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-4);
+  background-color: color-mix(in srgb, var(--ink) 55%, transparent);
+  animation: scrimFade var(--dur) var(--ease);
+}
+
+:global(:root[data-theme="dark"]) .scrim {
+  background-color: color-mix(in srgb, var(--paper) 70%, transparent);
+}
+
+.panel {
+  position: relative;
+  width: 100%;
+  max-width: 28rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding: var(--s-5);
+  background-color: var(--surface);
+  color: var(--ink);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+}
+
+.panel:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring), var(--shadow-2);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--t-lg);
+  font-weight: var(--w-semibold);
+  line-height: var(--lh-tight);
+  color: var(--ink);
+}
+
+.body {
+  font-family: var(--font-ui);
+  font-size: var(--t-base);
+  line-height: var(--lh-body);
+  color: var(--ink);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s-2);
+}
+
+@keyframes scrimFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrim {
+    animation: none;
+  }
+}

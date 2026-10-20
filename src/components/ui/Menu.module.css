@@ -1,0 +1,88 @@
+.root {
+  position: relative;
+  display: inline-flex;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--r-md);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.trigger:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.popover {
+  position: absolute;
+  top: calc(100% + var(--s-1));
+  z-index: 50;
+  min-width: max-content;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-1);
+  background-color: var(--surface);
+  border: thin solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+}
+
+.start {
+  left: 0;
+}
+
+.end {
+  right: 0;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-ui);
+  font-size: var(--t-sm);
+  color: var(--ink);
+  background-color: transparent;
+  border: none;
+  border-radius: var(--r-sm);
+  padding: var(--s-2) var(--s-3);
+  cursor: pointer;
+}
+
+.item:hover {
+  background-color: var(--surface-2);
+}
+
+.item:focus-visible {
+  outline: none;
+  background-color: var(--surface-2);
+  box-shadow: var(--focus-ring);
+}
+
+.item.danger {
+  color: var(--danger);
+}
+
+.item.danger:hover,
+.item.danger:focus-visible {
+  background-color: var(--danger-soft);
+}
+
+.icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.label {
+  flex: 1;
+}

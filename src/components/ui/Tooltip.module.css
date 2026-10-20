@@ -1,0 +1,31 @@
+.root {
+  position: relative;
+  display: inline-flex;
+}
+
+.bubble {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 150;
+  width: max-content;
+  max-width: var(--measure);
+  padding: var(--s-1) var(--s-2);
+  background-color: var(--surface);
+  color: var(--ink);
+  border: thin solid var(--hairline);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-1);
+  font-family: var(--font-ui);
+  font-size: var(--t-xs);
+  line-height: var(--lh-snug);
+  pointer-events: none;
+}
+
+.top {
+  bottom: calc(100% + var(--s-1));
+}
+
+.bottom {
+  top: calc(100% + var(--s-1));
+}

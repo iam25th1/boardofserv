@@ -1,0 +1,20 @@
+.skeleton {
+  display: block;
+  background-color: var(--surface-2);
+  animation: skeletonBreath calc(var(--dur-slow) * 5) var(--ease) infinite alternate;
+}
+
+@keyframes skeletonBreath {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}

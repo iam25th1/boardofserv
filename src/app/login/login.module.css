@@ -1,0 +1,43 @@
+.page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--s-5) var(--s-4);
+  background: var(--paper);
+}
+
+.card {
+  width: 100%;
+  max-width: 24rem;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  padding: var(--s-6);
+}
+
+.mark {
+  margin-bottom: var(--s-5);
+}
+
+.headline {
+  font-family: var(--font-display);
+  font-weight: var(--w-medium);
+  font-size: var(--t-xl);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.01em;
+  margin-bottom: var(--s-2);
+}
+
+.sub {
+  color: var(--muted);
+  font-size: var(--t-base);
+  margin-bottom: var(--s-5);
+}
+
+.fineprint {
+  margin-top: var(--s-3);
+  font-size: var(--t-xs);
+  color: var(--faint);
+  text-align: center;
+}

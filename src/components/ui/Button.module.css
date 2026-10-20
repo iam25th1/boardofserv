@@ -1,0 +1,84 @@
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  font-family: var(--font-ui);
+  font-weight: var(--w-medium);
+  line-height: var(--lh-tight);
+  border: thin solid transparent;
+  border-radius: var(--r-md);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease);
+}
+
+.button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sm {
+  font-size: var(--t-sm);
+  padding: var(--s-1) var(--s-3);
+}
+
+.md {
+  font-size: var(--t-base);
+  padding: var(--s-2) var(--s-4);
+}
+
+.primary {
+  background-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.primary:hover:not(:disabled) {
+  background-color: var(--accent-strong);
+}
+
+.ghost {
+  background-color: transparent;
+  border-color: var(--hairline);
+  color: var(--ink);
+}
+
+.ghost:hover:not(:disabled) {
+  background-color: var(--surface-2);
+}
+
+.quiet {
+  background-color: transparent;
+  color: var(--muted);
+}
+
+.quiet:hover:not(:disabled) {
+  background-color: var(--surface-2);
+  color: var(--ink);
+}
+
+.danger {
+  background-color: transparent;
+  color: var(--danger);
+}
+
+.danger:hover:not(:disabled) {
+  background-color: var(--danger-soft);
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button {
+    transition: none;
+  }
+}

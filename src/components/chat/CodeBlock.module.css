@@ -1,0 +1,36 @@
+.block {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface-2);
+  margin: var(--s-3) 0;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-3);
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface);
+}
+
+.lang {
+  font-size: var(--t-xs);
+  color: var(--muted);
+}
+
+.pre {
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  overflow-x: auto;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: var(--t-sm);
+  line-height: var(--lh-snug);
+  color: var(--ink);
+}
+
+.pre code {
+  font-family: inherit;
+  white-space: pre;
+}
