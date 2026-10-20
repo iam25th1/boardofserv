@@ -7,8 +7,8 @@ import { palette, type PaletteToken } from "../../design/palette";
 // fails, the token should be fixed, not the threshold.
 //
 // chalk-3 is the quiet hint ink (placeholders, timestamps, the small labels in
-// the sketch dock). Like the old "faint" token it sits below AA on purpose and
-// is never the only carrier of meaning, so it is not listed here.
+// the sketch dock). It is only ever set on slate and slate-2, and must still
+// pass AA there while staying the faintest ink.
 
 const AA_NORMAL = 4.5;
 
@@ -19,6 +19,8 @@ const pairs: Array<[PaletteToken, PaletteToken]> = [
   ["chalk-2", "slate"],
   ["chalk-2", "slate-2"],
   ["chalk-2", "slate-3"],
+  ["chalk-3", "slate"],
+  ["chalk-3", "slate-2"],
   // Primary buttons and the send button: slate ink on a chalk fill.
   ["slate", "chalk"],
 ];
@@ -43,6 +45,14 @@ for (const theme of ["dark", "light"] as const) {
       it(`${fg} on ${bg}`, () => {
         const ratio = contrastRatio(palette[theme][fg], palette[theme][bg]);
         expect(ratio, `${theme} ${fg}/${bg} ratio ${ratio.toFixed(2)}`).toBeGreaterThanOrEqual(AA_NORMAL);
+      });
+    }
+
+    // The ink steps stay in order, so chalk-3 still reads as the faintest.
+    for (const bg of ["slate", "slate-2"] as const) {
+      it(`chalk-3 stays fainter than chalk-2 on ${bg}`, () => {
+        const c = palette[theme];
+        expect(contrastRatio(c["chalk-3"], c[bg])).toBeLessThan(contrastRatio(c["chalk-2"], c[bg]) - 1);
       });
     }
   });

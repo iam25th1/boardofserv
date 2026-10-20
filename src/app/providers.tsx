@@ -5,6 +5,7 @@ import { ToastProvider } from "@/components/ui";
 import { LogoStrokes } from "@/components/chat/Wordmark";
 import { palette } from "@/design/palette";
 import { useResolvedTheme } from "@/lib/theme";
+import { privyAppId } from "@/lib/privy-config";
 
 // App-wide client providers. Privy handles email login and gives every user a
 // plain embedded Ethereum wallet (an EOA). We never enable smart wallets:
@@ -15,11 +16,10 @@ import { useResolvedTheme } from "@/lib/theme";
 // it), the accent is chalk, and the logo is the chalk mark. globals.css then
 // pins Privy's CSS variables to the exact tokens and sets the font.
 export function Providers({ children }: { children: React.ReactNode }) {
-  const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
+  const appId = privyAppId();
   const theme = useResolvedTheme();
-  // Without an app id (for example during a CI build) Privy cannot initialise,
-  // so render without it. The auth pages are dynamic and only reach this path
-  // at runtime, where the app id is set.
+  // Without a usable app id (for example the CI build) Privy cannot start, so
+  // it is not mounted. The sign-in and chat pages then show SignInUnset.
   if (!appId) return <ToastProvider>{children}</ToastProvider>;
   return (
     <PrivyProvider

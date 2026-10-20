@@ -11,7 +11,7 @@ export const palette = {
     "slate-3": "#2d3230",
     chalk: "#e9eae4",
     "chalk-2": "#a8aca5",
-    "chalk-3": "#6c716b",
+    "chalk-3": "#8c918a",
   },
   light: {
     slate: "#f2f3f1",
@@ -19,7 +19,7 @@ export const palette = {
     "slate-3": "#dcdfdb",
     chalk: "#1b1e1d",
     "chalk-2": "#4c524e",
-    "chalk-3": "#858b86",
+    "chalk-3": "#636964",
   },
 } as const satisfies Record<ThemeName, Record<string, `#${string}`>>;
 

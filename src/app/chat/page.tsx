@@ -5,9 +5,17 @@ import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { ChatShell } from "@/components/chat/ChatShell";
 import { Wordmark } from "@/components/chat/Wordmark";
+import { SignInUnset } from "@/components/SignInUnset";
+import { privyAppId } from "@/lib/privy-config";
 import styles from "./chat.module.css";
 
 export default function ChatPage() {
+  // No Privy app id means no sign-in, so there is no chat to reach.
+  if (!privyAppId()) return <SignInUnset />;
+  return <SignedInChat />;
+}
+
+function SignedInChat() {
   const { ready, authenticated } = usePrivy();
   const router = useRouter();
 
