@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { IconButton, Tooltip } from "@/components/ui";
+import { Tooltip } from "@/components/ui";
 import { SendIcon, StopIcon } from "@/components/icons";
 import { loadDraft, saveDraft } from "@/lib/drafts";
 import styles from "./Composer.module.css";
@@ -13,11 +13,13 @@ interface Props {
   prefillNonce?: number;
   onSend: (text: string) => void;
   onStop: () => void;
+  // The agent sketch dock, drawn on top of the input inside the same box.
+  dock?: React.ReactNode;
 }
 
-const MAX_H = 200;
+const MAX_H = 180;
 
-export function Composer({ conversationKey, busy, disabled, prefill, prefillNonce, onSend, onStop }: Props) {
+export function Composer({ conversationKey, busy, disabled, prefill, prefillNonce, onSend, onStop, dock }: Props) {
   const area = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
 
@@ -64,39 +66,49 @@ export function Composer({ conversationKey, busy, disabled, prefill, prefillNonc
   };
 
   return (
-    <div className={styles.dock}>
-      <div className={styles.composer} data-disabled={disabled ? "true" : "false"}>
-        <textarea
-          ref={area}
-          className={styles.area}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKeyDown}
-          disabled={disabled}
-          rows={1}
-          placeholder={disabled ? "Finish signing in to start" : "Describe the agent you want to build"}
-          aria-label="Message boardofserv"
-          data-composer-input
-        />
-        <div className={styles.send}>
-          {busy ? (
-            <Tooltip label="Stop">
-              <IconButton label="Stop generating" variant="quiet" onClick={onStop}>
-                <StopIcon />
-              </IconButton>
-            </Tooltip>
-          ) : (
-            <Tooltip label="Send">
-              <IconButton label="Send message" variant="quiet" onClick={submit} disabled={!text.trim() || disabled}>
-                <SendIcon />
-              </IconButton>
-            </Tooltip>
-          )}
+    <div className={styles.composer}>
+      <div className={styles.col}>
+        <div className={styles.box} data-disabled={disabled ? "true" : "false"}>
+          {dock}
+          <form
+            className={styles.input}
+            onSubmit={(e) => {
+              e.preventDefault();
+              submit();
+            }}
+          >
+            <textarea
+              ref={area}
+              className={styles.area}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={onKeyDown}
+              disabled={disabled}
+              rows={1}
+              placeholder={disabled ? "Finish signing in to start" : "Describe what you want an agent to do"}
+              aria-label="Message boardofserv"
+              data-composer-input
+            />
+            {busy ? (
+              <Tooltip label="Stop">
+                <button type="button" className={styles.send} aria-label="Stop generating" onClick={onStop}>
+                  <StopIcon />
+                </button>
+              </Tooltip>
+            ) : (
+              <Tooltip label="Send">
+                <button type="submit" className={styles.send} aria-label="Send message" disabled={!text.trim() || disabled}>
+                  <SendIcon />
+                </button>
+              </Tooltip>
+            )}
+          </form>
         </div>
+        <p className={styles.foot}>
+          <span className={styles.keys}>Enter to send, Shift and Enter for a new line. </span>
+          boardofserv does not build anything yet, it helps you plan.
+        </p>
       </div>
-      <p className={styles.hint}>
-        Enter to send, Shift and Enter for a new line. boardofserv does not build anything yet, it helps you plan.
-      </p>
     </div>
   );
 }

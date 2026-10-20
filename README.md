@@ -12,7 +12,7 @@ agents is the next phase. The chat is the product, so it got the most care.
   smart wallet, which OpenServ sign-in would likely reject).
 - Postgres with Drizzle, local Postgres in Docker for development.
 - Plain CSS variables and CSS Modules. Every value is a design token.
-- anime.js for motion, react-markdown for messages, Vitest for tests.
+- anime.js v4 for motion, react-markdown for messages, Vitest for tests.
 
 ## Running it
 
@@ -24,10 +24,18 @@ npm run db:push                 # create the tables
 npm run dev                     # http://localhost:3000
 ```
 
+`npm run db:up` uses `docker compose` when the plugin is installed. Without it
+(for example plain Colima) it runs the same Postgres with `docker run` in a
+container named `boardofserv-db`, and starts that container again if it
+already exists. `npm run db:down` stops whichever one is in use; the data stays
+in the `boardofserv_boardofserv_pgdata` volume either way.
+
 `.env.local` (gitignored, never committed, never logged, never in the bundle):
 
 - `NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_APP_SECRET`: from the Privy dashboard. The
-  app id is public by design; the secret is server only.
+  app id is public by design; the secret is server only. Without a usable app
+  id (CI builds with `ci-placeholder`) the app still builds, Privy is never
+  mounted, and the sign-in and chat pages say sign-in isn't set up.
 - `OPENSERV_KEY_ENC_KEY`: 32 bytes, base64. Generate with
   `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
 - `DATABASE_URL`: defaults to the Docker Postgres above.
@@ -78,12 +86,19 @@ layer already calls SERV and will use it as soon as that key is available.
 
 ## Design
 
-The visual direction is "Workbench": warm paper, ink text, one deep teal accent,
-one characterful serif used only for the wordmark and the welcome line. No
+The visual direction is "Chalk": chalk on slate when dark, marker on a
+whiteboard when light, Onest for reading and Caveat for small handwritten notes. No
 purple, no gradients, no side colour bars. Tokens live in
 `src/design/tokens.css` and are the single source of every value.
 
 For reviewing the UI without a live email login, a development-only harness at
 `/demo` renders the real components with seeded data (it returns 404 in
-production). States: `/demo?state=empty|convo|streaming|error`, with `menu=1`,
-`drawer=1`, and `balance=low` flags.
+production). States: `/demo?state=empty|convo|thinking|streaming|replay|error`, with
+`menu=1`, `agents=1`, `chips=1` and `balance=low` flags. `replay` plays the
+seeded reply through the streaming path (`repeat=8` makes it long).
+
+The agent sketch dock has no real data yet. In development only,
+`/?sketch=demo` (or `/demo?sketch=demo`) shows it with the mockup's ETH
+watcher waiting on one answer, and `sketch=ready` shows it ready so the switch
+can be flipped. The switch only changes local state. Production never loads
+the fixture.

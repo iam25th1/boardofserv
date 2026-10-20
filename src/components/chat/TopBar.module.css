@@ -1,0 +1,36 @@
+.top {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: var(--top-col);
+  margin: 0 auto;
+  padding: 18px max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-2) max(var(--gutter), env(safe-area-inset-left, 0px));
+}
+
+.end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+@media (max-width: 640px) {
+  .top {
+    gap: var(--s-2);
+    padding-top: var(--s-3);
+    padding-bottom: 6px;
+  }
+  .end {
+    gap: var(--s-1);
+  }
+}
+
+/* The narrowest phones keep the mark and drop the name beside it. */
+@media (max-width: 380px) {
+  .top :global(.wordmark-name) {
+    display: none;
+  }
+}

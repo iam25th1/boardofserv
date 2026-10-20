@@ -3,11 +3,11 @@
   align-items: center;
   justify-content: center;
   gap: var(--s-2);
-  font-family: var(--font-ui);
+  font-family: var(--font-body);
   font-weight: var(--w-medium);
   line-height: var(--lh-tight);
-  border: thin solid transparent;
-  border-radius: var(--r-md);
+  border: 1px solid transparent;
+  border-radius: var(--r-full);
   cursor: pointer;
   text-decoration: none;
   transition: background-color var(--dur-fast) var(--ease),
@@ -16,8 +16,8 @@
 }
 
 .button:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus);
+  outline-offset: 3px;
 }
 
 .button:disabled {
@@ -27,50 +27,52 @@
 
 .sm {
   font-size: var(--t-sm);
-  padding: var(--s-1) var(--s-3);
+  padding: 6px var(--s-4);
 }
 
 .md {
   font-size: var(--t-base);
-  padding: var(--s-2) var(--s-4);
+  padding: 10px var(--s-5);
 }
 
 .primary {
-  background-color: var(--accent);
-  color: var(--on-accent);
+  background-color: var(--chalk);
+  color: var(--slate);
 }
 
 .primary:hover:not(:disabled) {
-  background-color: var(--accent-strong);
+  background-color: var(--chalk-2);
 }
 
 .ghost {
   background-color: transparent;
-  border-color: var(--hairline);
-  color: var(--ink);
+  border-color: var(--line);
+  color: var(--chalk);
 }
 
 .ghost:hover:not(:disabled) {
-  background-color: var(--surface-2);
+  background-color: var(--dust);
+  border-color: var(--chalk-2);
 }
 
 .quiet {
   background-color: transparent;
-  color: var(--muted);
+  color: var(--chalk-2);
 }
 
 .quiet:hover:not(:disabled) {
-  background-color: var(--surface-2);
-  color: var(--ink);
+  background-color: var(--dust);
+  color: var(--chalk);
 }
 
 .danger {
   background-color: transparent;
-  color: var(--danger);
+  border: 1.5px dashed var(--chalk);
+  color: var(--chalk);
 }
 
 .danger:hover:not(:disabled) {
-  background-color: var(--danger-soft);
+  background-color: var(--dust);
 }
 
 .fullWidth {

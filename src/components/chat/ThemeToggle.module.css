@@ -1,0 +1,13 @@
+.theme {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+  padding: 6px 10px;
+  border-radius: var(--r-full);
+  transition:
+    color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+.theme:hover {
+  color: var(--chalk);
+  background: var(--dust);
+}

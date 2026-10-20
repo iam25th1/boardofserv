@@ -1,0 +1,28 @@
+.think {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  height: 40px;
+  color: var(--chalk-2);
+}
+
+.think svg {
+  width: 64px;
+  height: 40px;
+  flex: none;
+  overflow: visible;
+}
+
+.think path {
+  fill: none;
+  stroke: var(--chalk);
+  stroke-width: var(--stroke-bold);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ph {
+  font-family: var(--font-hand);
+  font-weight: var(--w-medium);
+  font-size: var(--t-hand);
+}

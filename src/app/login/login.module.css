@@ -1,43 +1,67 @@
 .page {
   min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  padding: var(--s-5) var(--s-4);
-  background: var(--paper);
+  display: flex;
+  align-items: center;
+  padding: var(--s-6) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-6) max(var(--gutter), env(safe-area-inset-left, 0px));
+  background: var(--slate);
 }
 
-.card {
+.col {
   width: 100%;
-  max-width: 24rem;
-  background: var(--surface);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-1);
-  padding: var(--s-6);
-}
-
-.mark {
-  margin-bottom: var(--s-5);
+  max-width: var(--col);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 18px;
 }
 
 .headline {
-  font-family: var(--font-display);
-  font-weight: var(--w-medium);
-  font-size: var(--t-xl);
+  margin-top: var(--s-5);
+  font-weight: var(--w-semibold);
+  font-size: var(--t-hero);
   line-height: var(--lh-tight);
-  letter-spacing: -0.01em;
-  margin-bottom: var(--s-2);
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+  max-width: 14ch;
+}
+
+.scrawl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: -6px;
+  font-family: var(--font-hand);
+  font-weight: var(--w-medium);
+  font-size: var(--t-hand-lg);
+  color: var(--chalk-2);
+}
+.scrawl svg {
+  width: 70px;
+  height: 34px;
+  flex: none;
+}
+.scrawl path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .sub {
-  color: var(--muted);
-  font-size: var(--t-base);
-  margin-bottom: var(--s-5);
+  color: var(--chalk-2);
+  max-width: 46ch;
 }
 
 .fineprint {
-  margin-top: var(--s-3);
-  font-size: var(--t-xs);
-  color: var(--faint);
-  text-align: center;
+  font-size: var(--t-2xs);
+  color: var(--chalk-3);
+}
+
+@media (max-width: 640px) {
+  .page {
+    align-items: flex-start;
+    padding-top: 12vh;
+  }
 }

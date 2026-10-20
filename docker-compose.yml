@@ -1,3 +1,7 @@
+# The project name keeps the volume boardofserv_boardofserv_pgdata whatever the
+# folder is called. scripts/db.sh uses the same volume when compose is missing.
+name: boardofserv
+
 services:
   db:
     image: postgres:16-alpine

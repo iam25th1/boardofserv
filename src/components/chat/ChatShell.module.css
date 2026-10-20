@@ -1,70 +1,26 @@
+/* One centred column on the slate: top bar, thread, composer. */
 .app {
   display: flex;
+  flex-direction: column;
   height: 100dvh;
   overflow: hidden;
-}
-
-.railDesktop {
-  flex: none;
-  display: none;
-}
-
-.main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.topbar {
-  flex: none;
-  height: var(--header-h);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--s-2);
-  border-bottom: 1px solid var(--hairline);
-  background: var(--paper);
-}
-.topbarMark {
-  flex: 1;
-  display: flex;
-  justify-content: center;
-}
-
-.scrim {
-  position: fixed;
-  inset: 0;
-  background: rgba(16, 33, 30, 0.4);
-  z-index: 30;
-  display: flex;
-}
-.drawer {
-  height: 100%;
-  box-shadow: var(--shadow-2);
 }
 
 .linkBanner {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
   gap: var(--s-3);
-  padding: var(--s-2) var(--s-4) var(--s-4);
+  width: 100%;
+  max-width: var(--col);
+  margin: 0 auto;
+  padding: 0 var(--gutter) var(--s-4);
   font-size: var(--t-sm);
-  color: var(--muted);
+  color: var(--chalk-2);
 }
 
 .confirmText {
-  color: var(--muted);
+  color: var(--chalk-2);
   font-size: var(--t-sm);
-}
-
-@media (min-width: 60rem) {
-  .railDesktop {
-    display: block;
-  }
-  .topbar {
-    display: none;
-  }
 }

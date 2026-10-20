@@ -20,14 +20,15 @@ function SignedInChat() {
   const router = useRouter();
 
   useEffect(() => {
-    if (ready && !authenticated) router.replace("/login");
+    // The query string rides along, so a flag like ?sketch=demo survives sign in.
+    if (ready && !authenticated) router.replace(`/login${window.location.search}`);
   }, [ready, authenticated, router]);
 
   if (!ready || !authenticated) {
     return (
       <main className={styles.loading}>
         <Wordmark />
-        <p className={styles.loadingText}>Getting your workspace ready</p>
+        <p className={styles.loadingText}>getting your workspace ready</p>
       </main>
     );
   }

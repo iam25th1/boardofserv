@@ -1,42 +1,44 @@
-/* Shown when the build has no usable Privy app id, centred like the loading screen. */
+/* Same slate and chalk as the not-found page. */
 .page {
   min-height: 100dvh;
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: var(--s-6) var(--s-5);
+  padding: var(--s-6) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-6) max(var(--gutter), env(safe-area-inset-left, 0px));
 }
 
 .col {
-  max-width: var(--measure);
+  width: 100%;
+  max-width: var(--col);
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: var(--s-3);
-  text-align: center;
+  align-items: flex-start;
+  gap: 14px;
 }
 
 .title {
-  margin-top: var(--s-4);
-  font-family: var(--font-display);
-  font-size: var(--t-2xl);
+  margin-top: var(--s-5);
   font-weight: var(--w-semibold);
+  font-size: var(--t-hero);
   line-height: var(--lh-tight);
+  letter-spacing: -0.03em;
 }
 
 .note {
-  color: var(--muted);
-  font-size: var(--t-sm);
+  font-family: var(--font-hand);
+  font-weight: var(--w-medium);
+  font-size: var(--t-hand-lg);
+  color: var(--chalk-2);
 }
 
 .body {
-  max-width: 46ch;
-  color: var(--muted);
+  max-width: 52ch;
+  color: var(--chalk-2);
   overflow-wrap: anywhere;
 }
 
 .body code {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
-  color: var(--ink);
+  color: var(--chalk);
 }

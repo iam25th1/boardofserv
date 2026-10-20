@@ -2,14 +2,16 @@
 import { useEffect, useState } from "react";
 import type { AccountDTO, ConversationDTO } from "@/lib/types";
 import type { MessageView } from "@/components/chat/Message";
-import { Sidebar } from "@/components/chat/Sidebar";
+import { AgentsPill } from "@/components/chat/AgentsPill";
 import { AccountMenu } from "@/components/chat/AccountMenu";
 import { MessageList } from "@/components/chat/MessageList";
 import { Composer } from "@/components/chat/Composer";
 import { EmptyState } from "@/components/chat/EmptyState";
-import { Wordmark } from "@/components/chat/Wordmark";
-import { IconButton } from "@/components/ui";
-import { MenuIcon, PlusIcon } from "@/components/icons";
+import { TopBar } from "@/components/chat/TopBar";
+import { Chips } from "@/components/chat/Chips";
+import { SketchDock } from "@/components/chat/SketchDock";
+import type { AgentSketch } from "@/lib/agentSketch";
+import type { StreamingView } from "@/components/chat/MessageList";
 import shell from "@/components/chat/ChatShell.module.css";
 
 const now = Date.now();
@@ -52,12 +54,58 @@ const MESSAGES: MessageView[] = [
   { id: "a1", role: "assistant", content: ASSISTANT, source: "serv", sourceLabel: "SERV" },
 ];
 
-export function DemoHarness({ state, balance, menuOpen, drawerOpen }: { state: string; balance: "ok" | "low"; menuOpen?: boolean; drawerOpen?: boolean }) {
-  const [drawer, setDrawer] = useState(Boolean(drawerOpen));
+// state=replay plays the seeded reply through the real streaming path: the
+// thinking scribble first, then chunks of a few words at network-like pace
+// (repeat=8 makes it long), so the word dust-in can be watched in development.
+function useReplay(on: boolean, repeat: number): StreamingView | null {
+  const [view, setView] = useState<StreamingView | null>(null);
+  useEffect(() => {
+    if (!on) return;
+    const words = Array.from({ length: repeat }, () => ASSISTANT).join("\n\n").match(/\S+\s*/g) ?? [];
+    let i = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    setView({ key: "replay", content: "", source: "serv", sourceLabel: "SERV" });
+    const tick = () => {
+      const n = 1 + Math.floor(Math.random() * 6);
+      const chunk = words.slice(i, i + n).join("");
+      i += n;
+      setView((v) => (v ? { ...v, content: v.content + chunk } : v));
+      if (i < words.length) timer = setTimeout(tick, 25 + Math.random() * 40);
+    };
+    timer = setTimeout(tick, 2600);
+    return () => clearTimeout(timer);
+  }, [on, repeat]);
+  return view;
+}
+
+export function DemoHarness({
+  state,
+  balance,
+  menuOpen,
+  agentsOpen,
+  chips,
+  repeat = 1,
+  sketchMode,
+}: {
+  state: string;
+  balance: "ok" | "low";
+  menuOpen?: boolean;
+  agentsOpen?: boolean;
+  chips?: boolean;
+  repeat?: number;
+  sketchMode?: string;
+}) {
   // Dev harness only: render after mount so the seeded, time-based data never
   // causes a server and client hydration mismatch.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  const replay = useReplay(state === "replay", repeat);
+  const [sketch, setSketch] = useState<AgentSketch | null>(null);
+  useEffect(() => {
+    if (process.env.NODE_ENV === "development" && (sketchMode === "demo" || sketchMode === "ready")) {
+      void import("@/lib/agentSketch.fixture").then((f) => setSketch(sketchMode === "ready" ? f.ethWatcherReady : f.ethWatcher));
+    }
+  }, [sketchMode]);
   if (!mounted) return null;
   const account: AccountDTO = {
     email: "maya@example.com",
@@ -67,58 +115,56 @@ export function DemoHarness({ state, balance, menuOpen, drawerOpen }: { state: s
     balance,
   };
 
-  const streaming =
-    state === "streaming"
-      ? { content: "Here is what your agent would do.\n\n## A watcher for ETH\n\n1. Check the ETH price every minute.\n2. Compare it to the price", source: "serv", sourceLabel: "SERV" }
-      : null;
-  const messages = state === "streaming" ? [MESSAGES[0]!] : MESSAGES;
+  const partial = "Here is what your agent would do.\n\n## A watcher for ETH\n\n1. Check the ETH price every minute.\n2. Compare it to the price";
+  const streaming: StreamingView | null =
+    state === "replay"
+      ? replay
+      : state === "thinking"
+        ? { key: "demo-stream", content: "" }
+        : state === "streaming"
+          ? { key: "demo-stream", content: partial, source: "serv", sourceLabel: "SERV" }
+          : null;
+  const messages = ["streaming", "thinking", "replay"].includes(state) ? [MESSAGES[0]!] : MESSAGES;
   const error = state === "error" ? "The reply could not be completed. You can retry." : null;
-
-  const accountMenu = <AccountMenu account={account} linking={false} onLink={() => {}} onSignOut={() => {}} startOpen={menuOpen} />;
-  const sidebar = (
-    <Sidebar
-      conversations={CONVERSATIONS}
-      activeId="1"
-      query=""
-      onQuery={() => {}}
-      onNew={() => {}}
-      onSelect={() => {}}
-      onRename={() => {}}
-      onDelete={() => {}}
-      onOpenShortcuts={() => {}}
-      footer={accountMenu}
-    />
-  );
 
   return (
     <div className={shell.app}>
-      <aside className={shell.railDesktop}>{sidebar}</aside>
-      {drawer && (
-        <div className={shell.scrim} onMouseDown={() => setDrawer(false)}>
-          <div className={shell.drawer} onMouseDown={(e) => e.stopPropagation()}>
-            {sidebar}
-          </div>
-        </div>
+      <TopBar
+        agents={
+          <AgentsPill
+            conversations={CONVERSATIONS}
+            activeId="1"
+            replyingId={streaming ? "1" : null}
+            onNew={() => {}}
+            onSelect={() => {}}
+            onRename={() => {}}
+            onDelete={() => {}}
+            startOpen={agentsOpen}
+          />
+        }
+        account={<AccountMenu account={account} linking={false} onLink={() => {}} onSignOut={() => {}} onOpenShortcuts={() => {}} startOpen={menuOpen} />}
+      />
+      {state === "empty" ? (
+        <EmptyState onPick={() => {}} />
+      ) : (
+        <MessageList
+          messages={messages}
+          streaming={streaming}
+          error={error}
+          busy={Boolean(streaming)}
+          onRetry={() => {}}
+          onRegenerate={() => {}}
+          onEdit={() => {}}
+          footer={chips ? <Chips options={["Telegram", "Email"]} onPick={() => {}} /> : undefined}
+        />
       )}
-      <main className={shell.main}>
-        <header className={shell.topbar}>
-          <IconButton label="Open conversations" variant="quiet" onClick={() => setDrawer(true)}>
-            <MenuIcon />
-          </IconButton>
-          <div className={shell.topbarMark}>
-            <Wordmark />
-          </div>
-          <IconButton label="New conversation" variant="quiet" onClick={() => {}}>
-            <PlusIcon />
-          </IconButton>
-        </header>
-        {state === "empty" ? (
-          <EmptyState onPick={() => {}} />
-        ) : (
-          <MessageList messages={messages} streaming={streaming} error={error} busy={Boolean(streaming)} onRetry={() => {}} onRegenerate={() => {}} onEdit={() => {}} />
-        )}
-        <Composer conversationKey="demo" busy={Boolean(streaming)} onSend={() => {}} onStop={() => {}} />
-      </main>
+      <Composer
+        conversationKey="demo"
+        busy={Boolean(streaming)}
+        onSend={() => {}}
+        onStop={() => {}}
+        dock={sketch && <SketchDock sketch={sketch} onToggle={(live) => setSketch({ ...sketch, live })} />}
+      />
     </div>
   );
 }

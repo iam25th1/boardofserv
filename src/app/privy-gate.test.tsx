@@ -63,7 +63,7 @@ describe("with a real Privy app id", () => {
     vi.stubEnv("NEXT_PUBLIC_PRIVY_APP_ID", "x".repeat(25));
     render(<ChatPage />);
     expect(privy.usePrivy).toHaveBeenCalled();
-    expect(screen.getByText("Getting your workspace ready")).toBeInTheDocument();
+    expect(screen.getByText("getting your workspace ready")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: UNSET })).toBeNull();
   });
 });

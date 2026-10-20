@@ -21,20 +21,18 @@
   gap: var(--s-3);
   width: 100%;
   padding: var(--s-3) var(--s-4);
-  background-color: var(--surface);
-  color: var(--ink);
-  border: thin solid var(--hairline);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-2);
-  font-family: var(--font-ui);
+  background-color: var(--slate-2);
+  color: var(--chalk);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  font-family: var(--font-body);
   font-size: var(--t-sm);
   line-height: var(--lh-snug);
 }
 
 .toast.danger {
-  background-color: var(--danger-soft);
-  color: var(--danger);
-  border-color: var(--danger);
+  border: 1.5px dashed var(--chalk);
 }
 
 .title {
@@ -59,6 +57,6 @@
 }
 
 .dismiss:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus);
+  outline-offset: 3px;
 }

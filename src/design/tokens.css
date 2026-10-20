@@ -1,51 +1,57 @@
 /*
  * boardofserv design tokens. The single source of every colour, type, space,
  * radius and motion value. Components reference these variables, never literals.
- * Direction: "Workbench". Warm paper, ink text, one deep teal accent, one
- * characterful serif note. No purple, no gradients, no side colour bars.
+ * Direction: "Chalk". Chalk on slate when dark, marker on whiteboard when light.
+ * No hue at all: one slate family for surfaces, one chalk family for ink.
  *
- * Font families are injected by next/font in the root layout as --font-ui
- * (Hanken Grotesk, humanist UI face) and --font-display (Fraunces, used only
- * for the wordmark and the one empty-state welcome line).
+ * Dark is the default. Light applies when the system asks for it and the user
+ * has not picked dark, or when the user picks light with the toggle (which
+ * sets data-theme on the root and remembers it).
+ *
+ * Font families are injected by next/font in the root layout as --font-onest
+ * (everything you read) and --font-caveat (small handwritten notes only).
+ *
+ * src/design/palette.ts mirrors the solid colours for the few places that need
+ * a literal (the browser theme colour, Privy's accent, the contrast test). A
+ * test keeps the two files in step.
  */
 
 :root {
-  /* Surfaces and ink (light) */
-  --paper: #f6f7f6;
-  --surface: #ffffff;
-  --surface-2: #f1f3f2;
-  --ink: #16211e;
-  --muted: #5b6b66;
-  --faint: #8a9a94;
-  --hairline: #e2e6e3;
-
-  /* Accent and semantics (light) */
-  --accent: #12685c;
-  --accent-strong: #0e554b;
-  --accent-soft: #e6f0ed;
-  --on-accent: #ffffff;
-  --warning: #9a5a00;
-  --warning-soft: #fbefd9;
-  --danger: #a5342f;
-  --danger-soft: #f7e3e1;
+  /* Slate (surfaces) and chalk (ink), dark */
+  --slate: #1d201f;
+  --slate-2: #242827;
+  --slate-3: #2d3230;
+  --chalk: #e9eae4;
+  --chalk-2: #a8aca5;
+  --chalk-3: #8c918a;
+  --dust: rgba(233, 234, 228, 0.1);
+  --line: rgba(233, 234, 228, 0.16);
+  --shade: rgba(0, 0, 0, 0.28);
+  --scrim: rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
 
   /* Type */
-  --font-ui: var(--font-hanken), system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-  --font-display: var(--font-fraunces), Georgia, "Times New Roman", serif;
-  --t-xs: 0.75rem;
+  --font-body: var(--font-onest), "Helvetica Neue", Arial, sans-serif;
+  --font-hand: var(--font-caveat), "Bradley Hand", "Segoe Print", cursive;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --t-2xs: 0.75rem;
+  --t-xs: 0.8125rem;
   --t-sm: 0.875rem;
-  --t-base: 1rem;
-  --t-md: 1.125rem;
-  --t-lg: 1.333rem;
-  --t-xl: 1.602rem;
-  --t-2xl: 2.074rem;
-  --lh-tight: 1.2;
-  --lh-snug: 1.4;
+  --t-base: 0.96875rem;
+  --t-md: 1.0625rem;
+  --t-lg: 1.25rem;
+  --t-xl: 1.5rem;
+  --t-hand-sm: 1.1875rem;
+  --t-hand: 1.3125rem;
+  --t-hand-lg: 1.5rem;
+  --t-hero: clamp(2.125rem, 5.4vw, 3.25rem);
+  --lh-tight: 1.04;
+  --lh-snug: 1.35;
   --lh-body: 1.6;
   --w-regular: 400;
   --w-medium: 500;
   --w-semibold: 600;
-  --measure: 46rem;
+  --w-bold: 700;
 
   /* Space (4px base) */
   --s-1: 4px;
@@ -58,46 +64,67 @@
   --s-10: 64px;
 
   /* Radius */
-  --r-sm: 8px;
-  --r-md: 10px;
+  --r-sm: 6px;
+  --r-md: 9px;
   --r-lg: 14px;
+  --r-xl: 18px;
+  --r-2xl: 22px;
   --r-full: 999px;
 
-  /* Motion */
-  --dur-fast: 120ms;
-  --dur: 220ms;
-  --dur-slow: 320ms;
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* Strokes */
+  --stroke: 1.8px;
+  --stroke-bold: 2.2px;
 
-  /* Elevation, one soft shadow only */
-  --shadow-1: 0 1px 2px rgba(16, 33, 30, 0.06), 0 2px 8px rgba(16, 33, 30, 0.05);
-  --shadow-2: 0 8px 28px rgba(16, 33, 30, 0.14);
+  /* Motion. anime.js reads the same numbers from src/lib/motion.ts. */
+  --dur-fast: 150ms;
+  --dur: 250ms;
+  --dur-slow: 350ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-draw: cubic-bezier(0.3, 0.7, 0.2, 1);
+
+  /* Elevation, one soft shadow for floating panels only */
+  --shadow-pop: 0 20px 50px var(--shade);
 
   /* Layout */
-  --rail-w: 17rem;
-  --header-h: 3.5rem;
-  --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+  --col: 720px;
+  --top-col: 768px;
+  --gutter: 24px;
+  --focus: 2px dashed var(--chalk);
 }
 
-:root[data-theme="dark"] {
-  --paper: #0e1513;
-  --surface: #15201c;
-  --surface-2: #1c2a25;
-  --ink: #e8eeeb;
-  --muted: #9db0a9;
-  --faint: #6f837c;
-  --hairline: #273630;
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --slate: #f2f3f1;
+    --slate-2: #e8eae7;
+    --slate-3: #dcdfdb;
+    --chalk: #1b1e1d;
+    --chalk-2: #4c524e;
+    --chalk-3: #636964;
+    --dust: rgba(27, 30, 29, 0.07);
+    --line: rgba(27, 30, 29, 0.16);
+    --shade: rgba(27, 30, 29, 0.14);
+    --scrim: rgba(27, 30, 29, 0.32);
+    color-scheme: light;
+  }
+}
 
-  --accent: #3fb8a3;
-  --accent-strong: #5ccbb7;
-  --accent-soft: #16302a;
-  --on-accent: #07110e;
-  --warning: #e0a24a;
-  --warning-soft: #2a2113;
-  --danger: #e08585;
-  --danger-soft: #2a1716;
+:root[data-theme="light"] {
+  --slate: #f2f3f1;
+  --slate-2: #e8eae7;
+  --slate-3: #dcdfdb;
+  --chalk: #1b1e1d;
+  --chalk-2: #4c524e;
+  --chalk-3: #636964;
+  --dust: rgba(27, 30, 29, 0.07);
+  --line: rgba(27, 30, 29, 0.16);
+  --shade: rgba(27, 30, 29, 0.14);
+  --scrim: rgba(27, 30, 29, 0.32);
+  color-scheme: light;
+}
 
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-2: 0 8px 28px rgba(0, 0, 0, 0.5);
-  --focus-ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+/* Phones: a narrower gutter everywhere. */
+@media (max-width: 640px) {
+  :root {
+    --gutter: 16px;
+  }
 }
