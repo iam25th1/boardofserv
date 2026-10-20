@@ -130,6 +130,10 @@ describe("a chat turn with a sketch", () => {
 
     expect(t.events.map((e) => e.event).filter((e, i, all) => e !== "delta" || all[i - 1] !== "delta")).toEqual(["meta", "delta", "reply_end", "sketch", "done"]);
     expect(t.shown).toBe(reply);
+    // reply_end comes once the reply is saved, so it already names the message.
+    const ids = t.events.filter((e) => e.event === "reply_end" || e.event === "done").map((e) => e.data.messageId);
+    expect(ids[0]).toBeTruthy();
+    expect(ids).toEqual([ids[0], ids[0]]);
     expect(t.sketch?.choices).toEqual(["Every minute", "Every 5 minutes", "Every hour"]);
     expect(t.sketch?.sketch).toEqual({
       name: "ETH floor watch",

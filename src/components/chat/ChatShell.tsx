@@ -120,6 +120,7 @@ export function ChatShell() {
     async (id: string) => {
       abortReply();
       setActiveId(id);
+      activeRef.current = id;
       setError(null);
       try {
         const { messages: rows, sketch: stored } = await api.getConversation(id);
@@ -137,6 +138,7 @@ export function ChatShell() {
   const startNew = useCallback(() => {
     abortReply();
     setActiveId(null);
+    activeRef.current = null;
     setMessages([]);
     setSketch(null);
     setChips(null);
@@ -180,7 +182,10 @@ export function ChatShell() {
       const stopThis = api.sendChat({ ...body, conversationId: convoId }, (e) => {
         if (e.type === "meta") {
           convoId = e.conversationId;
-          if (!activeId) setActiveId(e.conversationId);
+          if (!activeId) {
+            setActiveId(e.conversationId);
+            activeRef.current = e.conversationId;
+          }
           live = { ...live, source: e.source, sourceLabel: e.label };
           setStreaming(live);
         } else if (e.type === "delta") {
