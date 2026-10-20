@@ -13,11 +13,13 @@ interface Props {
   prefillNonce?: number;
   onSend: (text: string) => void;
   onStop: () => void;
+  // The agent sketch dock, drawn on top of the input inside the same box.
+  dock?: React.ReactNode;
 }
 
 const MAX_H = 180;
 
-export function Composer({ conversationKey, busy, disabled, prefill, prefillNonce, onSend, onStop }: Props) {
+export function Composer({ conversationKey, busy, disabled, prefill, prefillNonce, onSend, onStop, dock }: Props) {
   const area = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
 
@@ -67,6 +69,7 @@ export function Composer({ conversationKey, busy, disabled, prefill, prefillNonc
     <div className={styles.composer}>
       <div className={styles.col}>
         <div className={styles.box} data-disabled={disabled ? "true" : "false"}>
+          {dock}
           <form
             className={styles.input}
             onSubmit={(e) => {

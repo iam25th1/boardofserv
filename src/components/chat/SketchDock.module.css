@@ -1,0 +1,164 @@
+/* The sketch dock sits on top of the composer, inside the same box. */
+.sketch {
+  border-bottom: 1px dashed var(--line);
+  overflow: hidden;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: var(--s-3) 14px 10px 18px;
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  border-radius: var(--r-sm);
+}
+.name strong {
+  font-weight: var(--w-semibold);
+  font-size: var(--t-base);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.name small {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+
+/* watch, decide, tell you */
+.flow {
+  width: 208px;
+  height: 44px;
+  flex: none;
+  overflow: visible;
+}
+.node {
+  fill: none;
+  stroke: var(--chalk-3);
+  stroke-width: var(--stroke);
+  transition: stroke var(--dur) var(--ease);
+}
+.fill {
+  fill: var(--chalk);
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(0);
+}
+.flow [data-state="on"] .node {
+  stroke: var(--chalk);
+}
+/* Waiting on you: a dashed ring that keeps turning. */
+.flow [data-state="ask"] .node {
+  stroke: var(--chalk);
+  stroke-dasharray: 4 4;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: spin 4s linear infinite;
+}
+.link {
+  fill: none;
+  stroke: var(--chalk);
+  stroke-width: var(--stroke);
+  stroke-linecap: round;
+}
+.flow text {
+  font: var(--w-medium) 10.5px var(--font-body);
+  fill: var(--chalk-3);
+  text-anchor: middle;
+}
+.flow [data-state="on"] text,
+.flow [data-state="ask"] text {
+  fill: var(--chalk-2);
+}
+
+/* The on/off switch. */
+.toggle {
+  position: relative;
+  width: 46px;
+  height: 26px;
+  flex: none;
+  border-radius: var(--r-full);
+  border: 1.5px solid var(--chalk-3);
+  transition:
+    border-color var(--dur-slow) var(--ease),
+    background-color var(--dur-slow) var(--ease);
+}
+.toggle::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--chalk-3);
+  transition:
+    transform var(--dur-slow) var(--ease),
+    background-color var(--dur-slow) var(--ease);
+}
+.toggle[aria-checked="true"] {
+  background: var(--chalk);
+  border-color: var(--chalk);
+}
+.toggle[aria-checked="true"]::after {
+  transform: translateX(20px);
+  background: var(--slate);
+}
+.toggle:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Details: two columns, one per row of what the agent does. */
+.details {
+  list-style: none;
+  margin: 0;
+  padding: 2px 18px var(--s-3);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--s-5);
+}
+.details li {
+  padding: var(--s-2) 0;
+  border-top: 1px dashed var(--line);
+  min-width: 0;
+}
+.details small {
+  display: block;
+  font-size: var(--t-2xs);
+  color: var(--chalk-3);
+}
+.details b {
+  display: block;
+  font-weight: var(--w-medium);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.details li[data-status="empty"] b {
+  color: var(--chalk-3);
+  font-weight: var(--w-regular);
+}
+.details li[data-status="waiting"] b {
+  color: var(--chalk);
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  font-weight: var(--w-semibold);
+  line-height: 1.1;
+}
+.details .cost {
+  grid-column: 1 / -1;
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.details .cost b {
+  display: inline;
+  color: var(--chalk-2);
+}

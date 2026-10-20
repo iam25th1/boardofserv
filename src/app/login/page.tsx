@@ -14,7 +14,7 @@ export default function LoginPage() {
   const card = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (ready && authenticated) router.replace("/chat");
+    if (ready && authenticated) router.replace(`/chat${window.location.search}`);
   }, [ready, authenticated, router]);
 
   useEffect(() => {

@@ -12,6 +12,8 @@ import { Composer } from "./Composer";
 import { EmptyState } from "./EmptyState";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { TopBar } from "./TopBar";
+import { SketchDock } from "./SketchDock";
+import type { AgentSketch } from "@/lib/agentSketch";
 import type { MessageView } from "./Message";
 import styles from "./ChatShell.module.css";
 
@@ -30,6 +32,7 @@ export function ChatShell() {
   const [account, setAccount] = useState<AccountDTO | null>(null);
   const [linking, setLinking] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
+  const [sketch, setSketch] = useState<AgentSketch | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -61,6 +64,20 @@ export function ChatShell() {
     void refreshConversations();
     void refreshAccount();
   }, [refreshConversations, refreshAccount]);
+
+  // No conversation produces an agent sketch yet (that is the next brief).
+  // In development, ?sketch=demo (or ready) shows the dock with the mockup's
+  // ETH watcher. The import sits inside a development-only branch, so the
+  // fixture is not in a production build at all. The switch only flips this
+  // local state.
+  useEffect(() => {
+    if (process.env.NODE_ENV === "development") {
+      const mode = new URLSearchParams(window.location.search).get("sketch");
+      if (mode === "demo" || mode === "ready") {
+        void import("@/lib/agentSketch.fixture").then((f) => setSketch(mode === "ready" ? f.ethWatcherReady : f.ethWatcher));
+      }
+    }
+  }, []);
 
   const openConversation = useCallback(
     async (id: string) => {
@@ -296,6 +313,7 @@ export function ChatShell() {
         disabled={notReady}
         onSend={send}
         onStop={stop}
+        dock={sketch && <SketchDock sketch={sketch} onToggle={(live) => setSketch({ ...sketch, live })} />}
       />
       {notReady && (
         <div className={styles.linkBanner} role="status">

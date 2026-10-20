@@ -9,6 +9,8 @@ import { Composer } from "@/components/chat/Composer";
 import { EmptyState } from "@/components/chat/EmptyState";
 import { TopBar } from "@/components/chat/TopBar";
 import { Chips } from "@/components/chat/Chips";
+import { SketchDock } from "@/components/chat/SketchDock";
+import type { AgentSketch } from "@/lib/agentSketch";
 import type { StreamingView } from "@/components/chat/MessageList";
 import shell from "@/components/chat/ChatShell.module.css";
 
@@ -83,6 +85,7 @@ export function DemoHarness({
   agentsOpen,
   chips,
   repeat = 1,
+  sketchMode,
 }: {
   state: string;
   balance: "ok" | "low";
@@ -90,12 +93,19 @@ export function DemoHarness({
   agentsOpen?: boolean;
   chips?: boolean;
   repeat?: number;
+  sketchMode?: string;
 }) {
   // Dev harness only: render after mount so the seeded, time-based data never
   // causes a server and client hydration mismatch.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   const replay = useReplay(state === "replay", repeat);
+  const [sketch, setSketch] = useState<AgentSketch | null>(null);
+  useEffect(() => {
+    if (process.env.NODE_ENV === "development" && (sketchMode === "demo" || sketchMode === "ready")) {
+      void import("@/lib/agentSketch.fixture").then((f) => setSketch(sketchMode === "ready" ? f.ethWatcherReady : f.ethWatcher));
+    }
+  }, [sketchMode]);
   if (!mounted) return null;
   const account: AccountDTO = {
     email: "maya@example.com",
@@ -148,7 +158,13 @@ export function DemoHarness({
           footer={chips ? <Chips options={["Telegram", "Email"]} onPick={() => {}} /> : undefined}
         />
       )}
-      <Composer conversationKey="demo" busy={Boolean(streaming)} onSend={() => {}} onStop={() => {}} />
+      <Composer
+        conversationKey="demo"
+        busy={Boolean(streaming)}
+        onSend={() => {}}
+        onStop={() => {}}
+        dock={sketch && <SketchDock sketch={sketch} onToggle={(live) => setSketch({ ...sketch, live })} />}
+      />
     </div>
   );
 }

@@ -88,3 +88,9 @@ For reviewing the UI without a live email login, a development-only harness at
 production). States: `/demo?state=empty|convo|thinking|streaming|replay|error`, with
 `menu=1`, `agents=1`, `chips=1` and `balance=low` flags. `replay` plays the
 seeded reply through the streaming path (`repeat=8` makes it long).
+
+The agent sketch dock has no real data yet. In development only,
+`/?sketch=demo` (or `/demo?sketch=demo`) shows it with the mockup's ETH
+watcher waiting on one answer, and `sketch=ready` shows it ready so the switch
+can be flipped. The switch only changes local state. Production never loads
+the fixture.

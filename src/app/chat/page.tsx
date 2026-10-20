@@ -12,7 +12,8 @@ export default function ChatPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (ready && !authenticated) router.replace("/login");
+    // The query string rides along, so a flag like ?sketch=demo survives sign in.
+    if (ready && !authenticated) router.replace(`/login${window.location.search}`);
   }, [ready, authenticated, router]);
 
   if (!ready || !authenticated) {
