@@ -39,8 +39,14 @@ in the `boardofserv_boardofserv_pgdata` volume either way.
 - `OPENSERV_KEY_ENC_KEY`: 32 bytes, base64. Generate with
   `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
 - `DATABASE_URL`: defaults to the Docker Postgres above.
+- `SERV_API_KEY`: SERV Reasoning, which answers the chat. Server only.
 - `FALLBACK_BASE_URL`, `FALLBACK_API_KEY`, `FALLBACK_MODEL`, `FALLBACK_LABEL`:
-  an OpenAI-compatible model used only when SERV is unavailable.
+  an OpenAI-compatible backup, tried when SERV fails before its first token.
+- `MODEL_FIRST_TOKEN_TIMEOUT_MS` (optional, default 20000): how long a model
+  may stay silent before the reply moves on to the backup or is cut off.
+
+With neither SERV nor a backup set, a development build answers with a
+labelled demo reply; a production build shows a plain error instead.
 
 ```sh
 npm run gate     # typecheck, lint, test, build. Run before every commit.
@@ -71,18 +77,22 @@ the server:
 
 ## The model behind the chat
 
-Replies are built to come from SERV Reasoning with no features switched on. The
-model layer (`src/lib/serv.ts`) always sends a system message and strips numeric
-range keywords from any json schema, the two things SERV rejects. On a 402, a
-timeout or any error it falls back to the configured model, and every stored
-message records which model actually answered: SERV replies are labelled SERV,
-a fallback reply names the model that answered and never reads as SERV.
+`src/lib/model.ts` holds an ordered list of OpenAI-compatible providers: SERV
+Reasoning (`https://inference-api.openserv.ai/v1`, model `claude-haiku-4.5`,
+`SERV_API_KEY` as a bearer token) first, then the backup from `FALLBACK_*`.
+Replies stream from whichever answers first.
 
-Note on the current phase: SERV Reasoning is served by OpenServ's runtime, which
-authenticates with an agent-scoped key, not the user's platform key. Minting that
-key is agent provisioning, which belongs to the next phase, so until then the
-chat answers with the configured fallback model (labelled honestly). The model
-layer already calls SERV and will use it as soon as that key is available.
+- Before the first token, a network error, a timeout, a 5xx, a 429, a 402 or an
+  empty reply moves on to the next provider. Each provider is tried once per
+  reply, so a 402 (out of credit) is never retried. Any other refusal stops.
+- After the first token nothing is retried. The reply ends with "Reply cut off.
+  Try again."
+- If nothing answers, the thread shows a plain error that says what happened
+  and what to do. There is no fake reply.
+- Every request carries a system message and no paid add-on (no Prompt Guard,
+  Shadow Agent or Kronos), and json schemas lose their numeric range keywords:
+  the rules SERV enforces.
+- Every stored reply records which provider answered, and the UI labels it.
 
 ## Design
 

@@ -1,73 +1,44 @@
 // @vitest-environment node
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer, type Server } from "node:http";
-import { randomBytes } from "node:crypto";
+import type { AddressInfo } from "node:net";
+import type { ReplyEvent } from "@/lib/model";
 
-// A live demonstration of the model layer in serv.ts: one real SERV Reasoning
-// reply, and one forced fallback reply from a local OpenAI-compatible mock.
-// Both go through the real getReply, so the source labels are the real ones.
-// Runs only with RUN_SERV_DEMO=1 and Privy credentials present.
-const enabled = process.env.RUN_SERV_DEMO === "1" && Boolean(process.env.PRIVY_APP_SECRET);
+// A live demonstration of the model layer in model.ts: one real SERV Reasoning
+// reply (a few dozen tokens at most), and one forced fallback where a local
+// server stands in for both providers: SERV answers 402, the backup streams.
+// The SERV reply runs only with RUN_SERV_DEMO=1 and SERV_API_KEY in the
+// environment. The forced fallback is all local, so it always runs.
+const enabled = process.env.RUN_SERV_DEMO === "1" && Boolean(process.env.SERV_API_KEY);
 const maybe = enabled ? it : it.skip;
 
-const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
-const secret = process.env.PRIVY_APP_SECRET ?? "";
 let mock: Server;
+let mockUrl = "";
 
-function privyHeaders(): Record<string, string> {
-  const basic = Buffer.from(`${appId}:${secret}`).toString("base64");
-  return { authorization: `Basic ${basic}`, "privy-app-id": appId, "content-type": "application/json", accept: "application/json" };
-}
-
-async function openservKey(): Promise<string> {
-  const headers = privyHeaders();
-  let walletId = process.env.PRIVY_WALLET_ID ?? "";
-  let address = "";
-  if (walletId) address = ((await (await fetch(`https://api.privy.io/v1/wallets/${walletId}`, { headers })).json()) as { address?: string }).address ?? "";
-  if (!address) {
-    const b = (await (await fetch("https://api.privy.io/v1/wallets", { method: "POST", headers, body: JSON.stringify({ chain_type: "ethereum" }) })).json()) as { id?: string; address?: string };
-    walletId = b.id ?? "";
-    address = b.address ?? "";
+async function collect(gen: AsyncIterable<ReplyEvent>): Promise<{ text: string; events: ReplyEvent[] }> {
+  const events: ReplyEvent[] = [];
+  let text = "";
+  for await (const ev of gen) {
+    events.push(ev);
+    if (ev.type === "delta") text += ev.text;
   }
-  const { getSiweChallenge, verifySiwe } = await import("@/lib/openserv");
-  const { message } = await getSiweChallenge(address);
-  const sig = ((await (await fetch(`https://api.privy.io/v1/wallets/${walletId}/rpc`, { method: "POST", headers, body: JSON.stringify({ method: "personal_sign", params: { message, encoding: "utf-8" } }) })).json()) as { data?: { signature?: string } }).data?.signature ?? "";
-  return (await verifySiwe(address, message, sig)).apiKey;
-}
-
-async function collect(stream: AsyncIterable<string>): Promise<string> {
-  let out = "";
-  for await (const d of stream) out += d;
-  return out;
+  return { text, events };
 }
 
 beforeAll(async () => {
-  if (!process.env.OPENSERV_KEY_ENC_KEY) process.env.OPENSERV_KEY_ENC_KEY = randomBytes(32).toString("base64");
-  // Local OpenAI-compatible mock for the forced fallback.
   mock = createServer((req, res) => {
-    if (req.method === "POST" && req.url?.includes("/chat/completions")) {
-      res.writeHead(200, { "content-type": "text/event-stream" });
-      const words = "This reply comes from the local demo fallback model, not from SERV.".split(" ");
-      let i = 0;
-      const timer = setInterval(() => {
-        if (i < words.length) {
-          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: words[i] + " " } }] })}\n\n`);
-          i++;
-        } else {
-          res.write("data: [DONE]\n\n");
-          clearInterval(timer);
-          res.end();
-        }
-      }, 5);
-    } else {
-      res.writeHead(404).end();
+    if (req.url?.startsWith("/serv/")) {
+      res.writeHead(402, { "content-type": "application/json" }).end(JSON.stringify({ error: "out of credit" }));
+      return;
     }
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    for (const word of "This reply comes from the local backup model, not from SERV.".split(" ")) {
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: `${word} ` } }] })}\n\n`);
+    }
+    res.end("data: [DONE]\n\n");
   });
-  await new Promise<void>((r) => mock.listen(8799, r));
-  process.env.FALLBACK_BASE_URL = "http://localhost:8799/v1";
-  process.env.FALLBACK_API_KEY = "local-demo-key";
-  process.env.FALLBACK_MODEL = "demo-echo";
-  process.env.FALLBACK_LABEL = "Local demo model";
+  await new Promise<void>((r) => mock.listen(0, r));
+  mockUrl = `http://localhost:${(mock.address() as AddressInfo).port}`;
 });
 
 afterAll(() => {
@@ -75,24 +46,28 @@ afterAll(() => {
 });
 
 describe("model layer, live", () => {
-  maybe("a SERV reply is labelled SERV", async () => {
-    const { getReply } = await import("@/lib/serv");
-    const key = await openservKey();
-    const reply = await getReply([{ role: "user", content: "In one short sentence, what will boardofserv help me build?" }], key, new AbortController().signal);
-    const text = await collect(reply.stream);
-    console.log(`\n[SERV demo] source=${reply.source} label=${reply.label}\n${text}\n`);
-    expect(reply.source === "serv" || reply.source === "fallback").toBe(true);
+  maybe("a SERV reply streams and is labelled SERV Reasoning", async () => {
+    const { modelConfig, streamReply } = await import("@/lib/model");
+    const config = modelConfig({ SERV_API_KEY: process.env.SERV_API_KEY });
+    const { text, events } = await collect(
+      streamReply([{ role: "user", content: "In one short sentence, what will boardofserv help me do?" }], { config, signal: new AbortController().signal }),
+    );
+    const end = events.at(-1);
+    console.log(`\n[SERV demo] ${JSON.stringify(end?.type === "end" ? { ...end.result, failures: end.result.failures.length } : end)}\n${text}\n`);
+    expect(end?.type === "end" && end.result.provider).toBe("serv");
     expect(text.length).toBeGreaterThan(0);
-    if (reply.source === "serv") expect(reply.label).toBe("SERV");
   }, 45_000);
 
-  maybe("a reply with no OpenServ key falls back, labelled as the fallback", async () => {
-    const { getReply } = await import("@/lib/serv");
-    const reply = await getReply([{ role: "user", content: "Say hello." }], null, new AbortController().signal);
-    const text = await collect(reply.stream);
-    console.log(`\n[fallback demo] source=${reply.source} label=${reply.label}\n${text}\n`);
-    expect(reply.source).toBe("fallback");
-    expect(reply.label).toBe("Local demo model");
-    expect(text.toLowerCase()).toContain("fallback");
+  it("SERV out of credit falls back to the backup, labelled as the backup", async () => {
+    const { streamReply } = await import("@/lib/model");
+    const serv = { id: "serv" as const, label: "SERV Reasoning", baseUrl: `${mockUrl}/serv`, apiKey: "local", model: "claude-haiku-4.5", askForUsage: false };
+    const backup = { id: "fallback" as const, label: "Local backup", baseUrl: `${mockUrl}/backup`, apiKey: "local", model: "demo-echo", askForUsage: true };
+    const { text, events } = await collect(
+      streamReply([{ role: "user", content: "Say hello." }], { config: { providers: [serv, backup], firstTokenTimeoutMs: 5_000 }, signal: new AbortController().signal }),
+    );
+    const end = events.at(-1);
+    expect(end?.type === "end" && end.result.outcome).toBe("fell_back");
+    expect(events.find((e) => e.type === "start")).toMatchObject({ provider: "fallback", label: "Local backup" });
+    expect(text).toContain("backup");
   }, 20_000);
 });

@@ -10,11 +10,12 @@
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
     "test": "vitest run",
+    "test:build": "CHECK_BUILD=1 vitest run src/test/demo-unreachable.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:up": "sh scripts/db.sh up",
     "db:down": "sh scripts/db.sh down",
-    "gate": "npm run typecheck && npm run lint && npm run test && npm run build"
+    "gate": "npm run typecheck && npm run lint && npm run test && npm run build && npm run test:build"
   },
   "dependencies": {
     "@privy-io/react-auth": "2.13.1",

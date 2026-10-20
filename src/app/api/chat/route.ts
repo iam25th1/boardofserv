@@ -1,10 +1,9 @@
 import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 import { getUserFromRequest } from "@/lib/auth-route";
-import { decryptSecret } from "@/lib/crypto";
 import { db } from "@/lib/db";
 import { conversations, messages, type Message } from "@/lib/db/schema";
-import { getReply, type ChatMessage } from "@/lib/serv";
+import { contextFor, modelConfig, streamReply, type ChatMessage, type ReplyResult } from "@/lib/model";
 
 export const runtime = "nodejs";
 
@@ -72,7 +71,7 @@ export async function POST(req: Request) {
     .from(messages)
     .where(eq(messages.conversationId, cid))
     .orderBy(asc(messages.createdAt));
-  const chat: ChatMessage[] = history.map((m) => ({ role: m.role, content: m.content }));
+  const chat: ChatMessage[] = contextFor(history.map((m) => ({ role: m.role, content: m.content })));
 
   // Name the conversation from its first user message.
   const firstUser = history.find((m) => m.role === "user");
@@ -83,7 +82,7 @@ export async function POST(req: Request) {
     }
   }
 
-  const key = user.openservKeyEncrypted ? safeDecrypt(user.openservKeyEncrypted) : null;
+  const config = modelConfig();
   const controller = new AbortController();
   req.signal.addEventListener("abort", () => controller.abort());
 
@@ -91,36 +90,51 @@ export async function POST(req: Request) {
     async start(ctrl) {
       const enc = new TextEncoder();
       let full = "";
-      let source = "fallback";
-      let label = "fallback model";
+      let source = "";
+      let label = "";
+      let result: ReplyResult | null = null;
       try {
-        const reply = await getReply(chat, key, controller.signal);
-        source = reply.source;
-        label = reply.label;
-        ctrl.enqueue(enc.encode(sse("meta", { conversationId: cid, source, label })));
-        for await (const delta of reply.stream) {
-          full += delta;
-          ctrl.enqueue(enc.encode(sse("delta", { text: delta })));
+        for await (const ev of streamReply(chat, { config, signal: controller.signal })) {
+          if (ev.type === "start") {
+            source = ev.provider;
+            label = ev.label;
+            ctrl.enqueue(enc.encode(sse("meta", { conversationId: cid, source, label })));
+          } else if (ev.type === "delta") {
+            full += ev.text;
+            ctrl.enqueue(enc.encode(sse("delta", { text: ev.text })));
+          } else {
+            result = ev.result;
+          }
         }
       } catch {
-        if (!full) {
-          ctrl.enqueue(enc.encode(sse("error", { message: "The reply could not be completed. You can retry." })));
+        // The stream to the browser closed (the person left or pressed stop).
+      }
+      if (!full) {
+        const message = result?.error ?? "The reply could not be completed. You can retry.";
+        try {
+          ctrl.enqueue(enc.encode(sse("error", { message })));
           ctrl.close();
-          return;
+        } catch {
+          // Already closed by the browser.
         }
+        return;
       }
       // Persist whatever was produced, including a partial reply after a stop.
+      let messageId: string | undefined;
       if (full.trim()) {
         const [saved] = await db
           .insert(messages)
           .values({ conversationId: cid, role: "assistant", content: full, source, sourceLabel: label })
           .returning();
+        messageId = saved?.id;
         await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
-        ctrl.enqueue(enc.encode(sse("done", { messageId: saved?.id, source, label })));
-      } else {
-        ctrl.enqueue(enc.encode(sse("done", { source, label })));
       }
-      ctrl.close();
+      try {
+        ctrl.enqueue(enc.encode(sse("done", { messageId, source, label })));
+        ctrl.close();
+      } catch {
+        // Already closed by the browser.
+      }
     },
     cancel() {
       controller.abort();
@@ -134,12 +148,4 @@ export async function POST(req: Request) {
       connection: "keep-alive",
     },
   });
-}
-
-function safeDecrypt(stored: string): string | null {
-  try {
-    return decryptSecret(stored);
-  } catch {
-    return null;
-  }
 }

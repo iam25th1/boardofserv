@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ensureSystemMessage, sanitizeJsonSchema, SYSTEM_PROMPT, type ChatMessage } from "@/lib/serv";
+import { ensureSystemMessage, sanitizeJsonSchema, SYSTEM_PROMPT, type ChatMessage } from "@/lib/model";
 
 describe("SERV request rules", () => {
   it("guarantees a system message (SERV rejects a request without one)", () => {
