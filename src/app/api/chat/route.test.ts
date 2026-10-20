@@ -11,7 +11,8 @@ import type { SketchDTO } from "@/lib/types";
 import { POST } from "./route";
 
 // Whole chat turns through the real /api/chat route: the real migrations run
-// on an in-memory Postgres, sign-in is stubbed, and SERV is a mocked fetch.
+// on an in-memory Postgres, sign-in is stubbed, and SERV is a mocked fetch
+// that streams the reply and then answers the sketch extraction.
 
 const state = vi.hoisted(() => ({
   db: null as unknown as PgliteDatabase<typeof schema>,
@@ -23,8 +24,12 @@ vi.mock("@/lib/db", () => ({
 vi.mock("@/lib/auth-route", () => ({ getUserFromRequest: async () => state.user }));
 
 let client: PGlite;
-const servCalls: { messages: { role: string; content: string }[] }[] = [];
+type Body = { stream: boolean; messages: { role: string; content: string }[]; response_format?: unknown };
+const calls: Body[] = [];
+// What the next turn's two calls answer: the reply's chunks, then the
+// extraction's JSON text (or an HTTP status for a failed extraction).
 let nextReply: string[] = [];
+let nextSketch: string | number = "";
 
 // SERV's stream shape: one delta per chunk, usage at the end, then [DONE].
 function servStream(chunks: string[]): Response {
@@ -41,6 +46,14 @@ function servStream(chunks: string[]): Response {
     }),
     { status: 200, headers: { "content-type": "text/event-stream" } },
   );
+}
+
+function servJson(content: string | number): Response {
+  if (typeof content === "number") return new Response("{}", { status: content });
+  return Response.json({
+    choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 250, completion_tokens: 70 },
+  });
 }
 
 interface Turn {
@@ -71,7 +84,12 @@ async function turn(content: string, conversationId?: string): Promise<Turn> {
   };
 }
 
-const block = (o: Record<string, unknown>) => `\n\n<<<SKETCH\n${JSON.stringify(o)}\nSKETCH>>>`;
+const extraction = (o: Record<string, unknown>) =>
+  JSON.stringify({ name: "", kind: "none", watches: "", when: "", how: "", tells: "", asking: "none", choices: [], ...o });
+
+async function sketchRow(conversationId: string) {
+  return state.db.query.agentSketches.findFirst({ where: eq(schema.agentSketches.conversationId, conversationId) });
+}
 
 beforeAll(async () => {
   client = new PGlite();
@@ -81,8 +99,9 @@ beforeAll(async () => {
   vi.stubEnv("SERV_API_KEY", "test-serv-key");
   vi.stubEnv("FALLBACK_API_KEY", "");
   vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
-    servCalls.push(JSON.parse(String(init.body)));
-    return servStream(nextReply);
+    const body = JSON.parse(String(init.body)) as Body;
+    calls.push(body);
+    return body.stream ? servStream(nextReply) : servJson(nextSketch);
   });
 });
 
@@ -95,9 +114,24 @@ afterAll(async () => {
 describe("a chat turn with a sketch", () => {
   let convo = "";
 
-  it("streams the reply without the block, then the sketch, then done, and saves both", async () => {
+  it("streams the reply, then extracts the sketch, saves it and sends it before done", async () => {
     const reply = "Good one. How often should it check the price?";
-    const sketch = {
+    nextReply = [reply.slice(0, 20), reply.slice(20)];
+    nextSketch = extraction({
+      name: "ETH floor watch",
+      kind: "watcher",
+      watches: "ETH price",
+      when: "below $2,000",
+      asking: "how",
+      choices: ["Every minute", "Every 5 minutes", "Every hour"],
+    });
+    const t = await turn("Tell me when ETH drops below $2,000");
+    convo = t.conversationId;
+
+    expect(t.events.map((e) => e.event).filter((e, i, all) => e !== "delta" || all[i - 1] !== "delta")).toEqual(["meta", "delta", "sketch", "done"]);
+    expect(t.shown).toBe(reply);
+    expect(t.sketch?.choices).toEqual(["Every minute", "Every 5 minutes", "Every hour"]);
+    expect(t.sketch?.sketch).toEqual({
       name: "ETH floor watch",
       kind: "watcher",
       watches: "ETH price",
@@ -105,71 +139,84 @@ describe("a chat turn with a sketch", () => {
       how: null,
       tells: null,
       asking: "how",
-      choices: ["Every minute", "Every 5 minutes", "Every hour"],
-    };
-    // The marker arrives split across chunks, as a real stream can do.
-    const full = reply + block(sketch);
-    nextReply = [full.slice(0, 20), full.slice(20, reply.length + 4), full.slice(reply.length + 4, reply.length + 9), full.slice(reply.length + 9)];
-    const t = await turn("Tell me when ETH drops below $2,000");
-    convo = t.conversationId;
+      live: false,
+    });
 
-    expect(t.events.map((e) => e.event).filter((e, i, all) => e !== "delta" || all[i - 1] !== "delta")).toEqual(["meta", "delta", "sketch", "done"]);
-    expect(t.shown.trimEnd()).toBe(reply);
-    expect(t.shown).not.toContain("<");
-    expect(t.sketch?.choices).toEqual(sketch.choices);
-    const { choices: _choices, ...fields } = sketch;
-    expect(t.sketch?.sketch).toEqual({ ...fields, live: false });
+    // Two calls: the streamed reply, then the strict JSON extraction.
+    const [replyCall, extractCall] = calls.slice(-2);
+    expect(replyCall).toMatchObject({ stream: true });
+    expect(replyCall!.messages[0]!.content).toContain("Known so far: nothing yet; missing: watches, when, how, tells.");
+    expect(extractCall).toMatchObject({ stream: false, response_format: { type: "json_schema", json_schema: { name: "agent_sketch", strict: true } } });
+    expect(extractCall!.messages[1]!.content).toContain("The person said: Tell me when ETH drops below $2,000");
+    expect(extractCall!.messages[1]!.content).toContain(`The reply: ${reply}`);
 
     const [saved] = await state.db.select().from(schema.messages).where(eq(schema.messages.role, "assistant"));
     expect(saved?.content).toBe(reply);
-    const row = await state.db.query.agentSketches.findFirst({ where: eq(schema.agentSketches.conversationId, convo) });
-    expect(row).toMatchObject({ name: "ETH floor watch", watches: "ETH price", when: "below $2,000", how: null, asking: "how", live: false });
+    expect(await sketchRow(convo)).toMatchObject({ name: "ETH floor watch", watches: "ETH price", when: "below $2,000", how: null, asking: "how", live: false });
     const [usage] = await state.db.select().from(schema.replyUsage);
-    expect(usage).toMatchObject({ provider: "serv", outcome: "ok", sketchOk: true, promptTokens: 300, completionTokens: 60 });
+    expect(usage).toMatchObject({
+      provider: "serv",
+      outcome: "ok",
+      promptTokens: 300,
+      completionTokens: 60,
+      sketchOk: true,
+      extractOutcome: "ok",
+      extractPromptTokens: 250,
+      extractCompletionTokens: 70,
+    });
 
     // What the dock shows: watch lit, decide waiting on "how", tell you not yet.
     const dock = sketchFromDTO(t.sketch!.sketch);
     expect(nodesOf(dock)).toEqual({ watch: "on", decide: "ask", tell: "off" });
-    expect(dock.how.status).toBe("waiting");
     expect(statusLine(dock, false)).toBe("Waiting on one answer from you");
   });
 
-  it("merges the next sketch: new values land, nulls keep what was stored", async () => {
-    nextReply = [
-      "Every 5 minutes it is. Where should it tell you?",
-      block({ name: null, kind: null, watches: null, when: null, how: "every 5 minutes", tells: null, asking: "tells", choices: ["Telegram", "Email"] }),
-    ];
+  it("merges the next sketch: new values land, empty ones keep what was stored", async () => {
+    nextReply = ["Every 5 minutes it is. Where should it tell you?"];
+    nextSketch = extraction({ how: "every 5 minutes", asking: "tells", choices: ["Telegram", "Email"] });
     const t = await turn("Every 5 minutes", convo);
 
-    // The model saw the stored sketch on its previous reply.
-    const sent = servCalls.at(-1)!.messages;
-    const previous = sent.filter((m) => m.role === "assistant").at(-1)!;
-    expect(previous.content).toContain('"watches":"ETH price"');
-    expect(previous.content.startsWith("Good one.")).toBe(true);
-
+    // The reply knew what the sketch held.
+    expect(calls.at(-2)!.messages[0]!.content).toContain(
+      "Known so far: name ETH floor watch, kind watcher, watches ETH price, when below $2,000; missing: how, tells.",
+    );
     expect(t.sketch?.sketch).toMatchObject({ name: "ETH floor watch", watches: "ETH price", when: "below $2,000", how: "every 5 minutes", asking: "tells" });
     expect(nodesOf(sketchFromDTO(t.sketch!.sketch))).toEqual({ watch: "on", decide: "on", tell: "ask" });
   });
 
-  it("keeps the reply and the stored sketch when the block is invalid", async () => {
-    nextReply = ["Telegram works. Anything else?", "\n\n<<<SKETCH\n{\"name\": \"broken\",\nSKETCH>>>"];
-    const t = await turn("Telegram", convo);
-    expect(t.shown.trimEnd()).toBe("Telegram works. Anything else?");
-    expect(t.sketch).toBeUndefined();
-    expect(t.events.at(-1)?.event).toBe("done");
-    const row = await state.db.query.agentSketches.findFirst({ where: eq(schema.agentSketches.conversationId, convo) });
-    expect(row).toMatchObject({ name: "ETH floor watch", how: "every 5 minutes", tells: null });
+  it("keeps the reply and the stored sketch when the extraction does not validate or fails", async () => {
+    nextReply = ["Telegram works. Anything else?"];
+    nextSketch = '{"name": "broken",';
+    const bad = await turn("Telegram", convo);
+    expect(bad.shown).toBe("Telegram works. Anything else?");
+    expect(bad.sketch).toBeUndefined();
+    expect(bad.events.at(-1)?.event).toBe("done");
+
+    nextSketch = 500;
+    const failed = await turn("Telegram, I said", convo);
+    expect(failed.sketch).toBeUndefined();
+    expect(failed.events.at(-1)?.event).toBe("done");
+
+    expect(await sketchRow(convo)).toMatchObject({ name: "ETH floor watch", how: "every 5 minutes", tells: null });
     const usage = await state.db.select().from(schema.replyUsage).orderBy(schema.replyUsage.createdAt);
-    expect(usage.map((u) => u.sketchOk)).toEqual([true, true, false]);
+    expect(usage.map((u) => [u.sketchOk, u.extractOutcome])).toEqual([
+      [true, "ok"],
+      [true, "ok"],
+      [false, "ok"],
+      [false, "failed"],
+    ]);
   });
 
-  it("reads a sketch the model wrote without markers, and keeps it off the screen", async () => {
-    const bare = JSON.stringify({ name: null, kind: null, watches: null, when: null, how: null, tells: "Telegram", asking: null, choices: [] }, null, 2);
-    nextReply = ["Telegram it is. You're all set.\n", bare.slice(0, 10), bare.slice(10)];
-    const t = await turn("Use Telegram", convo);
-    expect(t.shown).toBe("Telegram it is. You're all set.\n");
-    expect(t.sketch?.sketch).toMatchObject({ name: "ETH floor watch", how: "every 5 minutes", tells: "Telegram", asking: null });
-    const dock = sketchFromDTO(t.sketch!.sketch);
-    expect(statusLine(dock, false)).toBe("Ready. Switching on comes in the next update.");
+  it("still keeps an old sketch block or bare sketch JSON in a reply off the screen", async () => {
+    const block = '{"name":"ETH floor watch","tells":"Telegram"}';
+    nextReply = ["Telegram it is.\n\n<<<SK", `ETCH\n${block}\nSKETCH>>>`];
+    nextSketch = extraction({ tells: "Telegram" });
+    const marked = await turn("Use Telegram", convo);
+    expect(marked.shown).toBe("Telegram it is.\n\n");
+
+    nextReply = ["All set.\n", JSON.stringify(JSON.parse(block), null, 2)];
+    const bare = await turn("Thanks", convo);
+    expect(bare.shown).toBe("All set.\n");
+    expect(statusLine(sketchFromDTO(bare.sketch!.sketch), false)).toBe("Ready. Switching on comes in the next update.");
   });
 });

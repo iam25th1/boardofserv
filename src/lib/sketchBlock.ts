@@ -1,17 +1,18 @@
 import { z } from "zod";
-import type { ChatMessage } from "./model";
 import type { SketchDTO } from "./types";
 
-// Every reply ends with a sketch of the agent so far, in one block on its own
-// lines (the system prompt asks for it):
+// The agent sketch as JSON (parseSketchBlock, mergeSketch), and the safety net
+// that keeps a sketch out of a reply's text (SketchSplitter).
+//
+// Replies no longer write a sketch: a second call extracts it (see
+// sketchExtract.ts). But if a reply still ends with the old block
 //
 //   <<<SKETCH
-//   {"name": ..., "kind": ..., "watches": ..., "when": ..., "how": ..., "tells": ..., "asking": ..., "choices": [...]}
+//   {"name": ..., "watches": ..., ...}
 //   SKETCH>>>
 //
-// The server streams the text before the block as the reply and cuts the
-// block out, so the person never sees it. A missing or invalid block leaves
-// the reply as it is and the stored sketch untouched.
+// or with bare sketch JSON, the server streams only the text before it, so
+// the person never sees it.
 
 export const SKETCH_OPEN = "<<<SKETCH";
 export const SKETCH_CLOSE = "SKETCH>>>";
@@ -200,20 +201,4 @@ export function mergeSketch(stored: SketchDTO | null, parsed: ParsedSketch): Ske
     asking: parsed.asking,
     live: stored?.live ?? false,
   };
-}
-
-// History for the model with the stored sketch put back on the latest reply,
-// where the model wrote it. Stored replies carry no block, so this shows the
-// model the format it keeps to and everything already known, for the price of
-// one block.
-export function withSketch(context: ChatMessage[], sketch: SketchDTO | null): ChatMessage[] {
-  if (!sketch) return context;
-  let last = -1;
-  context.forEach((m, i) => {
-    if (m.role === "assistant") last = i;
-  });
-  if (last === -1) return context;
-  const { live: _live, ...fields } = sketch;
-  const block = `${SKETCH_OPEN}\n${JSON.stringify({ ...fields, choices: [] })}\n${SKETCH_CLOSE}`;
-  return context.map((m, i) => (i === last ? { ...m, content: `${m.content}\n\n${block}` } : m));
 }

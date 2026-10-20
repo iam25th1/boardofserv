@@ -3,9 +3,11 @@ import { z } from "zod";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { db } from "@/lib/db";
 import { conversations, messages, replyUsage, type Message } from "@/lib/db/schema";
-import { contextFor, CUT_OFF_SUFFIX, modelConfig, streamReply, type ChatMessage, type ReplyResult } from "@/lib/model";
-import { mergeSketch, parseSketchBlock, SketchSplitter, withSketch } from "@/lib/sketchBlock";
+import { contextFor, CUT_OFF_SUFFIX, modelConfig, streamReply, type ChatMessage, type JsonResult, type ReplyResult } from "@/lib/model";
+import { mergeSketch, SketchSplitter } from "@/lib/sketchBlock";
+import { extractSketch } from "@/lib/sketchExtract";
 import { loadSketch, saveSketch } from "@/lib/sketchStore";
+import { replySystemPrompt } from "@/lib/systemPrompt";
 
 export const runtime = "nodejs";
 
@@ -74,14 +76,16 @@ export async function POST(req: Request) {
     .where(eq(messages.conversationId, cid))
     .orderBy(asc(messages.createdAt));
   const config = modelConfig();
+  // The reply's system message carries what the sketch holds so far.
   const stored = await loadSketch(cid);
-  const chat: ChatMessage[] = withSketch(
-    contextFor(
+  const chat: ChatMessage[] = [
+    { role: "system", content: replySystemPrompt(stored) },
+    ...contextFor(
       history.map((m) => ({ role: m.role, content: m.content })),
       config.historyMessages,
     ),
-    stored,
-  );
+  ];
+  const said = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
 
   // Name the conversation from its first user message.
   const firstUser = history.find((m) => m.role === "user");
@@ -107,8 +111,8 @@ export async function POST(req: Request) {
           open = false; // the browser went away; keep going so the reply is saved
         }
       };
-      // The sketch block at the end of a reply is cut out here: only the text
-      // before it is shown and stored.
+      // Replies no longer write a sketch, but if one still carries the old
+      // block or bare sketch JSON, the splitter keeps it off the screen.
       const split = new SketchSplitter();
       let full = "";
       const show = (text: string) => {
@@ -130,17 +134,16 @@ export async function POST(req: Request) {
           result = ev.result;
         }
       }
-      const { rest, raw } = split.finish();
+      const { rest } = split.finish();
       if (result?.cutOff) {
         // Cut off inside the block means the reply itself was complete.
         if (!split.inBlock) show(CUT_OFF_SUFFIX);
       } else {
         show(rest);
       }
-      const parsed = parseSketchBlock(raw);
-      await recordUsage(cid, result, result?.provider ? parsed !== null : null);
 
       if (!full.trim()) {
+        await recordUsage(cid, result, null, null);
         send("error", { message: result?.error ?? "The reply could not be completed. You can retry." });
         if (open) ctrl.close();
         return;
@@ -151,11 +154,18 @@ export async function POST(req: Request) {
         .values({ conversationId: cid, role: "assistant", content: full.trimEnd(), source, sourceLabel: label })
         .returning();
       await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
-      if (parsed) {
-        const sketch = mergeSketch(stored, parsed);
+
+      // Then the sketch, read out of this turn by a second call. It runs on
+      // its own signal: leaving the page after the reply still saves it. If
+      // it fails or does not validate, the stored sketch stays as it was.
+      const extraction = await extractSketch({ stored, said, reply: full.trimEnd() }, { config, signal: AbortSignal.timeout(60_000) });
+      if (extraction.sketch) {
+        // Merged into the latest stored sketch, in case another turn saved one meanwhile.
+        const sketch = mergeSketch(await loadSketch(cid), extraction.sketch);
         await saveSketch(cid, sketch);
-        send("sketch", { sketch, choices: parsed.choices });
+        send("sketch", { sketch, choices: extraction.sketch.choices });
       }
+      await recordUsage(cid, result, extraction.result, extraction.sketch !== null);
       send("done", { messageId: saved?.id, source, label });
       if (open) ctrl.close();
     },
@@ -173,8 +183,9 @@ export async function POST(req: Request) {
   });
 }
 
-// One usage row per reply. A failure to record must never break the reply.
-async function recordUsage(conversationId: string, r: ReplyResult | null, sketchOk: boolean | null): Promise<void> {
+// One usage row per reply, with the sketch extraction's next to it. A failure
+// to record must never break the reply.
+async function recordUsage(conversationId: string, r: ReplyResult | null, x: JsonResult | null, sketchOk: boolean | null): Promise<void> {
   if (!r) return;
   try {
     await db.insert(replyUsage).values({
@@ -187,6 +198,10 @@ async function recordUsage(conversationId: string, r: ReplyResult | null, sketch
       totalMs: r.totalMs,
       outcome: r.outcome,
       sketchOk,
+      extractPromptTokens: x?.promptTokens ?? null,
+      extractCompletionTokens: x?.completionTokens ?? null,
+      extractMs: x?.totalMs ?? null,
+      extractOutcome: x?.outcome ?? null,
     });
   } catch (err) {
     console.error("reply usage not recorded", err instanceof Error ? err.message : "unknown error");

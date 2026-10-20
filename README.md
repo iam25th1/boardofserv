@@ -117,11 +117,18 @@ production). States: `/demo?state=empty|convo|thinking|streaming|replay|error`, 
 answered it) and `balance=low` flags. `replay` plays the seeded reply through
 the streaming path (`repeat=8` makes it long).
 
-The agent sketch dock fills in from the conversation: every reply ends with
-a sketch block that the server cuts out, merges into the conversation's
-stored sketch and sends to the dock (see "The agent sketch" below). Agents
-cannot run yet, so a ready sketch says "Ready. Switching on comes in the next
-update." and its switch stays disabled; there is no cost line either.
+The agent sketch dock fills in from the conversation. Each turn makes two
+calls: the reply streams first (its system message carries one plain line of
+what the sketch already holds and what is missing), then one non-streaming call
+with a strict json_schema reads the sketch out of the turn: the sketch so far,
+what the person said and the reply. That result is validated, trimmed (at most
+4 choices, short fields), merged into the conversation's stored sketch (a new
+value replaces a stored one, an empty one never wipes it) and sent to the dock.
+If it fails or does not validate, the stored sketch stays as it was. A reply
+that still writes sketch JSON or the old `<<<SKETCH` block has it kept off the
+screen. Agents cannot run yet, so a ready sketch says "Ready. Switching on
+comes in the next update." and its switch stays disabled; there is no cost
+line either.
 
 In development only, `/?sketch=demo` (or `/demo?sketch=demo`) shows the dock
 with the mockup's ETH watcher waiting on one answer, and `sketch=ready` shows

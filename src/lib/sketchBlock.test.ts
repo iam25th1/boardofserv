@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mergeSketch, parseSketchBlock, SketchSplitter, withSketch, type ParsedSketch } from "./sketchBlock";
+import { mergeSketch, parseSketchBlock, SketchSplitter, type ParsedSketch } from "./sketchBlock";
 import type { SketchDTO } from "./types";
 
 const BLOCK =
@@ -187,25 +187,3 @@ describe("mergeSketch", () => {
     expect(mergeSketch({ ...stored, live: true }, reply({ asking: "how" }))).toMatchObject({ asking: "how", live: true });
   });
 });
-
-describe("withSketch", () => {
-  it("puts the stored sketch back on the latest reply only", () => {
-    const sketch: SketchDTO = { name: "N", kind: null, watches: "W", when: null, how: null, tells: null, asking: "when", live: false };
-    const out = withSketch(
-      [
-        { role: "user", content: "a" },
-        { role: "assistant", content: "b" },
-        { role: "user", content: "c" },
-        { role: "assistant", content: "d" },
-        { role: "user", content: "e" },
-      ],
-      sketch,
-    );
-    expect(out[1]?.content).toBe("b");
-    const split = new SketchSplitter();
-    expect(split.push(out[3]!.content)).toBe("d\n\n");
-    expect(parseSketchBlock(split.finish().raw)).toMatchObject({ name: "N", watches: "W", asking: "when", choices: [] });
-    expect(withSketch([{ role: "user", content: "a" }], sketch)).toEqual([{ role: "user", content: "a" }]);
-  });
-});
-

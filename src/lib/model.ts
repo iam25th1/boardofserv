@@ -32,6 +32,8 @@ const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 20_000;
 // history is dropped, not summarised), and a reply is capped at 700 tokens.
 const DEFAULT_HISTORY_MESSAGES = 12;
 const DEFAULT_MAX_TOKENS = 700;
+// The sketch extraction answers in a small JSON object.
+const DEFAULT_EXTRACT_MAX_TOKENS = 200;
 
 // Appended to a reply that broke off mid-stream. Stored with the reply so it
 // survives a reload, and stripped again before the history goes back to a model.
@@ -59,6 +61,7 @@ export interface ModelConfig {
   firstTokenTimeoutMs: number;
   historyMessages: number;
   maxTokens: number;
+  extractMaxTokens: number;
 }
 
 function positiveInt(raw: string | undefined, fallback: number): number {
@@ -87,6 +90,7 @@ export function modelConfig(env: Record<string, string | undefined> = process.en
     firstTokenTimeoutMs: positiveInt(env.MODEL_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_FIRST_TOKEN_TIMEOUT_MS),
     historyMessages: positiveInt(env.CHAT_HISTORY_MESSAGES, DEFAULT_HISTORY_MESSAGES),
     maxTokens: positiveInt(env.CHAT_MAX_TOKENS, DEFAULT_MAX_TOKENS),
+    extractMaxTokens: positiveInt(env.SKETCH_MAX_TOKENS, DEFAULT_EXTRACT_MAX_TOKENS),
   };
 }
 
@@ -378,3 +382,109 @@ export async function* streamReply(
   }
   yield ended({ error: describeFailures(failures, config.firstTokenTimeoutMs) });
 }
+
+export interface JsonResult {
+  // The JSON text the model returned, or null when no provider answered.
+  content: string | null;
+  outcome: "ok" | "fell_back" | "failed";
+  provider: Provider["id"] | null;
+  model: string | null;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalMs: number;
+  failures: Failure[];
+}
+
+export function jsonRequestBody(
+  p: Provider,
+  messages: ChatMessage[],
+  schema: { name: string; schema: Record<string, unknown> },
+  maxTokens: number,
+): Record<string, unknown> {
+  return {
+    model: p.model,
+    messages: ensureSystemMessage(messages),
+    max_tokens: maxTokens,
+    stream: false,
+    response_format: { type: "json_schema", json_schema: { name: schema.name, strict: true, schema: sanitizeJsonSchema(schema.schema) } },
+  };
+}
+
+// One non-streaming call for structured JSON, through the same providers in
+// the same order with the same fallback rules as a reply. Never throws for a
+// model failure: the result says what happened.
+export async function completeJson(
+  messages: ChatMessage[],
+  opts: {
+    config: ModelConfig;
+    schema: { name: string; schema: Record<string, unknown> };
+    maxTokens: number;
+    signal: AbortSignal;
+    fetchImpl?: typeof fetch;
+  },
+): Promise<JsonResult> {
+  const started = Date.now();
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const failures: Failure[] = [];
+  const done = (r: Partial<JsonResult>): JsonResult => ({
+    content: null,
+    outcome: "failed",
+    provider: null,
+    model: null,
+    promptTokens: null,
+    completionTokens: null,
+    ...r,
+    failures,
+    totalMs: Date.now() - started,
+  });
+
+  for (const p of opts.config.providers) {
+    const ctl = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      ctl.abort();
+    }, opts.config.firstTokenTimeoutMs);
+    const onAbort = () => ctl.abort();
+    opts.signal.addEventListener("abort", onAbort);
+    let failure: Failure;
+    try {
+      const res = await fetchImpl(`${p.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${p.apiKey}` },
+        body: JSON.stringify(jsonRequestBody(p, messages, opts.schema, opts.maxTokens)),
+        signal: ctl.signal,
+      });
+      if (!res.ok) {
+        failure = { provider: p.id, kind: "status", status: res.status };
+      } else {
+        const body = (await res.json()) as {
+          choices?: { message?: { content?: string | null } }[];
+          usage?: { prompt_tokens?: number; completion_tokens?: number };
+        };
+        const content = body.choices?.[0]?.message?.content;
+        if (content) {
+          return done({
+            content,
+            outcome: failures.length ? "fell_back" : "ok",
+            provider: p.id,
+            model: p.model,
+            promptTokens: body.usage?.prompt_tokens ?? null,
+            completionTokens: body.usage?.completion_tokens ?? null,
+          });
+        }
+        failure = { provider: p.id, kind: "empty" };
+      }
+    } catch {
+      failure = { provider: p.id, kind: timedOut ? "timeout" : "network" };
+    } finally {
+      clearTimeout(timer);
+      opts.signal.removeEventListener("abort", onAbort);
+    }
+    if (opts.signal.aborted) return done({});
+    failures.push(failure);
+    if (!fallsBack(failure)) break;
+  }
+  return done({});
+}
+
