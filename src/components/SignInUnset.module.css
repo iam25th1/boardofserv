@@ -1,0 +1,42 @@
+/* Shown when the build has no usable Privy app id, centred like the loading screen. */
+.page {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-6) var(--s-5);
+}
+
+.col {
+  max-width: var(--measure);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-3);
+  text-align: center;
+}
+
+.title {
+  margin-top: var(--s-4);
+  font-family: var(--font-display);
+  font-size: var(--t-2xl);
+  font-weight: var(--w-semibold);
+  line-height: var(--lh-tight);
+}
+
+.note {
+  color: var(--muted);
+  font-size: var(--t-sm);
+}
+
+.body {
+  max-width: 46ch;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.body code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  color: var(--ink);
+}

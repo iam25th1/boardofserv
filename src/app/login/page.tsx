@@ -5,10 +5,18 @@ import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { Button } from "@/components/ui";
 import { Wordmark } from "@/components/chat/Wordmark";
+import { SignInUnset } from "@/components/SignInUnset";
 import { animateEnter } from "@/lib/motion";
+import { privyAppId } from "@/lib/privy-config";
 import styles from "./login.module.css";
 
 export default function LoginPage() {
+  // No Privy app id means there is nothing to sign in with.
+  if (!privyAppId()) return <SignInUnset />;
+  return <SignIn />;
+}
+
+function SignIn() {
   const { ready, authenticated, login } = usePrivy();
   const router = useRouter();
   const card = useRef<HTMLDivElement>(null);
