@@ -1,74 +1,104 @@
-.wrap {
+.scroll {
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--s-5) var(--s-4);
   min-height: 0;
   overflow-y: auto;
+  padding: var(--s-5) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-5) max(var(--gutter), env(safe-area-inset-left, 0px));
 }
 
-.inner {
+.empty {
   width: 100%;
   max-width: var(--col);
+  margin: 7vh auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
-.kicker {
-  margin-bottom: var(--s-4);
-}
-
-.welcome {
-  font-family: var(--font-body);
-  font-weight: var(--w-medium);
-  font-size: var(--t-xl);
+.empty h1 {
+  font-weight: var(--w-semibold);
+  font-size: var(--t-hero);
   line-height: var(--lh-tight);
-  letter-spacing: -0.01em;
-  margin-bottom: var(--s-2);
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+  max-width: 16ch;
 }
 
-.sub {
+.scrawl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: -6px;
+  font-family: var(--font-hand);
+  font-weight: var(--w-medium);
+  font-size: var(--t-hand-lg);
   color: var(--chalk-2);
-  font-size: var(--t-md);
-  max-width: 34rem;
-  margin-bottom: var(--s-5);
+}
+.scrawl svg {
+  width: 70px;
+  height: 34px;
+  flex: none;
+}
+.scrawl path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
-.examples {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: var(--s-2);
+.empty p {
+  color: var(--chalk-2);
+  max-width: 50ch;
 }
 
-.example {
-  width: 100%;
+.ideas {
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.idea {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-4);
   text-align: left;
-  background: var(--slate-2);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  padding: var(--s-3) var(--s-4);
-  color: var(--chalk);
-  font-size: var(--t-base);
-  cursor: pointer;
-  transition:
-    border-color var(--dur) var(--ease),
-    background var(--dur) var(--ease),
-    transform var(--dur) var(--ease);
+  padding: 15px 4px;
+  border-bottom: 1px solid var(--line);
 }
-.example:hover {
-  border-color: var(--chalk);
-  background: var(--dust);
-}
-.example:active {
-  transform: translateY(1px);
+.idea:disabled {
+  cursor: default;
+  opacity: 0.6;
 }
 
-@media (min-width: 40rem) {
-  .examples {
-    grid-template-columns: 1fr 1fr;
-  }
-  .examples li:first-child {
-    grid-column: 1 / -1;
-  }
+.k {
+  font-family: var(--font-hand);
+  font-weight: var(--w-medium);
+  font-size: var(--t-hand);
+  color: var(--chalk-3);
+  width: 104px;
+  flex: none;
+  white-space: nowrap;
+}
+
+.t {
+  font-size: var(--t-md);
+}
+
+/* The chalk underline, drawn by anime.js on hover and focus. */
+.idea svg {
+  position: absolute;
+  left: 120px;
+  bottom: 8px;
+  width: calc(100% - 128px);
+  height: 8px;
+  overflow: visible;
+  pointer-events: none;
+}
+.idea path {
+  fill: none;
+  stroke: var(--chalk);
+  stroke-width: 2;
+  stroke-linecap: round;
 }

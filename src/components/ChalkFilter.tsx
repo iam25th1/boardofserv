@@ -4,7 +4,8 @@
 export function ChalkFilter() {
   return (
     <svg className="chalk-defs" aria-hidden="true" focusable="false">
-      <filter id="rough">
+      {/* A tall region, so thin strokes in short boxes are not clipped. */}
+      <filter id="rough" x="-10%" y="-100%" width="120%" height="300%">
         <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves={2} seed={3} />
         <feDisplacementMap in="SourceGraphic" scale={1.6} />
       </filter>

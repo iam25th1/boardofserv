@@ -33,7 +33,6 @@ export function ChatShell() {
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [prefill, setPrefill] = useState<{ text: string; nonce: number } | null>(null);
 
   const stopRef = useRef<(() => void) | null>(null);
   const agentsRef = useRef<AgentsPillHandle>(null);
@@ -245,7 +244,7 @@ export function ChatShell() {
       />
 
       {messages.length === 0 && !streaming ? (
-        <EmptyState onPick={(text) => setPrefill({ text, nonce: Date.now() })} />
+        <EmptyState onPick={send} disabled={busy || notReady} />
       ) : (
         <MessageList
           messages={messages}
@@ -262,8 +261,6 @@ export function ChatShell() {
         conversationKey={activeId ?? "new"}
         busy={busy}
         disabled={notReady}
-        prefill={prefill?.text}
-        prefillNonce={prefill?.nonce}
         onSend={send}
         onStop={stop}
       />
