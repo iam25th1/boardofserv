@@ -5,10 +5,11 @@ import "server-only";
 // streams from the first provider that answers.
 //
 // Before the first token, a network error, a timeout, a 5xx, a 429, a 402 or
-// an empty reply moves on to the next provider. Each provider is tried once per reply, so a
-// 402 (out of credit) is never retried. Any other refusal (a 400 or a 401,
-// say) stops there: the next provider would refuse the same request. After
-// the first token nothing is retried; the reply ends with a cut-off note.
+// an empty reply moves on to the next provider. Each provider is tried once
+// per reply, so a 402 (out of credit) is never retried. Any other refusal (a
+// 400 or a 401, say) stops there: the next provider would refuse the same
+// request. After the first token nothing is retried; the result says it was
+// cut off and the route ends the reply with CUT_OFF_SUFFIX.
 //
 // SERV rules, proven in servpit: every request carries a system message, a
 // json schema carries no numeric range keywords, and no paid add-on is
@@ -35,7 +36,7 @@ const DEFAULT_MAX_TOKENS = 700;
 // Appended to a reply that broke off mid-stream. Stored with the reply so it
 // survives a reload, and stripped again before the history goes back to a model.
 export const CUT_OFF_NOTE = "Reply cut off. Try again.";
-const CUT_OFF_SUFFIX = `\n\n_${CUT_OFF_NOTE}_`;
+export const CUT_OFF_SUFFIX = `\n\n_${CUT_OFF_NOTE}_`;
 
 export const NO_MODEL_ERROR =
   "No model is set up for this chat, so there is no reply. Add SERV_API_KEY to the server environment and restart.";
@@ -367,7 +368,6 @@ export async function* streamReply(
       }
       failures.push(failure);
       if (streamed) {
-        yield { type: "delta", text: CUT_OFF_SUFFIX };
         yield ended({ provider: p.id, model: p.model, firstTokenMs, cutOff: true });
         return;
       }

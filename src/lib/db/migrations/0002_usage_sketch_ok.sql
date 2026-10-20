@@ -1,0 +1,1 @@
+ALTER TABLE "reply_usage" ADD COLUMN "sketch_ok" boolean;

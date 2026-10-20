@@ -141,7 +141,7 @@ describe("streamReply", () => {
     expect((await run(config([SERV, BACKUP]), empty.fetchImpl)).result.failures).toEqual([{ provider: "serv", kind: "empty" }]);
   });
 
-  it("does not retry after the first token: the reply ends with the cut-off note", async () => {
+  it("does not retry after the first token, and reports the reply as cut off", async () => {
     const { fetchImpl, calls } = mockFetch(
       () =>
         new Response(
@@ -157,8 +157,8 @@ describe("streamReply", () => {
     const { text, result, start } = await run(config([SERV, BACKUP]), fetchImpl);
     expect(calls).toHaveLength(1);
     expect(start).toMatchObject({ provider: "serv" });
-    expect(text.startsWith("Half a")).toBe(true);
-    expect(text.trim().endsWith(`_${CUT_OFF_NOTE}_`)).toBe(true);
+    // The route adds the cut-off note (CUT_OFF_SUFFIX) after the text.
+    expect(text).toBe("Half a");
     expect(result).toMatchObject({ outcome: "failed", provider: "serv", cutOff: true, error: null });
   });
 

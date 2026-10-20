@@ -15,6 +15,13 @@
       "when": 1792533535024,
       "tag": "0001_reply_usage",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792534672690,
+      "tag": "0002_usage_sketch_ok",
+      "breakpoints": true
     }
   ]
 }

@@ -3,7 +3,9 @@ import { z } from "zod";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { db } from "@/lib/db";
 import { conversations, messages, replyUsage, type Message } from "@/lib/db/schema";
-import { contextFor, modelConfig, streamReply, type ChatMessage, type ReplyResult } from "@/lib/model";
+import { contextFor, CUT_OFF_SUFFIX, modelConfig, streamReply, type ChatMessage, type ReplyResult } from "@/lib/model";
+import { parseSketchBlock, SketchSplitter } from "@/lib/sketchBlock";
+import type { SketchDTO } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -92,53 +94,66 @@ export async function POST(req: Request) {
   const stream = new ReadableStream<Uint8Array>({
     async start(ctrl) {
       const enc = new TextEncoder();
+      let open = true;
+      const send = (event: string, data: unknown) => {
+        if (!open) return;
+        try {
+          ctrl.enqueue(enc.encode(sse(event, data)));
+        } catch {
+          open = false; // the browser went away; keep going so the reply is saved
+        }
+      };
+      // The sketch block at the end of a reply is cut out here: only the text
+      // before it is shown and stored.
+      const split = new SketchSplitter();
       let full = "";
+      const show = (text: string) => {
+        if (!text) return;
+        full += text;
+        send("delta", { text });
+      };
       let source = "";
       let label = "";
       let result: ReplyResult | null = null;
-      try {
-        for await (const ev of streamReply(chat, { config, signal: controller.signal })) {
-          if (ev.type === "start") {
-            source = ev.provider;
-            label = ev.label;
-            ctrl.enqueue(enc.encode(sse("meta", { conversationId: cid, source, label })));
-          } else if (ev.type === "delta") {
-            full += ev.text;
-            ctrl.enqueue(enc.encode(sse("delta", { text: ev.text })));
-          } else {
-            result = ev.result;
-          }
+      for await (const ev of streamReply(chat, { config, signal: controller.signal })) {
+        if (ev.type === "start") {
+          source = ev.provider;
+          label = ev.label;
+          send("meta", { conversationId: cid, source, label });
+        } else if (ev.type === "delta") {
+          show(split.push(ev.text));
+        } else {
+          result = ev.result;
         }
-      } catch {
-        // The stream to the browser closed (the person left or pressed stop).
       }
-      await recordUsage(cid, result);
-      if (!full) {
-        const message = result?.error ?? "The reply could not be completed. You can retry.";
-        try {
-          ctrl.enqueue(enc.encode(sse("error", { message })));
-          ctrl.close();
-        } catch {
-          // Already closed by the browser.
-        }
+      const { rest, raw } = split.finish();
+      if (result?.cutOff) {
+        // Cut off inside the block means the reply itself was complete.
+        if (!split.inBlock) show(CUT_OFF_SUFFIX);
+      } else {
+        show(rest);
+      }
+      const parsed = parseSketchBlock(raw);
+      await recordUsage(cid, result, result?.provider ? parsed !== null : null);
+
+      if (!full.trim()) {
+        send("error", { message: result?.error ?? "The reply could not be completed. You can retry." });
+        if (open) ctrl.close();
         return;
       }
       // Persist whatever was produced, including a partial reply after a stop.
-      let messageId: string | undefined;
-      if (full.trim()) {
-        const [saved] = await db
-          .insert(messages)
-          .values({ conversationId: cid, role: "assistant", content: full, source, sourceLabel: label })
-          .returning();
-        messageId = saved?.id;
-        await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
+      const [saved] = await db
+        .insert(messages)
+        .values({ conversationId: cid, role: "assistant", content: full.trimEnd(), source, sourceLabel: label })
+        .returning();
+      await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
+      if (parsed) {
+        const { choices, ...fields } = parsed;
+        const sketch: SketchDTO = { ...fields, live: false };
+        send("sketch", { sketch, choices });
       }
-      try {
-        ctrl.enqueue(enc.encode(sse("done", { messageId, source, label })));
-        ctrl.close();
-      } catch {
-        // Already closed by the browser.
-      }
+      send("done", { messageId: saved?.id, source, label });
+      if (open) ctrl.close();
     },
     cancel() {
       controller.abort();
@@ -155,7 +170,7 @@ export async function POST(req: Request) {
 }
 
 // One usage row per reply. A failure to record must never break the reply.
-async function recordUsage(conversationId: string, r: ReplyResult | null): Promise<void> {
+async function recordUsage(conversationId: string, r: ReplyResult | null, sketchOk: boolean | null): Promise<void> {
   if (!r) return;
   try {
     await db.insert(replyUsage).values({
@@ -167,6 +182,7 @@ async function recordUsage(conversationId: string, r: ReplyResult | null): Promi
       firstTokenMs: r.firstTokenMs,
       totalMs: r.totalMs,
       outcome: r.outcome,
+      sketchOk,
     });
   } catch (err) {
     console.error("reply usage not recorded", err instanceof Error ? err.message : "unknown error");

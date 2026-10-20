@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, index, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, index, integer, boolean } from "drizzle-orm/pg-core";
 
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
 // embedded wallet address and, encrypted, the OpenServ API key that this
@@ -53,6 +53,8 @@ export const messages = pgTable(
 // outcome: "ok" (the first provider answered), "fell_back" (a later one did)
 // or "failed" (nothing answered, or the reply was cut off mid-stream). Token
 // counts are whatever the provider reported, null when it reported none.
+// sketch_ok says whether the reply ended with a valid sketch block (null when
+// nothing answered).
 // Rows outlive their conversation, which is set to null when it is deleted.
 export const replyUsage = pgTable(
   "reply_usage",
@@ -66,6 +68,7 @@ export const replyUsage = pgTable(
     firstTokenMs: integer("first_token_ms"),
     totalMs: integer("total_ms").notNull(),
     outcome: text("outcome", { enum: ["ok", "fell_back", "failed"] }).notNull(),
+    sketchOk: boolean("sketch_ok"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({ byCreated: index("reply_usage_created_idx").on(t.createdAt) }),
