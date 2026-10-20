@@ -13,6 +13,7 @@ import { EmptyState } from "./EmptyState";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { TopBar } from "./TopBar";
 import { SketchDock } from "./SketchDock";
+import { Chips } from "./Chips";
 import { sketchFromDTO, type AgentSketch } from "@/lib/agentSketch";
 import type { SketchDTO } from "@/lib/types";
 import type { MessageView } from "./Message";
@@ -35,6 +36,9 @@ export function ChatShell() {
   const [shortcuts, setShortcuts] = useState(false);
   // The active conversation's stored sketch, updated by each reply.
   const [sketch, setSketch] = useState<SketchDTO | null>(null);
+  // Suggested answers from the latest reply's sketch, shown under that reply
+  // only. Sending anything clears them; they are not stored.
+  const [chips, setChips] = useState<{ messageId: string; options: string[] } | null>(null);
   // Development only: a fixture from ?sketch=demo or ?sketch=ready.
   const [fixture, setFixture] = useState<AgentSketch | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
@@ -110,6 +114,7 @@ export function ChatShell() {
         const { messages: rows, sketch: stored } = await api.getConversation(id);
         setMessages(rows.map((m) => ({ id: m.id, role: m.role, content: m.content, source: m.source, sourceLabel: m.sourceLabel })));
         setSketch(stored);
+        setChips(null);
       } catch {
         setMessages([]);
         setSketch(null);
@@ -123,6 +128,7 @@ export function ChatShell() {
     setActiveId(null);
     setMessages([]);
     setSketch(null);
+    setChips(null);
     setError(null);
     setTimeout(() => (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus(), 30);
   }, [abortReply]);
@@ -131,7 +137,9 @@ export function ChatShell() {
     (body: { conversationId?: string; content?: string; regenerate?: boolean; editMessageId?: string }) => {
       setBusy(true);
       setError(null);
+      setChips(null);
       dropPending();
+      let choices: string[] = [];
       // The reply being built lives in a local and is copied into state, so
       // finishing it never relies on a side effect inside a state updater
       // (strict mode runs those twice).
@@ -156,6 +164,7 @@ export function ChatShell() {
           }
         } else if (e.type === "sketch") {
           setSketch(e.sketch);
+          choices = e.choices;
         } else if (e.type === "done") {
           const content = live.content + dropPending();
           if (content.trim()) {
@@ -169,6 +178,7 @@ export function ChatShell() {
               sourceLabel: e.label,
             };
             setMessages((prev) => [...prev, settled]);
+            if (choices.length) setChips({ messageId: settled.id, options: choices });
           }
           setStreaming(null);
           setBusy(false);
@@ -319,6 +329,9 @@ export function ChatShell() {
           onRetry={retry}
           onRegenerate={regenerate}
           onEdit={edit}
+          footer={
+            chips && messages.at(-1)?.id === chips.messageId && !busy ? <Chips options={chips.options} onPick={send} /> : undefined
+          }
         />
       )}
 

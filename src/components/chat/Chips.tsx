@@ -4,10 +4,9 @@ import { animate, createScope, stagger } from "animejs";
 import { REDUCED_MOTION, ease } from "@/lib/motion";
 import styles from "./Chips.module.css";
 
-// Suggested answers under a reply, from the mockup. Tapping one answers with
-// it. The current reply format is plain streamed text with no suggested
-// answers in it, so the chat does not render these yet; the /demo harness
-// shows them (chips=1) for review.
+// Suggested answers under the latest reply, from its sketch block's choices.
+// Tapping one sends it as the person's message. The /demo harness shows them
+// with chips=1.
 export function Chips({ options, onPick }: { options: string[]; onPick: (text: string) => void }) {
   const root = useRef<HTMLDivElement>(null);
 
