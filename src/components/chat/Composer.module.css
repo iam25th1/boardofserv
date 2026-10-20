@@ -1,51 +1,78 @@
-.dock {
-  padding: var(--s-2) var(--s-4) var(--s-4);
-  background: var(--slate);
-  border-top: 1px solid var(--line);
+.composer {
+  flex: none;
+  padding: var(--s-2) max(var(--gutter), env(safe-area-inset-right, 0px)) max(var(--s-4), env(safe-area-inset-bottom, 0px))
+    max(var(--gutter), env(safe-area-inset-left, 0px));
 }
 
-.composer {
+.col {
+  width: 100%;
   max-width: var(--col);
   margin: 0 auto;
-  display: flex;
-  align-items: flex-end;
-  gap: var(--s-2);
-  background: var(--slate-2);
+}
+
+/* The box: one piece. The sketch dock, when there is one, sits on top. */
+.box {
   border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4);
-  box-shadow: none;
+  border-radius: var(--r-2xl);
+  background: var(--slate-2);
+  overflow: hidden;
   transition: border-color var(--dur) var(--ease);
 }
-.composer:focus-within {
-  border-color: var(--chalk);
+.box:focus-within {
+  border-color: var(--chalk-3);
 }
-.composer[data-disabled="true"] {
+.box[data-disabled="true"] {
   opacity: 0.6;
+}
+
+.input {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: var(--s-2) var(--s-2) var(--s-2) 18px;
 }
 
 .area {
   flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
+  min-width: 0;
   resize: none;
+  border: 0;
+  background: transparent;
+  color: var(--chalk);
   line-height: var(--lh-body);
-  padding: var(--s-2) 0;
-  max-height: 200px;
+  padding: 9px 0;
+  max-height: 180px;
+  outline: none;
+}
+.area:focus-visible {
+  outline: none;
 }
 .area::placeholder {
   color: var(--chalk-3);
 }
 
 .send {
-  padding-bottom: 2px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--chalk);
+  color: var(--slate);
+  display: grid;
+  place-items: center;
+  flex: none;
+  transition: opacity var(--dur) var(--ease);
+}
+.send:active {
+  opacity: 0.8;
+}
+.send:disabled {
+  opacity: 0.25;
+  cursor: default;
 }
 
-.hint {
-  max-width: var(--col);
-  margin: var(--s-2) auto 0;
+.foot {
   text-align: center;
-  font-size: var(--t-xs);
+  font-size: var(--t-2xs);
   color: var(--chalk-3);
+  margin-top: var(--s-2);
 }

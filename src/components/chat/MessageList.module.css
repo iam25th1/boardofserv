@@ -7,10 +7,11 @@
 .scroller {
   height: 100%;
   overflow-y: auto;
-  padding: var(--s-4) var(--s-4) var(--s-6);
+  padding: var(--s-5) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-5) max(var(--gutter), env(safe-area-inset-left, 0px));
 }
 
 .column {
+  width: 100%;
   max-width: var(--col);
   margin: 0 auto;
 }

@@ -2,14 +2,12 @@
 import { useEffect, useState } from "react";
 import type { AccountDTO, ConversationDTO } from "@/lib/types";
 import type { MessageView } from "@/components/chat/Message";
-import { Sidebar } from "@/components/chat/Sidebar";
+import { AgentsPill } from "@/components/chat/AgentsPill";
 import { AccountMenu } from "@/components/chat/AccountMenu";
 import { MessageList } from "@/components/chat/MessageList";
 import { Composer } from "@/components/chat/Composer";
 import { EmptyState } from "@/components/chat/EmptyState";
-import { Wordmark } from "@/components/chat/Wordmark";
-import { IconButton } from "@/components/ui";
-import { MenuIcon, PlusIcon } from "@/components/icons";
+import { TopBar } from "@/components/chat/TopBar";
 import shell from "@/components/chat/ChatShell.module.css";
 
 const now = Date.now();
@@ -52,8 +50,7 @@ const MESSAGES: MessageView[] = [
   { id: "a1", role: "assistant", content: ASSISTANT, source: "serv", sourceLabel: "SERV" },
 ];
 
-export function DemoHarness({ state, balance, menuOpen, drawerOpen }: { state: string; balance: "ok" | "low"; menuOpen?: boolean; drawerOpen?: boolean }) {
-  const [drawer, setDrawer] = useState(Boolean(drawerOpen));
+export function DemoHarness({ state, balance, menuOpen, agentsOpen }: { state: string; balance: "ok" | "low"; menuOpen?: boolean; agentsOpen?: boolean }) {
   // Dev harness only: render after mount so the seeded, time-based data never
   // causes a server and client hydration mismatch.
   const [mounted, setMounted] = useState(false);
@@ -74,51 +71,29 @@ export function DemoHarness({ state, balance, menuOpen, drawerOpen }: { state: s
   const messages = state === "streaming" ? [MESSAGES[0]!] : MESSAGES;
   const error = state === "error" ? "The reply could not be completed. You can retry." : null;
 
-  const accountMenu = <AccountMenu account={account} linking={false} onLink={() => {}} onSignOut={() => {}} startOpen={menuOpen} />;
-  const sidebar = (
-    <Sidebar
-      conversations={CONVERSATIONS}
-      activeId="1"
-      query=""
-      onQuery={() => {}}
-      onNew={() => {}}
-      onSelect={() => {}}
-      onRename={() => {}}
-      onDelete={() => {}}
-      onOpenShortcuts={() => {}}
-      footer={accountMenu}
-    />
-  );
-
   return (
     <div className={shell.app}>
-      <aside className={shell.railDesktop}>{sidebar}</aside>
-      {drawer && (
-        <div className={shell.scrim} onMouseDown={() => setDrawer(false)}>
-          <div className={shell.drawer} onMouseDown={(e) => e.stopPropagation()}>
-            {sidebar}
-          </div>
-        </div>
+      <TopBar
+        agents={
+          <AgentsPill
+            conversations={CONVERSATIONS}
+            activeId="1"
+            replyingId={streaming ? "1" : null}
+            onNew={() => {}}
+            onSelect={() => {}}
+            onRename={() => {}}
+            onDelete={() => {}}
+            startOpen={agentsOpen}
+          />
+        }
+        account={<AccountMenu account={account} linking={false} onLink={() => {}} onSignOut={() => {}} onOpenShortcuts={() => {}} startOpen={menuOpen} />}
+      />
+      {state === "empty" ? (
+        <EmptyState onPick={() => {}} />
+      ) : (
+        <MessageList messages={messages} streaming={streaming} error={error} busy={Boolean(streaming)} onRetry={() => {}} onRegenerate={() => {}} onEdit={() => {}} />
       )}
-      <main className={shell.main}>
-        <header className={shell.topbar}>
-          <IconButton label="Open conversations" variant="quiet" onClick={() => setDrawer(true)}>
-            <MenuIcon />
-          </IconButton>
-          <div className={shell.topbarMark}>
-            <Wordmark />
-          </div>
-          <IconButton label="New conversation" variant="quiet" onClick={() => {}}>
-            <PlusIcon />
-          </IconButton>
-        </header>
-        {state === "empty" ? (
-          <EmptyState onPick={() => {}} />
-        ) : (
-          <MessageList messages={messages} streaming={streaming} error={error} busy={Boolean(streaming)} onRetry={() => {}} onRegenerate={() => {}} onEdit={() => {}} />
-        )}
-        <Composer conversationKey="demo" busy={Boolean(streaming)} onSend={() => {}} onStop={() => {}} />
-      </main>
+      <Composer conversationKey="demo" busy={Boolean(streaming)} onSend={() => {}} onStop={() => {}} />
     </div>
   );
 }

@@ -4,16 +4,14 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useApi } from "@/lib/useApi";
 import { useOpenServLink } from "@/lib/useOpenServLink";
 import type { AccountDTO, ConversationDTO } from "@/lib/types";
-import { Button, Dialog, IconButton, TextInput, useToast } from "@/components/ui";
-import { MenuIcon, CloseIcon, PlusIcon } from "@/components/icons";
-import { animateSlideIn } from "@/lib/motion";
-import { Sidebar } from "./Sidebar";
+import { Button, Dialog, TextInput, useToast } from "@/components/ui";
+import { AgentsPill, type AgentsPillHandle } from "./AgentsPill";
 import { AccountMenu } from "./AccountMenu";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
 import { EmptyState } from "./EmptyState";
 import { ShortcutsDialog } from "./ShortcutsDialog";
-import { Wordmark } from "./Wordmark";
+import { TopBar } from "./TopBar";
 import type { MessageView } from "./Message";
 import styles from "./ChatShell.module.css";
 
@@ -31,8 +29,6 @@ export function ChatShell() {
   const [error, setError] = useState<string | null>(null);
   const [account, setAccount] = useState<AccountDTO | null>(null);
   const [linking, setLinking] = useState(false);
-  const [query, setQuery] = useState("");
-  const [drawer, setDrawer] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -40,14 +36,13 @@ export function ChatShell() {
   const [prefill, setPrefill] = useState<{ text: string; nonce: number } | null>(null);
 
   const stopRef = useRef<(() => void) | null>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
-  const drawerRef = useRef<HTMLDivElement>(null);
+  const agentsRef = useRef<AgentsPillHandle>(null);
 
   const refreshConversations = useCallback(async () => {
     try {
       setConversations(await api.listConversations());
     } catch {
-      // list stays as it was; a transient error should not blank the sidebar
+      // list stays as it was; a transient error should not blank the agents list
     }
   }, [api]);
 
@@ -69,7 +64,6 @@ export function ChatShell() {
       setActiveId(id);
       setError(null);
       setStreaming(null);
-      setDrawer(false);
       try {
         const rows = await api.getMessages(id);
         setMessages(rows.map((m) => ({ id: m.id, role: m.role, content: m.content, source: m.source, sourceLabel: m.sourceLabel })));
@@ -85,7 +79,6 @@ export function ChatShell() {
     setMessages([]);
     setStreaming(null);
     setError(null);
-    setDrawer(false);
     setTimeout(() => (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus(), 30);
   }, []);
 
@@ -207,7 +200,7 @@ export function ChatShell() {
         startNew();
       } else if (mod && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        searchRef.current?.focus();
+        agentsRef.current?.openSearch();
       } else if (mod && e.key.toLowerCase() === "j") {
         e.preventDefault();
         (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus();
@@ -220,89 +213,68 @@ export function ChatShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [startNew]);
 
-  useEffect(() => {
-    if (drawer && drawerRef.current) animateSlideIn(drawerRef.current, "x");
-  }, [drawer]);
-
-  const accountMenu = <AccountMenu account={account} linking={linking} onLink={doLink} onSignOut={() => void logout()} />;
   const notReady = account !== null && !account.linked;
-
-  const sidebar = (
-    <Sidebar
-      ref={searchRef}
-      conversations={conversations}
-      activeId={activeId}
-      query={query}
-      onQuery={setQuery}
-      onNew={startNew}
-      onSelect={openConversation}
-      onRename={(id) => {
-        setRenameId(id);
-        setRenameValue(conversations.find((c) => c.id === id)?.title ?? "");
-      }}
-      onDelete={(id) => setDeleteId(id)}
-      onOpenShortcuts={() => setShortcuts(true)}
-      footer={accountMenu}
-    />
-  );
 
   return (
     <div className={styles.app}>
-      <aside className={styles.railDesktop}>{sidebar}</aside>
+      <TopBar
+        agents={
+          <AgentsPill
+            ref={agentsRef}
+            conversations={conversations}
+            activeId={activeId}
+            replyingId={busy ? activeId : null}
+            onNew={startNew}
+            onSelect={openConversation}
+            onRename={(id) => {
+              setRenameId(id);
+              setRenameValue(conversations.find((c) => c.id === id)?.title ?? "");
+            }}
+            onDelete={(id) => setDeleteId(id)}
+          />
+        }
+        account={
+          <AccountMenu
+            account={account}
+            linking={linking}
+            onLink={doLink}
+            onSignOut={() => void logout()}
+            onOpenShortcuts={() => setShortcuts(true)}
+          />
+        }
+      />
 
-      {drawer && (
-        <div className={styles.scrim} onMouseDown={() => setDrawer(false)}>
-          <div className={styles.drawer} ref={drawerRef} onMouseDown={(e) => e.stopPropagation()}>
-            {sidebar}
-          </div>
-        </div>
+      {messages.length === 0 && !streaming ? (
+        <EmptyState onPick={(text) => setPrefill({ text, nonce: Date.now() })} />
+      ) : (
+        <MessageList
+          messages={messages}
+          streaming={streaming}
+          error={error}
+          busy={busy}
+          onRetry={retry}
+          onRegenerate={regenerate}
+          onEdit={edit}
+        />
       )}
 
-      <main className={styles.main}>
-        <header className={styles.topbar}>
-          <IconButton label="Open conversations" variant="quiet" onClick={() => setDrawer(true)}>
-            <MenuIcon />
-          </IconButton>
-          <div className={styles.topbarMark}>
-            <Wordmark />
-          </div>
-          <IconButton label="New conversation" variant="quiet" onClick={startNew}>
-            <PlusIcon />
-          </IconButton>
-        </header>
-
-        {messages.length === 0 && !streaming ? (
-          <EmptyState onPick={(text) => setPrefill({ text, nonce: Date.now() })} />
-        ) : (
-          <MessageList
-            messages={messages}
-            streaming={streaming}
-            error={error}
-            busy={busy}
-            onRetry={retry}
-            onRegenerate={regenerate}
-            onEdit={edit}
-          />
-        )}
-
-        <Composer
-          conversationKey={activeId ?? "new"}
-          busy={busy}
-          disabled={notReady}
-          prefill={prefill?.text}
-          prefillNonce={prefill?.nonce}
-          onSend={send}
-          onStop={stop}
-        />
-        {notReady && (
-          <div className={styles.linkBanner} role="status">
-            <span>Link your OpenServ account to get replies from SERV.</span>
-            <Button size="sm" onClick={doLink} disabled={linking}>
-              {linking ? "Linking..." : "Link now"}
-            </Button>
-          </div>
-        )}
-      </main>
+      <Composer
+        conversationKey={activeId ?? "new"}
+        busy={busy}
+        disabled={notReady}
+        prefill={prefill?.text}
+        prefillNonce={prefill?.nonce}
+        onSend={send}
+        onStop={stop}
+      />
+      {notReady && (
+        <div className={styles.linkBanner} role="status">
+          <span>Link your OpenServ account to get replies from SERV.</span>
+          <Button size="sm" onClick={doLink} disabled={linking}>
+            {linking ? "Linking..." : "Link now"}
+          </Button>
+        </div>
+      )}
 
       <ShortcutsDialog open={shortcuts} onClose={() => setShortcuts(false)} />
 

@@ -5,6 +5,10 @@ import { animate, cubicBezier, type TargetsParam } from "animejs";
 // never decorates: no shake, no zoom punch, no blur on the page, no hue shift.
 // The one allowed blur is the few pixels on words dusting in.
 //
+// Every tween names both ends. A "from" alone reads its end from the element,
+// so an element caught mid animation (React strict mode mounts twice in
+// development) would end where it started: invisible.
+//
 // prefers-reduced-motion turns every animation off. Each helper here, and each
 // component that drives its own timeline, checks it first and leaves elements
 // in their final state instead of animating.
@@ -37,26 +41,19 @@ export const dustIn = {
 // A message, card or panel arriving: a small rise and fade in.
 export function animateEnter(targets: TargetsParam, distance = 8): void {
   if (prefersReducedMotion()) return;
-  animate(targets, { opacity: { from: 0 }, translateY: { from: distance }, duration: 350, ease: ease.arrive });
+  animate(targets, { opacity: { from: 0, to: 1 }, translateY: { from: distance, to: 0 }, duration: 350, ease: ease.arrive });
 }
 
 // A popover or menu opening just under its trigger.
 export function animateDrop(targets: TargetsParam): void {
   if (prefersReducedMotion()) return;
-  animate(targets, { opacity: { from: 0 }, translateY: { from: -4 }, duration: 160, ease: "out(2)" });
-}
-
-// A panel or drawer opening from an edge.
-export function animateSlideIn(targets: TargetsParam, axis: "x" | "y" = "x", distance = 16): void {
-  if (prefersReducedMotion()) return;
-  const prop = axis === "x" ? "translateX" : "translateY";
-  animate(targets, { opacity: { from: 0 }, [prop]: { from: axis === "x" ? -distance : distance }, duration: 220, ease: ease.arrive });
+  animate(targets, { opacity: { from: 0, to: 1 }, translateY: { from: -4, to: 0 }, duration: 160, ease: "out(2)" });
 }
 
 // A control appearing to offer an action, for example jump to latest.
 export function animatePop(targets: TargetsParam): void {
   if (prefersReducedMotion()) return;
-  animate(targets, { opacity: { from: 0 }, translateY: { from: 4 }, duration: 180, ease: ease.arrive });
+  animate(targets, { opacity: { from: 0, to: 1 }, translateY: { from: 4, to: 0 }, duration: 180, ease: ease.arrive });
 }
 
 // A quiet attention cue on a state change, for example credit running low.

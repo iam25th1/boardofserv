@@ -1,0 +1,175 @@
+.agents {
+  position: relative;
+}
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  padding: 6px 10px;
+  border-radius: var(--r-full);
+  transition:
+    color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+.pill:hover,
+.pill[aria-expanded="true"] {
+  background: var(--dust);
+  color: var(--chalk);
+}
+
+/* Tally marks: one per agent, chalk when live. */
+.tally {
+  display: flex;
+  gap: 3px;
+}
+.tally i {
+  width: 2px;
+  height: 13px;
+  background: var(--chalk-3);
+  border-radius: 1px;
+  transform: rotate(8deg);
+}
+.tally i.on {
+  background: var(--chalk);
+}
+
+.pop {
+  position: absolute;
+  top: calc(100% + var(--s-2));
+  left: 0;
+  z-index: 40;
+  width: min(300px, calc(100vw - 32px));
+  padding: 6px;
+  border-radius: var(--r-lg);
+  background: var(--slate-2);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-pop);
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: 2px 2px 6px;
+  padding: 7px 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  color: var(--chalk-3);
+}
+.search:focus-within {
+  border-color: var(--chalk-3);
+}
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-size: var(--t-sm);
+  color: var(--chalk);
+}
+.search input::placeholder {
+  color: var(--chalk-3);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: min(52vh, 380px);
+  overflow-y: auto;
+}
+
+.none {
+  padding: 9px 10px;
+  font-size: var(--t-sm);
+  color: var(--chalk-3);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  border-radius: var(--r-md);
+}
+.row:hover,
+.row:has(.ag[aria-current="true"]) {
+  background: var(--dust);
+}
+
+.ag {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  text-align: left;
+  padding: 9px 10px;
+  border-radius: var(--r-md);
+}
+
+.ring {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--chalk-3);
+  flex: none;
+}
+.ag[data-state="live"] .ring {
+  background: var(--chalk);
+  border-color: var(--chalk);
+}
+.ag[data-state="wiring"] .ring {
+  border-style: dashed;
+  border-color: var(--chalk);
+  animation: spin 3s linear infinite;
+}
+
+.text {
+  min-width: 0;
+}
+.text strong {
+  display: block;
+  font-weight: var(--w-medium);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.text small {
+  display: block;
+  font-size: var(--t-2xs);
+  color: var(--chalk-3);
+}
+
+/* Rename and delete appear on hover or focus, so titles keep the width. */
+.rowMenu {
+  flex: none;
+  display: none;
+  padding-right: var(--s-1);
+}
+.row:hover .rowMenu,
+.row:focus-within .rowMenu {
+  display: flex;
+}
+@media (hover: none) {
+  .rowMenu {
+    display: flex;
+  }
+}
+
+.popnew {
+  margin-top: var(--s-1);
+  width: 100%;
+  padding: 10px;
+  border-radius: var(--r-md);
+  border: 1px dashed var(--line);
+  font-weight: var(--w-medium);
+  font-size: var(--t-sm);
+  text-align: left;
+}
+.popnew:hover {
+  background: var(--dust);
+}

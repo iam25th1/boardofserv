@@ -1,4 +1,7 @@
 .mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
   font-family: var(--font-body);
   font-weight: var(--w-bold);
   font-size: var(--t-md);
@@ -7,6 +10,17 @@
   line-height: 1;
 }
 
+.logo {
+  width: 26px;
+  height: 26px;
+  flex: none;
+}
+
 .lg {
   font-size: var(--t-xl);
+  gap: var(--s-3);
+}
+.lg .logo {
+  width: 36px;
+  height: 36px;
 }

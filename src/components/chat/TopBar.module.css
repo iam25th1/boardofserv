@@ -1,0 +1,17 @@
+.top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: var(--top-col);
+  margin: 0 auto;
+  padding: 18px max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-2) max(var(--gutter), env(safe-area-inset-left, 0px));
+}
+
+.end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
