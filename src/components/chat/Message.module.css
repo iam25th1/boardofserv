@@ -73,6 +73,12 @@
   position: relative;
 }
 
+/* A small note under a reply that did not come from SERV. */
+.note {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+
 .foot {
   display: flex;
   align-items: center;

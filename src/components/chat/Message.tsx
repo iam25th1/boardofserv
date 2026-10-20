@@ -53,6 +53,13 @@ function useDustInWords(body: React.RefObject<HTMLDivElement>, content: string, 
   }, [body, content, active]);
 }
 
+// What the model label's tooltip says, by who answered.
+const SOURCE_TIP: Record<string, (label: string) => string> = {
+  serv: () => "Answered by SERV Reasoning",
+  fallback: (label) => `Answered by ${label}, the backup model`,
+  demo: () => "A demo reply from the development build",
+};
+
 export function Message({ message, streaming, canEdit, canRegenerate, onRegenerate, onEdit }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -129,9 +136,11 @@ export function Message({ message, streaming, canEdit, canRegenerate, onRegenera
         <Markdown content={message.content} words={Boolean(streaming || message.settled)} />
         {streaming && <span className={styles.caret} aria-hidden="true" />}
       </div>
+      {message.source === "fallback" && <p className={styles.note}>Answered by the backup model.</p>}
+      {message.source === "demo" && <p className={styles.note}>A demo reply. No model is set up.</p>}
       <div className={styles.foot}>
         {message.sourceLabel && (
-          <Tooltip label={message.source === "serv" ? "Answered by SERV Reasoning" : `Answered by ${message.sourceLabel}, a fallback model`}>
+          <Tooltip label={SOURCE_TIP[message.source ?? ""]?.(message.sourceLabel) ?? `Answered by ${message.sourceLabel}`}>
             <span className={styles.model} data-serv={message.source === "serv" ? "true" : "false"}>
               {message.sourceLabel}
             </span>
