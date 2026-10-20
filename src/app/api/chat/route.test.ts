@@ -128,7 +128,7 @@ describe("a chat turn with a sketch", () => {
     const t = await turn("Tell me when ETH drops below $2,000");
     convo = t.conversationId;
 
-    expect(t.events.map((e) => e.event).filter((e, i, all) => e !== "delta" || all[i - 1] !== "delta")).toEqual(["meta", "delta", "sketch", "done"]);
+    expect(t.events.map((e) => e.event).filter((e, i, all) => e !== "delta" || all[i - 1] !== "delta")).toEqual(["meta", "delta", "reply_end", "sketch", "done"]);
     expect(t.shown).toBe(reply);
     expect(t.sketch?.choices).toEqual(["Every minute", "Every 5 minutes", "Every hour"]);
     expect(t.sketch?.sketch).toEqual({

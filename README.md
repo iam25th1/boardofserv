@@ -126,12 +126,15 @@ what the person said and the reply. That result is validated, trimmed (at most
 value replaces a stored one, an empty one never wipes it) and sent to the dock.
 If it fails or does not validate, the stored sketch stays as it was. A reply
 that still writes sketch JSON or the old `<<<SKETCH` block has it kept off the
-screen. Agents cannot run yet, so a ready sketch says "Ready. Switching on
+screen. The reply streams and ends with a `reply_end` event, which unlocks
+the composer; the dock says "sketching..." until the `sketch` event and then
+`done` arrive. Agents cannot run yet, so a ready sketch says "Ready. Switching on
 comes in the next update." and its switch stays disabled; there is no cost
 line either.
 
 In development only, `/?sketch=demo` (or `/demo?sketch=demo`) shows the dock
 with the mockup's ETH watcher waiting on one answer, and `sketch=ready` shows
 it ready so the switch can be flipped (local state only). `/demo?sketch=live`
-and `sketch=live-ready` show the same agent the way a real conversation does.
+and `sketch=live-ready` show the same agent the way a real conversation does,
+and `sketching=1` adds the "sketching..." note it shows while a sketch is read.
 Production never loads the fixtures.

@@ -40,10 +40,12 @@ function Emphasis({ text }: { text: string }) {
 interface Props {
   sketch: AgentSketch;
   canSwitch?: boolean;
+  // The sketch is being read from the latest reply.
+  sketching?: boolean;
   onToggle?: (live: boolean) => void;
 }
 
-export function SketchDock({ sketch, canSwitch = false, onToggle }: Props) {
+export function SketchDock({ sketch, canSwitch = false, sketching = false, onToggle }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const details = useRef<HTMLUListElement>(null);
   const links = useRef<ReturnType<typeof svg.createDrawable> | null>(null);
@@ -193,7 +195,7 @@ export function SketchDock({ sketch, canSwitch = false, onToggle }: Props) {
           onClick={toggleDetails}
         >
           <strong>{sketch.name || "Unnamed agent"}</strong>
-          <small>{statusLine(sketch, paused, canSwitch)}</small>
+          <small>{sketching ? <span className={styles.sketching}>sketching...</span> : statusLine(sketch, paused, canSwitch)}</small>
         </button>
         <svg className={`${styles.flow} chalky`} viewBox="0 0 208 44" aria-hidden="true" focusable="false">
           {LINK_D.map((d, i) => (

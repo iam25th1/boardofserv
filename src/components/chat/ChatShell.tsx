@@ -36,6 +36,12 @@ export function ChatShell() {
   const [shortcuts, setShortcuts] = useState(false);
   // The active conversation's stored sketch, updated by each reply.
   const [sketch, setSketch] = useState<SketchDTO | null>(null);
+  // Each turn's number, so a turn whose sketch arrives late never overwrites a
+  // newer one; and which turn's sketch is being read, for the dock's note.
+  const turnRef = useRef(0);
+  const sketchTurnRef = useRef(0);
+  const [sketchingTurn, setSketchingTurn] = useState<number | null>(null);
+  const activeRef = useRef<string | null>(null);
   // Suggested answers from the latest reply's sketch, shown under that reply
   // only. Sending anything clears them; they are not stored.
   const [chips, setChips] = useState<{ messageId: string; options: string[] } | null>(null);
@@ -73,6 +79,10 @@ export function ChatShell() {
     void refreshAccount();
   }, [refreshConversations, refreshAccount]);
 
+  useEffect(() => {
+    activeRef.current = activeId;
+  }, [activeId]);
+
   // In development, ?sketch=demo (or ready) shows the dock with the mockup's
   // ETH watcher in place of the conversation's own sketch. The import sits
   // inside a development-only branch, so the fixture is not in a production
@@ -103,6 +113,7 @@ export function ChatShell() {
     dropPending();
     setBusy(false);
     setStreaming(null);
+    setSketchingTurn(null);
   }, [dropPending]);
 
   const openConversation = useCallback(
@@ -135,18 +146,38 @@ export function ChatShell() {
 
   const run = useCallback(
     (body: { conversationId?: string; content?: string; regenerate?: boolean; editMessageId?: string }) => {
+      const turn = ++turnRef.current;
       setBusy(true);
       setError(null);
       setChips(null);
       dropPending();
-      let choices: string[] = [];
       // The reply being built lives in a local and is copied into state, so
       // finishing it never relies on a side effect inside a state updater
       // (strict mode runs those twice).
       let live: StreamingView = { key: crypto.randomUUID(), content: "" };
       setStreaming(live);
       let convoId = body.conversationId ?? activeId ?? undefined;
-      stopRef.current = api.sendChat({ ...body, conversationId: convoId }, (e) => {
+      let replyId: string | null = null;
+
+      // The reply is finished at reply_end: the words stop and the composer
+      // unlocks while the sketch is still being read. The stream stays open
+      // for the sketch and done, which may arrive after the next turn began,
+      // so from here on this turn only touches what is still its own.
+      const endReply = (messageId: string | undefined, source: string, label: string) => {
+        if (replyId !== null) return;
+        replyId = messageId ?? live.key;
+        const content = live.content + dropPending();
+        if (content.trim()) {
+          const settled: MessageView = { id: replyId, clientKey: live.key, settled: true, role: "assistant", content, source, sourceLabel: label };
+          setMessages((prev) => [...prev, settled]);
+        }
+        setStreaming(null);
+        setBusy(false);
+        setSketchingTurn(turn);
+      };
+      const stopSketching = () => setSketchingTurn((t) => (t === turn ? null : t));
+
+      const stopThis = api.sendChat({ ...body, conversationId: convoId }, (e) => {
         if (e.type === "meta") {
           convoId = e.conversationId;
           if (!activeId) setActiveId(e.conversationId);
@@ -162,37 +193,31 @@ export function ChatShell() {
               setStreaming(live);
             });
           }
+        } else if (e.type === "reply_end") {
+          endReply(e.messageId, e.source, e.label);
         } else if (e.type === "sketch") {
+          stopSketching();
+          // Only into the conversation it belongs to, and never over a newer turn's sketch.
+          if (convoId !== activeRef.current || turn < sketchTurnRef.current) return;
+          sketchTurnRef.current = turn;
           setSketch(e.sketch);
-          choices = e.choices;
+          if (e.choices.length && replyId) setChips({ messageId: replyId, options: e.choices });
         } else if (e.type === "done") {
-          const content = live.content + dropPending();
-          if (content.trim()) {
-            const settled: MessageView = {
-              id: e.messageId ?? crypto.randomUUID(),
-              clientKey: live.key,
-              settled: true,
-              role: "assistant",
-              content,
-              source: e.source,
-              sourceLabel: e.label,
-            };
-            setMessages((prev) => [...prev, settled]);
-            if (choices.length) setChips({ messageId: settled.id, options: choices });
-          }
-          setStreaming(null);
-          setBusy(false);
-          stopRef.current = null;
+          endReply(e.messageId, e.source, e.label);
+          stopSketching();
+          if (stopRef.current === stopThis) stopRef.current = null;
           void refreshConversations();
           void refreshAccount();
         } else if (e.type === "error") {
+          if (replyId !== null) return;
           dropPending();
           setStreaming(null);
           setBusy(false);
-          stopRef.current = null;
+          if (stopRef.current === stopThis) stopRef.current = null;
           setError(e.message);
         }
       });
+      stopRef.current = stopThis;
     },
     [api, activeId, refreshConversations, refreshAccount, dropPending],
   );
@@ -349,7 +374,7 @@ export function ChatShell() {
             <SketchDock sketch={fixture} canSwitch onToggle={(live) => setFixture({ ...fixture, live })} />
           ) : sketch?.name ? (
             // Keyed by conversation: opening another one brings its dock in fresh.
-            <SketchDock key={activeId ?? "new"} sketch={sketchFromDTO(sketch)} />
+            <SketchDock key={activeId ?? "new"} sketch={sketchFromDTO(sketch)} sketching={sketchingTurn !== null} />
           ) : null
         }
       />

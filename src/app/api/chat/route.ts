@@ -154,6 +154,9 @@ export async function POST(req: Request) {
         .values({ conversationId: cid, role: "assistant", content: full.trimEnd(), source, sourceLabel: label })
         .returning();
       await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
+      // The reply is finished and saved: the browser unlocks the composer
+      // here, before the sketch, which can take a few seconds more.
+      send("reply_end", { messageId: saved?.id, source, label });
 
       // Then the sketch, read out of this turn by a second call. It runs on
       // its own signal: leaving the page after the reply still saves it. If

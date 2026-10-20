@@ -53,6 +53,13 @@
 .flow [data-state="on"] .node {
   stroke: var(--chalk);
 }
+/* While the latest reply's sketch is read: a small handwritten note. */
+.sketching {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  line-height: 1;
+  color: var(--chalk-2);
+}
 /* Waiting on you: a dashed ring that keeps turning. */
 .flow [data-state="ask"] .node {
   stroke: var(--chalk);

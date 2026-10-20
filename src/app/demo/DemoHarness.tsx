@@ -89,6 +89,7 @@ export function DemoHarness({
   repeat = 1,
   sketchMode,
   backup,
+  sketching,
 }: {
   state: string;
   balance: "ok" | "low";
@@ -98,6 +99,7 @@ export function DemoHarness({
   repeat?: number;
   sketchMode?: string;
   backup?: boolean;
+  sketching?: boolean;
 }) {
   // Dev harness only: render after mount so the seeded, time-based data never
   // causes a server and client hydration mismatch.
@@ -174,7 +176,16 @@ export function DemoHarness({
         busy={Boolean(streaming)}
         onSend={() => {}}
         onStop={() => {}}
-        dock={sketch && <SketchDock sketch={sketch} canSwitch={sketchMode === "demo" || sketchMode === "ready"} onToggle={(live) => setSketch({ ...sketch, live })} />}
+        dock={
+          sketch && (
+            <SketchDock
+              sketch={sketch}
+              canSwitch={sketchMode === "demo" || sketchMode === "ready"}
+              sketching={sketching}
+              onToggle={(live) => setSketch({ ...sketch, live })}
+            />
+          )
+        }
       />
     </div>
   );
