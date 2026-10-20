@@ -24,6 +24,12 @@ npm run db:push                 # create the tables
 npm run dev                     # http://localhost:3000
 ```
 
+`npm run db:up` uses `docker compose` when the plugin is installed. Without it
+(for example plain Colima) it runs the same Postgres with `docker run` in a
+container named `boardofserv-db`, and starts that container again if it
+already exists. `npm run db:down` stops whichever one is in use; the data stays
+in the `boardofserv_boardofserv_pgdata` volume either way.
+
 `.env.local` (gitignored, never committed, never logged, never in the bundle):
 
 - `NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_APP_SECRET`: from the Privy dashboard. The
