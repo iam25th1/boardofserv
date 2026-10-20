@@ -7,7 +7,7 @@ import type { AccountDTO, ConversationDTO } from "@/lib/types";
 import { Button, Dialog, TextInput, useToast } from "@/components/ui";
 import { AgentsPill, type AgentsPillHandle } from "./AgentsPill";
 import { AccountMenu } from "./AccountMenu";
-import { MessageList } from "./MessageList";
+import { MessageList, type StreamingView } from "./MessageList";
 import { Composer } from "./Composer";
 import { EmptyState } from "./EmptyState";
 import { ShortcutsDialog } from "./ShortcutsDialog";
@@ -24,7 +24,7 @@ export function ChatShell() {
   const [conversations, setConversations] = useState<ConversationDTO[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MessageView[]>([]);
-  const [streaming, setStreaming] = useState<{ content: string; source?: string | null; sourceLabel?: string | null } | null>(null);
+  const [streaming, setStreaming] = useState<StreamingView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [account, setAccount] = useState<AccountDTO | null>(null);
@@ -35,6 +35,10 @@ export function ChatShell() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const stopRef = useRef<(() => void) | null>(null);
+  // Deltas are gathered and applied once per animation frame, so a fast
+  // stream renders (and dusts in) in a few batches, not a word at a time.
+  const pendingRef = useRef("");
+  const frameRef = useRef<number | null>(null);
   const agentsRef = useRef<AgentsPillHandle>(null);
 
   const refreshConversations = useCallback(async () => {
@@ -81,34 +85,62 @@ export function ChatShell() {
     setTimeout(() => (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus(), 30);
   }, []);
 
+  const dropPending = useCallback(() => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+    const text = pendingRef.current;
+    pendingRef.current = "";
+    return text;
+  }, []);
+
   const run = useCallback(
     (body: { conversationId?: string; content?: string; regenerate?: boolean; editMessageId?: string }) => {
       setBusy(true);
       setError(null);
-      setStreaming({ content: "" });
+      dropPending();
+      // The reply being built lives in a local and is copied into state, so
+      // finishing it never relies on a side effect inside a state updater
+      // (strict mode runs those twice).
+      let live: StreamingView = { key: crypto.randomUUID(), content: "" };
+      setStreaming(live);
       let convoId = body.conversationId ?? activeId ?? undefined;
       stopRef.current = api.sendChat({ ...body, conversationId: convoId }, (e) => {
         if (e.type === "meta") {
           convoId = e.conversationId;
           if (!activeId) setActiveId(e.conversationId);
-          setStreaming((s) => (s ? { ...s, source: e.source, sourceLabel: e.label } : s));
+          live = { ...live, source: e.source, sourceLabel: e.label };
+          setStreaming(live);
         } else if (e.type === "delta") {
-          setStreaming((s) => (s ? { ...s, content: s.content + e.text } : s));
+          pendingRef.current += e.text;
+          if (frameRef.current === null) {
+            frameRef.current = requestAnimationFrame(() => {
+              const text = dropPending();
+              if (!text) return;
+              live = { ...live, content: live.content + text };
+              setStreaming(live);
+            });
+          }
         } else if (e.type === "done") {
-          setStreaming((cur) => {
-            if (cur && cur.content.trim()) {
-              setMessages((prev) => [
-                ...prev,
-                { id: e.messageId ?? crypto.randomUUID(), role: "assistant", content: cur.content, source: e.source, sourceLabel: e.label },
-              ]);
-            }
-            return null;
-          });
+          const content = live.content + dropPending();
+          if (content.trim()) {
+            const settled: MessageView = {
+              id: e.messageId ?? crypto.randomUUID(),
+              clientKey: live.key,
+              settled: true,
+              role: "assistant",
+              content,
+              source: e.source,
+              sourceLabel: e.label,
+            };
+            setMessages((prev) => [...prev, settled]);
+          }
+          setStreaming(null);
           setBusy(false);
           stopRef.current = null;
           void refreshConversations();
           void refreshAccount();
         } else if (e.type === "error") {
+          dropPending();
           setStreaming(null);
           setBusy(false);
           stopRef.current = null;
@@ -116,7 +148,7 @@ export function ChatShell() {
         }
       });
     },
-    [api, activeId, refreshConversations, refreshAccount],
+    [api, activeId, refreshConversations, refreshAccount, dropPending],
   );
 
   const send = useCallback(
@@ -131,10 +163,11 @@ export function ChatShell() {
   const stop = useCallback(async () => {
     stopRef.current?.();
     stopRef.current = null;
+    dropPending();
     setBusy(false);
     setStreaming(null);
     if (activeId) await openConversation(activeId);
-  }, [activeId, openConversation]);
+  }, [activeId, openConversation, dropPending]);
 
   const regenerate = useCallback(() => {
     if (!activeId) return;

@@ -1,8 +1,8 @@
 .block {
   border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  border-radius: var(--r-lg);
   overflow: hidden;
-  background: var(--slate-3);
+  background: var(--slate-2);
   margin: var(--s-3) 0;
 }
 
@@ -11,20 +11,20 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--s-1) var(--s-1) var(--s-1) var(--s-3);
-  border-bottom: 1px solid var(--line);
-  background: var(--slate-2);
+  border-bottom: 1px dashed var(--line);
 }
 
 .lang {
-  font-size: var(--t-xs);
-  color: var(--chalk-2);
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk-3);
 }
 
 .pre {
   margin: 0;
   padding: var(--s-3) var(--s-4);
   overflow-x: auto;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: var(--t-sm);
   line-height: var(--lh-snug);
   color: var(--chalk);

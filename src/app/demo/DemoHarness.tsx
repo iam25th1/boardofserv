@@ -8,6 +8,8 @@ import { MessageList } from "@/components/chat/MessageList";
 import { Composer } from "@/components/chat/Composer";
 import { EmptyState } from "@/components/chat/EmptyState";
 import { TopBar } from "@/components/chat/TopBar";
+import { Chips } from "@/components/chat/Chips";
+import type { StreamingView } from "@/components/chat/MessageList";
 import shell from "@/components/chat/ChatShell.module.css";
 
 const now = Date.now();
@@ -50,11 +52,50 @@ const MESSAGES: MessageView[] = [
   { id: "a1", role: "assistant", content: ASSISTANT, source: "serv", sourceLabel: "SERV" },
 ];
 
-export function DemoHarness({ state, balance, menuOpen, agentsOpen }: { state: string; balance: "ok" | "low"; menuOpen?: boolean; agentsOpen?: boolean }) {
+// state=replay plays the seeded reply through the real streaming path: the
+// thinking scribble first, then chunks of a few words at network-like pace
+// (repeat=8 makes it long), so the word dust-in can be watched in development.
+function useReplay(on: boolean, repeat: number): StreamingView | null {
+  const [view, setView] = useState<StreamingView | null>(null);
+  useEffect(() => {
+    if (!on) return;
+    const words = Array.from({ length: repeat }, () => ASSISTANT).join("\n\n").match(/\S+\s*/g) ?? [];
+    let i = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    setView({ key: "replay", content: "", source: "serv", sourceLabel: "SERV" });
+    const tick = () => {
+      const n = 1 + Math.floor(Math.random() * 6);
+      const chunk = words.slice(i, i + n).join("");
+      i += n;
+      setView((v) => (v ? { ...v, content: v.content + chunk } : v));
+      if (i < words.length) timer = setTimeout(tick, 25 + Math.random() * 40);
+    };
+    timer = setTimeout(tick, 2600);
+    return () => clearTimeout(timer);
+  }, [on, repeat]);
+  return view;
+}
+
+export function DemoHarness({
+  state,
+  balance,
+  menuOpen,
+  agentsOpen,
+  chips,
+  repeat = 1,
+}: {
+  state: string;
+  balance: "ok" | "low";
+  menuOpen?: boolean;
+  agentsOpen?: boolean;
+  chips?: boolean;
+  repeat?: number;
+}) {
   // Dev harness only: render after mount so the seeded, time-based data never
   // causes a server and client hydration mismatch.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  const replay = useReplay(state === "replay", repeat);
   if (!mounted) return null;
   const account: AccountDTO = {
     email: "maya@example.com",
@@ -64,11 +105,16 @@ export function DemoHarness({ state, balance, menuOpen, agentsOpen }: { state: s
     balance,
   };
 
-  const streaming =
-    state === "streaming"
-      ? { content: "Here is what your agent would do.\n\n## A watcher for ETH\n\n1. Check the ETH price every minute.\n2. Compare it to the price", source: "serv", sourceLabel: "SERV" }
-      : null;
-  const messages = state === "streaming" ? [MESSAGES[0]!] : MESSAGES;
+  const partial = "Here is what your agent would do.\n\n## A watcher for ETH\n\n1. Check the ETH price every minute.\n2. Compare it to the price";
+  const streaming: StreamingView | null =
+    state === "replay"
+      ? replay
+      : state === "thinking"
+        ? { key: "demo-stream", content: "" }
+        : state === "streaming"
+          ? { key: "demo-stream", content: partial, source: "serv", sourceLabel: "SERV" }
+          : null;
+  const messages = ["streaming", "thinking", "replay"].includes(state) ? [MESSAGES[0]!] : MESSAGES;
   const error = state === "error" ? "The reply could not be completed. You can retry." : null;
 
   return (
@@ -91,7 +137,16 @@ export function DemoHarness({ state, balance, menuOpen, agentsOpen }: { state: s
       {state === "empty" ? (
         <EmptyState onPick={() => {}} />
       ) : (
-        <MessageList messages={messages} streaming={streaming} error={error} busy={Boolean(streaming)} onRetry={() => {}} onRegenerate={() => {}} onEdit={() => {}} />
+        <MessageList
+          messages={messages}
+          streaming={streaming}
+          error={error}
+          busy={Boolean(streaming)}
+          onRetry={() => {}}
+          onRegenerate={() => {}}
+          onEdit={() => {}}
+          footer={chips ? <Chips options={["Telegram", "Email"]} onPick={() => {}} /> : undefined}
+        />
       )}
       <Composer conversationKey="demo" busy={Boolean(streaming)} onSend={() => {}} onStop={() => {}} />
     </div>

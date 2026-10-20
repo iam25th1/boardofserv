@@ -14,6 +14,9 @@
   width: 100%;
   max-width: var(--col);
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
 }
 
 .error {
@@ -21,24 +24,25 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--s-3);
-  background: var(--dust);
-  border: 1px solid var(--chalk);
-  border-radius: var(--r-md);
+  border: 1.5px dashed var(--chalk-3);
+  border-radius: var(--r-lg);
   padding: var(--s-3) var(--s-4);
-  margin: var(--s-4) 0;
 }
 .errorText {
   color: var(--chalk);
   font-size: var(--t-sm);
 }
 
+/* Centred without a transform: anime.js owns this element's transform. */
 .jump {
   position: absolute;
-  left: 50%;
+  left: 0;
+  right: 0;
   bottom: var(--s-4);
-  transform: translateX(-50%);
+  width: max-content;
+  margin: 0 auto;
 }
 .jump :global(button) {
   background: var(--slate-2);
-  box-shadow: none;
+  box-shadow: var(--shadow-pop);
 }

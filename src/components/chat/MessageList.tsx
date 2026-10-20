@@ -1,22 +1,31 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Message, type MessageView } from "./Message";
+import { Thinking } from "./Thinking";
 import { Button } from "@/components/ui";
 import { ArrowDownIcon } from "@/components/icons";
 import { animatePop } from "@/lib/motion";
 import styles from "./MessageList.module.css";
 
+export interface StreamingView {
+  key: string;
+  content: string;
+  source?: string | null;
+  sourceLabel?: string | null;
+}
+
 interface Props {
   messages: MessageView[];
-  streaming: { content: string; source?: string | null; sourceLabel?: string | null } | null;
+  streaming: StreamingView | null;
   error: string | null;
   busy: boolean;
   onRetry?: () => void;
   onRegenerate?: () => void;
   onEdit?: (id: string, content: string) => void;
+  footer?: React.ReactNode;
 }
 
-export function MessageList({ messages, streaming, error, busy, onRetry, onRegenerate, onEdit }: Props) {
+export function MessageList({ messages, streaming, error, busy, onRetry, onRegenerate, onEdit, footer }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const jumpRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -50,22 +59,30 @@ export function MessageList({ messages, streaming, error, busy, onRetry, onRegen
     <div className={styles.wrap}>
       <div className={styles.scroller} ref={scroller} onScroll={checkBottom} role="log" aria-live="polite" aria-label="Conversation">
         <div className={styles.column}>
-          {messages.map((m) => (
-            <Message
-              key={m.id}
-              message={m}
-              canEdit={!busy && m.role === "user" && m.id === lastUserId}
-              canRegenerate={!busy && m.role === "assistant" && m.id === lastAssistantId && !streaming}
-              onRegenerate={onRegenerate}
-              onEdit={(content) => onEdit?.(m.id, content)}
-            />
-          ))}
-          {streaming && (
-            <Message
-              message={{ id: "streaming", role: "assistant", content: streaming.content, source: streaming.source, sourceLabel: streaming.sourceLabel }}
-              streaming
-            />
-          )}
+          {/* One keyed list, so a streamed reply settles in place when it is done. */}
+          {[
+            ...messages.map((m) => (
+              <Message
+                key={m.clientKey ?? m.id}
+                message={m}
+                canEdit={!busy && m.role === "user" && m.id === lastUserId}
+                canRegenerate={!busy && m.role === "assistant" && m.id === lastAssistantId && !streaming}
+                onRegenerate={onRegenerate}
+                onEdit={(content) => onEdit?.(m.id, content)}
+              />
+            )),
+            // Waiting before the first token: the scribble. Then the reply.
+            streaming &&
+              (streaming.content === "" ? (
+                <Thinking key="thinking" />
+              ) : (
+                <Message
+                  key={streaming.key}
+                  message={{ id: streaming.key, role: "assistant", content: streaming.content, source: streaming.source, sourceLabel: streaming.sourceLabel }}
+                  streaming
+                />
+              )),
+          ]}
           {error && (
             <div className={styles.error} role="alert">
               <p className={styles.errorText}>{error}</p>
@@ -76,6 +93,7 @@ export function MessageList({ messages, streaming, error, busy, onRetry, onRegen
               )}
             </div>
           )}
+          {footer}
         </div>
       </div>
       {!atBottom && (

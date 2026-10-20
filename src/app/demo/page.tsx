@@ -5,7 +5,7 @@ import { DemoHarness } from "./DemoHarness";
 // A development-only harness that renders the real chat components with seeded
 // data, so the designed UI can be reviewed and screenshotted without a live
 // email login. It is not part of the product and returns 404 in production.
-export default function DemoPage({ searchParams }: { searchParams: { state?: string; balance?: string; menu?: string; agents?: string } }) {
+export default function DemoPage({ searchParams }: { searchParams: { state?: string; balance?: string; menu?: string; agents?: string; chips?: string; repeat?: string } }) {
   if (process.env.NODE_ENV === "production") notFound();
   return (
     <DemoHarness
@@ -13,6 +13,8 @@ export default function DemoPage({ searchParams }: { searchParams: { state?: str
       balance={searchParams.balance === "low" ? "low" : "ok"}
       menuOpen={searchParams.menu === "1"}
       agentsOpen={searchParams.agents === "1"}
+      chips={searchParams.chips === "1"}
+      repeat={Math.min(20, Math.max(1, Number(searchParams.repeat) || 1))}
     />
   );
 }

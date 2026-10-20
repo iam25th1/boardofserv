@@ -85,5 +85,6 @@ purple, no gradients, no side colour bars. Tokens live in
 
 For reviewing the UI without a live email login, a development-only harness at
 `/demo` renders the real components with seeded data (it returns 404 in
-production). States: `/demo?state=empty|convo|streaming|error`, with `menu=1`,
-`agents=1`, and `balance=low` flags.
+production). States: `/demo?state=empty|convo|thinking|streaming|replay|error`, with
+`menu=1`, `agents=1`, `chips=1` and `balance=low` flags. `replay` plays the
+seeded reply through the streaming path (`repeat=8` makes it long).
