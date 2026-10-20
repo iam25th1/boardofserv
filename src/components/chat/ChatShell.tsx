@@ -314,7 +314,6 @@ export function ChatShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [startNew]);
 
-  const notReady = account !== null && !account.linked;
 
   return (
     <div className={styles.app}>
@@ -347,7 +346,7 @@ export function ChatShell() {
       />
 
       {messages.length === 0 && !streaming ? (
-        <EmptyState onPick={send} disabled={busy || notReady} />
+        <EmptyState onPick={send} disabled={busy} />
       ) : (
         <MessageList
           messages={messages}
@@ -366,7 +365,6 @@ export function ChatShell() {
       <Composer
         conversationKey={activeId ?? "new"}
         busy={busy}
-        disabled={notReady}
         onSend={send}
         onStop={stop}
         dock={
@@ -378,14 +376,6 @@ export function ChatShell() {
           ) : null
         }
       />
-      {notReady && (
-        <div className={styles.linkBanner} role="status">
-          <span>Link your OpenServ account to get replies from SERV.</span>
-          <Button size="sm" onClick={doLink} disabled={linking}>
-            {linking ? "Linking..." : "Link now"}
-          </Button>
-        </div>
-      )}
 
       <ShortcutsDialog open={shortcuts} onClose={() => setShortcuts(false)} />
 

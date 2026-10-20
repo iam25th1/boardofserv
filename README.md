@@ -58,7 +58,9 @@ npm run gate     # typecheck, lint, test, build. Run before every commit.
 ## How a user signs in and links OpenServ
 
 1. The user signs in with an email code through Privy and gets an embedded EOA.
-2. On first use, that wallet signs OpenServ's SIWE message in the browser.
+2. Linking is optional: chatting never needs it. When the user links OpenServ
+   from the account menu, that wallet signs OpenServ's SIWE message in the
+   browser.
 3. The server completes sign-in (`/auth/wallet/verify`), receives the user's
    OpenServ API key, encrypts it with `OPENSERV_KEY_ENC_KEY`, and stores only the
    ciphertext. The key is decrypted on the server when a request to OpenServ is
