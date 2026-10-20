@@ -76,11 +76,20 @@
 }
 
 .list {
+  max-height: min(52vh, 380px);
+  overflow-y: auto;
+}
+.list ul {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: min(52vh, 380px);
-  overflow-y: auto;
+}
+
+.group {
+  padding: 8px 10px 2px;
+  font-size: var(--t-2xs);
+  font-weight: var(--w-medium);
+  color: var(--chalk-3);
 }
 
 .none {

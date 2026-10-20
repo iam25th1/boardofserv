@@ -79,29 +79,6 @@ export function ChatShell() {
     }
   }, []);
 
-  const openConversation = useCallback(
-    async (id: string) => {
-      setActiveId(id);
-      setError(null);
-      setStreaming(null);
-      try {
-        const rows = await api.getMessages(id);
-        setMessages(rows.map((m) => ({ id: m.id, role: m.role, content: m.content, source: m.source, sourceLabel: m.sourceLabel })));
-      } catch {
-        setMessages([]);
-      }
-    },
-    [api],
-  );
-
-  const startNew = useCallback(() => {
-    setActiveId(null);
-    setMessages([]);
-    setStreaming(null);
-    setError(null);
-    setTimeout(() => (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus(), 30);
-  }, []);
-
   const dropPending = useCallback(() => {
     if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
     frameRef.current = null;
@@ -109,6 +86,40 @@ export function ChatShell() {
     pendingRef.current = "";
     return text;
   }, []);
+
+  // Leaving a reply mid-stream (stop, switching conversation, starting a new
+  // one) ends it, so its words can never land in another conversation. The
+  // server keeps whatever was produced, as it does for stop.
+  const abortReply = useCallback(() => {
+    stopRef.current?.();
+    stopRef.current = null;
+    dropPending();
+    setBusy(false);
+    setStreaming(null);
+  }, [dropPending]);
+
+  const openConversation = useCallback(
+    async (id: string) => {
+      abortReply();
+      setActiveId(id);
+      setError(null);
+      try {
+        const rows = await api.getMessages(id);
+        setMessages(rows.map((m) => ({ id: m.id, role: m.role, content: m.content, source: m.source, sourceLabel: m.sourceLabel })));
+      } catch {
+        setMessages([]);
+      }
+    },
+    [api, abortReply],
+  );
+
+  const startNew = useCallback(() => {
+    abortReply();
+    setActiveId(null);
+    setMessages([]);
+    setError(null);
+    setTimeout(() => (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus(), 30);
+  }, [abortReply]);
 
   const run = useCallback(
     (body: { conversationId?: string; content?: string; regenerate?: boolean; editMessageId?: string }) => {
@@ -178,13 +189,9 @@ export function ChatShell() {
   );
 
   const stop = useCallback(async () => {
-    stopRef.current?.();
-    stopRef.current = null;
-    dropPending();
-    setBusy(false);
-    setStreaming(null);
+    abortReply();
     if (activeId) await openConversation(activeId);
-  }, [activeId, openConversation, dropPending]);
+  }, [activeId, openConversation, abortReply]);
 
   const regenerate = useCallback(() => {
     if (!activeId) return;

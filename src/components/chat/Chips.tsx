@@ -12,12 +12,13 @@ export function Chips({ options, onPick }: { options: string[]; onPick: (text: s
   const root = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
+    if (!root.current || options.length === 0) return;
     const scope = createScope({ root, mediaQueries: { reduce: REDUCED_MOTION } }).add((self) => {
       if (self?.matches.reduce) return;
       animate("button", { opacity: { from: 0, to: 1 }, translateY: { from: 6, to: 0 }, duration: 320, delay: stagger(60), ease: ease.arrive });
     });
     return () => scope.revert();
-  }, []);
+  }, [options.length]);
 
   if (options.length === 0) return null;
   return (

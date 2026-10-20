@@ -59,5 +59,5 @@ export function animatePop(targets: TargetsParam): void {
 // A quiet attention cue on a state change, for example credit running low.
 export function animateStateChange(targets: TargetsParam): void {
   if (prefersReducedMotion()) return;
-  animate(targets, { ...dustIn, duration: 500, ease: "out(2)" });
+  animate(targets, { opacity: { from: 0.4, to: 1 }, duration: 500, ease: "out(2)" });
 }

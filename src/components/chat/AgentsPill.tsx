@@ -29,12 +29,15 @@ export interface AgentsPillHandle {
   openSearch: () => void;
 }
 
-function when(updatedAt: string): string {
+type Group = "Today" | "This week" | "Earlier";
+const GROUPS: Group[] = ["Today", "This week", "Earlier"];
+
+function groupOf(updatedAt: string): Group {
   const then = new Date(updatedAt);
   const days = (Date.now() - then.getTime()) / 86_400_000;
-  if (days < 1 && then.getDate() === new Date().getDate()) return "today";
-  if (days < 7) return "this week";
-  return "earlier";
+  if (days < 1 && then.getDate() === new Date().getDate()) return "Today";
+  if (days < 7) return "This week";
+  return "Earlier";
 }
 
 function countLabel(n: number): string {
@@ -93,6 +96,9 @@ export const AgentsPill = forwardRef<AgentsPillHandle, Props>(function AgentsPil
 
   const ringOf = (c: ConversationDTO): RingState => (c.id === replyingId ? "wiring" : "draft");
   const filtered = conversations.filter((c) => c.title.toLowerCase().includes(query.trim().toLowerCase()));
+  const groups = GROUPS.map((group) => ({ group, items: filtered.filter((c) => groupOf(c.updatedAt) === group) })).filter(
+    (g) => g.items.length > 0,
+  );
 
   return (
     <div className={styles.agents} ref={wrap}>
@@ -125,54 +131,62 @@ export const AgentsPill = forwardRef<AgentsPillHandle, Props>(function AgentsPil
             />
           </label>
         )}
-        <ul className={styles.list}>
-          {conversations.length > 0 && filtered.length === 0 && <li className={styles.none}>Nothing matches that.</li>}
-          {filtered.map((c) => {
-            const state = ringOf(c);
-            return (
-              <li key={c.id} className={styles.row}>
-                <button
-                  type="button"
-                  className={styles.ag}
-                  data-state={state}
-                  aria-current={c.id === activeId ? "true" : undefined}
-                  onClick={() => {
-                    onSelect(c.id);
-                    close(false);
-                  }}
-                >
-                  <i className={styles.ring} aria-hidden="true" />
-                  <span className={styles.text}>
-                    <strong>{c.title}</strong>
-                    <small>{state === "wiring" ? "Being sketched" : `Draft, ${when(c.updatedAt)}`}</small>
-                  </span>
-                </button>
-                <div className={styles.rowMenu}>
-                  <IconButton
-                    label={`Rename ${c.title}`}
-                    size="sm"
-                    onClick={() => {
-                      close(false);
-                      onRename(c.id);
-                    }}
-                  >
-                    <EditIcon />
-                  </IconButton>
-                  <IconButton
-                    label={`Delete ${c.title}`}
-                    size="sm"
-                    onClick={() => {
-                      close(false);
-                      onDelete(c.id);
-                    }}
-                  >
-                    <TrashIcon />
-                  </IconButton>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+        <div className={styles.list}>
+          {conversations.length > 0 && filtered.length === 0 && <p className={styles.none}>Nothing matches that.</p>}
+          {groups.map(({ group, items }) => (
+            <section key={group} aria-label={group}>
+              <h2 className={styles.group}>{group}</h2>
+              <ul>
+                {items.map((c) => {
+                  const state = ringOf(c);
+                  return (
+                    <li key={c.id} className={styles.row}>
+                      <button
+                        type="button"
+                        className={styles.ag}
+                        data-state={state}
+                        aria-current={c.id === activeId ? "true" : undefined}
+                        onClick={() => {
+                          close(true);
+                          onSelect(c.id);
+                        }}
+                      >
+                        <i className={styles.ring} aria-hidden="true" />
+                        <span className={styles.text}>
+                          <strong>{c.title}</strong>
+                          <small>{state === "wiring" ? "Being sketched" : "Draft"}</small>
+                        </span>
+                      </button>
+                      {/* Focus goes back to the pill first, so it returns there when the dialog closes. */}
+                      <div className={styles.rowMenu}>
+                        <IconButton
+                          label={`Rename ${c.title}`}
+                          size="sm"
+                          onClick={() => {
+                            close(true);
+                            onRename(c.id);
+                          }}
+                        >
+                          <EditIcon />
+                        </IconButton>
+                        <IconButton
+                          label={`Delete ${c.title}`}
+                          size="sm"
+                          onClick={() => {
+                            close(true);
+                            onDelete(c.id);
+                          }}
+                        >
+                          <TrashIcon />
+                        </IconButton>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
         <button
           type="button"
           className={styles.popnew}

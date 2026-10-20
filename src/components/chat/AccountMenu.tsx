@@ -32,7 +32,6 @@ export function AccountMenu({ account, linking, onLink, onSignOut, onOpenShortcu
   const panel = useRef<HTMLDivElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const stateRef = useRef<HTMLSpanElement>(null);
   const panelId = useId();
 
   const credit: CreditState | null = account ? (account.linked ? account.balance : "unlinked") : null;
@@ -42,11 +41,11 @@ export function AccountMenu({ account, linking, onLink, onSignOut, onOpenShortcu
     if (open && panel.current) animateDrop(panel.current);
   }, [open]);
 
-  // A quiet cue when the credit state changes under the user, for example
-  // after a reply spends the last of it.
+  // A quiet cue on the avatar when the credit state changes under the user,
+  // for example after a reply spends the last of it.
   const lastCredit = useRef(credit);
   useEffect(() => {
-    if (lastCredit.current && credit && lastCredit.current !== credit && stateRef.current) animateStateChange(stateRef.current);
+    if (lastCredit.current && credit && lastCredit.current !== credit && trigger.current) animateStateChange(trigger.current);
     lastCredit.current = credit;
   }, [credit]);
 
@@ -102,7 +101,7 @@ export function AccountMenu({ account, linking, onLink, onSignOut, onOpenShortcu
               <>
                 <p className={styles.value}>Linked{account.openservUserId ? ` (${account.openservUserId})` : ""}</p>
                 <div className={styles.creditRow}>
-                  <span className={styles.chip} data-state={account.balance} ref={stateRef}>
+                  <span className={styles.chip} data-state={account.balance}>
                     <i className={styles.ring} aria-hidden="true" />
                     {CREDIT_TEXT[account.balance]}
                   </span>
@@ -127,6 +126,8 @@ export function AccountMenu({ account, linking, onLink, onSignOut, onOpenShortcu
                 className={styles.action}
                 onClick={() => {
                   setOpen(false);
+                  // Focus returns here when the dialog closes.
+                  trigger.current?.focus();
                   onOpenShortcuts();
                 }}
               >
