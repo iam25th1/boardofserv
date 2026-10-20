@@ -7,6 +7,8 @@
   gap: var(--s-3);
 }
 .loadingText {
+  font-family: var(--font-hand);
+  font-weight: var(--w-medium);
+  font-size: var(--t-hand);
   color: var(--chalk-2);
-  font-size: var(--t-sm);
 }

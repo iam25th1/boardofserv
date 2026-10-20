@@ -124,6 +124,46 @@ button {
   background-clip: content-box;
 }
 
+/*
+ * Privy's login modal. Its own :root block sets these from its config; the
+ * doubled :root outranks it, so the modal uses the exact chalk tokens and
+ * follows the theme toggle. Privy keeps its own red and green for code
+ * errors and success; those are not exposed as tokens here on purpose.
+ */
+:root:root {
+  --privy-color-background: var(--slate-2);
+  --privy-color-background-2: var(--slate-3);
+  --privy-color-background-3: var(--slate);
+  --privy-color-foreground: var(--chalk);
+  --privy-color-foreground-2: var(--chalk-2);
+  --privy-color-foreground-3: var(--chalk-3);
+  --privy-color-foreground-4: var(--line);
+  --privy-color-foreground-accent: var(--slate);
+  --privy-color-accent: var(--chalk);
+  --privy-color-accent-light: var(--chalk-2);
+  --privy-color-accent-lightest: var(--dust);
+  --privy-color-accent-dark: var(--chalk-2);
+  --privy-color-accent-darkest: var(--chalk-2);
+  --privy-border-radius-sm: var(--r-sm);
+  --privy-border-radius-md: var(--r-md);
+  --privy-border-radius-mdlg: var(--r-lg);
+  --privy-border-radius-lg: var(--r-2xl);
+  --privy-border-radius-full: var(--r-full);
+}
+#privy-modal-content,
+#privy-modal-content :where(button, input, h1, h2, h3, p, span, div, label) {
+  font-family: var(--font-body);
+}
+.privy-logo {
+  color: var(--chalk);
+}
+/* Privy blurs the page behind its dialog; swap that for the plain scrim. */
+#privy-dialog-backdrop {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  background: var(--scrim) !important;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

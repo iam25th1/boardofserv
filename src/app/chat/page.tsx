@@ -20,7 +20,7 @@ export default function ChatPage() {
     return (
       <main className={styles.loading}>
         <Wordmark />
-        <p className={styles.loadingText}>Getting your workspace ready</p>
+        <p className={styles.loadingText}>getting your workspace ready</p>
       </main>
     );
   }
