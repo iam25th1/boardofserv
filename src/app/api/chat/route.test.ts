@@ -162,4 +162,14 @@ describe("a chat turn with a sketch", () => {
     const usage = await state.db.select().from(schema.replyUsage).orderBy(schema.replyUsage.createdAt);
     expect(usage.map((u) => u.sketchOk)).toEqual([true, true, false]);
   });
+
+  it("reads a sketch the model wrote without markers, and keeps it off the screen", async () => {
+    const bare = JSON.stringify({ name: null, kind: null, watches: null, when: null, how: null, tells: "Telegram", asking: null, choices: [] }, null, 2);
+    nextReply = ["Telegram it is. You're all set.\n", bare.slice(0, 10), bare.slice(10)];
+    const t = await turn("Use Telegram", convo);
+    expect(t.shown).toBe("Telegram it is. You're all set.\n");
+    expect(t.sketch?.sketch).toMatchObject({ name: "ETH floor watch", how: "every 5 minutes", tells: "Telegram", asking: null });
+    const dock = sketchFromDTO(t.sketch!.sketch);
+    expect(statusLine(dock, false)).toBe("Ready. Switching on comes in the next update.");
+  });
 });

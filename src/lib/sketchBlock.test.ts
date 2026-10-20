@@ -68,6 +68,43 @@ describe("SketchSplitter", () => {
   });
 });
 
+describe("SketchSplitter, when the model leaves the markers off", () => {
+  // The shape seen live from SERV: the question, then the JSON pretty-printed
+  // on its own lines with no markers.
+  const BARE = `Good one. How should it reach you?\n${JSON.stringify(JSON.parse(BLOCK), null, 2)}`;
+
+  it("cuts out a bare JSON sketch at the end, at every possible split", () => {
+    for (const chunks of [[BARE], ...twoChunks(BARE)]) {
+      const { shown, text, raw } = run(chunks);
+      expect(text).toBe("Good one. How should it reach you?\n");
+      expect(shown.join("")).not.toContain("{");
+      expect(parseSketchBlock(raw)?.name).toBe("ETH floor watch");
+    }
+  });
+
+  it("cuts out a sketch in a json code fence, and never shows half a fence", () => {
+    const fenced = `Noted.\n\n\`\`\`json\n${BLOCK}\n\`\`\`\n`;
+    const { shown, text, raw } = run([...fenced]);
+    expect(shown.join("")).not.toContain("`");
+    expect(text).toBe("Noted.\n\n");
+    expect(parseSketchBlock(raw)?.asking).toBe("how");
+  });
+
+  it("shows a code example and other JSON in full, after holding them", () => {
+    const code = "Like this:\n```js\nif (price < 2000) alert();\n```\nThen it tells you.";
+    expect(run([code])).toMatchObject({ text: code, raw: null });
+    const other = 'An example payload:\n{"price": 1999}';
+    expect(run([other])).toMatchObject({ text: other, raw: null });
+  });
+
+  it("shows a code example and still cuts out a bare sketch after it", () => {
+    const both = `Like this:\n\`\`\`js\nalert();\n\`\`\`\nWhere should it tell you?\n${BLOCK}`;
+    const { text, raw } = run([both]);
+    expect(text).toBe("Like this:\n```js\nalert();\n```\nWhere should it tell you?\n");
+    expect(parseSketchBlock(raw)?.watches).toBe("ETH price");
+  });
+});
+
 describe("parseSketchBlock", () => {
   it("rejects invalid JSON, a non-object and wrong types", () => {
     expect(parseSketchBlock('{"name": "ETH floor watch",')).toBeNull();
