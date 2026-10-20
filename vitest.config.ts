@@ -2,6 +2,8 @@ import { defineConfig } from "vitest/config";
 import { fileURLToPath } from "node:url";
 
 export default defineConfig({
+  // tsconfig keeps JSX as is for Next; tests compile it with React's automatic runtime.
+  esbuild: { jsx: "automatic" },
   test: {
     environment: "happy-dom",
     globals: true,
