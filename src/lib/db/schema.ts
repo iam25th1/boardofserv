@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, index } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, index, integer } from "drizzle-orm/pg-core";
 
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
 // embedded wallet address and, encrypted, the OpenServ API key that this
@@ -46,6 +46,29 @@ export const messages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({ byConversation: index("messages_conversation_idx").on(t.conversationId, t.createdAt) }),
+);
+
+// One row per reply, to keep model usage visible. Never any message text.
+// provider is "serv", "fallback" or "demo", or null when nothing answered.
+// outcome: "ok" (the first provider answered), "fell_back" (a later one did)
+// or "failed" (nothing answered, or the reply was cut off mid-stream). Token
+// counts are whatever the provider reported, null when it reported none.
+// Rows outlive their conversation, which is set to null when it is deleted.
+export const replyUsage = pgTable(
+  "reply_usage",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    provider: text("provider"),
+    model: text("model"),
+    promptTokens: integer("prompt_tokens"),
+    completionTokens: integer("completion_tokens"),
+    firstTokenMs: integer("first_token_ms"),
+    totalMs: integer("total_ms").notNull(),
+    outcome: text("outcome", { enum: ["ok", "fell_back", "failed"] }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ byCreated: index("reply_usage_created_idx").on(t.createdAt) }),
 );
 
 export type User = typeof users.$inferSelect;

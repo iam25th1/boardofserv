@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { db } from "@/lib/db";
-import { conversations, messages, type Message } from "@/lib/db/schema";
+import { conversations, messages, replyUsage, type Message } from "@/lib/db/schema";
 import { contextFor, modelConfig, streamReply, type ChatMessage, type ReplyResult } from "@/lib/model";
 
 export const runtime = "nodejs";
@@ -71,7 +71,11 @@ export async function POST(req: Request) {
     .from(messages)
     .where(eq(messages.conversationId, cid))
     .orderBy(asc(messages.createdAt));
-  const chat: ChatMessage[] = contextFor(history.map((m) => ({ role: m.role, content: m.content })));
+  const config = modelConfig();
+  const chat: ChatMessage[] = contextFor(
+    history.map((m) => ({ role: m.role, content: m.content })),
+    config.historyMessages,
+  );
 
   // Name the conversation from its first user message.
   const firstUser = history.find((m) => m.role === "user");
@@ -82,7 +86,6 @@ export async function POST(req: Request) {
     }
   }
 
-  const config = modelConfig();
   const controller = new AbortController();
   req.signal.addEventListener("abort", () => controller.abort());
 
@@ -109,6 +112,7 @@ export async function POST(req: Request) {
       } catch {
         // The stream to the browser closed (the person left or pressed stop).
       }
+      await recordUsage(cid, result);
       if (!full) {
         const message = result?.error ?? "The reply could not be completed. You can retry.";
         try {
@@ -148,4 +152,23 @@ export async function POST(req: Request) {
       connection: "keep-alive",
     },
   });
+}
+
+// One usage row per reply. A failure to record must never break the reply.
+async function recordUsage(conversationId: string, r: ReplyResult | null): Promise<void> {
+  if (!r) return;
+  try {
+    await db.insert(replyUsage).values({
+      conversationId,
+      provider: r.provider,
+      model: r.model,
+      promptTokens: r.promptTokens,
+      completionTokens: r.completionTokens,
+      firstTokenMs: r.firstTokenMs,
+      totalMs: r.totalMs,
+      outcome: r.outcome,
+    });
+  } catch (err) {
+    console.error("reply usage not recorded", err instanceof Error ? err.message : "unknown error");
+  }
 }

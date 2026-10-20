@@ -44,6 +44,9 @@ in the `boardofserv_boardofserv_pgdata` volume either way.
   an OpenAI-compatible backup, tried when SERV fails before its first token.
 - `MODEL_FIRST_TOKEN_TIMEOUT_MS` (optional, default 20000): how long a model
   may stay silent before the reply moves on to the backup or is cut off.
+- `CHAT_HISTORY_MESSAGES` (optional, default 12) and `CHAT_MAX_TOKENS`
+  (optional, default 700): how much history goes to the model and how long a
+  reply may be.
 
 With neither SERV nor a backup set, a development build answers with a
 labelled demo reply; a production build shows a plain error instead.
@@ -93,6 +96,12 @@ Replies stream from whichever answers first.
   Shadow Agent or Kronos), and json schemas lose their numeric range keywords:
   the rules SERV enforces.
 - Every stored reply records which provider answered, and the UI labels it.
+
+Usage stays low: one short system prompt (`src/lib/systemPrompt.ts`) plus the
+last 12 messages (older history is dropped, not summarised), and replies capped
+at 700 tokens. Each reply writes one `reply_usage` row: conversation, provider,
+model, prompt and completion tokens when reported, time to first token, total
+time and outcome (ok, fell back, failed). It never stores message text.
 
 ## Design
 

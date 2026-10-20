@@ -48,7 +48,8 @@ afterAll(() => {
 describe("model layer, live", () => {
   maybe("a SERV reply streams and is labelled SERV Reasoning", async () => {
     const { modelConfig, streamReply } = await import("@/lib/model");
-    const config = modelConfig({ SERV_API_KEY: process.env.SERV_API_KEY });
+    // A live call spends real credit: keep the reply tiny.
+    const config = modelConfig({ SERV_API_KEY: process.env.SERV_API_KEY, CHAT_MAX_TOKENS: "40" });
     const { text, events } = await collect(
       streamReply([{ role: "user", content: "In one short sentence, what will boardofserv help me do?" }], { config, signal: new AbortController().signal }),
     );
@@ -63,7 +64,7 @@ describe("model layer, live", () => {
     const serv = { id: "serv" as const, label: "SERV Reasoning", baseUrl: `${mockUrl}/serv`, apiKey: "local", model: "claude-haiku-4.5", askForUsage: false };
     const backup = { id: "fallback" as const, label: "Local backup", baseUrl: `${mockUrl}/backup`, apiKey: "local", model: "demo-echo", askForUsage: true };
     const { text, events } = await collect(
-      streamReply([{ role: "user", content: "Say hello." }], { config: { providers: [serv, backup], firstTokenTimeoutMs: 5_000 }, signal: new AbortController().signal }),
+      streamReply([{ role: "user", content: "Say hello." }], { config: { providers: [serv, backup], firstTokenTimeoutMs: 5_000, historyMessages: 12, maxTokens: 50 }, signal: new AbortController().signal }),
     );
     const end = events.at(-1);
     expect(end?.type === "end" && end.result.outcome).toBe("fell_back");

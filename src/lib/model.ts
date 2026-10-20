@@ -15,22 +15,22 @@ import "server-only";
 // switched on (no serv_* tools and no model suffix, so no Prompt Guard,
 // Shadow Agent or Kronos).
 
+import { SYSTEM_PROMPT } from "./systemPrompt";
+
 export type ChatRole = "system" | "user" | "assistant";
 export interface ChatMessage {
   role: ChatRole;
   content: string;
 }
 
-export const SYSTEM_PROMPT =
-  "You are boardofserv, a friendly guide that helps people build automation agents on OpenServ by describing them in plain English. " +
-  "In this first version you do not build anything yet. Listen to what the person wants to automate, ask one or two clarifying questions, " +
-  "and describe in plain words what their agent would do once building is switched on. Keep answers short and concrete. Never mention APIs, " +
-  "keys or code unless the person asks. Write in sentence case with no em dashes.";
-
 export const SERV_BASE_URL = "https://inference-api.openserv.ai/v1";
 export const SERV_MODEL = "claude-haiku-4.5";
 export const SERV_LABEL = "SERV Reasoning";
 const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 20_000;
+// Usage limits: the system prompt plus the last 12 messages go out (older
+// history is dropped, not summarised), and a reply is capped at 700 tokens.
+const DEFAULT_HISTORY_MESSAGES = 12;
+const DEFAULT_MAX_TOKENS = 700;
 
 // Appended to a reply that broke off mid-stream. Stored with the reply so it
 // survives a reload, and stripped again before the history goes back to a model.
@@ -56,6 +56,8 @@ export interface Provider {
 export interface ModelConfig {
   providers: Provider[];
   firstTokenTimeoutMs: number;
+  historyMessages: number;
+  maxTokens: number;
 }
 
 function positiveInt(raw: string | undefined, fallback: number): number {
@@ -79,7 +81,12 @@ export function modelConfig(env: Record<string, string | undefined> = process.en
       askForUsage: true,
     });
   }
-  return { providers, firstTokenTimeoutMs: positiveInt(env.MODEL_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_FIRST_TOKEN_TIMEOUT_MS) };
+  return {
+    providers,
+    firstTokenTimeoutMs: positiveInt(env.MODEL_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_FIRST_TOKEN_TIMEOUT_MS),
+    historyMessages: positiveInt(env.CHAT_HISTORY_MESSAGES, DEFAULT_HISTORY_MESSAGES),
+    maxTokens: positiveInt(env.CHAT_MAX_TOKENS, DEFAULT_MAX_TOKENS),
+  };
 }
 
 // SERV rejects a request with no system message. Guarantee exactly one, first.
@@ -115,11 +122,16 @@ export function sanitizeJsonSchema<T>(schema: T): T {
   return schema;
 }
 
-// Stored history as a model should see it: without our own cut-off notes.
-export function contextFor(history: ChatMessage[]): ChatMessage[] {
-  return history.map((m) =>
-    m.role === "assistant" && m.content.endsWith(CUT_OFF_SUFFIX) ? { ...m, content: m.content.slice(0, -CUT_OFF_SUFFIX.length) } : m,
-  );
+// Stored history as a model should see it: only the last `limit` messages,
+// starting with one of the person's, and without our own cut-off notes.
+export function contextFor(history: ChatMessage[], limit: number): ChatMessage[] {
+  const recent = history.slice(-limit);
+  const firstUser = recent.findIndex((m) => m.role === "user");
+  return recent
+    .slice(Math.max(firstUser, 0))
+    .map((m) =>
+      m.role === "assistant" && m.content.endsWith(CUT_OFF_SUFFIX) ? { ...m, content: m.content.slice(0, -CUT_OFF_SUFFIX.length) } : m,
+    );
 }
 
 export type Failure =
@@ -165,8 +177,8 @@ function fallsBack(f: Failure): boolean {
   return f.status === 402 || f.status === 429 || f.status >= 500;
 }
 
-export function requestBody(p: Provider, messages: ChatMessage[]): Record<string, unknown> {
-  const body: Record<string, unknown> = { model: p.model, messages: ensureSystemMessage(messages), stream: true };
+export function requestBody(p: Provider, messages: ChatMessage[], maxTokens: number): Record<string, unknown> {
+  const body: Record<string, unknown> = { model: p.model, messages: ensureSystemMessage(messages), max_tokens: maxTokens, stream: true };
   if (p.askForUsage) body.stream_options = { include_usage: true };
   return body;
 }
@@ -183,7 +195,7 @@ interface StreamChunk {
 async function* attempt(
   p: Provider,
   messages: ChatMessage[],
-  opts: { timeoutMs: number; signal: AbortSignal; fetchImpl: typeof fetch },
+  opts: { timeoutMs: number; maxTokens: number; signal: AbortSignal; fetchImpl: typeof fetch },
 ): AsyncGenerator<string, Usage> {
   const ctl = new AbortController();
   let timedOut = false;
@@ -205,7 +217,7 @@ async function* attempt(
       res = await opts.fetchImpl(`${p.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "text/event-stream", authorization: `Bearer ${p.apiKey}` },
-        body: JSON.stringify(requestBody(p, messages)),
+        body: JSON.stringify(requestBody(p, messages, opts.maxTokens)),
         signal: ctl.signal,
       });
     } catch {
@@ -327,7 +339,7 @@ export async function* streamReply(
 
   for (const p of config.providers) {
     let firstTokenMs: number | null = null;
-    const gen = attempt(p, messages, { timeoutMs: config.firstTokenTimeoutMs, signal, fetchImpl });
+    const gen = attempt(p, messages, { timeoutMs: config.firstTokenTimeoutMs, maxTokens: config.maxTokens, signal, fetchImpl });
     try {
       for (;;) {
         const step = await gen.next();
