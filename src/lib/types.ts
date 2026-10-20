@@ -2,6 +2,8 @@
 export interface ConversationDTO {
   id: string;
   title: string;
+  // The agent sketch's name, once the conversation has one.
+  sketchName: string | null;
   createdAt: string;
   updatedAt: string;
 }

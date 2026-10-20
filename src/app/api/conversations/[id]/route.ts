@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { db } from "@/lib/db";
-import { conversations } from "@/lib/db/schema";
+import { agentSketches, conversations } from "@/lib/db/schema";
 
 export const runtime = "nodejs";
 
@@ -26,7 +26,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     .set({ title: parsed.data.title, updatedAt: new Date() })
     .where(eq(conversations.id, params.id))
     .returning();
-  return Response.json({ conversation: row });
+  // The popover shows the agent's name once there is a sketch, so renaming
+  // renames the agent too. The next reply sees the new name in its history.
+  const [sketch] = await db
+    .update(agentSketches)
+    .set({ name: parsed.data.title, updatedAt: new Date() })
+    .where(eq(agentSketches.conversationId, params.id))
+    .returning({ name: agentSketches.name });
+  return Response.json({ conversation: row && { ...row, sketchName: sketch?.name ?? null } });
 }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {

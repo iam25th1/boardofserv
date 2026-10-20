@@ -130,6 +130,10 @@
   background: var(--chalk);
   border-color: var(--chalk);
 }
+/* No sketch yet: no ring, the space kept so titles line up. */
+.ag[data-state="none"] .ring {
+  visibility: hidden;
+}
 .ag[data-state="wiring"] .ring {
   border-style: dashed;
   border-color: var(--chalk);

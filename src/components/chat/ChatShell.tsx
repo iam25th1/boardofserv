@@ -252,10 +252,12 @@ export function ChatShell() {
 
   const doRename = useCallback(async () => {
     if (!renameId || !renameValue.trim()) return;
-    await api.renameConversation(renameId, renameValue.trim());
+    const renamed = await api.renameConversation(renameId, renameValue.trim());
+    // Renaming a sketched conversation renames its agent, dock included.
+    if (renameId === activeId && renamed.sketchName) setSketch((s) => s && { ...s, name: renamed.sketchName });
     setRenameId(null);
     void refreshConversations();
-  }, [api, renameId, renameValue, refreshConversations]);
+  }, [api, renameId, renameValue, activeId, refreshConversations]);
 
   const doDelete = useCallback(async () => {
     if (!deleteId) return;
@@ -302,7 +304,8 @@ export function ChatShell() {
             onSelect={openConversation}
             onRename={(id) => {
               setRenameId(id);
-              setRenameValue(conversations.find((c) => c.id === id)?.title ?? "");
+              const c = conversations.find((x) => x.id === id);
+              setRenameValue(c?.sketchName ?? c?.title ?? "");
             }}
             onDelete={(id) => setDeleteId(id)}
           />
