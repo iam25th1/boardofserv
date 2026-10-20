@@ -6,10 +6,18 @@ import { usePrivy } from "@privy-io/react-auth";
 import { createScope, createTimeline, stagger, svg, utils } from "animejs";
 import { Button } from "@/components/ui";
 import { Wordmark } from "@/components/chat/Wordmark";
+import { SignInUnset } from "@/components/SignInUnset";
 import { REDUCED_MOTION, ease } from "@/lib/motion";
+import { privyAppId } from "@/lib/privy-config";
 import styles from "./login.module.css";
 
 export default function LoginPage() {
+  // No Privy app id means there is nothing to sign in with.
+  if (!privyAppId()) return <SignInUnset />;
+  return <SignIn />;
+}
+
+function SignIn() {
   const { ready, authenticated, login } = usePrivy();
   const router = useRouter();
   const root = useRef<HTMLElement>(null);

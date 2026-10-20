@@ -27,7 +27,9 @@ npm run dev                     # http://localhost:3000
 `.env.local` (gitignored, never committed, never logged, never in the bundle):
 
 - `NEXT_PUBLIC_PRIVY_APP_ID`, `PRIVY_APP_SECRET`: from the Privy dashboard. The
-  app id is public by design; the secret is server only.
+  app id is public by design; the secret is server only. Without a usable app
+  id (CI builds with `ci-placeholder`) the app still builds, Privy is never
+  mounted, and the sign-in and chat pages say sign-in isn't set up.
 - `OPENSERV_KEY_ENC_KEY`: 32 bytes, base64. Generate with
   `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
 - `DATABASE_URL`: defaults to the Docker Postgres above.
