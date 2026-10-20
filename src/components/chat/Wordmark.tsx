@@ -21,7 +21,7 @@ export function Wordmark({ size = "md", nameless = false }: { size?: "md" | "lg"
         <LogoStrokes />
       </svg>
       {!nameless && (
-        <span className={styles.name} aria-hidden="true">
+        <span className={`${styles.name} wordmark-name`} aria-hidden="true">
           boardofserv
         </span>
       )}

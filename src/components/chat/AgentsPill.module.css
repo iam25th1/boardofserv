@@ -173,3 +173,17 @@
 .popnew:hover {
   background: var(--dust);
 }
+
+/* Phones: the popover spans the top bar's width instead of hanging off the
+   pill, so it never runs past the screen edge. */
+@media (max-width: 640px) {
+  .agents {
+    position: static;
+  }
+  .pop {
+    left: var(--gutter);
+    right: var(--gutter);
+    width: auto;
+    top: calc(100% + var(--s-1));
+  }
+}

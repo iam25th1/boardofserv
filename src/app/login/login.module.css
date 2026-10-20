@@ -58,3 +58,10 @@
   font-size: var(--t-2xs);
   color: var(--chalk-3);
 }
+
+@media (max-width: 640px) {
+  .page {
+    align-items: flex-start;
+    padding-top: 12vh;
+  }
+}

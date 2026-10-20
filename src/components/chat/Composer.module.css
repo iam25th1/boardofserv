@@ -76,3 +76,20 @@
   color: var(--chalk-3);
   margin-top: var(--s-2);
 }
+
+@media (max-width: 640px) {
+  .composer {
+    padding: 6px max(10px, env(safe-area-inset-right, 0px)) max(10px, env(safe-area-inset-bottom, 0px))
+      max(10px, env(safe-area-inset-left, 0px));
+  }
+  .foot {
+    margin-top: 6px;
+  }
+}
+
+/* On touch screens Enter makes a new line, so the key hint would be wrong. */
+@media (pointer: coarse) {
+  .keys {
+    display: none;
+  }
+}

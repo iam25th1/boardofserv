@@ -121,3 +121,10 @@
   --scrim: rgba(27, 30, 29, 0.32);
   color-scheme: light;
 }
+
+/* Phones: a narrower gutter everywhere. */
+@media (max-width: 640px) {
+  :root {
+    --gutter: 16px;
+  }
+}

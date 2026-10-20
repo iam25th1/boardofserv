@@ -102,3 +102,17 @@
   stroke-width: 2;
   stroke-linecap: round;
 }
+
+@media (max-width: 640px) {
+  .empty {
+    margin-top: 4vh;
+  }
+  .idea {
+    flex-direction: column;
+    gap: 2px;
+  }
+  .idea svg {
+    left: 4px;
+    width: calc(100% - 8px);
+  }
+}

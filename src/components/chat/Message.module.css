@@ -128,3 +128,9 @@
 .op:focus-within .actions {
   opacity: 1;
 }
+
+@media (max-width: 640px) {
+  .userGroup {
+    max-width: 88%;
+  }
+}

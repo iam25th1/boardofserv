@@ -1,4 +1,5 @@
 .top {
+  position: relative;
   flex: none;
   display: flex;
   align-items: center;
@@ -14,4 +15,22 @@
   display: flex;
   align-items: center;
   gap: var(--s-2);
+}
+
+@media (max-width: 640px) {
+  .top {
+    gap: var(--s-2);
+    padding-top: var(--s-3);
+    padding-bottom: 6px;
+  }
+  .end {
+    gap: var(--s-1);
+  }
+}
+
+/* The narrowest phones keep the mark and drop the name beside it. */
+@media (max-width: 380px) {
+  .top :global(.wordmark-name) {
+    display: none;
+  }
 }

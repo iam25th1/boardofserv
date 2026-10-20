@@ -105,7 +105,8 @@ export function Composer({ conversationKey, busy, disabled, prefill, prefillNonc
           </form>
         </div>
         <p className={styles.foot}>
-          Enter to send, Shift and Enter for a new line. boardofserv does not build anything yet, it helps you plan.
+          <span className={styles.keys}>Enter to send, Shift and Enter for a new line. </span>
+          boardofserv does not build anything yet, it helps you plan.
         </p>
       </div>
     </div>
