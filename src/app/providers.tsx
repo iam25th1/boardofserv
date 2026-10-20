@@ -2,12 +2,15 @@
 
 import { PrivyProvider } from "@privy-io/react-auth";
 import { ToastProvider } from "@/components/ui";
+import { palette } from "@/design/palette";
+import { useResolvedTheme } from "@/lib/theme";
 
 // App-wide client providers. Privy handles email login and gives every user a
 // plain embedded Ethereum wallet (an EOA). We never enable smart wallets:
 // FINDINGS.md shows OpenServ's SIWE would likely reject an ERC-1271 signer.
 export function Providers({ children }: { children: React.ReactNode }) {
   const appId = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? "";
+  const theme = useResolvedTheme();
   // Without an app id (for example during a CI build) Privy cannot initialise,
   // so render without it. The auth pages are dynamic and only reach this path
   // at runtime, where the app id is set.
@@ -21,8 +24,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
           ethereum: { createOnLogin: "all-users" },
         },
         appearance: {
-          theme: "light",
-          accentColor: "#12685c",
+          theme,
+          accentColor: palette[theme].chalk,
           walletList: [],
           logo: undefined,
         },

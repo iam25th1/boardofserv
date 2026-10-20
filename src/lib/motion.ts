@@ -1,48 +1,66 @@
 "use client";
-import anime from "animejs";
+import { animate, cubicBezier, type TargetsParam } from "animejs";
 
-// Motion helpers built on anime.js. Motion explains what happened, it never
-// decorates. Every helper collapses to a short opacity fade when the user asks
-// for reduced motion, and none of them move the camera, shake, blur or shift
-// hue.
+// Shared motion vocabulary on anime.js v4. Motion explains what happened, it
+// never decorates: no shake, no zoom punch, no blur on the page, no hue shift.
+// The one allowed blur is the few pixels on words dusting in.
+//
+// prefers-reduced-motion turns every animation off. Each helper here, and each
+// component that drives its own timeline, checks it first and leaves elements
+// in their final state instead of animating.
+
+export const REDUCED_MOTION = "(prefers-reduced-motion: reduce)";
 
 export function prefersReducedMotion(): boolean {
   if (typeof window === "undefined") return false;
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return window.matchMedia(REDUCED_MOTION).matches;
 }
 
-const EASE = "cubicBezier(0.2, 0.7, 0.2, 1)";
+// Eases from the chalk mockup, shared so CSS and JS motion feel like one thing.
+export const ease = {
+  // Things arriving: quick out, soft landing.
+  arrive: cubicBezier(0.2, 0.8, 0.2, 1),
+  // A chalk stroke being drawn.
+  draw: cubicBezier(0.3, 0.7, 0.2, 1),
+  // The thinking scribble: slow start, confident finish.
+  scribble: cubicBezier(0.4, 0.1, 0.3, 1),
+  // A node filling in: a small overshoot, like a dot pressed onto the board.
+  press: cubicBezier(0.2, 1.6, 0.4, 1),
+};
+
+// Chalk dust settling: the fade with a light blur used on words and values.
+export const dustIn = {
+  opacity: { from: 0, to: 1 },
+  filter: { from: "blur(3px)", to: "blur(0px)" },
+};
 
 // A message, card or panel arriving: a small rise and fade in.
-export function animateEnter(targets: anime.AnimeParams["targets"], distance = 8): void {
-  if (prefersReducedMotion()) {
-    anime({ targets, opacity: [0, 1], duration: 120, easing: "linear" });
-    return;
-  }
-  anime({ targets, opacity: [0, 1], translateY: [distance, 0], duration: 220, easing: EASE });
+export function animateEnter(targets: TargetsParam, distance = 8): void {
+  if (prefersReducedMotion()) return;
+  animate(targets, { opacity: { from: 0 }, translateY: { from: distance }, duration: 350, ease: ease.arrive });
+}
+
+// A popover or menu opening just under its trigger.
+export function animateDrop(targets: TargetsParam): void {
+  if (prefersReducedMotion()) return;
+  animate(targets, { opacity: { from: 0 }, translateY: { from: -4 }, duration: 160, ease: "out(2)" });
 }
 
 // A panel or drawer opening from an edge.
-export function animateSlideIn(targets: anime.AnimeParams["targets"], axis: "x" | "y" = "x", distance = 16): void {
-  if (prefersReducedMotion()) {
-    anime({ targets, opacity: [0, 1], duration: 120, easing: "linear" });
-    return;
-  }
-  const from = axis === "x" ? { translateX: [-distance, 0] } : { translateY: [distance, 0] };
-  anime({ targets, opacity: [0, 1], ...from, duration: 220, easing: EASE });
+export function animateSlideIn(targets: TargetsParam, axis: "x" | "y" = "x", distance = 16): void {
+  if (prefersReducedMotion()) return;
+  const prop = axis === "x" ? "translateX" : "translateY";
+  animate(targets, { opacity: { from: 0 }, [prop]: { from: axis === "x" ? -distance : distance }, duration: 220, ease: ease.arrive });
 }
 
 // A control appearing to offer an action, for example jump to latest.
-export function animatePop(targets: anime.AnimeParams["targets"]): void {
-  if (prefersReducedMotion()) {
-    anime({ targets, opacity: [0, 1], duration: 120, easing: "linear" });
-    return;
-  }
-  anime({ targets, opacity: [0, 1], scale: [0.92, 1], duration: 180, easing: EASE });
+export function animatePop(targets: TargetsParam): void {
+  if (prefersReducedMotion()) return;
+  animate(targets, { opacity: { from: 0 }, translateY: { from: 4 }, duration: 180, ease: ease.arrive });
 }
 
-// A quiet attention pulse on a state change, for example balance running low.
-export function animateStateChange(targets: anime.AnimeParams["targets"]): void {
+// A quiet attention cue on a state change, for example credit running low.
+export function animateStateChange(targets: TargetsParam): void {
   if (prefersReducedMotion()) return;
-  anime({ targets, opacity: [0.4, 1], duration: 320, easing: EASE });
+  animate(targets, { ...dustIn, duration: 500, ease: "out(2)" });
 }

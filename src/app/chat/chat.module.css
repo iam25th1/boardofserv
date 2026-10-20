@@ -7,6 +7,6 @@
   gap: var(--s-3);
 }
 .loadingText {
-  color: var(--muted);
+  color: var(--chalk-2);
   font-size: var(--t-sm);
 }

@@ -12,7 +12,7 @@ agents is the next phase. The chat is the product, so it got the most care.
   smart wallet, which OpenServ sign-in would likely reject).
 - Postgres with Drizzle, local Postgres in Docker for development.
 - Plain CSS variables and CSS Modules. Every value is a design token.
-- anime.js for motion, react-markdown for messages, Vitest for tests.
+- anime.js v4 for motion, react-markdown for messages, Vitest for tests.
 
 ## Running it
 
@@ -78,8 +78,8 @@ layer already calls SERV and will use it as soon as that key is available.
 
 ## Design
 
-The visual direction is "Workbench": warm paper, ink text, one deep teal accent,
-one characterful serif used only for the wordmark and the welcome line. No
+The visual direction is "Chalk": chalk on slate when dark, marker on a
+whiteboard when light, Onest for reading and Caveat for small handwritten notes. No
 purple, no gradients, no side colour bars. Tokens live in
 `src/design/tokens.css` and are the single source of every value.
 

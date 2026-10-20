@@ -4,6 +4,7 @@ import type { AccountDTO } from "@/lib/types";
 import { Button } from "@/components/ui";
 import { SignOutIcon, SunIcon, MoonIcon } from "@/components/icons";
 import { animatePop } from "@/lib/motion";
+import { useTheme } from "@/lib/theme";
 import styles from "./AccountMenu.module.css";
 
 interface Props {
@@ -12,24 +13,6 @@ interface Props {
   onLink: () => void;
   onSignOut: () => void;
   startOpen?: boolean;
-}
-
-function useTheme(): [string, () => void] {
-  const [theme, setTheme] = useState("light");
-  useEffect(() => {
-    setTheme(document.documentElement.getAttribute("data-theme") ?? "light");
-  }, []);
-  const toggle = () => {
-    const next = theme === "dark" ? "light" : "dark";
-    document.documentElement.setAttribute("data-theme", next);
-    try {
-      localStorage.setItem("bos-theme", next);
-    } catch {
-      // persistence optional
-    }
-    setTheme(next);
-  };
-  return [theme, toggle];
 }
 
 export function AccountMenu({ account, linking, onLink, onSignOut, startOpen }: Props) {

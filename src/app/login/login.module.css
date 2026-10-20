@@ -3,16 +3,16 @@
   display: grid;
   place-items: center;
   padding: var(--s-5) var(--s-4);
-  background: var(--paper);
+  background: var(--slate);
 }
 
 .card {
   width: 100%;
   max-width: 24rem;
-  background: var(--surface);
-  border: 1px solid var(--hairline);
+  background: var(--slate-2);
+  border: 1px solid var(--line);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-1);
+  box-shadow: none;
   padding: var(--s-6);
 }
 
@@ -21,7 +21,7 @@
 }
 
 .headline {
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-weight: var(--w-medium);
   font-size: var(--t-xl);
   line-height: var(--lh-tight);
@@ -30,7 +30,7 @@
 }
 
 .sub {
-  color: var(--muted);
+  color: var(--chalk-2);
   font-size: var(--t-base);
   margin-bottom: var(--s-5);
 }
@@ -38,6 +38,6 @@
 .fineprint {
   margin-top: var(--s-3);
   font-size: var(--t-xs);
-  color: var(--faint);
+  color: var(--chalk-3);
   text-align: center;
 }

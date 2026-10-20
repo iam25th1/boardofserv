@@ -15,7 +15,7 @@
   text-align: left;
 }
 .trigger:hover {
-  background: var(--surface-2);
+  background: var(--slate-3);
 }
 
 .avatar {
@@ -23,8 +23,8 @@
   width: 28px;
   height: 28px;
   border-radius: var(--r-full);
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--chalk);
+  color: var(--slate);
   display: grid;
   place-items: center;
   font-size: var(--t-sm);
@@ -38,17 +38,17 @@
 }
 .email {
   font-size: var(--t-sm);
-  color: var(--ink);
+  color: var(--chalk);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .state {
   font-size: var(--t-xs);
-  color: var(--muted);
+  color: var(--chalk-2);
 }
 .state[data-state="low"] {
-  color: var(--warning);
+  color: var(--chalk);
 }
 
 .panel {
@@ -56,26 +56,26 @@
   bottom: calc(100% + var(--s-2));
   left: 0;
   right: 0;
-  background: var(--surface);
-  border: 1px solid var(--hairline);
+  background: var(--slate-2);
+  border: 1px solid var(--line);
   border-radius: var(--r-md);
-  box-shadow: var(--shadow-2);
+  box-shadow: var(--shadow-pop);
   padding: var(--s-2);
   z-index: 20;
 }
 
 .section {
   padding: var(--s-2);
-  border-bottom: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--line);
 }
 .label {
   font-size: var(--t-xs);
-  color: var(--faint);
+  color: var(--chalk-3);
   margin-bottom: 2px;
 }
 .value {
   font-size: var(--t-sm);
-  color: var(--ink);
+  color: var(--chalk);
   overflow-wrap: anywhere;
 }
 
@@ -89,12 +89,12 @@
   font-size: var(--t-xs);
   padding: 2px var(--s-2);
   border-radius: var(--r-full);
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--dust);
+  color: var(--chalk);
 }
 .chip[data-state="low"] {
-  background: var(--warning-soft);
-  color: var(--warning);
+  background: var(--dust);
+  color: var(--chalk);
 }
 .topup {
   font-size: var(--t-xs);
@@ -112,11 +112,11 @@
   border: none;
   padding: var(--s-2);
   border-radius: var(--r-sm);
-  color: var(--ink);
+  color: var(--chalk);
   font-size: var(--t-sm);
   cursor: pointer;
   text-align: left;
 }
 .action:hover {
-  background: var(--surface-2);
+  background: var(--slate-3);
 }

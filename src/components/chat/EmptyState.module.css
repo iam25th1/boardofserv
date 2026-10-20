@@ -10,7 +10,7 @@
 
 .inner {
   width: 100%;
-  max-width: var(--measure);
+  max-width: var(--col);
 }
 
 .kicker {
@@ -18,16 +18,16 @@
 }
 
 .welcome {
-  font-family: var(--font-display);
+  font-family: var(--font-body);
   font-weight: var(--w-medium);
-  font-size: var(--t-2xl);
+  font-size: var(--t-xl);
   line-height: var(--lh-tight);
   letter-spacing: -0.01em;
   margin-bottom: var(--s-2);
 }
 
 .sub {
-  color: var(--muted);
+  color: var(--chalk-2);
   font-size: var(--t-md);
   max-width: 34rem;
   margin-bottom: var(--s-5);
@@ -44,11 +44,11 @@
 .example {
   width: 100%;
   text-align: left;
-  background: var(--surface);
-  border: 1px solid var(--hairline);
+  background: var(--slate-2);
+  border: 1px solid var(--line);
   border-radius: var(--r-md);
   padding: var(--s-3) var(--s-4);
-  color: var(--ink);
+  color: var(--chalk);
   font-size: var(--t-base);
   cursor: pointer;
   transition:
@@ -57,8 +57,8 @@
     transform var(--dur) var(--ease);
 }
 .example:hover {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--chalk);
+  background: var(--dust);
 }
 .example:active {
   transform: translateY(1px);

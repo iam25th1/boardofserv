@@ -16,8 +16,8 @@
 }
 
 .trigger:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus);
+  outline-offset: 3px;
 }
 
 .popover {
@@ -28,11 +28,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--s-1);
-  padding: var(--s-1);
-  background-color: var(--surface);
-  border: thin solid var(--hairline);
-  border-radius: var(--r-md);
-  box-shadow: var(--shadow-2);
+  padding: 6px;
+  background-color: var(--slate-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
 }
 
 .start {
@@ -49,33 +49,39 @@
   gap: var(--s-2);
   width: 100%;
   text-align: left;
-  font-family: var(--font-ui);
+  font-family: var(--font-body);
   font-size: var(--t-sm);
-  color: var(--ink);
+  color: var(--chalk);
   background-color: transparent;
   border: none;
-  border-radius: var(--r-sm);
-  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  padding: 9px 10px;
   cursor: pointer;
 }
 
 .item:hover {
-  background-color: var(--surface-2);
+  background-color: var(--dust);
 }
 
 .item:focus-visible {
   outline: none;
-  background-color: var(--surface-2);
-  box-shadow: var(--focus-ring);
+  background-color: var(--dust);
+  outline: var(--focus);
+  outline-offset: 3px;
 }
 
 .item.danger {
-  color: var(--danger);
+  color: var(--chalk);
+}
+
+.item.danger .label {
+  text-decoration: underline dashed var(--chalk-3) 1.5px;
+  text-underline-offset: 3px;
 }
 
 .item.danger:hover,
 .item.danger:focus-visible {
-  background-color: var(--danger-soft);
+  background-color: var(--dust);
 }
 
 .icon {

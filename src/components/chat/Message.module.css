@@ -12,8 +12,8 @@
 }
 
 .bubble {
-  background: var(--surface-2);
-  border: 1px solid var(--hairline);
+  background: var(--slate-3);
+  border: 1px solid var(--line);
   border-radius: var(--r-lg);
   padding: var(--s-3) var(--s-4);
   white-space: pre-wrap;
@@ -33,8 +33,8 @@
 
 .editor {
   width: 100%;
-  background: var(--surface);
-  border: 1px solid var(--accent);
+  background: var(--slate-2);
+  border: 1px solid var(--chalk);
   border-radius: var(--r-lg);
   padding: var(--s-3);
 }
@@ -66,21 +66,21 @@
 .who {
   font-weight: var(--w-semibold);
   font-size: var(--t-sm);
-  color: var(--ink);
+  color: var(--chalk);
 }
 .model {
   font-size: var(--t-xs);
-  color: var(--muted);
-  border: 1px solid var(--hairline);
+  color: var(--chalk-2);
+  border: 1px solid var(--line);
   border-radius: var(--r-full);
   padding: 0 var(--s-2);
   line-height: 1.5;
   cursor: default;
 }
 .model[data-serv="true"] {
-  color: var(--accent);
-  border-color: var(--accent-soft);
-  background: var(--accent-soft);
+  color: var(--chalk);
+  border-color: var(--dust);
+  background: var(--dust);
 }
 
 .body {
@@ -93,7 +93,7 @@
   height: 1.05em;
   margin-left: 2px;
   vertical-align: text-bottom;
-  background: var(--accent);
+  background: var(--chalk);
   border-radius: 1px;
   animation: blink 1s steps(2, start) infinite;
 }

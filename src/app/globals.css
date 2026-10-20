@@ -12,18 +12,19 @@ body {
 }
 
 html {
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--font-ui);
+  background: var(--slate);
+  color: var(--chalk);
+  font-family: var(--font-body);
   font-size: 100%;
-  line-height: var(--lh-body);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
 
 body {
   min-height: 100dvh;
-  font-weight: var(--w-regular);
+  background: var(--slate);
+  color: var(--chalk);
+  font: var(--w-regular) var(--t-base) / var(--lh-body) var(--font-body);
 }
 
 h1,
@@ -36,12 +37,15 @@ figure {
 }
 
 a {
-  color: var(--accent);
-  text-underline-offset: 2px;
+  color: var(--chalk);
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-decoration-color: var(--chalk-3);
+  text-underline-offset: 3px;
 }
 
 a:hover {
-  color: var(--accent-strong);
+  text-decoration-color: var(--chalk);
 }
 
 button,
@@ -51,16 +55,45 @@ textarea {
   color: inherit;
 }
 
-/* One focus style everywhere, from the token. */
+button {
+  cursor: pointer;
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* One focus style everywhere: a dashed chalk outline. */
 :focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
+  outline: var(--focus);
+  outline-offset: 3px;
   border-radius: var(--r-sm);
 }
 
 ::selection {
-  background: var(--accent-soft);
-  color: var(--ink);
+  background: var(--slate-3);
+  color: var(--chalk);
+}
+
+/* The rough filter lives once at the app root (ChalkFilter). */
+.chalk-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.chalky {
+  filter: url(#rough);
+}
+
+/* Handwritten notes. Small, never body copy. */
+.hand {
+  font-family: var(--font-hand);
+  font-weight: var(--w-medium);
 }
 
 .visually-hidden {
@@ -75,20 +108,26 @@ textarea {
   border: 0;
 }
 
-/* Thin, quiet scrollbars that match the surface. */
+/* Thin, quiet scrollbars that match the slate. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--hairline) transparent;
+  scrollbar-color: var(--line) transparent;
 }
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--hairline);
+  background: var(--line);
   border-radius: var(--r-full);
   border: 2px solid transparent;
   background-clip: content-box;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

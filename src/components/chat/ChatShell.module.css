@@ -19,13 +19,13 @@
 
 .topbar {
   flex: none;
-  height: var(--header-h);
+  height: 3.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 var(--s-2);
-  border-bottom: 1px solid var(--hairline);
-  background: var(--paper);
+  border-bottom: 1px solid var(--line);
+  background: var(--slate);
 }
 .topbarMark {
   flex: 1;
@@ -36,13 +36,13 @@
 .scrim {
   position: fixed;
   inset: 0;
-  background: rgba(16, 33, 30, 0.4);
+  background: var(--scrim);
   z-index: 30;
   display: flex;
 }
 .drawer {
   height: 100%;
-  box-shadow: var(--shadow-2);
+  box-shadow: var(--shadow-pop);
 }
 
 .linkBanner {
@@ -52,11 +52,11 @@
   gap: var(--s-3);
   padding: var(--s-2) var(--s-4) var(--s-4);
   font-size: var(--t-sm);
-  color: var(--muted);
+  color: var(--chalk-2);
 }
 
 .confirmText {
-  color: var(--muted);
+  color: var(--chalk-2);
   font-size: var(--t-sm);
 }
 

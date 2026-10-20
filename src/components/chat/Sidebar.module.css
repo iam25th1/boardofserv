@@ -2,9 +2,9 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  width: var(--rail-w);
-  background: var(--surface);
-  border-right: 1px solid var(--hairline);
+  width: 17rem;
+  background: var(--slate-2);
+  border-right: 1px solid var(--line);
 }
 
 .head {
@@ -12,14 +12,14 @@
   flex-direction: column;
   gap: var(--s-3);
   padding: var(--s-4);
-  border-bottom: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--line);
 }
 
 .search {
   position: relative;
   display: flex;
   align-items: center;
-  color: var(--faint);
+  color: var(--chalk-3);
 }
 .search svg {
   position: absolute;
@@ -38,7 +38,7 @@
 }
 
 .empty {
-  color: var(--faint);
+  color: var(--chalk-3);
   font-size: var(--t-sm);
   padding: var(--s-3);
 }
@@ -54,7 +54,7 @@
 .groupLabel {
   font-size: var(--t-xs);
   font-weight: var(--w-semibold);
-  color: var(--faint);
+  color: var(--chalk-3);
   padding: var(--s-1) var(--s-2);
 }
 
@@ -65,10 +65,10 @@
 }
 .item:hover,
 .item[data-active="true"] {
-  background: var(--surface-2);
+  background: var(--slate-3);
 }
 .item[data-active="true"] .title {
-  color: var(--ink);
+  color: var(--chalk);
   font-weight: var(--w-medium);
 }
 
@@ -80,7 +80,7 @@
   border: none;
   padding: var(--s-2);
   cursor: pointer;
-  color: var(--muted);
+  color: var(--chalk-2);
 }
 .title {
   display: block;
@@ -102,7 +102,7 @@
 }
 
 .foot {
-  border-top: 1px solid var(--hairline);
+  border-top: 1px solid var(--line);
   padding: var(--s-2);
   display: flex;
   flex-direction: column;
@@ -112,13 +112,13 @@
   background: none;
   border: none;
   text-align: left;
-  color: var(--muted);
+  color: var(--chalk-2);
   font-size: var(--t-xs);
   padding: var(--s-2);
   border-radius: var(--r-sm);
   cursor: pointer;
 }
 .shortcuts:hover {
-  background: var(--surface-2);
-  color: var(--ink);
+  background: var(--slate-3);
+  color: var(--chalk);
 }

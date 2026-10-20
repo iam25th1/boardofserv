@@ -1,6 +1,6 @@
 .skeleton {
   display: block;
-  background-color: var(--surface-2);
+  background-color: var(--slate-3);
   animation: skeletonBreath calc(var(--dur-slow) * 5) var(--ease) infinite alternate;
 }
 

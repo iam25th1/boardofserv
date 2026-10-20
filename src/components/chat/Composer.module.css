@@ -1,24 +1,24 @@
 .dock {
   padding: var(--s-2) var(--s-4) var(--s-4);
-  background: var(--paper);
-  border-top: 1px solid var(--hairline);
+  background: var(--slate);
+  border-top: 1px solid var(--line);
 }
 
 .composer {
-  max-width: var(--measure);
+  max-width: var(--col);
   margin: 0 auto;
   display: flex;
   align-items: flex-end;
   gap: var(--s-2);
-  background: var(--surface);
-  border: 1px solid var(--hairline);
+  background: var(--slate-2);
+  border: 1px solid var(--line);
   border-radius: var(--r-lg);
   padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4);
-  box-shadow: var(--shadow-1);
+  box-shadow: none;
   transition: border-color var(--dur) var(--ease);
 }
 .composer:focus-within {
-  border-color: var(--accent);
+  border-color: var(--chalk);
 }
 .composer[data-disabled="true"] {
   opacity: 0.6;
@@ -35,7 +35,7 @@
   max-height: 200px;
 }
 .area::placeholder {
-  color: var(--faint);
+  color: var(--chalk-3);
 }
 
 .send {
@@ -43,9 +43,9 @@
 }
 
 .hint {
-  max-width: var(--measure);
+  max-width: var(--col);
   margin: var(--s-2) auto 0;
   text-align: center;
   font-size: var(--t-xs);
-  color: var(--faint);
+  color: var(--chalk-3);
 }
