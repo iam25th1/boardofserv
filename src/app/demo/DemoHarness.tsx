@@ -51,8 +51,10 @@ Want it to post when ETH recovers too, or only on the way down?`;
 
 const MESSAGES: MessageView[] = [
   { id: "u1", role: "user", content: "Tell my Telegram group when ETH drops 5 percent" },
-  { id: "a1", role: "assistant", content: ASSISTANT, source: "serv", sourceLabel: "SERV" },
+  { id: "a1", role: "assistant", content: ASSISTANT, source: "serv", sourceLabel: "SERV Reasoning" },
 ];
+// backup=1 shows the same reply as if the backup model had answered it.
+const BACKUP_REPLY: MessageView = { ...MESSAGES[1]!, source: "fallback", sourceLabel: "GPT-4o mini" };
 
 // state=replay plays the seeded reply through the real streaming path: the
 // thinking scribble first, then chunks of a few words at network-like pace
@@ -64,7 +66,7 @@ function useReplay(on: boolean, repeat: number): StreamingView | null {
     const words = Array.from({ length: repeat }, () => ASSISTANT).join("\n\n").match(/\S+\s*/g) ?? [];
     let i = 0;
     let timer: ReturnType<typeof setTimeout>;
-    setView({ key: "replay", content: "", source: "serv", sourceLabel: "SERV" });
+    setView({ key: "replay", content: "", source: "serv", sourceLabel: "SERV Reasoning" });
     const tick = () => {
       const n = 1 + Math.floor(Math.random() * 6);
       const chunk = words.slice(i, i + n).join("");
@@ -86,6 +88,7 @@ export function DemoHarness({
   chips,
   repeat = 1,
   sketchMode,
+  backup,
 }: {
   state: string;
   balance: "ok" | "low";
@@ -94,6 +97,7 @@ export function DemoHarness({
   chips?: boolean;
   repeat?: number;
   sketchMode?: string;
+  backup?: boolean;
 }) {
   // Dev harness only: render after mount so the seeded, time-based data never
   // causes a server and client hydration mismatch.
@@ -122,9 +126,9 @@ export function DemoHarness({
       : state === "thinking"
         ? { key: "demo-stream", content: "" }
         : state === "streaming"
-          ? { key: "demo-stream", content: partial, source: "serv", sourceLabel: "SERV" }
+          ? { key: "demo-stream", content: partial, source: "serv", sourceLabel: "SERV Reasoning" }
           : null;
-  const messages = ["streaming", "thinking", "replay"].includes(state) ? [MESSAGES[0]!] : MESSAGES;
+  const messages = ["streaming", "thinking", "replay"].includes(state) ? [MESSAGES[0]!] : backup ? [MESSAGES[0]!, BACKUP_REPLY] : MESSAGES;
   const error = state === "error" ? "The reply could not be completed. You can retry." : null;
 
   return (
