@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/chat/EmptyState";
 import { TopBar } from "@/components/chat/TopBar";
 import { Chips } from "@/components/chat/Chips";
 import { SketchDock } from "@/components/chat/SketchDock";
-import type { AgentSketch } from "@/lib/agentSketch";
+import { sketchFromDTO, type AgentSketch } from "@/lib/agentSketch";
 import type { StreamingView } from "@/components/chat/MessageList";
 import shell from "@/components/chat/ChatShell.module.css";
 
@@ -109,6 +109,13 @@ export function DemoHarness({
     if (process.env.NODE_ENV === "development" && (sketchMode === "demo" || sketchMode === "ready")) {
       void import("@/lib/agentSketch.fixture").then((f) => setSketch(sketchMode === "ready" ? f.ethWatcherReady : f.ethWatcher));
     }
+    // sketch=live: the dock on stored data, exactly as a real conversation
+    // shows it (no switch to flip, no cost). sketch=live-ready has every field.
+    if (process.env.NODE_ENV === "development" && (sketchMode === "live" || sketchMode === "live-ready")) {
+      void import("@/lib/agentSketch.fixture").then((f) =>
+        setSketch(sketchFromDTO(sketchMode === "live-ready" ? { ...f.ethWatcherStored, tells: "Telegram", asking: null } : f.ethWatcherStored)),
+      );
+    }
   }, [sketchMode]);
   if (!mounted) return null;
   const account: AccountDTO = {
@@ -167,7 +174,7 @@ export function DemoHarness({
         busy={Boolean(streaming)}
         onSend={() => {}}
         onStop={() => {}}
-        dock={sketch && <SketchDock sketch={sketch} onToggle={(live) => setSketch({ ...sketch, live })} />}
+        dock={sketch && <SketchDock sketch={sketch} canSwitch={sketchMode === "demo" || sketchMode === "ready"} onToggle={(live) => setSketch({ ...sketch, live })} />}
       />
     </div>
   );

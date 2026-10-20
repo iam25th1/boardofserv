@@ -117,8 +117,14 @@ production). States: `/demo?state=empty|convo|thinking|streaming|replay|error`, 
 answered it) and `balance=low` flags. `replay` plays the seeded reply through
 the streaming path (`repeat=8` makes it long).
 
-The agent sketch dock has no real data yet. In development only,
-`/?sketch=demo` (or `/demo?sketch=demo`) shows it with the mockup's ETH
-watcher waiting on one answer, and `sketch=ready` shows it ready so the switch
-can be flipped. The switch only changes local state. Production never loads
-the fixture.
+The agent sketch dock fills in from the conversation: every reply ends with
+a sketch block that the server cuts out, merges into the conversation's
+stored sketch and sends to the dock (see "The agent sketch" below). Agents
+cannot run yet, so a ready sketch says "Ready. Switching on comes in the next
+update." and its switch stays disabled; there is no cost line either.
+
+In development only, `/?sketch=demo` (or `/demo?sketch=demo`) shows the dock
+with the mockup's ETH watcher waiting on one answer, and `sketch=ready` shows
+it ready so the switch can be flipped (local state only). `/demo?sketch=live`
+and `sketch=live-ready` show the same agent the way a real conversation does.
+Production never loads the fixtures.

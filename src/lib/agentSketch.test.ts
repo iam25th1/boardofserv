@@ -39,7 +39,9 @@ describe("agent sketch", () => {
     const ready = { ...empty, watches: set("ETH"), when: set("x"), how: set("y"), tells: set("Telegram") };
     expect(isReady(ready)).toBe(true);
     expect(linksOf(nodesOf(ready))).toEqual([true, true]);
-    expect(statusLine(ready, false)).toBe("Ready. Flip the switch to start it");
+    // Agents cannot run yet: a real sketch never offers the switch.
+    expect(statusLine(ready, false)).toBe("Ready. Switching on comes in the next update.");
+    expect(statusLine(ready, false, true)).toBe("Ready. Flip the switch to start it");
     expect(statusLine({ ...ready, live: true }, false)).toBe("Running on your credit");
     expect(statusLine(ready, true)).toBe("Paused");
   });

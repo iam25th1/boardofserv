@@ -13,7 +13,8 @@ import { EmptyState } from "./EmptyState";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { TopBar } from "./TopBar";
 import { SketchDock } from "./SketchDock";
-import type { AgentSketch } from "@/lib/agentSketch";
+import { sketchFromDTO, type AgentSketch } from "@/lib/agentSketch";
+import type { SketchDTO } from "@/lib/types";
 import type { MessageView } from "./Message";
 import styles from "./ChatShell.module.css";
 
@@ -32,7 +33,10 @@ export function ChatShell() {
   const [account, setAccount] = useState<AccountDTO | null>(null);
   const [linking, setLinking] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
-  const [sketch, setSketch] = useState<AgentSketch | null>(null);
+  // The active conversation's stored sketch, updated by each reply.
+  const [sketch, setSketch] = useState<SketchDTO | null>(null);
+  // Development only: a fixture from ?sketch=demo or ?sketch=ready.
+  const [fixture, setFixture] = useState<AgentSketch | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -65,16 +69,15 @@ export function ChatShell() {
     void refreshAccount();
   }, [refreshConversations, refreshAccount]);
 
-  // No conversation produces an agent sketch yet (that is the next brief).
   // In development, ?sketch=demo (or ready) shows the dock with the mockup's
-  // ETH watcher. The import sits inside a development-only branch, so the
-  // fixture is not in a production build at all. The switch only flips this
-  // local state.
+  // ETH watcher in place of the conversation's own sketch. The import sits
+  // inside a development-only branch, so the fixture is not in a production
+  // build at all. Its switch only flips this local state.
   useEffect(() => {
     if (process.env.NODE_ENV === "development") {
       const mode = new URLSearchParams(window.location.search).get("sketch");
       if (mode === "demo" || mode === "ready") {
-        void import("@/lib/agentSketch.fixture").then((f) => setSketch(mode === "ready" ? f.ethWatcherReady : f.ethWatcher));
+        void import("@/lib/agentSketch.fixture").then((f) => setFixture(mode === "ready" ? f.ethWatcherReady : f.ethWatcher));
       }
     }
   }, []);
@@ -104,10 +107,12 @@ export function ChatShell() {
       setActiveId(id);
       setError(null);
       try {
-        const { messages: rows } = await api.getConversation(id);
+        const { messages: rows, sketch: stored } = await api.getConversation(id);
         setMessages(rows.map((m) => ({ id: m.id, role: m.role, content: m.content, source: m.source, sourceLabel: m.sourceLabel })));
+        setSketch(stored);
       } catch {
         setMessages([]);
+        setSketch(null);
       }
     },
     [api, abortReply],
@@ -117,6 +122,7 @@ export function ChatShell() {
     abortReply();
     setActiveId(null);
     setMessages([]);
+    setSketch(null);
     setError(null);
     setTimeout(() => (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus(), 30);
   }, [abortReply]);
@@ -148,6 +154,8 @@ export function ChatShell() {
               setStreaming(live);
             });
           }
+        } else if (e.type === "sketch") {
+          setSketch(e.sketch);
         } else if (e.type === "done") {
           const content = live.content + dropPending();
           if (content.trim()) {
@@ -320,7 +328,14 @@ export function ChatShell() {
         disabled={notReady}
         onSend={send}
         onStop={stop}
-        dock={sketch && <SketchDock sketch={sketch} onToggle={(live) => setSketch({ ...sketch, live })} />}
+        dock={
+          fixture ? (
+            <SketchDock sketch={fixture} canSwitch onToggle={(live) => setFixture({ ...fixture, live })} />
+          ) : sketch?.name ? (
+            // Keyed by conversation: opening another one brings its dock in fresh.
+            <SketchDock key={activeId ?? "new"} sketch={sketchFromDTO(sketch)} />
+          ) : null
+        }
       />
       {notReady && (
         <div className={styles.linkBanner} role="status">
