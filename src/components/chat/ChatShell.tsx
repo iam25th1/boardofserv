@@ -104,7 +104,7 @@ export function ChatShell() {
       setActiveId(id);
       setError(null);
       try {
-        const rows = await api.getMessages(id);
+        const { messages: rows } = await api.getConversation(id);
         setMessages(rows.map((m) => ({ id: m.id, role: m.role, content: m.content, source: m.source, sourceLabel: m.sourceLabel })));
       } catch {
         setMessages([]);

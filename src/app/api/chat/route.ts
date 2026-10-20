@@ -4,8 +4,8 @@ import { getUserFromRequest } from "@/lib/auth-route";
 import { db } from "@/lib/db";
 import { conversations, messages, replyUsage, type Message } from "@/lib/db/schema";
 import { contextFor, CUT_OFF_SUFFIX, modelConfig, streamReply, type ChatMessage, type ReplyResult } from "@/lib/model";
-import { parseSketchBlock, SketchSplitter } from "@/lib/sketchBlock";
-import type { SketchDTO } from "@/lib/types";
+import { mergeSketch, parseSketchBlock, SketchSplitter, withSketch } from "@/lib/sketchBlock";
+import { loadSketch, saveSketch } from "@/lib/sketchStore";
 
 export const runtime = "nodejs";
 
@@ -74,9 +74,13 @@ export async function POST(req: Request) {
     .where(eq(messages.conversationId, cid))
     .orderBy(asc(messages.createdAt));
   const config = modelConfig();
-  const chat: ChatMessage[] = contextFor(
-    history.map((m) => ({ role: m.role, content: m.content })),
-    config.historyMessages,
+  const stored = await loadSketch(cid);
+  const chat: ChatMessage[] = withSketch(
+    contextFor(
+      history.map((m) => ({ role: m.role, content: m.content })),
+      config.historyMessages,
+    ),
+    stored,
   );
 
   // Name the conversation from its first user message.
@@ -148,9 +152,9 @@ export async function POST(req: Request) {
         .returning();
       await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
       if (parsed) {
-        const { choices, ...fields } = parsed;
-        const sketch: SketchDTO = { ...fields, live: false };
-        send("sketch", { sketch, choices });
+        const sketch = mergeSketch(stored, parsed);
+        await saveSketch(cid, sketch);
+        send("sketch", { sketch, choices: parsed.choices });
       }
       send("done", { messageId: saved?.id, source, label });
       if (open) ctrl.close();

@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { ChatMessage } from "./model";
+import type { SketchDTO } from "./types";
 
 // Every reply ends with a sketch of the agent so far, in one block on its own
 // lines (the system prompt asks for it):
@@ -116,4 +118,36 @@ export function parseSketchBlock(raw: string | null): ParsedSketch | null {
   if (!json || typeof json !== "object" || Array.isArray(json)) return null;
   const parsed = SketchBlock.safeParse(json);
   return parsed.success ? parsed.data : null;
+}
+
+// A reply's sketch merged into the stored one. A value from the model replaces
+// the stored value (the person changed their mind); a null never wipes one.
+// "asking" always comes from the latest reply. Choices are not stored.
+export function mergeSketch(stored: SketchDTO | null, parsed: ParsedSketch): SketchDTO {
+  return {
+    name: parsed.name ?? stored?.name ?? null,
+    kind: parsed.kind ?? stored?.kind ?? null,
+    watches: parsed.watches ?? stored?.watches ?? null,
+    when: parsed.when ?? stored?.when ?? null,
+    how: parsed.how ?? stored?.how ?? null,
+    tells: parsed.tells ?? stored?.tells ?? null,
+    asking: parsed.asking,
+    live: stored?.live ?? false,
+  };
+}
+
+// History for the model with the stored sketch put back on the latest reply,
+// where the model wrote it. Stored replies carry no block, so this shows the
+// model the format it keeps to and everything already known, for the price of
+// one block.
+export function withSketch(context: ChatMessage[], sketch: SketchDTO | null): ChatMessage[] {
+  if (!sketch) return context;
+  let last = -1;
+  context.forEach((m, i) => {
+    if (m.role === "assistant") last = i;
+  });
+  if (last === -1) return context;
+  const { live: _live, ...fields } = sketch;
+  const block = `${SKETCH_OPEN}\n${JSON.stringify({ ...fields, choices: [] })}\n${SKETCH_CLOSE}`;
+  return context.map((m, i) => (i === last ? { ...m, content: `${m.content}\n\n${block}` } : m));
 }

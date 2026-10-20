@@ -74,6 +74,26 @@ export const replyUsage = pgTable(
   (t) => ({ byCreated: index("reply_usage_created_idx").on(t.createdAt) }),
 );
 
+// The agent being sketched in a conversation, one row per conversation. Each
+// reply's sketch block is merged in (see mergeSketch): a value the model sends
+// replaces the stored one, a null never wipes it. live stays false until
+// agents can run.
+export const agentSketches = pgTable("agent_sketches", {
+  conversationId: uuid("conversation_id")
+    .primaryKey()
+    .references(() => conversations.id, { onDelete: "cascade" }),
+  name: text("name"),
+  kind: text("kind", { enum: ["watcher", "digest", "helper"] }),
+  watches: text("watches"),
+  when: text("when"),
+  how: text("how"),
+  tells: text("tells"),
+  asking: text("asking", { enum: ["watches", "when", "how", "tells"] }),
+  live: boolean("live").notNull().default(false),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
+export type AgentSketchRow = typeof agentSketches.$inferSelect;

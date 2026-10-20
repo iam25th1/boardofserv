@@ -22,6 +22,13 @@
       "when": 1792534672690,
       "tag": "0002_usage_sketch_ok",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792534764499,
+      "tag": "0003_agent_sketches",
+      "breakpoints": true
     }
   ]
 }

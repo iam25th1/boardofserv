@@ -2,6 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
+import { loadSketch } from "@/lib/sketchStore";
 
 export const runtime = "nodejs";
 
@@ -17,5 +18,6 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     .from(messages)
     .where(eq(messages.conversationId, params.id))
     .orderBy(asc(messages.createdAt));
-  return Response.json({ messages: rows });
+  // The conversation's agent sketch comes with it, or null when there is none.
+  return Response.json({ messages: rows, sketch: await loadSketch(params.id) });
 }
