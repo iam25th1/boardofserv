@@ -16,3 +16,6 @@ test-results/
 screenshots/
 
 *.tsbuildinfo
+
+# Local design reference. Stays out of the repo.
+docs/design/chalk-mockup.html
