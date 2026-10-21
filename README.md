@@ -133,15 +133,17 @@ must fit them." With nothing left to ask, the reply confirms the agent is fully
 described. If the plan fails or does not validate, the reply still runs on the
 stored sketch, picks its own question and shows no buttons. A reply that still
 writes sketch JSON or the old `<<<SKETCH` block has it kept off the screen. The
-reply streams and ends with a `reply_end` event, which unlocks
-the composer; the dock says "sketching..." until the `sketch` event and then
-`done` arrive. Agents cannot run yet, so a ready sketch says "Ready. Switching on
-comes in the next update." and its switch stays disabled; there is no cost
-line either.
+stream sends the plan's `sketch` event first, so the dock fills in while the
+thinking scribble still shows. Until then the dock says "sketching..." (a new
+conversation has no dock yet: it appears with the first sketch). The reply's
+words follow, then `reply_end`, which unlocks the composer and carries the
+buttons, and then `done`. Agents cannot run yet, so a ready sketch says "Ready.
+Switching on comes in the next update." and its switch stays disabled; there is
+no cost line either.
 
 In development only, `/?sketch=demo` (or `/demo?sketch=demo`) shows the dock
 with the mockup's ETH watcher waiting on one answer, and `sketch=ready` shows
 it ready so the switch can be flipped (local state only). `/demo?sketch=live`
 and `sketch=live-ready` show the same agent the way a real conversation does,
-and `sketching=1` adds the "sketching..." note it shows while a sketch is read.
+and `sketching=1` adds the "sketching..." note it shows while the plan runs.
 Production never loads the fixtures.

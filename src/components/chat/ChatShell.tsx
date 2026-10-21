@@ -37,13 +37,13 @@ export function ChatShell() {
   // The active conversation's stored sketch, updated by each reply.
   const [sketch, setSketch] = useState<SketchDTO | null>(null);
   // Each turn's number, so a turn whose sketch arrives late never overwrites a
-  // newer one; and which turn's sketch is being read, for the dock's note.
+  // newer one; and which turn's plan is running, for the dock's note.
   const turnRef = useRef(0);
   const sketchTurnRef = useRef(0);
   const [sketchingTurn, setSketchingTurn] = useState<number | null>(null);
   const activeRef = useRef<string | null>(null);
-  // Suggested answers from the latest reply's sketch, shown under that reply
-  // only. Sending anything clears them; they are not stored.
+  // Suggested answers from the latest turn's plan, shown under its reply only,
+  // from reply_end. Sending anything clears them; they are not stored.
   const [chips, setChips] = useState<{ messageId: string; options: string[] } | null>(null);
   // Development only: a fixture from ?sketch=demo or ?sketch=ready.
   const [fixture, setFixture] = useState<AgentSketch | null>(null);
@@ -160,35 +160,57 @@ export function ChatShell() {
       setStreaming(live);
       let convoId = body.conversationId ?? activeId ?? undefined;
       let replyId: string | null = null;
+      // A new conversation is named by the first event that carries its id.
+      const adopt = (id: string) => {
+        convoId = id;
+        if (!activeId) {
+          setActiveId(id);
+          activeRef.current = id;
+        }
+      };
 
-      // The reply is finished at reply_end: the words stop and the composer
-      // unlocks while the sketch is still being read. The stream stays open
-      // for the sketch and done, which may arrive after the next turn began,
-      // so from here on this turn only touches what is still its own.
-      const endReply = (messageId: string | undefined, source: string, label: string) => {
+      // The plan runs first, so the dock says "sketching..." until its sketch
+      // arrives, or until the reply starts without one (the plan failed).
+      let planning = true;
+      setSketchingTurn(turn);
+      const stopSketching = () => {
+        if (!planning) return;
+        planning = false;
+        setSketchingTurn((t) => (t === turn ? null : t));
+      };
+
+      // The reply is finished at reply_end: the words stop, the composer
+      // unlocks and the plan's answers show under the reply. Only done is
+      // still to come, and it may arrive after the next turn began, so from
+      // here on this turn only touches what is still its own.
+      const endReply = (messageId: string | undefined, source: string, label: string, choices: string[] = []) => {
         if (replyId !== null) return;
         replyId = messageId ?? live.key;
         const content = live.content + dropPending();
         if (content.trim()) {
           const settled: MessageView = { id: replyId, clientKey: live.key, settled: true, role: "assistant", content, source, sourceLabel: label };
           setMessages((prev) => [...prev, settled]);
+          if (choices.length) setChips({ messageId: replyId, options: choices });
         }
         setStreaming(null);
         setBusy(false);
-        setSketchingTurn(turn);
+        stopSketching();
       };
-      const stopSketching = () => setSketchingTurn((t) => (t === turn ? null : t));
 
       const stopThis = api.sendChat({ ...body, conversationId: convoId }, (e) => {
-        if (e.type === "meta") {
-          convoId = e.conversationId;
-          if (!activeId) {
-            setActiveId(e.conversationId);
-            activeRef.current = e.conversationId;
-          }
+        if (e.type === "sketch") {
+          adopt(e.conversationId);
+          stopSketching();
+          // Only into the conversation it belongs to, and never over a newer turn's sketch.
+          if (convoId !== activeRef.current || turn < sketchTurnRef.current) return;
+          sketchTurnRef.current = turn;
+          setSketch(e.sketch);
+        } else if (e.type === "meta") {
+          adopt(e.conversationId);
           live = { ...live, source: e.source, sourceLabel: e.label };
           setStreaming(live);
         } else if (e.type === "delta") {
+          stopSketching();
           pendingRef.current += e.text;
           if (frameRef.current === null) {
             frameRef.current = requestAnimationFrame(() => {
@@ -199,21 +221,14 @@ export function ChatShell() {
             });
           }
         } else if (e.type === "reply_end") {
-          endReply(e.messageId, e.source, e.label);
-        } else if (e.type === "sketch") {
-          stopSketching();
-          // Only into the conversation it belongs to, and never over a newer turn's sketch.
-          if (convoId !== activeRef.current || turn < sketchTurnRef.current) return;
-          sketchTurnRef.current = turn;
-          setSketch(e.sketch);
-          if (e.choices.length && replyId) setChips({ messageId: replyId, options: e.choices });
+          endReply(e.messageId, e.source, e.label, e.choices);
         } else if (e.type === "done") {
           endReply(e.messageId, e.source, e.label);
-          stopSketching();
           if (stopRef.current === stopThis) stopRef.current = null;
           void refreshConversations();
           void refreshAccount();
         } else if (e.type === "error") {
+          stopSketching();
           if (replyId !== null) return;
           dropPending();
           setStreaming(null);

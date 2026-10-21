@@ -121,6 +121,8 @@ export async function POST(req: Request) {
         sketch = mergeSketch(stored, plan.sketch);
         await saveSketch(cid, sketch);
         turnPlan = { asking: sketch.asking, choices: sketch.asking ? plan.sketch.choices : [] };
+        // The dock fills in now, while the reply is still being written.
+        send("sketch", { conversationId: cid, sketch });
       }
 
       // Then the reply. Its system message carries what the sketch holds and
@@ -172,9 +174,9 @@ export async function POST(req: Request) {
         .values({ conversationId: cid, role: "assistant", content: full.trimEnd(), source, sourceLabel: label })
         .returning();
       await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
-      // The reply is finished and saved: the browser unlocks the composer.
-      send("reply_end", { messageId: saved?.id, source, label });
-      if (turnPlan && sketch) send("sketch", { sketch, choices: turnPlan.choices });
+      // The reply is finished and saved: the browser unlocks the composer and
+      // shows the plan's answers under it.
+      send("reply_end", { messageId: saved?.id, source, label, choices: turnPlan?.choices ?? [] });
       await recordUsage(cid, result, plan.result, plan.sketch !== null);
       send("done", { messageId: saved?.id, source, label });
       if (open) ctrl.close();

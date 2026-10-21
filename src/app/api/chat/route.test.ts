@@ -59,7 +59,9 @@ function servJson(content: string | number): Response {
 interface Turn {
   events: { event: string; data: Record<string, unknown> }[];
   shown: string;
-  sketch: { sketch: SketchDTO; choices: string[] } | undefined;
+  sketch: { conversationId: string; sketch: SketchDTO } | undefined;
+  // The buttons, which come with reply_end.
+  choices: string[] | undefined;
   conversationId: string;
 }
 
@@ -80,6 +82,7 @@ async function turn(content: string, conversationId?: string): Promise<Turn> {
     events,
     shown: events.filter((e) => e.event === "delta").map((e) => e.data.text).join(""),
     sketch: events.find((e) => e.event === "sketch")?.data as Turn["sketch"],
+    choices: events.find((e) => e.event === "reply_end")?.data.choices as string[] | undefined,
     conversationId: events.find((e) => e.event === "meta")!.data.conversationId as string,
   };
 }
@@ -128,13 +131,13 @@ describe("a chat turn with a sketch", () => {
     const t = await turn("Tell me when ETH drops below $2,000");
     convo = t.conversationId;
 
-    expect(t.events.map((e) => e.event).filter((e, i, all) => e !== "delta" || all[i - 1] !== "delta")).toEqual(["meta", "delta", "reply_end", "sketch", "done"]);
+    expect(t.events.map((e) => e.event).filter((e, i, all) => e !== "delta" || all[i - 1] !== "delta")).toEqual(["sketch", "meta", "delta", "reply_end", "done"]);
     expect(t.shown).toBe(reply);
     // reply_end comes once the reply is saved, so it already names the message.
     const ids = t.events.filter((e) => e.event === "reply_end" || e.event === "done").map((e) => e.data.messageId);
     expect(ids[0]).toBeTruthy();
     expect(ids).toEqual([ids[0], ids[0]]);
-    expect(t.sketch?.choices).toEqual(["Every minute", "Every 5 minutes", "Every hour"]);
+    expect(t.choices).toEqual(["Every minute", "Every 5 minutes", "Every hour"]);
     expect(t.sketch?.sketch).toEqual({
       name: "ETH floor watch",
       kind: "watcher",

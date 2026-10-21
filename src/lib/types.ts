@@ -40,10 +40,13 @@ export interface SketchDTO {
 }
 
 export type ChatEvent =
+  // The plan's sketch, sent before the reply starts. It names the
+  // conversation because it arrives before meta.
+  | { type: "sketch"; conversationId: string; sketch: SketchDTO }
   | { type: "meta"; conversationId: string; source: string; label: string }
   | { type: "delta"; text: string }
-  // The reply is finished and saved; the sketch and done follow.
-  | { type: "reply_end"; messageId?: string; source: string; label: string }
-  | { type: "sketch"; sketch: SketchDTO; choices: string[] }
+  // The reply is finished and saved, with the plan's answers to show under it
+  // as buttons (none when the plan failed); done follows.
+  | { type: "reply_end"; messageId?: string; source: string; label: string; choices: string[] }
   | { type: "done"; messageId?: string; source: string; label: string }
   | { type: "error"; message: string };
