@@ -1,4 +1,5 @@
 import type { AgentSketch } from "./agentSketch";
+import type { SketchDTO } from "./types";
 
 // Development fixture only: the ETH watcher from the chalk mockup. Loaded with
 // a dynamic import inside a development-only branch, so production builds
@@ -19,3 +20,17 @@ export const ethWatcherReady: AgentSketch = {
   ...ethWatcher,
   tells: { value: "Telegram", status: "set" },
 };
+
+// The same agent as the server stores it, for the /demo harness's
+// sketch=live: the dock on real data, with no switch to flip and no cost.
+export const ethWatcherStored: SketchDTO = {
+  name: "ETH floor watch",
+  kind: "watcher",
+  watches: "ETH price in USD",
+  when: "Below $2,000",
+  how: "Every 5 minutes",
+  tells: null,
+  asking: "tells",
+  live: false,
+};
+

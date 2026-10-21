@@ -58,7 +58,9 @@ npm run gate     # typecheck, lint, test, build. Run before every commit.
 ## How a user signs in and links OpenServ
 
 1. The user signs in with an email code through Privy and gets an embedded EOA.
-2. On first use, that wallet signs OpenServ's SIWE message in the browser.
+2. Linking is optional: chatting never needs it. When the user links OpenServ
+   from the account menu, that wallet signs OpenServ's SIWE message in the
+   browser.
 3. The server completes sign-in (`/auth/wallet/verify`), receives the user's
    OpenServ API key, encrypts it with `OPENSERV_KEY_ENC_KEY`, and stores only the
    ciphertext. The key is decrypted on the server when a request to OpenServ is
@@ -117,8 +119,24 @@ production). States: `/demo?state=empty|convo|thinking|streaming|replay|error`, 
 answered it) and `balance=low` flags. `replay` plays the seeded reply through
 the streaming path (`repeat=8` makes it long).
 
-The agent sketch dock has no real data yet. In development only,
-`/?sketch=demo` (or `/demo?sketch=demo`) shows it with the mockup's ETH
-watcher waiting on one answer, and `sketch=ready` shows it ready so the switch
-can be flipped. The switch only changes local state. Production never loads
-the fixture.
+The agent sketch dock fills in from the conversation. Each turn makes two
+calls: the reply streams first (its system message carries one plain line of
+what the sketch already holds and what is missing), then one non-streaming call
+with a strict json_schema reads the sketch out of the turn: the sketch so far,
+what the person said and the reply. That result is validated, trimmed (at most
+4 choices, short fields), merged into the conversation's stored sketch (a new
+value replaces a stored one, an empty one never wipes it) and sent to the dock.
+If it fails or does not validate, the stored sketch stays as it was. A reply
+that still writes sketch JSON or the old `<<<SKETCH` block has it kept off the
+screen. The reply streams and ends with a `reply_end` event, which unlocks
+the composer; the dock says "sketching..." until the `sketch` event and then
+`done` arrive. Agents cannot run yet, so a ready sketch says "Ready. Switching on
+comes in the next update." and its switch stays disabled; there is no cost
+line either.
+
+In development only, `/?sketch=demo` (or `/demo?sketch=demo`) shows the dock
+with the mockup's ETH watcher waiting on one answer, and `sketch=ready` shows
+it ready so the switch can be flipped (local state only). `/demo?sketch=live`
+and `sketch=live-ready` show the same agent the way a real conversation does,
+and `sketching=1` adds the "sketching..." note it shows while a sketch is read.
+Production never loads the fixtures.

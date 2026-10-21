@@ -13,7 +13,9 @@ import { EmptyState } from "./EmptyState";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { TopBar } from "./TopBar";
 import { SketchDock } from "./SketchDock";
-import type { AgentSketch } from "@/lib/agentSketch";
+import { Chips } from "./Chips";
+import { sketchFromDTO, type AgentSketch } from "@/lib/agentSketch";
+import type { SketchDTO } from "@/lib/types";
 import type { MessageView } from "./Message";
 import styles from "./ChatShell.module.css";
 
@@ -32,7 +34,19 @@ export function ChatShell() {
   const [account, setAccount] = useState<AccountDTO | null>(null);
   const [linking, setLinking] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
-  const [sketch, setSketch] = useState<AgentSketch | null>(null);
+  // The active conversation's stored sketch, updated by each reply.
+  const [sketch, setSketch] = useState<SketchDTO | null>(null);
+  // Each turn's number, so a turn whose sketch arrives late never overwrites a
+  // newer one; and which turn's sketch is being read, for the dock's note.
+  const turnRef = useRef(0);
+  const sketchTurnRef = useRef(0);
+  const [sketchingTurn, setSketchingTurn] = useState<number | null>(null);
+  const activeRef = useRef<string | null>(null);
+  // Suggested answers from the latest reply's sketch, shown under that reply
+  // only. Sending anything clears them; they are not stored.
+  const [chips, setChips] = useState<{ messageId: string; options: string[] } | null>(null);
+  // Development only: a fixture from ?sketch=demo or ?sketch=ready.
+  const [fixture, setFixture] = useState<AgentSketch | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -65,16 +79,19 @@ export function ChatShell() {
     void refreshAccount();
   }, [refreshConversations, refreshAccount]);
 
-  // No conversation produces an agent sketch yet (that is the next brief).
+  useEffect(() => {
+    activeRef.current = activeId;
+  }, [activeId]);
+
   // In development, ?sketch=demo (or ready) shows the dock with the mockup's
-  // ETH watcher. The import sits inside a development-only branch, so the
-  // fixture is not in a production build at all. The switch only flips this
-  // local state.
+  // ETH watcher in place of the conversation's own sketch. The import sits
+  // inside a development-only branch, so the fixture is not in a production
+  // build at all. Its switch only flips this local state.
   useEffect(() => {
     if (process.env.NODE_ENV === "development") {
       const mode = new URLSearchParams(window.location.search).get("sketch");
       if (mode === "demo" || mode === "ready") {
-        void import("@/lib/agentSketch.fixture").then((f) => setSketch(mode === "ready" ? f.ethWatcherReady : f.ethWatcher));
+        void import("@/lib/agentSketch.fixture").then((f) => setFixture(mode === "ready" ? f.ethWatcherReady : f.ethWatcher));
       }
     }
   }, []);
@@ -96,18 +113,23 @@ export function ChatShell() {
     dropPending();
     setBusy(false);
     setStreaming(null);
+    setSketchingTurn(null);
   }, [dropPending]);
 
   const openConversation = useCallback(
     async (id: string) => {
       abortReply();
       setActiveId(id);
+      activeRef.current = id;
       setError(null);
       try {
-        const rows = await api.getMessages(id);
+        const { messages: rows, sketch: stored } = await api.getConversation(id);
         setMessages(rows.map((m) => ({ id: m.id, role: m.role, content: m.content, source: m.source, sourceLabel: m.sourceLabel })));
+        setSketch(stored);
+        setChips(null);
       } catch {
         setMessages([]);
+        setSketch(null);
       }
     },
     [api, abortReply],
@@ -116,15 +138,20 @@ export function ChatShell() {
   const startNew = useCallback(() => {
     abortReply();
     setActiveId(null);
+    activeRef.current = null;
     setMessages([]);
+    setSketch(null);
+    setChips(null);
     setError(null);
     setTimeout(() => (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus(), 30);
   }, [abortReply]);
 
   const run = useCallback(
     (body: { conversationId?: string; content?: string; regenerate?: boolean; editMessageId?: string }) => {
+      const turn = ++turnRef.current;
       setBusy(true);
       setError(null);
+      setChips(null);
       dropPending();
       // The reply being built lives in a local and is copied into state, so
       // finishing it never relies on a side effect inside a state updater
@@ -132,10 +159,33 @@ export function ChatShell() {
       let live: StreamingView = { key: crypto.randomUUID(), content: "" };
       setStreaming(live);
       let convoId = body.conversationId ?? activeId ?? undefined;
-      stopRef.current = api.sendChat({ ...body, conversationId: convoId }, (e) => {
+      let replyId: string | null = null;
+
+      // The reply is finished at reply_end: the words stop and the composer
+      // unlocks while the sketch is still being read. The stream stays open
+      // for the sketch and done, which may arrive after the next turn began,
+      // so from here on this turn only touches what is still its own.
+      const endReply = (messageId: string | undefined, source: string, label: string) => {
+        if (replyId !== null) return;
+        replyId = messageId ?? live.key;
+        const content = live.content + dropPending();
+        if (content.trim()) {
+          const settled: MessageView = { id: replyId, clientKey: live.key, settled: true, role: "assistant", content, source, sourceLabel: label };
+          setMessages((prev) => [...prev, settled]);
+        }
+        setStreaming(null);
+        setBusy(false);
+        setSketchingTurn(turn);
+      };
+      const stopSketching = () => setSketchingTurn((t) => (t === turn ? null : t));
+
+      const stopThis = api.sendChat({ ...body, conversationId: convoId }, (e) => {
         if (e.type === "meta") {
           convoId = e.conversationId;
-          if (!activeId) setActiveId(e.conversationId);
+          if (!activeId) {
+            setActiveId(e.conversationId);
+            activeRef.current = e.conversationId;
+          }
           live = { ...live, source: e.source, sourceLabel: e.label };
           setStreaming(live);
         } else if (e.type === "delta") {
@@ -148,33 +198,31 @@ export function ChatShell() {
               setStreaming(live);
             });
           }
+        } else if (e.type === "reply_end") {
+          endReply(e.messageId, e.source, e.label);
+        } else if (e.type === "sketch") {
+          stopSketching();
+          // Only into the conversation it belongs to, and never over a newer turn's sketch.
+          if (convoId !== activeRef.current || turn < sketchTurnRef.current) return;
+          sketchTurnRef.current = turn;
+          setSketch(e.sketch);
+          if (e.choices.length && replyId) setChips({ messageId: replyId, options: e.choices });
         } else if (e.type === "done") {
-          const content = live.content + dropPending();
-          if (content.trim()) {
-            const settled: MessageView = {
-              id: e.messageId ?? crypto.randomUUID(),
-              clientKey: live.key,
-              settled: true,
-              role: "assistant",
-              content,
-              source: e.source,
-              sourceLabel: e.label,
-            };
-            setMessages((prev) => [...prev, settled]);
-          }
-          setStreaming(null);
-          setBusy(false);
-          stopRef.current = null;
+          endReply(e.messageId, e.source, e.label);
+          stopSketching();
+          if (stopRef.current === stopThis) stopRef.current = null;
           void refreshConversations();
           void refreshAccount();
         } else if (e.type === "error") {
+          if (replyId !== null) return;
           dropPending();
           setStreaming(null);
           setBusy(false);
-          stopRef.current = null;
+          if (stopRef.current === stopThis) stopRef.current = null;
           setError(e.message);
         }
       });
+      stopRef.current = stopThis;
     },
     [api, activeId, refreshConversations, refreshAccount, dropPending],
   );
@@ -234,10 +282,12 @@ export function ChatShell() {
 
   const doRename = useCallback(async () => {
     if (!renameId || !renameValue.trim()) return;
-    await api.renameConversation(renameId, renameValue.trim());
+    const renamed = await api.renameConversation(renameId, renameValue.trim());
+    // Renaming a sketched conversation renames its agent, dock included.
+    if (renameId === activeId && renamed.sketchName) setSketch((s) => s && { ...s, name: renamed.sketchName });
     setRenameId(null);
     void refreshConversations();
-  }, [api, renameId, renameValue, refreshConversations]);
+  }, [api, renameId, renameValue, activeId, refreshConversations]);
 
   const doDelete = useCallback(async () => {
     if (!deleteId) return;
@@ -269,7 +319,6 @@ export function ChatShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, [startNew]);
 
-  const notReady = account !== null && !account.linked;
 
   return (
     <div className={styles.app}>
@@ -284,7 +333,8 @@ export function ChatShell() {
             onSelect={openConversation}
             onRename={(id) => {
               setRenameId(id);
-              setRenameValue(conversations.find((c) => c.id === id)?.title ?? "");
+              const c = conversations.find((x) => x.id === id);
+              setRenameValue(c?.sketchName ?? c?.title ?? "");
             }}
             onDelete={(id) => setDeleteId(id)}
           />
@@ -301,7 +351,7 @@ export function ChatShell() {
       />
 
       {messages.length === 0 && !streaming ? (
-        <EmptyState onPick={send} disabled={busy || notReady} />
+        <EmptyState onPick={send} disabled={busy} />
       ) : (
         <MessageList
           messages={messages}
@@ -311,25 +361,26 @@ export function ChatShell() {
           onRetry={retry}
           onRegenerate={regenerate}
           onEdit={edit}
+          footer={
+            chips && messages.at(-1)?.id === chips.messageId && !busy ? <Chips options={chips.options} onPick={send} /> : undefined
+          }
         />
       )}
 
       <Composer
         conversationKey={activeId ?? "new"}
         busy={busy}
-        disabled={notReady}
         onSend={send}
         onStop={stop}
-        dock={sketch && <SketchDock sketch={sketch} onToggle={(live) => setSketch({ ...sketch, live })} />}
+        dock={
+          fixture ? (
+            <SketchDock sketch={fixture} canSwitch onToggle={(live) => setFixture({ ...fixture, live })} />
+          ) : sketch?.name ? (
+            // Keyed by conversation: opening another one brings its dock in fresh.
+            <SketchDock key={activeId ?? "new"} sketch={sketchFromDTO(sketch)} sketching={sketchingTurn !== null} />
+          ) : null
+        }
       />
-      {notReady && (
-        <div className={styles.linkBanner} role="status">
-          <span>Link your OpenServ account to get replies from SERV.</span>
-          <Button size="sm" onClick={doLink} disabled={linking}>
-            {linking ? "Linking..." : "Link now"}
-          </Button>
-        </div>
-      )}
 
       <ShortcutsDialog open={shortcuts} onClose={() => setShortcuts(false)} />
 

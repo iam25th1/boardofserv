@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/chat/EmptyState";
 import { TopBar } from "@/components/chat/TopBar";
 import { Chips } from "@/components/chat/Chips";
 import { SketchDock } from "@/components/chat/SketchDock";
-import type { AgentSketch } from "@/lib/agentSketch";
+import { sketchFromDTO, type AgentSketch } from "@/lib/agentSketch";
 import type { StreamingView } from "@/components/chat/MessageList";
 import shell from "@/components/chat/ChatShell.module.css";
 
@@ -18,10 +18,10 @@ const now = Date.now();
 const iso = (daysAgo: number) => new Date(now - daysAgo * 86_400_000).toISOString();
 
 const CONVERSATIONS: ConversationDTO[] = [
-  { id: "1", title: "Tell my Telegram group when ETH drops 5 percent", createdAt: iso(0), updatedAt: iso(0) },
-  { id: "2", title: "Daily Gmail summary at 8am", createdAt: iso(0), updatedAt: iso(0) },
-  { id: "3", title: "Post new blog articles to X", createdAt: iso(3), updatedAt: iso(3) },
-  { id: "4", title: "Watch a wallet for large transfers", createdAt: iso(12), updatedAt: iso(12) },
+  { id: "1", title: "Tell my Telegram group when ETH drops 5 percent", sketchName: "ETH floor watch", createdAt: iso(0), updatedAt: iso(0) },
+  { id: "2", title: "Daily Gmail summary at 8am", sketchName: "Morning inbox digest", createdAt: iso(0), updatedAt: iso(0) },
+  { id: "3", title: "Post new blog articles to X", sketchName: "Blog to X", createdAt: iso(3), updatedAt: iso(3) },
+  { id: "4", title: "Watch a wallet for large transfers", sketchName: null, createdAt: iso(12), updatedAt: iso(12) },
 ];
 
 const ASSISTANT = `Here is what your agent would do.
@@ -89,6 +89,7 @@ export function DemoHarness({
   repeat = 1,
   sketchMode,
   backup,
+  sketching,
 }: {
   state: string;
   balance: "ok" | "low";
@@ -98,6 +99,7 @@ export function DemoHarness({
   repeat?: number;
   sketchMode?: string;
   backup?: boolean;
+  sketching?: boolean;
 }) {
   // Dev harness only: render after mount so the seeded, time-based data never
   // causes a server and client hydration mismatch.
@@ -108,6 +110,13 @@ export function DemoHarness({
   useEffect(() => {
     if (process.env.NODE_ENV === "development" && (sketchMode === "demo" || sketchMode === "ready")) {
       void import("@/lib/agentSketch.fixture").then((f) => setSketch(sketchMode === "ready" ? f.ethWatcherReady : f.ethWatcher));
+    }
+    // sketch=live: the dock on stored data, exactly as a real conversation
+    // shows it (no switch to flip, no cost). sketch=live-ready has every field.
+    if (process.env.NODE_ENV === "development" && (sketchMode === "live" || sketchMode === "live-ready")) {
+      void import("@/lib/agentSketch.fixture").then((f) =>
+        setSketch(sketchFromDTO(sketchMode === "live-ready" ? { ...f.ethWatcherStored, tells: "Telegram", asking: null } : f.ethWatcherStored)),
+      );
     }
   }, [sketchMode]);
   if (!mounted) return null;
@@ -167,7 +176,16 @@ export function DemoHarness({
         busy={Boolean(streaming)}
         onSend={() => {}}
         onStop={() => {}}
-        dock={sketch && <SketchDock sketch={sketch} onToggle={(live) => setSketch({ ...sketch, live })} />}
+        dock={
+          sketch && (
+            <SketchDock
+              sketch={sketch}
+              canSwitch={sketchMode === "demo" || sketchMode === "ready"}
+              sketching={sketching}
+              onToggle={(live) => setSketch({ ...sketch, live })}
+            />
+          )
+        }
       />
     </div>
   );

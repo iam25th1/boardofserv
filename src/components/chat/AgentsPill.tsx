@@ -7,12 +7,14 @@ import { animateDrop } from "@/lib/motion";
 import styles from "./AgentsPill.module.css";
 
 // The agents pill in the top bar. Real agents do not exist yet, so until they
-// do the popover lists the user's conversations: each one is an agent being
-// sketched. Ring states follow the mockup: dashed and spinning while a reply
-// is in progress, outline for a draft, filled for live (unused until agents
-// can run). Search, rename and delete moved here from the old sidebar.
+// do the popover lists the user's conversations. One with a sketch shows the
+// agent's name and counts as an agent; one without keeps its title. Ring
+// states follow the mockup: dashed and spinning while a reply is in progress,
+// outline for a draft, filled for live (unused until agents can run), and no
+// ring for a conversation with no sketch yet. Search, rename and delete moved
+// here from the old sidebar.
 
-export type RingState = "live" | "wiring" | "draft";
+export type RingState = "live" | "wiring" | "draft" | "none";
 
 interface Props {
   conversations: ConversationDTO[];
@@ -94,8 +96,10 @@ export const AgentsPill = forwardRef<AgentsPillHandle, Props>(function AgentsPil
     };
   }, [open]);
 
-  const ringOf = (c: ConversationDTO): RingState => (c.id === replyingId ? "wiring" : "draft");
-  const filtered = conversations.filter((c) => c.title.toLowerCase().includes(query.trim().toLowerCase()));
+  const ringOf = (c: ConversationDTO): RingState => (c.id === replyingId ? "wiring" : c.sketchName ? "draft" : "none");
+  const nameOf = (c: ConversationDTO) => c.sketchName ?? c.title;
+  const agents = conversations.filter((c) => c.sketchName);
+  const filtered = conversations.filter((c) => nameOf(c).toLowerCase().includes(query.trim().toLowerCase()));
   const groups = GROUPS.map((group) => ({ group, items: filtered.filter((c) => groupOf(c.updatedAt) === group) })).filter(
     (g) => g.items.length > 0,
   );
@@ -111,11 +115,11 @@ export const AgentsPill = forwardRef<AgentsPillHandle, Props>(function AgentsPil
         onClick={() => (open ? close(false) : setOpen(true))}
       >
         <span className={styles.tally} aria-hidden="true">
-          {(conversations.length ? conversations.slice(0, 6) : [null]).map((c, i) => (
+          {(agents.length ? agents.slice(0, 6) : [null]).map((c, i) => (
             <i key={c?.id ?? i} className={c && ringOf(c) === "live" ? styles.on : undefined} />
           ))}
         </span>
-        <span>{countLabel(conversations.length)}</span>
+        <span>{countLabel(agents.length)}</span>
       </button>
 
       <div className={styles.pop} id={popId} ref={pop} hidden={!open}>
@@ -153,14 +157,14 @@ export const AgentsPill = forwardRef<AgentsPillHandle, Props>(function AgentsPil
                       >
                         <i className={styles.ring} aria-hidden="true" />
                         <span className={styles.text}>
-                          <strong>{c.title}</strong>
-                          <small>{state === "wiring" ? "Being sketched" : "Draft"}</small>
+                          <strong>{nameOf(c)}</strong>
+                          <small>{state === "wiring" ? "Being sketched" : state === "draft" ? "Draft" : "No sketch yet"}</small>
                         </span>
                       </button>
                       {/* Focus goes back to the pill first, so it returns there when the dialog closes. */}
                       <div className={styles.rowMenu}>
                         <IconButton
-                          label={`Rename ${c.title}`}
+                          label={`Rename ${nameOf(c)}`}
                           size="sm"
                           onClick={() => {
                             close(true);
@@ -170,7 +174,7 @@ export const AgentsPill = forwardRef<AgentsPillHandle, Props>(function AgentsPil
                           <EditIcon />
                         </IconButton>
                         <IconButton
-                          label={`Delete ${c.title}`}
+                          label={`Delete ${nameOf(c)}`}
                           size="sm"
                           onClick={() => {
                             close(true);

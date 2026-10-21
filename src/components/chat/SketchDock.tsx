@@ -18,10 +18,13 @@ import styles from "./SketchDock.module.css";
 
 // The agent sketch, docked on top of the composer as one piece: name and
 // status, the watch / decide / tell you diagram, the on/off switch, and the
-// details panel that opens when you tap the name.
+// details panel that opens when you tap the name. Agents cannot run yet, so
+// the switch only works for the development fixtures (canSwitch); a real
+// sketch keeps it disabled and its status line says why.
 
 const NODE_X: Record<NodeKey, number> = { watch: 28, decide: 104, tell: 180 };
 const NODE_LABEL: Record<NodeKey, string> = { watch: "watch", decide: "decide", tell: "tell you" };
+const NODE_OF: Record<FieldKey, NodeKey> = { watches: "watch", when: "decide", how: "decide", tells: "tell" };
 const LINK_D = ["M28 16 C 60 8, 76 24, 104 16", "M104 16 C 132 8, 150 24, 180 16"];
 
 const FILLED = 0.62;
@@ -36,14 +39,17 @@ function Emphasis({ text }: { text: string }) {
 
 interface Props {
   sketch: AgentSketch;
-  onToggle: (live: boolean) => void;
+  canSwitch?: boolean;
+  // The sketch is being read from the latest reply.
+  sketching?: boolean;
+  onToggle?: (live: boolean) => void;
 }
 
-export function SketchDock({ sketch, onToggle }: Props) {
+export function SketchDock({ sketch, canSwitch = false, sketching = false, onToggle }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const details = useRef<HTMLUListElement>(null);
   const links = useRef<ReturnType<typeof svg.createDrawable> | null>(null);
-  const before = useRef<{ nodes: string; links: string; fields: string; live: boolean } | null>(null);
+  const before = useRef<{ nodes: string; links: string; fields: string; values: string[]; live: boolean } | null>(null);
   const [open, setOpen] = useState(false);
   const [paused, setPaused] = useState(false);
   const detailsId = useId();
@@ -79,11 +85,13 @@ export function SketchDock({ sketch, onToggle }: Props) {
   const nodesSig = NODE_KEYS.map((k) => nodes[k]).join();
   const linksSig = linked.join();
   const fieldsSig = FIELD_KEYS.map((k) => sketch[k].status).join();
+  const values = FIELD_KEYS.map((k) => sketch[k].value);
+  const valuesSig = JSON.stringify(values);
   useLayoutEffect(() => {
     const el = root.current;
     const lines = links.current;
     if (!el || !lines) return;
-    const now = { nodes: nodesSig, links: linksSig, fields: fieldsSig, live: sketch.live };
+    const now = { nodes: nodesSig, links: linksSig, fields: fieldsSig, values, live: sketch.live };
     const prev = before.current;
     before.current = now;
     const first = prev === null;
@@ -96,6 +104,12 @@ export function SketchDock({ sketch, onToggle }: Props) {
     const changedNodes = NODE_KEYS.filter((k, i) => first || prevNodes[i] !== nodes[k]);
     const changedLinks = [0, 1].filter((i) => first || prevLinks[i] !== String(linked[i]));
     const newlySet = FIELD_KEYS.filter((k, i) => sketch[k].status === "set" && prevFields[i] !== "set");
+    // A set field whose value changed (the person changed their mind): its
+    // value dusts in again and its node, already filled, presses once.
+    const changedValue = FIELD_KEYS.filter(
+      (k, i) => !first && sketch[k].status === "set" && prevFields[i] === "set" && prev.values[i] !== sketch[k].value,
+    );
+    const pressed = [...new Set(changedValue.map((k) => NODE_OF[k]))].filter((n) => nodes[n] === "on" && !changedNodes.includes(n));
 
     if (prefersReducedMotion()) {
       changedNodes.forEach((k) => utils.set(fill(k), { scale: nodes[k] === "on" ? FILLED : 0 }));
@@ -114,7 +128,9 @@ export function SketchDock({ sketch, onToggle }: Props) {
       // Drawn links wait for the fills before them; erased ones go at once.
       tl.add(lines[i]!, { draw: linked[i] ? ["0 0", "0 1"] : "0 0", duration: 600, ease: ease.draw }, linked[i] ? undefined : 0);
     });
-    if (!first && newlySet.length) tl.add(newlySet.map(value), { ...dustIn, duration: 500, ease: "out(2)" }, 0);
+    const dusted = [...newlySet, ...changedValue];
+    if (!first && dusted.length) tl.add(dusted.map(value), { ...dustIn, duration: 500, ease: "out(2)" }, 0);
+    if (pressed.length) tl.add(pressed.map(fill), { scale: [{ to: 1 }, { to: FILLED }], duration: 360, ease: "inOut(2)" }, 0);
 
     // Switching on: the three dots press in turn.
     if (prev && !prev.live && sketch.live) {
@@ -125,7 +141,7 @@ export function SketchDock({ sketch, onToggle }: Props) {
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodesSig, linksSig, fieldsSig, sketch.live]);
+  }, [nodesSig, linksSig, fieldsSig, valuesSig, sketch.live]);
 
   // The details panel opens by unfolding; it closes the same way before it
   // is hidden.
@@ -165,7 +181,7 @@ export function SketchDock({ sketch, onToggle }: Props) {
   const flip = () => {
     const next = !sketch.live;
     if (!next) setPaused(true);
-    onToggle(next);
+    onToggle?.(next);
   };
 
   return (
@@ -179,7 +195,7 @@ export function SketchDock({ sketch, onToggle }: Props) {
           onClick={toggleDetails}
         >
           <strong>{sketch.name || "Unnamed agent"}</strong>
-          <small>{statusLine(sketch, paused)}</small>
+          <small>{sketching ? <span className={styles.sketching}>sketching...</span> : statusLine(sketch, paused, canSwitch)}</small>
         </button>
         <svg className={`${styles.flow} chalky`} viewBox="0 0 208 44" aria-hidden="true" focusable="false">
           {LINK_D.map((d, i) => (
@@ -203,8 +219,8 @@ export function SketchDock({ sketch, onToggle }: Props) {
           role="switch"
           className={styles.toggle}
           aria-checked={sketch.live}
-          aria-label={sketch.live ? "Switch agent off" : "Switch agent on"}
-          disabled={!ready}
+          aria-label={canSwitch ? (sketch.live ? "Switch agent off" : "Switch agent on") : "Switch agent on (comes in the next update)"}
+          disabled={!ready || !canSwitch}
           onClick={flip}
         />
       </div>
@@ -215,7 +231,12 @@ export function SketchDock({ sketch, onToggle }: Props) {
             <b>{sketch[k].status === "set" ? sketch[k].value : sketch[k].status === "waiting" ? "waiting on you" : "Waiting"}</b>
           </li>
         ))}
-        <li className={styles.cost}>{sketch.cost ? <Emphasis text={sketch.cost} /> : "Cost shows once it's sketched."}</li>
+        {/* No cost until agents can run; only the fixtures carry one. */}
+        {sketch.cost && (
+          <li className={styles.cost}>
+            <Emphasis text={sketch.cost} />
+          </li>
+        )}
       </ul>
     </div>
   );

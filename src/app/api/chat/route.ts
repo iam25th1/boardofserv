@@ -3,7 +3,11 @@ import { z } from "zod";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { db } from "@/lib/db";
 import { conversations, messages, replyUsage, type Message } from "@/lib/db/schema";
-import { contextFor, modelConfig, streamReply, type ChatMessage, type ReplyResult } from "@/lib/model";
+import { contextFor, CUT_OFF_SUFFIX, modelConfig, streamReply, type ChatMessage, type JsonResult, type ReplyResult } from "@/lib/model";
+import { mergeSketch, SketchSplitter } from "@/lib/sketchBlock";
+import { extractSketch } from "@/lib/sketchExtract";
+import { loadSketch, saveSketch } from "@/lib/sketchStore";
+import { replySystemPrompt } from "@/lib/systemPrompt";
 
 export const runtime = "nodejs";
 
@@ -72,10 +76,16 @@ export async function POST(req: Request) {
     .where(eq(messages.conversationId, cid))
     .orderBy(asc(messages.createdAt));
   const config = modelConfig();
-  const chat: ChatMessage[] = contextFor(
-    history.map((m) => ({ role: m.role, content: m.content })),
-    config.historyMessages,
-  );
+  // The reply's system message carries what the sketch holds so far.
+  const stored = await loadSketch(cid);
+  const chat: ChatMessage[] = [
+    { role: "system", content: replySystemPrompt(stored) },
+    ...contextFor(
+      history.map((m) => ({ role: m.role, content: m.content })),
+      config.historyMessages,
+    ),
+  ];
+  const said = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
 
   // Name the conversation from its first user message.
   const firstUser = history.find((m) => m.role === "user");
@@ -92,53 +102,75 @@ export async function POST(req: Request) {
   const stream = new ReadableStream<Uint8Array>({
     async start(ctrl) {
       const enc = new TextEncoder();
+      let open = true;
+      const send = (event: string, data: unknown) => {
+        if (!open) return;
+        try {
+          ctrl.enqueue(enc.encode(sse(event, data)));
+        } catch {
+          open = false; // the browser went away; keep going so the reply is saved
+        }
+      };
+      // Replies no longer write a sketch, but if one still carries the old
+      // block or bare sketch JSON, the splitter keeps it off the screen.
+      const split = new SketchSplitter();
       let full = "";
+      const show = (text: string) => {
+        if (!text) return;
+        full += text;
+        send("delta", { text });
+      };
       let source = "";
       let label = "";
       let result: ReplyResult | null = null;
-      try {
-        for await (const ev of streamReply(chat, { config, signal: controller.signal })) {
-          if (ev.type === "start") {
-            source = ev.provider;
-            label = ev.label;
-            ctrl.enqueue(enc.encode(sse("meta", { conversationId: cid, source, label })));
-          } else if (ev.type === "delta") {
-            full += ev.text;
-            ctrl.enqueue(enc.encode(sse("delta", { text: ev.text })));
-          } else {
-            result = ev.result;
-          }
+      for await (const ev of streamReply(chat, { config, signal: controller.signal })) {
+        if (ev.type === "start") {
+          source = ev.provider;
+          label = ev.label;
+          send("meta", { conversationId: cid, source, label });
+        } else if (ev.type === "delta") {
+          show(split.push(ev.text));
+        } else {
+          result = ev.result;
         }
-      } catch {
-        // The stream to the browser closed (the person left or pressed stop).
       }
-      await recordUsage(cid, result);
-      if (!full) {
-        const message = result?.error ?? "The reply could not be completed. You can retry.";
-        try {
-          ctrl.enqueue(enc.encode(sse("error", { message })));
-          ctrl.close();
-        } catch {
-          // Already closed by the browser.
-        }
+      const { rest } = split.finish();
+      if (result?.cutOff) {
+        // Cut off inside the block means the reply itself was complete.
+        if (!split.inBlock) show(CUT_OFF_SUFFIX);
+      } else {
+        show(rest);
+      }
+
+      if (!full.trim()) {
+        await recordUsage(cid, result, null, null);
+        send("error", { message: result?.error ?? "The reply could not be completed. You can retry." });
+        if (open) ctrl.close();
         return;
       }
       // Persist whatever was produced, including a partial reply after a stop.
-      let messageId: string | undefined;
-      if (full.trim()) {
-        const [saved] = await db
-          .insert(messages)
-          .values({ conversationId: cid, role: "assistant", content: full, source, sourceLabel: label })
-          .returning();
-        messageId = saved?.id;
-        await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
+      const [saved] = await db
+        .insert(messages)
+        .values({ conversationId: cid, role: "assistant", content: full.trimEnd(), source, sourceLabel: label })
+        .returning();
+      await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
+      // The reply is finished and saved: the browser unlocks the composer
+      // here, before the sketch, which can take a few seconds more.
+      send("reply_end", { messageId: saved?.id, source, label });
+
+      // Then the sketch, read out of this turn by a second call. It runs on
+      // its own signal: leaving the page after the reply still saves it. If
+      // it fails or does not validate, the stored sketch stays as it was.
+      const extraction = await extractSketch({ stored, said, reply: full.trimEnd() }, { config, signal: AbortSignal.timeout(60_000) });
+      if (extraction.sketch) {
+        // Merged into the latest stored sketch, in case another turn saved one meanwhile.
+        const sketch = mergeSketch(await loadSketch(cid), extraction.sketch);
+        await saveSketch(cid, sketch);
+        send("sketch", { sketch, choices: extraction.sketch.choices });
       }
-      try {
-        ctrl.enqueue(enc.encode(sse("done", { messageId, source, label })));
-        ctrl.close();
-      } catch {
-        // Already closed by the browser.
-      }
+      await recordUsage(cid, result, extraction.result, extraction.sketch !== null);
+      send("done", { messageId: saved?.id, source, label });
+      if (open) ctrl.close();
     },
     cancel() {
       controller.abort();
@@ -154,8 +186,9 @@ export async function POST(req: Request) {
   });
 }
 
-// One usage row per reply. A failure to record must never break the reply.
-async function recordUsage(conversationId: string, r: ReplyResult | null): Promise<void> {
+// One usage row per reply, with the sketch extraction's next to it. A failure
+// to record must never break the reply.
+async function recordUsage(conversationId: string, r: ReplyResult | null, x: JsonResult | null, sketchOk: boolean | null): Promise<void> {
   if (!r) return;
   try {
     await db.insert(replyUsage).values({
@@ -167,6 +200,11 @@ async function recordUsage(conversationId: string, r: ReplyResult | null): Promi
       firstTokenMs: r.firstTokenMs,
       totalMs: r.totalMs,
       outcome: r.outcome,
+      sketchOk,
+      extractPromptTokens: x?.promptTokens ?? null,
+      extractCompletionTokens: x?.completionTokens ?? null,
+      extractMs: x?.totalMs ?? null,
+      extractOutcome: x?.outcome ?? null,
     });
   } catch (err) {
     console.error("reply usage not recorded", err instanceof Error ? err.message : "unknown error");

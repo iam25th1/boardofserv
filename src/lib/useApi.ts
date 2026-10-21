@@ -1,7 +1,7 @@
 "use client";
 import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
-import type { AccountDTO, ChatEvent, ConversationDTO, MessageDTO } from "./types";
+import type { AccountDTO, ChatEvent, ConversationDTO, MessageDTO, SketchDTO } from "./types";
 
 // Every request carries the Privy access token as a bearer, which the server
 // verifies. The token is the only credential the browser holds; the OpenServ
@@ -32,7 +32,7 @@ export function useApi() {
       renameConversation: (id: string, title: string) =>
         json<{ conversation: ConversationDTO }>(`/api/conversations/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }).then((d) => d.conversation),
       deleteConversation: (id: string) => json<{ ok: boolean }>(`/api/conversations/${id}`, { method: "DELETE" }),
-      getMessages: (id: string) => json<{ messages: MessageDTO[] }>(`/api/conversations/${id}/messages`).then((d) => d.messages),
+      getConversation: (id: string) => json<{ messages: MessageDTO[]; sketch: SketchDTO | null }>(`/api/conversations/${id}/messages`),
       getAccount: () => json<AccountDTO>("/api/account"),
       linkStart: (address: string) => json<{ message: string }>("/api/openserv/link/start", { method: "POST", body: JSON.stringify({ address }) }),
       linkFinish: (address: string, message: string, signature: string) =>

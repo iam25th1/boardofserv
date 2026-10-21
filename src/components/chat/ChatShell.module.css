@@ -6,20 +6,6 @@
   overflow: hidden;
 }
 
-.linkBanner {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: var(--s-3);
-  width: 100%;
-  max-width: var(--col);
-  margin: 0 auto;
-  padding: 0 var(--gutter) var(--s-4);
-  font-size: var(--t-sm);
-  color: var(--chalk-2);
-}
-
 .confirmText {
   color: var(--chalk-2);
   font-size: var(--t-sm);

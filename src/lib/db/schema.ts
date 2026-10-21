@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid, index, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, index, integer, boolean } from "drizzle-orm/pg-core";
 
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
 // embedded wallet address and, encrypted, the OpenServ API key that this
@@ -53,6 +53,8 @@ export const messages = pgTable(
 // outcome: "ok" (the first provider answered), "fell_back" (a later one did)
 // or "failed" (nothing answered, or the reply was cut off mid-stream). Token
 // counts are whatever the provider reported, null when it reported none.
+// sketch_ok says whether the sketch extraction gave a valid sketch (null when
+// no reply was given).
 // Rows outlive their conversation, which is set to null when it is deleted.
 export const replyUsage = pgTable(
   "reply_usage",
@@ -66,11 +68,38 @@ export const replyUsage = pgTable(
     firstTokenMs: integer("first_token_ms"),
     totalMs: integer("total_ms").notNull(),
     outcome: text("outcome", { enum: ["ok", "fell_back", "failed"] }).notNull(),
+    sketchOk: boolean("sketch_ok"),
+    // The sketch extraction that follows the reply: its tokens, time and
+    // outcome, null when it did not run.
+    extractPromptTokens: integer("extract_prompt_tokens"),
+    extractCompletionTokens: integer("extract_completion_tokens"),
+    extractMs: integer("extract_ms"),
+    extractOutcome: text("extract_outcome", { enum: ["ok", "fell_back", "failed"] }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({ byCreated: index("reply_usage_created_idx").on(t.createdAt) }),
 );
 
+// The agent being sketched in a conversation, one row per conversation. Each
+// reply's sketch block is merged in (see mergeSketch): a value the model sends
+// replaces the stored one, a null never wipes it. live stays false until
+// agents can run.
+export const agentSketches = pgTable("agent_sketches", {
+  conversationId: uuid("conversation_id")
+    .primaryKey()
+    .references(() => conversations.id, { onDelete: "cascade" }),
+  name: text("name"),
+  kind: text("kind", { enum: ["watcher", "digest", "helper"] }),
+  watches: text("watches"),
+  when: text("when"),
+  how: text("how"),
+  tells: text("tells"),
+  asking: text("asking", { enum: ["watches", "when", "how", "tells"] }),
+  live: boolean("live").notNull().default(false),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
+export type AgentSketchRow = typeof agentSketches.$inferSelect;
