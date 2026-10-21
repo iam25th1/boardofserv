@@ -163,7 +163,7 @@ export async function POST(req: Request) {
       }
 
       if (!full.trim()) {
-        await recordUsage(cid, result, plan.result, null);
+        await recordUsage(cid, result, plan.result, plan.sketch !== null);
         send("error", { message: result?.error ?? "The reply could not be completed. You can retry." });
         if (open) ctrl.close();
         return;

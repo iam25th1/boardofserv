@@ -53,8 +53,9 @@ export const messages = pgTable(
 // outcome: "ok" (the first provider answered), "fell_back" (a later one did)
 // or "failed" (nothing answered, or the reply was cut off mid-stream). Token
 // counts are whatever the provider reported, null when it reported none.
-// sketch_ok says whether the plan call gave a valid sketch (null when no
-// reply was given).
+// sketch_ok says whether the plan call gave a valid sketch, also when the
+// reply then failed (older rows, from before the plan ran first, have null
+// when no reply was given).
 // Rows outlive their conversation, which is set to null when it is deleted.
 export const replyUsage = pgTable(
   "reply_usage",

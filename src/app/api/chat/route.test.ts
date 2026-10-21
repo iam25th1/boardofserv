@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { join } from "node:path";
 import * as schema from "@/lib/db/schema";
 import { nodesOf, sketchFromDTO, statusLine } from "@/lib/agentSketch";
@@ -28,7 +28,7 @@ type Body = { stream: boolean; messages: { role: string; content: string }[]; re
 const calls: Body[] = [];
 // What the next turn's two calls answer: the plan's JSON text (or an HTTP
 // status for a failed plan), then the reply's chunks.
-let nextReply: string[] = [];
+let nextReply: string[] | number = [];
 let nextSketch: string | number = "";
 
 // SERV's stream shape: one delta per chunk, usage at the end, then [DONE].
@@ -83,7 +83,7 @@ async function turn(content: string, conversationId?: string): Promise<Turn> {
     shown: events.filter((e) => e.event === "delta").map((e) => e.data.text).join(""),
     sketch: events.find((e) => e.event === "sketch")?.data as Turn["sketch"],
     choices: events.find((e) => e.event === "reply_end")?.data.choices as string[] | undefined,
-    conversationId: events.find((e) => e.event === "meta")!.data.conversationId as string,
+    conversationId: events.find((e) => e.event === "meta" || e.event === "sketch")!.data.conversationId as string,
   };
 }
 
@@ -104,7 +104,8 @@ beforeAll(async () => {
   vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body)) as Body;
     calls.push(body);
-    return body.stream ? servStream(nextReply) : servJson(nextSketch);
+    if (!body.stream) return servJson(nextSketch);
+    return typeof nextReply === "number" ? new Response("{}", { status: nextReply }) : servStream(nextReply);
   });
 });
 
@@ -243,6 +244,18 @@ describe("a chat turn with a sketch", () => {
       [false, "ok"],
       [false, "failed"],
     ]);
+  });
+
+  it("keeps a valid plan's sketch when the reply then fails", async () => {
+    const other = await turn("Ping me when gas is cheap");
+    nextReply = 402;
+    nextSketch = extraction({ name: "Gas watch", kind: "watcher", watches: "gas price", asking: "when", choices: ["Under 10 gwei"] });
+    const t = await turn("Watch gas instead", other.conversationId);
+    expect(t.events.map((e) => e.event)).toEqual(["sketch", "error"]);
+    expect(t.choices).toBeUndefined();
+    expect(await sketchRow(other.conversationId)).toMatchObject({ name: "Gas watch", watches: "gas price", asking: "when" });
+    const [usage] = await state.db.select().from(schema.replyUsage).orderBy(desc(schema.replyUsage.createdAt)).limit(1);
+    expect(usage).toMatchObject({ outcome: "failed", sketchOk: true, extractOutcome: "ok" });
   });
 
   it("still keeps an old sketch block or bare sketch JSON in a reply off the screen", async () => {
