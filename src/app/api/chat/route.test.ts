@@ -150,8 +150,8 @@ describe("a chat turn with a sketch", () => {
     // the planned sketch and asks the planned question.
     const [planCall, replyCall] = calls.slice(-2);
     expect(planCall).toMatchObject({ stream: false, response_format: { type: "json_schema", json_schema: { name: "agent_sketch", strict: true } } });
-    expect(planCall!.messages[1]!.content).toContain("The person said: Tell me when ETH drops below $2,000");
-    expect(planCall!.messages[1]!.content).not.toContain("The last reply");
+    expect(planCall!.messages[1]!.content).toContain("Person: Tell me when ETH drops below $2,000");
+    expect(planCall!.messages[1]!.content).not.toContain("Last reply");
     expect(replyCall).toMatchObject({ stream: true });
     expect(replyCall!.messages[0]!.content).toContain("Known so far: name ETH floor watch, kind watcher, watches ETH price, when below $2,000; missing: how, tells.");
 

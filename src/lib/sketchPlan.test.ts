@@ -103,8 +103,8 @@ describe("planTurn", () => {
     const messages = body.messages as { role: string; content: string }[];
     expect(messages[0]).toEqual({ role: "system", content: PLAN_PROMPT });
     expect(messages[1]!.content).toContain('"watches":"ETH price"');
-    expect(messages[1]!.content).toContain(`The last reply: ${TURN.previous}`);
-    expect(messages[1]!.content).toContain("The person said: Every 5 minutes");
+    expect(messages[1]!.content).toContain(`Last reply: ${TURN.previous}`);
+    expect(messages[1]!.content).toContain("Person: Every 5 minutes");
     expect(body.response_format).toMatchObject({ type: "json_schema", json_schema: { name: "agent_sketch", strict: true } });
   });
 });

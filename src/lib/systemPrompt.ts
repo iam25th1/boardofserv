@@ -56,12 +56,6 @@ export function replySystemPrompt(sketch: SketchDTO | null, plan: TurnPlan | nul
   return `${SYSTEM_PROMPT}\n${knownLine(sketch)}\n${askLine(sketch, plan)}`;
 }
 
-// The plan: the sketch as JSON, from the sketch so far, the reply the person
-// is answering and what they just said, plus the next question and its buttons.
-export const PLAN_PROMPT = [
-  "You keep a sketch of the automation agent a person is describing in a chat, and plan the next question. Return the updated sketch as JSON.",
-  "Keep known values unless the person changed them. Use a few plain words per field and an empty string for anything not known yet.",
-  "watches: what it keeps an eye on. when: what makes it act. how: how often it checks. tells: where it reaches the person.",
-  "kind: watcher (watches something and reacts), digest (a summary on a schedule), helper (answers or acts for people), or none.",
-  "asking: the most important field still empty, which the next reply will ask about, or none when all four are known. choices: up to 4 short answers to that question, as the person would tap them.",
-].join(" ");
+// The plan: the sketch as JSON, plus the next question and its buttons. Kept
+// to the minimum: what each field means lives in the schema's descriptions.
+export const PLAN_PROMPT = 'Update the sketch of the agent the person is describing from what they said. Keep known values unless they changed them. Use a few plain words per field and "" if unknown.';

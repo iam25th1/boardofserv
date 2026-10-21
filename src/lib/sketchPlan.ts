@@ -26,14 +26,14 @@ export const SKETCH_SCHEMA = {
     additionalProperties: false,
     required: ["name", "kind", "watches", "when", "how", "tells", "asking", "choices"],
     properties: {
-      name: text("a short name for the agent, or empty if not clear yet"),
-      kind: { type: "string", enum: ["watcher", "digest", "helper", "none"] },
-      watches: text("what it keeps an eye on, or empty"),
-      when: text("what makes it act, or empty"),
-      how: text("how often it checks, or empty"),
-      tells: text("where it reaches the person, or empty"),
-      asking: { type: "string", enum: ["watches", "when", "how", "tells", "none"] },
-      choices: { type: "array", items: { type: "string" }, description: "up to 4 short answers to the next question" },
+      name: text("short agent name"),
+      kind: { type: "string", enum: ["watcher", "digest", "helper", "none"], description: "watcher reacts, digest summarizes, helper answers" },
+      watches: text("what it monitors"),
+      when: text("what triggers it"),
+      how: text("how often it checks"),
+      tells: text("where it notifies"),
+      asking: { type: "string", enum: ["watches", "when", "how", "tells", "none"], description: "most important empty field to ask next; none if all set" },
+      choices: { type: "array", items: { type: "string" }, description: "up to 4 short answers to that question" },
     },
   },
 };
@@ -53,11 +53,12 @@ export interface PlanInput {
   said: string;
 }
 
-// The plan's only input, as one user message.
-export function planInput({ stored: so, previous, said }: PlanInput): string {
-  const sofar = { name: so?.name ?? "", kind: so?.kind ?? "none", watches: so?.watches ?? "", when: so?.when ?? "", how: so?.how ?? "", tells: so?.tells ?? "" };
-  const asked = previous ? `\n\nThe last reply: ${previous}` : "";
-  return `Sketch so far: ${JSON.stringify(sofar)}${asked}\n\nThe person said: ${said}`;
+// The plan's only input, as one user message: the known fields as compact
+// JSON ({} on a first turn), the reply being answered and the new message.
+export function planInput({ stored, previous, said }: PlanInput): string {
+  const known = Object.fromEntries((["name", "kind", "watches", "when", "how", "tells"] as const).flatMap((k) => (stored?.[k] ? [[k, stored[k]]] : [])));
+  const asked = previous ? `\nLast reply: ${previous}` : "";
+  return `Sketch: ${JSON.stringify(known)}${asked}\nPerson: ${said}`;
 }
 
 export async function planTurn(input: PlanInput, opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch }): Promise<Plan> {
