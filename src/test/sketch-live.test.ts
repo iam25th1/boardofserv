@@ -11,13 +11,15 @@ import { POST } from "@/app/api/chat/route";
 
 // A live check of the whole turn against the real SERV model: the three
 // example prompts from the empty state, then one answer on the ETH watcher.
-// Each turn is two calls (the reply, max_tokens 400, then the extraction,
-// max_tokens 200) through the real /api/chat route, on an in-memory Postgres
-// with sign-in stubbed. A guard refuses any SERV call past LIVE_BUDGET (9).
-// Everything each turn returned is written, unfiltered, to LIVE_REPORT.
+// Each turn is two calls (the plan, max_tokens 200, then the reply,
+// max_tokens 400) through the real /api/chat route, on an in-memory Postgres
+// with sign-in stubbed. A guard refuses any SERV call past LIVE_BUDGET (10).
+// Everything each turn sent and got back is written, unfiltered, to
+// LIVE_REPORT: both request bodies (the key travels in a header and is not
+// kept), the plan's raw JSON, every event and the usage row.
 // Runs only with RUN_SKETCH_LIVE=1 and SERV_API_KEY in the environment.
 const enabled = process.env.RUN_SKETCH_LIVE === "1" && Boolean(process.env.SERV_API_KEY);
-const BUDGET = Number(process.env.LIVE_BUDGET ?? 9);
+const BUDGET = Number(process.env.LIVE_BUDGET ?? 10);
 
 const state = vi.hoisted(() => ({ db: null as unknown, user: null as unknown }));
 vi.mock("@/lib/db", () => ({ db: new Proxy({}, { get: (_, key) => Reflect.get(state.db as object, key) }) }));
@@ -29,21 +31,33 @@ const PROMPTS = [
   "A Telegram bot that answers questions about my shop",
 ];
 
+interface ServCall {
+  request: unknown;
+  // The plan's whole response body; the reply's is the streamed text below.
+  response?: unknown;
+}
+
 interface TurnReport {
   said: string;
-  reply: string;
+  calls: ServCall[];
   events: string[];
   sketch: unknown;
-  replyEndToSketchMs: number | null;
+  reply: string;
+  choices: unknown;
+  msToSketch: number | null;
+  msToFirstReplyToken: number | null;
   usage: unknown;
 }
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
 let servCalls = 0;
+let current: ServCall[] = [];
 const turns: TurnReport[] = [];
 
 async function turn(said: string, conversationId?: string): Promise<TurnReport & { conversationId: string }> {
+  current = [];
+  const started = Date.now();
   const res = await POST(
     new Request("http://localhost/api/chat", {
       method: "POST",
@@ -55,9 +69,10 @@ async function turn(said: string, conversationId?: string): Promise<TurnReport &
   const decoder = new TextDecoder();
   let buf = "";
   let reply = "";
-  let replyEnd: number | null = null;
+  let firstToken: number | null = null;
   let sketchAt: number | null = null;
   let sketch: unknown = null;
+  let choices: unknown = null;
   let cid = conversationId ?? "";
   const events: string[] = [];
   for (;;) {
@@ -71,17 +86,21 @@ async function turn(said: string, conversationId?: string): Promise<TurnReport &
       const data = JSON.parse(/data: (.*)/.exec(f)?.[1] ?? "null");
       if (event !== "delta" || events.at(-1) !== "delta") events.push(event);
       if (event === "meta") cid = data.conversationId;
-      if (event === "delta") reply += data.text;
-      if (event === "reply_end") replyEnd = Date.now();
-      if (event === "sketch") {
-        sketchAt = Date.now();
-        sketch = data;
+      if (event === "delta") {
+        firstToken ??= Date.now() - started;
+        reply += data.text;
       }
+      if (event === "sketch") {
+        sketchAt = Date.now() - started;
+        sketch = data;
+        cid = data.conversationId;
+      }
+      if (event === "reply_end") choices = data.choices;
       if (event === "error") reply += `[error event] ${data.message}`;
     }
   }
   const usage = (await db.select().from(schema.replyUsage).orderBy(asc(schema.replyUsage.createdAt))).at(-1);
-  const report = { said, reply, events, sketch, replyEndToSketchMs: replyEnd && sketchAt ? sketchAt - replyEnd : null, usage };
+  const report = { said, calls: current, events, sketch, reply, choices, msToSketch: sketchAt, msToFirstReplyToken: firstToken, usage };
   turns.push(report);
   console.log(`\n[live turn ${turns.length}]\n${JSON.stringify(report, null, 2)}\n`);
   return { ...report, conversationId: cid };
@@ -98,12 +117,16 @@ beforeAll(async () => {
   vi.stubEnv("SKETCH_MAX_TOKENS", "200");
   vi.stubEnv("FALLBACK_API_KEY", "");
   const real = globalThis.fetch;
-  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
-    if (String(input).includes("inference-api.openserv.ai")) {
-      servCalls += 1;
-      if (servCalls > BUDGET) return Promise.reject(new Error(`live budget of ${BUDGET} SERV calls reached`));
-    }
-    return real(input, init);
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (!String(input).includes("inference-api.openserv.ai")) return real(input, init);
+    servCalls += 1;
+    if (servCalls > BUDGET) throw new Error(`live budget of ${BUDGET} SERV calls reached`);
+    const request = JSON.parse(String(init?.body));
+    const call: ServCall = { request };
+    current.push(call);
+    const res = await real(input, init);
+    if (!request.stream) call.response = await res.clone().json().catch(() => `status ${res.status}`);
+    return res;
   });
 });
 
@@ -118,7 +141,7 @@ afterAll(async () => {
 });
 
 describe.runIf(enabled)("the sketch, live", () => {
-  it("fills in over the three examples and one answer", async () => {
+  it("plans and replies over the three examples and one answer", async () => {
     const first = [];
     for (const said of PROMPTS) first.push(await turn(said));
     // Answer the ETH watcher's question.

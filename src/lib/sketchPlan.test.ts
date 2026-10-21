@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { modelConfig, type ModelConfig, type Provider } from "./model";
-import { planTurn, SKETCH_SCHEMA } from "./sketchPlan";
+import { planInput, planTurn, SKETCH_SCHEMA } from "./sketchPlan";
 import { mergeSketch } from "./sketchBlock";
 import { PLAN_PROMPT } from "./systemPrompt";
 import type { SketchDTO } from "./types";
@@ -92,6 +92,13 @@ describe("planTurn", () => {
     expect(sketch?.name).toHaveLength(60);
     expect(sketch?.watches).toHaveLength(80);
     expect(sketch?.choices).toEqual(["A", "B", "C", "D"]);
+  });
+
+  it("takes only the known fields, the reply being answered and the new message", () => {
+    expect(planInput({ stored: null, previous: null, said: "Tell me when ETH drops" })).toBe("Sketch: {}\nPerson: Tell me when ETH drops");
+    expect(planInput(TURN)).toBe(
+      'Sketch: {"name":"ETH floor watch","kind":"watcher","watches":"ETH price","when":"below $2,000"}\nLast reply: How often should it check the price?\nPerson: Every 5 minutes',
+    );
   });
 
   it("sends one strict, non-streaming request with its own short prompt", async () => {
