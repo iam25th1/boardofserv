@@ -53,8 +53,8 @@ export const messages = pgTable(
 // outcome: "ok" (the first provider answered), "fell_back" (a later one did)
 // or "failed" (nothing answered, or the reply was cut off mid-stream). Token
 // counts are whatever the provider reported, null when it reported none.
-// sketch_ok says whether the sketch extraction gave a valid sketch (null when
-// no reply was given).
+// sketch_ok says whether the plan call gave a valid sketch (null when no
+// reply was given).
 // Rows outlive their conversation, which is set to null when it is deleted.
 export const replyUsage = pgTable(
   "reply_usage",
@@ -69,8 +69,9 @@ export const replyUsage = pgTable(
     totalMs: integer("total_ms").notNull(),
     outcome: text("outcome", { enum: ["ok", "fell_back", "failed"] }).notNull(),
     sketchOk: boolean("sketch_ok"),
-    // The sketch extraction that follows the reply: its tokens, time and
-    // outcome, null when it did not run.
+    // The plan call that runs before the reply (it was the sketch extraction
+    // after it, hence the names): its tokens, time and outcome, null when it
+    // did not run.
     extractPromptTokens: integer("extract_prompt_tokens"),
     extractCompletionTokens: integer("extract_completion_tokens"),
     extractMs: integer("extract_ms"),

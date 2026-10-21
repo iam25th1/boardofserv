@@ -12,7 +12,7 @@ import { POST } from "./route";
 
 // Whole chat turns through the real /api/chat route: the real migrations run
 // on an in-memory Postgres, sign-in is stubbed, and SERV is a mocked fetch
-// that streams the reply and then answers the sketch extraction.
+// that answers the plan call and then streams the reply.
 
 const state = vi.hoisted(() => ({
   db: null as unknown as PgliteDatabase<typeof schema>,
@@ -26,8 +26,8 @@ vi.mock("@/lib/auth-route", () => ({ getUserFromRequest: async () => state.user 
 let client: PGlite;
 type Body = { stream: boolean; messages: { role: string; content: string }[]; response_format?: unknown };
 const calls: Body[] = [];
-// What the next turn's two calls answer: the reply's chunks, then the
-// extraction's JSON text (or an HTTP status for a failed extraction).
+// What the next turn's two calls answer: the plan's JSON text (or an HTTP
+// status for a failed plan), then the reply's chunks.
 let nextReply: string[] = [];
 let nextSketch: string | number = "";
 
@@ -114,7 +114,7 @@ afterAll(async () => {
 describe("a chat turn with a sketch", () => {
   let convo = "";
 
-  it("streams the reply, then extracts the sketch, saves it and sends it before done", async () => {
+  it("plans the turn, saves the sketch, then streams the reply that asks the planned question", async () => {
     const reply = "Good one. How often should it check the price?";
     nextReply = [reply.slice(0, 20), reply.slice(20)];
     nextSketch = extraction({
@@ -146,13 +146,14 @@ describe("a chat turn with a sketch", () => {
       live: false,
     });
 
-    // Two calls: the streamed reply, then the strict JSON extraction.
-    const [replyCall, extractCall] = calls.slice(-2);
+    // Two calls: the strict JSON plan, then the streamed reply, which knows
+    // the planned sketch and asks the planned question.
+    const [planCall, replyCall] = calls.slice(-2);
+    expect(planCall).toMatchObject({ stream: false, response_format: { type: "json_schema", json_schema: { name: "agent_sketch", strict: true } } });
+    expect(planCall!.messages[1]!.content).toContain("The person said: Tell me when ETH drops below $2,000");
+    expect(planCall!.messages[1]!.content).not.toContain("The last reply");
     expect(replyCall).toMatchObject({ stream: true });
-    expect(replyCall!.messages[0]!.content).toContain("Known so far: nothing yet; missing: watches, when, how, tells.");
-    expect(extractCall).toMatchObject({ stream: false, response_format: { type: "json_schema", json_schema: { name: "agent_sketch", strict: true } } });
-    expect(extractCall!.messages[1]!.content).toContain("The person said: Tell me when ETH drops below $2,000");
-    expect(extractCall!.messages[1]!.content).toContain(`The reply: ${reply}`);
+    expect(replyCall!.messages[0]!.content).toContain("Known so far: name ETH floor watch, kind watcher, watches ETH price, when below $2,000; missing: how, tells.");
 
     const [saved] = await state.db.select().from(schema.messages).where(eq(schema.messages.role, "assistant"));
     expect(saved?.content).toBe(reply);
@@ -180,15 +181,15 @@ describe("a chat turn with a sketch", () => {
     nextSketch = extraction({ how: "every 5 minutes", asking: "tells", choices: ["Telegram", "Email"] });
     const t = await turn("Every 5 minutes", convo);
 
-    // The reply knew what the sketch held.
-    expect(calls.at(-2)!.messages[0]!.content).toContain(
-      "Known so far: name ETH floor watch, kind watcher, watches ETH price, when below $2,000; missing: how, tells.",
+    // The reply knew what the sketch held, with this turn's answer in it.
+    expect(calls.at(-1)!.messages[0]!.content).toContain(
+      "Known so far: name ETH floor watch, kind watcher, watches ETH price, when below $2,000, how every 5 minutes; missing: tells.",
     );
     expect(t.sketch?.sketch).toMatchObject({ name: "ETH floor watch", watches: "ETH price", when: "below $2,000", how: "every 5 minutes", asking: "tells" });
     expect(nodesOf(sketchFromDTO(t.sketch!.sketch))).toEqual({ watch: "on", decide: "on", tell: "ask" });
   });
 
-  it("keeps the reply and the stored sketch when the extraction does not validate or fails", async () => {
+  it("keeps the reply and the stored sketch when the plan does not validate or fails", async () => {
     nextReply = ["Telegram works. Anything else?"];
     nextSketch = '{"name": "broken",';
     const bad = await turn("Telegram", convo);

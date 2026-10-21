@@ -120,15 +120,20 @@ answered it) and `balance=low` flags. `replay` plays the seeded reply through
 the streaming path (`repeat=8` makes it long).
 
 The agent sketch dock fills in from the conversation. Each turn makes two
-calls: the reply streams first (its system message carries one plain line of
-what the sketch already holds and what is missing), then one non-streaming call
-with a strict json_schema reads the sketch out of the turn: the sketch so far,
-what the person said and the reply. That result is validated, trimmed (at most
-4 choices, short fields), merged into the conversation's stored sketch (a new
-value replaces a stored one, an empty one never wipes it) and sent to the dock.
-If it fails or does not validate, the stored sketch stays as it was. A reply
-that still writes sketch JSON or the old `<<<SKETCH` block has it kept off the
-screen. The reply streams and ends with a `reply_end` event, which unlocks
+calls, plan first and reply second. The plan is one non-streaming call with a
+strict json_schema. It sees only the stored sketch, the reply the person is
+answering and their new message, and returns the updated sketch, the field the
+reply should ask about next and up to 4 answers to show as buttons. That result
+is validated, trimmed (short fields), merged into the conversation's stored
+sketch (a new value replaces a stored one, an empty one never wipes it) and
+saved. Then the reply streams. Its system message carries one plain line of
+what the sketch holds and what is missing, and exactly what to ask: "Ask about:
+how (how often it checks). The user will see these buttons: ... Your question
+must fit them." With nothing left to ask, the reply confirms the agent is fully
+described. If the plan fails or does not validate, the reply still runs on the
+stored sketch, picks its own question and shows no buttons. A reply that still
+writes sketch JSON or the old `<<<SKETCH` block has it kept off the screen. The
+reply streams and ends with a `reply_end` event, which unlocks
 the composer; the dock says "sketching..." until the `sketch` event and then
 `done` arrive. Agents cannot run yet, so a ready sketch says "Ready. Switching on
 comes in the next update." and its switch stays disabled; there is no cost

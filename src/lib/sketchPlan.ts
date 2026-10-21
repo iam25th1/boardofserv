@@ -1,12 +1,14 @@
 import "server-only";
 import { completeJson, type ChatMessage, type JsonResult, type ModelConfig } from "./model";
 import { parseSketchBlock, type ParsedSketch } from "./sketchBlock";
-import { EXTRACT_PROMPT } from "./systemPrompt";
+import { PLAN_PROMPT } from "./systemPrompt";
 import type { SketchDTO } from "./types";
 
-// The second call of a turn: after the reply has streamed, read the agent
-// sketch out of the conversation as strict JSON. The reply itself writes no
-// JSON, so it can stay a plain conversation.
+// The first call of a turn: before the reply, read what the person just said
+// into the agent sketch, and decide what the reply asks next and which answers
+// the person will see as buttons. The reply only phrases that question, so the
+// question and the buttons match. The plan sees the stored sketch, the reply
+// the person is answering (if any) and their new message, nothing else.
 //
 // The schema sticks to what SERV is known to accept: strings, a string enum
 // and an array of strings, every property required, nothing extra. Unknown is
@@ -31,28 +33,38 @@ export const SKETCH_SCHEMA = {
       how: text("how often it checks, or empty"),
       tells: text("where it reaches the person, or empty"),
       asking: { type: "string", enum: ["watches", "when", "how", "tells", "none"] },
-      choices: { type: "array", items: { type: "string" }, description: "up to 4 short answers to the reply's question" },
+      choices: { type: "array", items: { type: "string" }, description: "up to 4 short answers to the next question" },
     },
   },
 };
 
-export interface Extraction {
-  // The sketch read from the turn, or null when no provider answered or the
-  // answer did not validate. Either way the stored sketch stays as it was.
+export interface Plan {
+  // The sketch read from the turn, with the next question and its buttons, or
+  // null when no provider answered or the answer did not validate. Either way
+  // the reply still runs.
   sketch: ParsedSketch | null;
   result: JsonResult;
 }
 
-export async function extractSketch(
-  turn: { stored: SketchDTO | null; said: string; reply: string },
-  opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch },
-): Promise<Extraction> {
-  const so = turn.stored;
+export interface PlanInput {
+  stored: SketchDTO | null;
+  // The reply the person is answering, or null on a conversation's first turn.
+  previous: string | null;
+  said: string;
+}
+
+// The plan's only input, as one user message.
+export function planInput({ stored: so, previous, said }: PlanInput): string {
   const sofar = { name: so?.name ?? "", kind: so?.kind ?? "none", watches: so?.watches ?? "", when: so?.when ?? "", how: so?.how ?? "", tells: so?.tells ?? "" };
+  const asked = previous ? `\n\nThe last reply: ${previous}` : "";
+  return `Sketch so far: ${JSON.stringify(sofar)}${asked}\n\nThe person said: ${said}`;
+}
+
+export async function planTurn(input: PlanInput, opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch }): Promise<Plan> {
   const messages: ChatMessage[] = [
-    { role: "system", content: EXTRACT_PROMPT },
-    { role: "user", content: `Sketch so far: ${JSON.stringify(sofar)}\n\nThe person said: ${turn.said}\n\nThe reply: ${turn.reply}` },
+    { role: "system", content: PLAN_PROMPT },
+    { role: "user", content: planInput(input) },
   ];
-  const result = await completeJson(messages, { ...opts, schema: SKETCH_SCHEMA, maxTokens: opts.config.extractMaxTokens });
+  const result = await completeJson(messages, { ...opts, schema: SKETCH_SCHEMA, maxTokens: opts.config.planMaxTokens });
   return { sketch: parseSketchBlock(result.content), result };
 }

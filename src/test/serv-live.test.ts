@@ -64,7 +64,7 @@ describe("model layer, live", () => {
     const serv = { id: "serv" as const, label: "SERV Reasoning", baseUrl: `${mockUrl}/serv`, apiKey: "local", model: "claude-haiku-4.5", askForUsage: false };
     const backup = { id: "fallback" as const, label: "Local backup", baseUrl: `${mockUrl}/backup`, apiKey: "local", model: "demo-echo", askForUsage: true };
     const { text, events } = await collect(
-      streamReply([{ role: "user", content: "Say hello." }], { config: { providers: [serv, backup], firstTokenTimeoutMs: 5_000, historyMessages: 12, maxTokens: 50, extractMaxTokens: 50 }, signal: new AbortController().signal }),
+      streamReply([{ role: "user", content: "Say hello." }], { config: { providers: [serv, backup], firstTokenTimeoutMs: 5_000, historyMessages: 12, maxTokens: 50, planMaxTokens: 50 }, signal: new AbortController().signal }),
     );
     const end = events.at(-1);
     expect(end?.type === "end" && end.result.outcome).toBe("fell_back");
