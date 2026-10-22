@@ -4,6 +4,8 @@ import type { AccountDTO } from "@/lib/types";
 import { Button } from "@/components/ui";
 import { SignOutIcon } from "@/components/icons";
 import { animateDrop, animateStateChange } from "@/lib/motion";
+import { normalHandle } from "@/lib/handles";
+import { HandleInput, useHandleStatus, type HandleCheck } from "./HandleField";
 import styles from "./AccountMenu.module.css";
 
 interface Props {
@@ -12,6 +14,9 @@ interface Props {
   onLink: () => void;
   onSignOut: () => void;
   onOpenShortcuts?: () => void;
+  // Without these the handle shows but can't be changed.
+  checkHandle?: HandleCheck;
+  onSaveHandle?: (handle: string) => Promise<void>;
   startOpen?: boolean;
 }
 
@@ -27,7 +32,7 @@ const CREDIT_TEXT: Record<CreditState, string> = {
 // The account menu at the right of the top bar. The avatar ring follows the
 // agents popover's language: a solid ring when all is well, a dashed one when
 // something is waiting on you (credit low, or OpenServ not linked yet).
-export function AccountMenu({ account, linking, onLink, onSignOut, onOpenShortcuts, startOpen }: Props) {
+export function AccountMenu({ account, linking, onLink, onSignOut, onOpenShortcuts, checkHandle, onSaveHandle, startOpen }: Props) {
   const [open, setOpen] = useState(Boolean(startOpen));
   const panel = useRef<HTMLDivElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
@@ -95,6 +100,8 @@ export function AccountMenu({ account, linking, onLink, onSignOut, onOpenShortcu
             <p className={styles.value}>{email}</p>
           </div>
 
+          {account && <HandleSection handle={account.handle} chosen={account.handleChosen} check={checkHandle} onSave={onSaveHandle} />}
+
           <div className={styles.section}>
             <p className={styles.label}>OpenServ account</p>
             {account?.linked ? (
@@ -144,5 +151,123 @@ export function AccountMenu({ account, linking, onLink, onSignOut, onOpenShortcu
         </div>
       )}
     </div>
+  );
+}
+
+// "Your handle": the public name, edited in place with live availability.
+// Escape or Cancel puts it back; Enter or Save keeps it.
+function HandleSection({
+  handle,
+  chosen,
+  check,
+  onSave,
+}: {
+  handle: string;
+  chosen: boolean;
+  check?: HandleCheck;
+  onSave?: (handle: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const labelId = useId();
+  const inputId = useId();
+  const changeRef = useRef<HTMLButtonElement>(null);
+
+  return (
+    <div className={styles.section}>
+      <label className={styles.label} id={labelId} htmlFor={editing ? inputId : undefined}>
+        Your handle
+      </label>
+      {editing && check && onSave ? (
+        <HandleEditor
+          inputId={inputId}
+          handle={handle}
+          check={check}
+          onSave={onSave}
+          onDone={() => {
+            setEditing(false);
+            requestAnimationFrame(() => changeRef.current?.focus());
+          }}
+        />
+      ) : (
+        <div className={styles.handleRow}>
+          <p className={styles.value}>@{handle}</p>
+          {!chosen && <span className={styles.random}>picked at random</span>}
+          {check && onSave && (
+            <button ref={changeRef} type="button" className={styles.change} onClick={() => setEditing(true)} aria-describedby={labelId}>
+              Change
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HandleEditor({
+  inputId,
+  handle,
+  check,
+  onSave,
+  onDone,
+}: {
+  inputId: string;
+  handle: string;
+  check: HandleCheck;
+  onSave: (handle: string) => Promise<void>;
+  onDone: () => void;
+}) {
+  const [draft, setDraft] = useState(handle);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const status = useHandleStatus(draft, handle, check);
+
+  const save = async () => {
+    if (!status.ok || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave(normalHandle(draft));
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "It could not be saved. Try again.");
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form
+      className={styles.handleEdit}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void save();
+      }}
+    >
+      <HandleInput
+        id={inputId}
+        value={draft}
+        status={error ? { ok: false, checking: false, message: error } : status}
+        onChange={(v) => {
+          setDraft(v);
+          setError(null);
+        }}
+        disabled={saving}
+        autoFocus
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            // Leaves the menu open.
+            e.preventDefault();
+            onDone();
+          }
+        }}
+      />
+      <div className={styles.handleActions}>
+        <Button size="sm" variant="ghost" type="button" onClick={onDone} disabled={saving}>
+          Cancel
+        </Button>
+        <Button size="sm" type="submit" disabled={!status.ok || saving}>
+          {saving ? "Saving..." : "Save"}
+        </Button>
+      </div>
+    </form>
   );
 }

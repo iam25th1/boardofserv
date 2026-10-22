@@ -7,6 +7,7 @@ import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import * as schema from "@/lib/db/schema";
 import { addUser, testDb } from "./helperDb";
+import * as handle from "@/app/api/account/handle/route";
 import * as account from "@/app/api/account/route";
 import * as board from "@/app/api/board/route";
 import * as chat from "@/app/api/chat/route";
@@ -33,6 +34,7 @@ vi.mock("@/lib/auth-route", () => ({ getUserFromRequest: async () => state.user 
 
 const ROUTES: Record<string, object> = {
   "account": account,
+  "account/handle": handle,
   "board": board,
   "chat": chat,
   "conversations": conversations,
@@ -189,6 +191,8 @@ describe("a helper's instructions stay on the server", () => {
     await hit("rename", conversation.PATCH(req(`/api/conversations/${cid}`, "PATCH", { title: "Shop blurbs, renamed" }), { params: { id: cid } }));
     await hit("chat", chat.POST(req("/api/chat", "POST", { conversationId: cid, content: "Also refuse gift cards." })));
     await hit("account", account.GET(req("/api/account")));
+    await hit("handle check", handle.GET(req("/api/account/handle?handle=shopkeeper")));
+    await hit("handle set", handle.PATCH(req("/api/account/handle", "PATCH", { handle: "shopkeeper" })));
     await hit("link start", linkStart.POST(req("/api/openserv/link/start", "POST", { address: "nope" })));
     await hit("link finish", linkFinish.POST(req("/api/openserv/link/finish", "POST", {})));
     await hit("take down second", helper.DELETE(req("/api/helpers/second-helper", "DELETE"), { params: { slug: "second-helper" } }));
@@ -203,6 +207,7 @@ describe("a helper's instructions stay on the server", () => {
     await hit("missing page", helper.GET(req("/api/helpers/nope"), { params: { slug: "nope" } }));
     await hit("use signed out", helperUse.POST(req("/api/helpers/shop-blurbs/use", "POST", { input: "hi" }), { params: { slug: "shop-blurbs" } }));
     await hit("uses signed out", uses.GET(req("/api/uses")));
+    await hit("handle check signed out", handle.GET(req("/api/account/handle?handle=shopkeeper")));
     await hit("publish signed out", helpers.POST(req("/api/helpers", "POST", { conversationId: cid, description: "x", inputHint: "x" })));
 
     // Someone uses it, and the model tries every way to give it away.
@@ -221,6 +226,8 @@ describe("a helper's instructions stay on the server", () => {
     await hit("use taken down", use("hi", "second-helper"));
     await hit("use missing", use("hi", "nope"));
     await hit("uses", uses.GET(req("/api/uses")));
+    await hit("handle check taken", handle.GET(req("/api/account/handle?handle=shopkeeper")));
+    await hit("handle set taken", handle.PATCH(req("/api/account/handle", "PATCH", { handle: "Shopkeeper" })));
     await hit("take down someone else's", helper.DELETE(req("/api/helpers/shop-blurbs", "DELETE"), { params: { slug: "shop-blurbs" } }));
     await hit("publish someone else's", helpers.POST(req("/api/helpers", "POST", { conversationId: cid, description: "x", inputHint: "x" })));
     await hit("conversation someone else's", conversationMessages.GET(req(`/api/conversations/${cid}/messages`), { params: { id: cid } }));

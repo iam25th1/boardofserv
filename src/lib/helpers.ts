@@ -170,11 +170,6 @@ export async function compileHelper(
   return { prompt, result };
 }
 
-// A unique violation, from node-postgres or PGlite.
-export function isUniqueViolation(err: unknown): boolean {
-  return Boolean(err && typeof err === "object" && "code" in err && (err as { code?: unknown }).code === "23505");
-}
-
 // What a helper's page shows: the helper, or that it was taken down (with
 // its name), or null when no helper ever had that slug.
 export async function helperPage(slug: string): Promise<{ helper: PublicHelperDTO } | { takenDown: string } | null> {

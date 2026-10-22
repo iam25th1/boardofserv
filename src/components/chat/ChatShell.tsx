@@ -14,7 +14,7 @@ import { ShortcutsDialog } from "./ShortcutsDialog";
 import { TopBar } from "./TopBar";
 import { SketchDock } from "./SketchDock";
 import { Chips } from "./Chips";
-import { PublishSheet } from "./PublishSheet";
+import { PublishSheet, type PublishEdits } from "./PublishSheet";
 import { sketchFromDTO, type AgentSketch } from "@/lib/agentSketch";
 import type { PublicHelperDTO, SketchDTO } from "@/lib/types";
 import type { MessageView } from "./Message";
@@ -318,14 +318,25 @@ export function ChatShell() {
     void refreshConversations();
   }, [api, renameId, renameValue, activeId, refreshConversations]);
 
-  // Publish the active conversation's answer helper with the sheet's edits.
+  // Choose a handle: from the account menu, or confirmed in the publish sheet.
+  const saveHandle = useCallback(
+    async (handle: string) => {
+      const saved = await api.setHandle(handle);
+      setAccount((a) => a && { ...a, handle: saved.handle, handleChosen: saved.handleChosen });
+    },
+    [api],
+  );
+
+  // Publish the active conversation's answer helper with the sheet's edits,
+  // keeping the handle first when the sheet asked for it.
   const doPublish = useCallback(
-    async (edits: { description: string; inputHint: string }) => {
+    async ({ handle, ...edits }: PublishEdits) => {
       const id = activeId;
       if (!id) return;
       setPublishing(true);
       setPublishError(null);
       try {
+        if (handle !== undefined) await saveHandle(handle);
         const helper = await api.publishHelper({ conversationId: id, ...edits });
         if (activeRef.current === id) setPublished(helper);
         setSheetOpen(false);
@@ -337,7 +348,7 @@ export function ChatShell() {
         setPublishing(false);
       }
     },
-    [api, activeId, toast, refreshConversations],
+    [api, activeId, toast, refreshConversations, saveHandle],
   );
 
   const doUnpublish = useCallback(async () => {
@@ -412,6 +423,8 @@ export function ChatShell() {
             onLink={doLink}
             onSignOut={() => void logout()}
             onOpenShortcuts={() => setShortcuts(true)}
+            checkHandle={api.checkHandle}
+            onSaveHandle={saveHandle}
           />
         }
       />
@@ -464,6 +477,8 @@ export function ChatShell() {
         name={sketch?.name ?? ""}
         description={firstUpper(sketch?.does)}
         inputHint={firstUpper(sketch?.takes)}
+        handle={account && { current: account.handle, chosen: account.handleChosen }}
+        checkHandle={api.checkHandle}
         busy={publishing}
         error={publishError}
         onCancel={() => setSheetOpen(false)}

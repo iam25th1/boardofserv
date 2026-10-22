@@ -57,6 +57,9 @@ const MESSAGES: MessageView[] = [
 // backup=1 shows the same reply as if the backup model had answered it.
 const BACKUP_REPLY: MessageView = { ...MESSAGES[1]!, source: "fallback", sourceLabel: "GPT-4o mini" };
 
+// The account menu's handle check, without a server: "maya" is taken.
+const demoCheckHandle = async (handle: string) => (handle === "maya" ? { available: false, error: "That handle is taken." } : { available: true });
+
 // state=replay plays the seeded reply through the real streaming path: the
 // thinking scribble first, then chunks of a few words at network-like pace
 // (repeat=8 makes it long), so the word dust-in can be watched in development.
@@ -132,6 +135,8 @@ export function DemoHarness({
   if (!mounted) return null;
   const account: AccountDTO = {
     email: "maya@example.com",
+    handle: "maker_4821",
+    handleChosen: false,
     walletAddress: "0x5f88...3148",
     openservUserId: "134829",
     linked: true,
@@ -165,7 +170,18 @@ export function DemoHarness({
             startOpen={agentsOpen}
           />
         }
-        account={<AccountMenu account={account} linking={false} onLink={() => {}} onSignOut={() => {}} onOpenShortcuts={() => {}} startOpen={menuOpen} />}
+        account={
+          <AccountMenu
+            account={account}
+            linking={false}
+            onLink={() => {}}
+            onSignOut={() => {}}
+            onOpenShortcuts={() => {}}
+            checkHandle={demoCheckHandle}
+            onSaveHandle={async () => {}}
+            startOpen={menuOpen}
+          />
+        }
       />
       {state === "empty" ? (
         <EmptyState onPick={() => {}} />

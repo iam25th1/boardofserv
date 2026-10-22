@@ -1,0 +1,38 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.box {
+  position: relative;
+}
+.at {
+  position: absolute;
+  left: var(--s-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--chalk-3);
+  pointer-events: none;
+}
+.input {
+  padding-left: calc(var(--s-3) + 1.1em);
+}
+.input[aria-invalid="true"] {
+  border-color: var(--chalk-2);
+  border-style: dashed;
+}
+
+/* Says what is wrong, or that it is free. Empty keeps its line, so the
+   layout holds still while typing. */
+.status {
+  min-height: 1.4em;
+  font-size: var(--t-2xs);
+  color: var(--chalk-3);
+}
+.status[data-state="bad"] {
+  color: var(--chalk);
+}
+.status[data-state="ok"] {
+  color: var(--chalk-2);
+}

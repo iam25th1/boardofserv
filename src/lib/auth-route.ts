@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "./db/index";
 import { users, type User } from "./db/schema";
 import { verifyPrivyToken } from "./privy";
+import { createUser } from "./users";
 
 // Resolve the signed-in user for an API route. Accepts the Privy access token
 // from an Authorization bearer header (the client sends it) or the privy-token
@@ -33,6 +34,5 @@ export async function getUserFromRequest(req: Request): Promise<User | null> {
     }
     return existing;
   }
-  const [created] = await db.insert(users).values({ privyUserId: identity.userId, email: identity.email }).returning();
-  return created ?? null;
+  return createUser(identity);
 }

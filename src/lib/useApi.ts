@@ -43,6 +43,10 @@ export function useApi() {
       },
       unpublishHelper: (slug: string) => json<{ ok: boolean }>(`/api/helpers/${encodeURIComponent(slug)}`, { method: "DELETE" }),
       getAccount: () => json<AccountDTO>("/api/account"),
+      checkHandle: (handle: string, signal: AbortSignal) =>
+        json<{ available: boolean; error?: string }>(`/api/account/handle?handle=${encodeURIComponent(handle)}`, { signal }),
+      setHandle: (handle: string) =>
+        json<{ handle: string; handleChosen: boolean }>("/api/account/handle", { method: "PATCH", body: JSON.stringify({ handle }) }),
       linkStart: (address: string) => json<{ message: string }>("/api/openserv/link/start", { method: "POST", body: JSON.stringify({ address }) }),
       linkFinish: (address: string, message: string, signature: string) =>
         json<{ ok: boolean; openservUserId: string }>("/api/openserv/link/finish", { method: "POST", body: JSON.stringify({ address, message, signature }) }),

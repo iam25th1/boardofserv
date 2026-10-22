@@ -57,6 +57,13 @@
       "when": 1792667172565,
       "tag": "0007_helper_uses",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792672385007,
+      "tag": "0008_user_handles",
+      "breakpoints": true
     }
   ]
 }

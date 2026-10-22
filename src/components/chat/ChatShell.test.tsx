@@ -36,7 +36,7 @@ vi.mock("./SketchDock", () => ({
   ),
 }));
 
-const UNLINKED: AccountDTO = { email: "maya@example.com", walletAddress: null, openservUserId: null, linked: false, balance: "unknown" };
+const UNLINKED: AccountDTO = { email: "maya@example.com", handle: "maker_4821", handleChosen: false, walletAddress: null, openservUserId: null, linked: false, balance: "unknown" };
 
 async function renderShell() {
   render(

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import type { ConversationDTO, PublicHelperDTO, SketchDTO } from "@/lib/types";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { AccountDTO, ConversationDTO, PublicHelperDTO, SketchDTO } from "@/lib/types";
 import { ToastProvider } from "@/components/ui";
 import { ChatShell } from "./ChatShell";
 
@@ -32,8 +32,11 @@ const helper: PublicHelperDTO = {
 const api = vi.hoisted(() => ({
   conversations: [] as ConversationDTO[],
   published: null as PublicHelperDTO | null,
+  account: null as AccountDTO | null,
   publish: vi.fn(),
   unpublish: vi.fn(),
+  setHandle: vi.fn(),
+  calls: [] as string[],
 }));
 
 vi.mock("@privy-io/react-auth", () => ({ usePrivy: () => ({ logout: () => {} }) }));
@@ -41,9 +44,17 @@ vi.mock("@/lib/useOpenServLink", () => ({ useOpenServLink: () => async () => {} 
 vi.mock("@/lib/useApi", () => {
   const client = {
     listConversations: async () => api.conversations,
-    getAccount: async () => null,
+    getAccount: async () => api.account,
+    checkHandle: async (handle: string) => (handle === "maya" ? { available: false, error: "That handle is taken." } : { available: true }),
+    setHandle: async (handle: string) => {
+      api.calls.push(`handle ${handle}`);
+      return api.setHandle(handle);
+    },
     getConversation: async () => ({ messages: [{ id: "m1", conversationId: "c1", role: "user", content: "Write blurbs", source: null, sourceLabel: null, createdAt: "" }], sketch: blurb, published: api.published }),
-    publishHelper: api.publish,
+    publishHelper: async (body: unknown) => {
+      api.calls.push("publish");
+      return api.publish(body);
+    },
     unpublishHelper: api.unpublish,
     sendChat: () => () => {},
   };
@@ -75,8 +86,11 @@ async function openBlurb() {
 beforeEach(() => {
   api.conversations = [convo(null)];
   api.published = null;
+  api.account = null;
+  api.calls = [];
   api.publish.mockReset();
   api.unpublish.mockReset();
+  api.setHandle.mockReset();
   vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce"), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
 });
 
@@ -108,6 +122,60 @@ describe("publishing from the chat", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByText("On the board")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View" })).toHaveAttribute("href", "/h/shop-blurb-writer");
+  });
+
+  it("asks the maker to keep or change a random handle, and saves it before publishing", async () => {
+    api.account = { email: "maya@example.com", handle: "maker_4821", handleChosen: false, walletAddress: null, openservUserId: null, linked: false, balance: "unknown" };
+    await openBlurb();
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const sheet = screen.getByRole("dialog", { name: "Put it on the board" });
+    const field = within(sheet).getByLabelText("Your handle");
+    expect(field).toHaveValue("maker_4821");
+    expect(within(sheet).getByText(/We picked this one at random/)).toBeInTheDocument();
+    expect(within(sheet).getByText("by @maker_4821")).toBeInTheDocument();
+    const publish = within(sheet).getByRole("button", { name: "Publish" });
+
+    fireEvent.change(field, { target: { value: "maya" } });
+    await waitFor(() => expect(within(sheet).getByText("That handle is taken.")).toBeInTheDocument());
+    expect(publish).toBeDisabled();
+    fireEvent.change(field, { target: { value: "Maya_R" } });
+    expect(within(sheet).getByText("by @maya_r")).toBeInTheDocument();
+    await waitFor(() => expect(within(sheet).getByText("Available")).toBeInTheDocument());
+
+    api.setHandle.mockResolvedValue({ handle: "maya_r", handleChosen: true });
+    api.publish.mockResolvedValue({ ...helper, maker: "maya_r" });
+    await act(async () => {
+      fireEvent.click(publish);
+    });
+    expect(api.calls).toEqual(["handle maya_r", "publish"]);
+    expect(api.publish).toHaveBeenCalledWith({ conversationId: "c1", description: "Writes a friendly two line blurb", inputHint: "A product name and a few facts" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("doesn't publish when the handle can't be saved", async () => {
+    api.account = { email: "maya@example.com", handle: "maker_4821", handleChosen: false, walletAddress: null, openservUserId: null, linked: false, balance: "unknown" };
+    await openBlurb();
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    api.setHandle.mockRejectedValue(new Error("That handle is taken."));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Publish" }));
+    });
+    expect(api.calls).toEqual(["handle maker_4821"]);
+    expect(screen.getByRole("alert")).toHaveTextContent("That handle is taken.");
+  });
+
+  it("doesn't ask again once the handle is chosen", async () => {
+    api.account = { email: "maya@example.com", handle: "maya_r", handleChosen: true, walletAddress: null, openservUserId: null, linked: false, balance: "unknown" };
+    await openBlurb();
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const sheet = screen.getByRole("dialog", { name: "Put it on the board" });
+    expect(within(sheet).queryByLabelText("Your handle")).toBeNull();
+    expect(within(sheet).getByText("by @maya_r")).toBeInTheDocument();
+    api.publish.mockResolvedValue(helper);
+    await act(async () => {
+      fireEvent.click(within(sheet).getByRole("button", { name: "Publish" }));
+    });
+    expect(api.calls).toEqual(["publish"]);
   });
 
   it("keeps the sheet open with the reason when publishing fails", async () => {

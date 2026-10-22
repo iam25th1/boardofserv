@@ -5,17 +5,27 @@ import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean } 
 // embedded wallet address and, encrypted, the OpenServ API key that this
 // wallet's SIWE sign-in produced. The key is ciphertext only (see crypto.ts);
 // the plaintext never touches the database or the browser.
-export const users = pgTable("users", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  privyUserId: text("privy_user_id").notNull().unique(),
-  email: text("email"),
-  walletAddress: text("wallet_address"),
-  // OpenServ linkage.
-  openservUserId: text("openserv_user_id"),
-  openservKeyEncrypted: text("openserv_key_encrypted"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-});
+//
+// The handle is the user's public name (without the @), unique ignoring case.
+// New users get a random one like maker_4821 until they choose their own (see
+// handles.ts). The email is never public: only its owner's account menu shows it.
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    privyUserId: text("privy_user_id").notNull().unique(),
+    email: text("email"),
+    handle: text("handle").notNull(),
+    handleChosen: boolean("handle_chosen").notNull().default(false),
+    walletAddress: text("wallet_address"),
+    // OpenServ linkage.
+    openservUserId: text("openserv_user_id"),
+    openservKeyEncrypted: text("openserv_key_encrypted"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ byHandle: uniqueIndex("users_handle_idx").on(sql`lower(${t.handle})`) }),
+);
 
 export const conversations = pgTable(
   "conversations",

@@ -98,7 +98,7 @@ beforeAll(async () => {
   client = new PGlite();
   state.db = drizzle(client, { schema });
   await migrate(state.db, { migrationsFolder: join(__dirname, "../../../lib/db/migrations") });
-  [state.user] = await state.db.insert(schema.users).values({ privyUserId: "did:privy:test", email: "maya@example.com" }).returning();
+  [state.user] = await state.db.insert(schema.users).values({ privyUserId: "did:privy:test", email: "maya@example.com", handle: "maya" }).returning();
   vi.stubEnv("SERV_API_KEY", "test-serv-key");
   vi.stubEnv("FALLBACK_API_KEY", "");
   vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {

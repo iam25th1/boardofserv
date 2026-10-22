@@ -14,8 +14,8 @@ export async function testDb(): Promise<{ client: PGlite; db: PgliteDatabase<typ
   return { client, db };
 }
 
-export async function addUser(db: PgliteDatabase<typeof schema>, handle: string): Promise<schema.User> {
-  const [user] = await db.insert(schema.users).values({ privyUserId: `did:privy:${handle}`, email: `${handle}@example.com` }).returning();
+export async function addUser(db: PgliteDatabase<typeof schema>, name: string, handle = name): Promise<schema.User> {
+  const [user] = await db.insert(schema.users).values({ privyUserId: `did:privy:${name}`, email: `${name}@example.com`, handle }).returning();
   return user!;
 }
 

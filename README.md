@@ -24,6 +24,12 @@ npm run db:push                 # create the tables
 npm run dev                     # http://localhost:3000
 ```
 
+A database created before handles existed that already has users in it can't
+take the new not-null `handle` column from `db:push`. Run
+`src/lib/db/migrations/0008_user_handles.sql` against it once first (for
+example `docker exec -i boardofserv-db psql -U boardofserv boardofserv < src/lib/db/migrations/0008_user_handles.sql`),
+which gives every user a random handle; `db:push` then has nothing left to do.
+
 `npm run db:up` uses `docker compose` when the plugin is installed. Without it
 (for example plain Colima) it runs the same Postgres with `docker run` in a
 container named `boardofserv-db`, and starts that container again if it
@@ -158,6 +164,21 @@ and `sketch=live-ready` show the same agent the way a real conversation does,
 and `sketching=1` adds the "sketching..." note it shows while the plan runs.
 `/demo?sketch=answer` and `sketch=answer-ready` show an answer helper.
 Production never loads the fixtures.
+
+## Handles
+
+Every user has a handle, their public name, shown with an @: 3 to 20 lower
+case letters, digits and underscores, unique ignoring case, and none of a few
+reserved words (admin, board, serv, boardofserv, support, help). A new user
+gets a random one like `maker_4821` until they choose their own; migration
+0008 gave existing users theirs the same way. The account menu shows it under
+"Your handle", edited in place with live availability checking. While it is
+still the random one, the publish sheet asks the maker to keep it or choose
+their own.
+
+- `GET /api/account/handle?handle=`: whether a handle is free (signed in;
+  your own counts as free).
+- `PATCH /api/account/handle`: set yours.
 
 ## Publishing helpers
 

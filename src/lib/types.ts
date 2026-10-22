@@ -21,7 +21,11 @@ export interface MessageDTO {
 }
 
 export interface AccountDTO {
+  // Only ever sent to its owner.
   email: string | null;
+  // The public name, without the @. Not chosen yet: still the random one.
+  handle: string;
+  handleChosen: boolean;
   walletAddress: string | null;
   openservUserId: string | null;
   linked: boolean;
