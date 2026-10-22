@@ -119,6 +119,14 @@ production). States: `/demo?state=empty|convo|thinking|streaming|replay|error`, 
 answered it) and `balance=low` flags. `replay` plays the seeded reply through
 the streaming path (`repeat=8` makes it long).
 
+A sketch is one of four kinds. Watchers, digests and helpers are agents,
+described by what they watch, when they act, how often they check and where
+they tell you; their dock reads watch / decide / tell you. An answer helper is
+asked something once and answers once: it is described by what it takes, what
+it does and what it gives back, and its dock reads takes / does / gives. Once
+those are set, the reply asks for the rules and the voice it should keep,
+which stay in the conversation.
+
 The agent sketch dock fills in from the conversation. Each turn makes two
 calls, plan first and reply second. The plan is one non-streaming call with a
 strict json_schema. It sees only the stored sketch, the reply the person is
@@ -146,4 +154,5 @@ with the mockup's ETH watcher waiting on one answer, and `sketch=ready` shows
 it ready so the switch can be flipped (local state only). `/demo?sketch=live`
 and `sketch=live-ready` show the same agent the way a real conversation does,
 and `sketching=1` adds the "sketching..." note it shows while the plan runs.
+`/demo?sketch=answer` and `sketch=answer-ready` show an answer helper.
 Production never loads the fixtures.

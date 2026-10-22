@@ -2,11 +2,11 @@
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { animate, createTimeline, stagger, svg, utils } from "animejs";
 import {
-  FIELD_KEYS,
   FIELD_LABELS,
-  NODE_KEYS,
+  fieldKeysOf,
   isReady,
   linksOf,
+  nodeKeysOf,
   nodesOf,
   statusLine,
   type AgentSketch,
@@ -17,14 +17,24 @@ import { dustIn, ease, prefersReducedMotion } from "@/lib/motion";
 import styles from "./SketchDock.module.css";
 
 // The agent sketch, docked on top of the composer as one piece: name and
-// status, the watch / decide / tell you diagram, the on/off switch, and the
-// details panel that opens when you tap the name. Agents cannot run yet, so
-// the switch only works for the development fixtures (canSwitch); a real
-// sketch keeps it disabled and its status line says why.
+// status, the diagram (watch / decide / tell you for an agent, takes / does /
+// gives for an answer helper), the on/off switch, and the details panel that
+// opens when you tap the name. Agents cannot run yet, so the switch only
+// works for the development fixtures (canSwitch); a real sketch keeps it
+// disabled and its status line says why.
 
-const NODE_X: Record<NodeKey, number> = { watch: 28, decide: 104, tell: 180 };
-const NODE_LABEL: Record<NodeKey, string> = { watch: "watch", decide: "decide", tell: "tell you" };
-const NODE_OF: Record<FieldKey, NodeKey> = { watches: "watch", when: "decide", how: "decide", tells: "tell" };
+// Where each of the three nodes sits, in drawing order.
+const NODE_X = [28, 104, 180];
+const NODE_LABEL: Record<NodeKey, string> = { watch: "watch", decide: "decide", tell: "tell you", take: "takes", do: "does", give: "gives" };
+const NODE_OF: Record<FieldKey, NodeKey> = {
+  watches: "watch",
+  when: "decide",
+  how: "decide",
+  tells: "tell",
+  takes: "take",
+  does: "do",
+  gives: "give",
+};
 const LINK_D = ["M28 16 C 60 8, 76 24, 104 16", "M104 16 C 132 8, 150 24, 180 16"];
 
 const FILLED = 0.62;
@@ -49,12 +59,14 @@ export function SketchDock({ sketch, canSwitch = false, sketching = false, onTog
   const root = useRef<HTMLDivElement>(null);
   const details = useRef<HTMLUListElement>(null);
   const links = useRef<ReturnType<typeof svg.createDrawable> | null>(null);
-  const before = useRef<{ nodes: string; links: string; fields: string; values: string[]; live: boolean } | null>(null);
+  const before = useRef<{ kind: AgentSketch["kind"]; nodes: string; links: string; fields: string; values: string[]; live: boolean } | null>(null);
   const [open, setOpen] = useState(false);
   const [paused, setPaused] = useState(false);
   const detailsId = useId();
 
   const nodes = nodesOf(sketch);
+  const nodeKeys = nodeKeysOf(sketch);
+  const fieldKeys = fieldKeysOf(sketch);
   const linked = linksOf(nodes);
   const ready = isReady(sketch);
 
@@ -81,32 +93,33 @@ export function SketchDock({ sketch, canSwitch = false, sketching = false, onTog
   // Keyed on the state signature, so unrelated re-renders (typing in the
   // composer) never touch a running animation. No cleanup on purpose: a
   // timeline finishes even if the state moves on, and strict mode's second
-  // run sees the state already handled.
-  const nodesSig = NODE_KEYS.map((k) => nodes[k]).join();
+  // run sees the state already handled. A change of kind redraws the
+  // diagram as if seen for the first time.
+  const nodesSig = nodeKeys.map((k) => nodes[k]).join();
   const linksSig = linked.join();
-  const fieldsSig = FIELD_KEYS.map((k) => sketch[k].status).join();
-  const values = FIELD_KEYS.map((k) => sketch[k].value);
+  const fieldsSig = fieldKeys.map((k) => sketch[k].status).join();
+  const values = fieldKeys.map((k) => sketch[k].value);
   const valuesSig = JSON.stringify(values);
   useLayoutEffect(() => {
     const el = root.current;
     const lines = links.current;
     if (!el || !lines) return;
-    const now = { nodes: nodesSig, links: linksSig, fields: fieldsSig, values, live: sketch.live };
+    const now = { kind: sketch.kind, nodes: nodesSig, links: linksSig, fields: fieldsSig, values, live: sketch.live };
     const prev = before.current;
     before.current = now;
-    const first = prev === null;
+    const first = prev === null || prev.kind !== sketch.kind;
     const prevNodes = prev?.nodes.split(",") ?? [];
     const prevLinks = prev?.links.split(",") ?? [];
     const prevFields = prev?.fields.split(",") ?? [];
 
     const fill = (k: NodeKey) => el.querySelector(`[data-node="${k}"] [data-fill]`)!;
     const value = (k: FieldKey) => el.querySelector(`[data-field="${k}"] b`)!;
-    const changedNodes = NODE_KEYS.filter((k, i) => first || prevNodes[i] !== nodes[k]);
+    const changedNodes = nodeKeys.filter((k, i) => first || prevNodes[i] !== nodes[k]);
     const changedLinks = [0, 1].filter((i) => first || prevLinks[i] !== String(linked[i]));
-    const newlySet = FIELD_KEYS.filter((k, i) => sketch[k].status === "set" && prevFields[i] !== "set");
+    const newlySet = fieldKeys.filter((k, i) => sketch[k].status === "set" && prevFields[i] !== "set");
     // A set field whose value changed (the person changed their mind): its
     // value dusts in again and its node, already filled, presses once.
-    const changedValue = FIELD_KEYS.filter(
+    const changedValue = fieldKeys.filter(
       (k, i) => !first && sketch[k].status === "set" && prevFields[i] === "set" && prev.values[i] !== sketch[k].value,
     );
     const pressed = [...new Set(changedValue.map((k) => NODE_OF[k]))].filter((n) => nodes[n] === "on" && !changedNodes.includes(n));
@@ -135,13 +148,13 @@ export function SketchDock({ sketch, canSwitch = false, sketching = false, onTog
     // Switching on: the three dots press in turn.
     if (prev && !prev.live && sketch.live) {
       tl.add(
-        NODE_KEYS.map(fill),
+        nodeKeys.map(fill),
         { scale: [{ to: 1 }, { to: FILLED }], duration: 360, delay: stagger(110), ease: "inOut(2)" },
         0,
       );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodesSig, linksSig, fieldsSig, valuesSig, sketch.live]);
+  }, [sketch.kind, nodesSig, linksSig, fieldsSig, valuesSig, sketch.live]);
 
   // The details panel opens by unfolding; it closes the same way before it
   // is hidden.
@@ -201,18 +214,18 @@ export function SketchDock({ sketch, canSwitch = false, sketching = false, onTog
           {LINK_D.map((d, i) => (
             <path key={d} className={styles.link} d={d} data-link={i} />
           ))}
-          {NODE_KEYS.map((k) => (
+          {nodeKeys.map((k, i) => (
             <g key={k} data-node={k} data-state={nodes[k]}>
-              <circle className={styles.node} cx={NODE_X[k]} cy="16" r="10" />
-              <circle className={styles.fill} cx={NODE_X[k]} cy="16" r="10" data-fill />
-              <text x={NODE_X[k]} y="41">
+              <circle className={styles.node} cx={NODE_X[i]} cy="16" r="10" />
+              <circle className={styles.fill} cx={NODE_X[i]} cy="16" r="10" data-fill />
+              <text x={NODE_X[i]} y="41">
                 {NODE_LABEL[k]}
               </text>
             </g>
           ))}
         </svg>
         <span className="visually-hidden">
-          {NODE_KEYS.map((k) => `${NODE_LABEL[k]}: ${nodes[k] === "on" ? "done" : nodes[k] === "ask" ? "waiting on you" : "not yet"}`).join(", ")}
+          {nodeKeys.map((k) => `${NODE_LABEL[k]}: ${nodes[k] === "on" ? "done" : nodes[k] === "ask" ? "waiting on you" : "not yet"}`).join(", ")}
         </span>
         <button
           type="button"
@@ -225,7 +238,7 @@ export function SketchDock({ sketch, canSwitch = false, sketching = false, onTog
         />
       </div>
       <ul className={styles.details} id={detailsId} ref={details} hidden={!open}>
-        {FIELD_KEYS.map((k) => (
+        {fieldKeys.map((k) => (
           <li key={k} data-field={k} data-status={sketch[k].status}>
             <small>{FIELD_LABELS[k]}</small>
             <b>{sketch[k].status === "set" ? sketch[k].value : sketch[k].status === "waiting" ? "waiting on you" : "Waiting"}</b>

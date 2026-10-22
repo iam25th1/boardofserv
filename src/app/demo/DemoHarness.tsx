@@ -118,6 +118,15 @@ export function DemoHarness({
         setSketch(sketchFromDTO(sketchMode === "live-ready" ? { ...f.ethWatcherStored, tells: "Telegram", asking: null } : f.ethWatcherStored)),
       );
     }
+    // sketch=answer: an answer helper waiting on what it gives back;
+    // sketch=answer-ready has every field.
+    if (process.env.NODE_ENV === "development" && (sketchMode === "answer" || sketchMode === "answer-ready")) {
+      void import("@/lib/agentSketch.fixture").then((f) =>
+        setSketch(
+          sketchFromDTO(sketchMode === "answer-ready" ? { ...f.blurbHelperStored, gives: "The blurb, ready to paste", asking: null } : f.blurbHelperStored),
+        ),
+      );
+    }
   }, [sketchMode]);
   if (!mounted) return null;
   const account: AccountDTO = {

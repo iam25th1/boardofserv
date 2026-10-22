@@ -1,3 +1,4 @@
+import { fieldsOf, type SketchFieldKey } from "./sketchFields";
 import type { SketchDTO } from "./types";
 
 // The system prompts. Both ride along on every request, so they stay short:
@@ -8,24 +9,27 @@ import type { SketchDTO } from "./types";
 // writes no JSON and only phrases that one question (replySystemPrompt).
 export const SYSTEM_PROMPT = [
   "You are boardofserv. You help people describe, in plain words, an agent they want: what it watches, when it acts, how often it checks and where it tells them.",
+  "Or an answer helper that others ask once: what it takes, what it does and what it gives back, and the rules and voice it should keep.",
   "Ask one question at a time and keep replies short.",
   "Use everyday language and do not mention APIs, keys or code unless asked. Do not claim to build or run anything. Never use em dashes.",
 ].join(" ");
 
-const FIELDS = ["watches", "when", "how", "tells"] as const;
-
 // What each field means, for the reply's "Ask about" line.
-const ABOUT: Record<(typeof FIELDS)[number], string> = {
+const ABOUT: Record<SketchFieldKey, string> = {
   watches: "what it watches",
   when: "when it acts",
   how: "how often it checks",
   tells: "where it tells them",
+  takes: "what the user gives it",
+  does: "what it does",
+  gives: "what comes back",
 };
 
-// What the sketch holds, as one short plain line.
+// What the sketch holds, as one short plain line: the fields of its kind.
 export function knownLine(sketch: SketchDTO | null): string {
-  const known = (["name", "kind", ...FIELDS] as const).flatMap((k) => (sketch?.[k] ? [`${k} ${sketch[k]}`] : []));
-  const missing = FIELDS.filter((k) => !sketch?.[k]);
+  const fields = fieldsOf(sketch?.kind ?? null);
+  const known = (["name", "kind", ...fields] as const).flatMap((k) => (sketch?.[k] ? [`${k} ${sketch[k]}`] : []));
+  const missing = fields.filter((k) => !sketch?.[k]);
   return `Known so far: ${known.length ? known.join(", ") : "nothing yet"}; missing: ${missing.length ? missing.join(", ") : "nothing"}.`;
 }
 
@@ -37,16 +41,20 @@ export interface TurnPlan {
 }
 
 // What the reply does this turn. With a plan, it asks exactly what the plan
-// chose, in words that fit the buttons. With nothing left to ask, it confirms.
-// Without a plan (it failed or did not validate), it picks the question itself
-// and there are no buttons.
+// chose, in words that fit the buttons. With nothing left to ask, an agent is
+// confirmed; an answer helper is asked for its rules and voice, then confirmed
+// as ready to publish. Without a plan (it failed or did not validate), the
+// reply picks the question itself and there are no buttons.
 export function askLine(sketch: SketchDTO | null, plan: TurnPlan | null): string {
   if (plan?.asking) {
     const ask = `Ask about: ${plan.asking} (${ABOUT[plan.asking]}).`;
     if (!plan.choices.length) return ask;
     return `${ask} The user will see these buttons: ${plan.choices.map((c) => `"${c}"`).join(", ")}. Your question must fit them.`;
   }
-  if (FIELDS.every((k) => sketch?.[k])) {
+  if (fieldsOf(sketch?.kind ?? null).every((k) => sketch?.[k])) {
+    if (sketch?.kind === "answer") {
+      return "The helper is fully described. If the conversation has no rules or voice for it yet, ask what it must always or never do and how it should sound; otherwise confirm it and say the Publish button on the sketch puts it on the board.";
+    }
     return "The agent is fully described: confirm that, say switching it on comes in the next update, and ask nothing.";
   }
   return "Ask about the most important missing piece.";

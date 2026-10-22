@@ -1,6 +1,7 @@
 import "server-only";
 import { completeJson, type ChatMessage, type JsonResult, type ModelConfig } from "./model";
 import { parseSketchBlock, type ParsedSketch } from "./sketchBlock";
+import { SKETCH_FIELDS, SKETCH_KINDS } from "./sketchFields";
 import { PLAN_PROMPT } from "./systemPrompt";
 import type { SketchDTO } from "./types";
 
@@ -24,15 +25,26 @@ export const SKETCH_SCHEMA = {
   schema: {
     type: "object",
     additionalProperties: false,
-    required: ["name", "kind", "watches", "when", "how", "tells", "asking", "choices"],
+    required: ["name", "kind", "watches", "when", "how", "tells", "takes", "does", "gives", "asking", "choices"],
     properties: {
       name: text("short agent name"),
-      kind: { type: "string", enum: ["watcher", "digest", "helper", "none"], description: "watcher reacts, digest summarizes, helper answers" },
+      kind: {
+        type: "string",
+        enum: [...SKETCH_KINDS, "none"],
+        description: "watcher reacts, digest summarizes, helper is an ongoing bot, answer replies once to what it is given",
+      },
       watches: text("what it monitors"),
       when: text("what triggers it"),
       how: text("how often it checks"),
       tells: text("where it notifies"),
-      asking: { type: "string", enum: ["watches", "when", "how", "tells", "none"], description: "most important empty field to ask next; none if all set" },
+      takes: text("answer: what the user gives it"),
+      does: text("answer: what it does, one line"),
+      gives: text("answer: what comes back"),
+      asking: {
+        type: "string",
+        enum: [...SKETCH_FIELDS, "none"],
+        description: "most important empty field to ask next: takes, does, gives for answer, else watches, when, how, tells; none if all set",
+      },
       choices: { type: "array", items: { type: "string" }, description: "up to 4 short answers to that question" },
     },
   },
@@ -56,7 +68,7 @@ export interface PlanInput {
 // The plan's only input, as one user message: the known fields as compact
 // JSON ({} on a first turn), the reply being answered and the new message.
 export function planInput({ stored, previous, said }: PlanInput): string {
-  const known = Object.fromEntries((["name", "kind", "watches", "when", "how", "tells"] as const).flatMap((k) => (stored?.[k] ? [[k, stored[k]]] : [])));
+  const known = Object.fromEntries((["name", "kind", ...SKETCH_FIELDS] as const).flatMap((k) => (stored?.[k] ? [[k, stored[k]]] : [])));
   const asked = previous ? `\nLast reply: ${previous}` : "";
   return `Sketch: ${JSON.stringify(known)}${asked}\nPerson: ${said}`;
 }

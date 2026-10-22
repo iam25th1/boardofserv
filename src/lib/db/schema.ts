@@ -83,20 +83,24 @@ export const replyUsage = pgTable(
 );
 
 // The agent being sketched in a conversation, one row per conversation. Each
-// reply's sketch block is merged in (see mergeSketch): a value the model sends
+// turn's plan is merged in (see mergeSketch): a value the model sends
 // replaces the stored one, a null never wipes it. live stays false until
-// agents can run.
+// agents can run. An answer helper uses takes, does and gives instead of
+// watches, when, how and tells.
 export const agentSketches = pgTable("agent_sketches", {
   conversationId: uuid("conversation_id")
     .primaryKey()
     .references(() => conversations.id, { onDelete: "cascade" }),
   name: text("name"),
-  kind: text("kind", { enum: ["watcher", "digest", "helper"] }),
+  kind: text("kind", { enum: ["watcher", "digest", "helper", "answer"] }),
   watches: text("watches"),
   when: text("when"),
   how: text("how"),
   tells: text("tells"),
-  asking: text("asking", { enum: ["watches", "when", "how", "tells"] }),
+  takes: text("takes"),
+  does: text("does"),
+  gives: text("gives"),
+  asking: text("asking", { enum: ["watches", "when", "how", "tells", "takes", "does", "gives"] }),
   live: boolean("live").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

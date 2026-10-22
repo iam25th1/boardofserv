@@ -7,8 +7,8 @@ import type { SketchDTO } from "./types";
 // The stored agent sketch for a conversation.
 
 function toDTO(row: AgentSketchRow): SketchDTO {
-  const { name, kind, watches, when, how, tells, asking, live } = row;
-  return { name, kind, watches, when, how, tells, asking, live };
+  const { name, kind, watches, when, how, tells, takes, does, gives, asking, live } = row;
+  return { name, kind, watches, when, how, tells, takes, does, gives, asking, live };
 }
 
 export async function loadSketch(conversationId: string): Promise<SketchDTO | null> {

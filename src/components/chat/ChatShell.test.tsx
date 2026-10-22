@@ -67,7 +67,7 @@ afterEach(() => {
 });
 
 const SERV = { source: "serv", label: "SERV Reasoning" };
-const ETH = { name: "ETH floor watch", kind: "watcher", watches: "ETH price", when: "below $2,000", how: null, tells: null, asking: "how", live: false } as const;
+const ETH = { name: "ETH floor watch", kind: "watcher", watches: "ETH price", when: "below $2,000", how: null, tells: null, takes: null, does: null, gives: null, asking: "how", live: false } as const;
 const answers = () => screen.queryByRole("group", { name: "Suggested answers" });
 
 describe("ChatShell", () => {
@@ -87,7 +87,7 @@ describe("ChatShell", () => {
     fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "Watch ETH" } });
     fireEvent.click(screen.getByLabelText("Send message"));
 
-    const sketch = { name: "ETH floor watch", kind: "watcher", watches: "ETH price", when: null, how: null, tells: null, asking: "tells", live: false } as const;
+    const sketch = { name: "ETH floor watch", kind: "watcher", watches: "ETH price", when: null, how: null, tells: null, takes: null, does: null, gives: null, asking: "tells", live: false } as const;
     await emit({ type: "sketch", conversationId: "c1", sketch });
     expect(screen.getByTestId("dock")).toHaveTextContent("sketched");
     await emit({ type: "meta", conversationId: "c1", source: "serv", label: "SERV Reasoning" }, { type: "delta", text: "Where should it tell you?" });
@@ -109,7 +109,7 @@ describe("ChatShell", () => {
     await renderShell();
     fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "Watch ETH" } });
     fireEvent.click(screen.getByLabelText("Send message"));
-    const sketch = { name: "ETH floor watch", kind: null, watches: "ETH price", when: null, how: null, tells: null, asking: null, live: false } as const;
+    const sketch = { name: "ETH floor watch", kind: null, watches: "ETH price", when: null, how: null, tells: null, takes: null, does: null, gives: null, asking: null, live: false } as const;
     await emit({ type: "sketch", conversationId: "c1", sketch }, { type: "meta", conversationId: "c1", source: "serv", label: "SERV Reasoning" }, { type: "delta", text: "Noted." }, { type: "reply_end", messageId: "m1", source: "serv", label: "SERV Reasoning", choices: [] }, { type: "done", messageId: "m1", source: "serv", label: "SERV Reasoning" });
     expect(screen.getByTestId("dock")).toHaveTextContent("sketched");
 

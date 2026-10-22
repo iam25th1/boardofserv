@@ -27,15 +27,20 @@ export interface AccountDTO {
 }
 
 // The agent sketch for one conversation, as the server stores and sends it.
+// An agent is described by watches, when, how and tells; an answer helper by
+// takes, does and gives (see sketchFields.ts).
 export interface SketchDTO {
   name: string | null;
-  kind: "watcher" | "digest" | "helper" | null;
+  kind: "watcher" | "digest" | "helper" | "answer" | null;
   watches: string | null;
   when: string | null;
   how: string | null;
   tells: string | null;
+  takes: string | null;
+  does: string | null;
+  gives: string | null;
   // The one field the latest reply asks about.
-  asking: "watches" | "when" | "how" | "tells" | null;
+  asking: "watches" | "when" | "how" | "tells" | "takes" | "does" | "gives" | null;
   live: boolean;
 }
 
