@@ -4,6 +4,8 @@ export interface ConversationDTO {
   title: string;
   // The agent sketch's name, once the conversation has one.
   sketchName: string | null;
+  // The slug of the helper published from it, while it is on the board.
+  publishedSlug: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -42,6 +44,17 @@ export interface SketchDTO {
   // The one field the latest reply asks about.
   asking: "watches" | "when" | "how" | "tells" | "takes" | "does" | "gives" | null;
   live: boolean;
+}
+
+// A published helper as anyone may see it: never its instructions.
+export interface PublicHelperDTO {
+  slug: string;
+  name: string;
+  description: string;
+  inputHint: string;
+  // The maker's handle, without the @.
+  maker: string;
+  createdAt: string;
 }
 
 export type ChatEvent =

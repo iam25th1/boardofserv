@@ -156,3 +156,30 @@ and `sketch=live-ready` show the same agent the way a real conversation does,
 and `sketching=1` adds the "sketching..." note it shows while the plan runs.
 `/demo?sketch=answer` and `sketch=answer-ready` show an answer helper.
 Production never loads the fixtures.
+
+## Publishing helpers
+
+When an answer helper's fields are all set, the dock's switch becomes a
+Publish button (other kinds keep "Switching on comes in the next update").
+Publish opens a confirm sheet: the public name, a one-line description and a
+"what to type" hint the maker can edit, and a note that their instructions
+stay private. Confirming runs one compile call (strict json_schema, `COMPILE_MAX_TOKENS`,
+default 600): from the sketch and the conversation's recent messages, the
+model writes the helper's private system prompt (rules, voice, format, what to
+refuse). A line with a per-helper random canary is appended, which the helper
+is told never to write.
+
+`published_helpers` holds id, slug (unique, from the name), owner, name,
+description, input hint, system prompt and canary (both server only), source
+conversation, created and unpublished times. A conversation has at most one
+helper on the board. The maker takes it down from the agents popover;
+deleting the conversation takes it down too. The row stays, so the slug is
+never reused and the helper's page says it was taken down.
+
+The system prompt and the canary never leave the server: every query behind a
+response selects the public columns only (`src/lib/helpers.ts`), and nothing
+logs them. The maker's handle is the part of their email before the @.
+
+- `POST /api/helpers`: publish (signed in, owner of the conversation).
+- `DELETE /api/helpers/:slug`: take it off the board (the maker only).
+

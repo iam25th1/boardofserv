@@ -109,9 +109,10 @@ export function sketchFromDTO(d: SketchDTO): AgentSketch {
 // canSwitch is false until agents can run, so a ready sketch says so rather
 // than offering a switch that would only pretend. A ready answer helper is
 // published instead of switched on.
-export function statusLine(s: AgentSketch, paused: boolean, canSwitch = false): string {
+export function statusLine(s: AgentSketch, paused: boolean, canSwitch = false, published = false): string {
   if (s.live) return "Running on your credit";
   if (paused) return "Paused";
+  if (s.kind === "answer" && published) return "On the board";
   if (isReady(s) && s.kind === "answer") return "Ready to publish";
   if (isReady(s)) return canSwitch ? "Ready. Flip the switch to start it" : "Ready. Switching on comes in the next update.";
   if (fieldKeysOf(s).some((k) => s[k].status === "waiting")) return "Waiting on one answer from you";

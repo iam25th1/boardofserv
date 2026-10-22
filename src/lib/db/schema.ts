@@ -1,4 +1,5 @@
-import { pgTable, text, timestamp, uuid, index, integer, boolean } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean } from "drizzle-orm/pg-core";
 
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
 // embedded wallet address and, encrypted, the OpenServ API key that this
@@ -105,7 +106,37 @@ export const agentSketches = pgTable("agent_sketches", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// An answer helper a maker published from a conversation, for anyone to use
+// from the board. system_prompt (written by the compile call, canary line
+// included) and canary are server only: no response, log or client ever
+// carries them (see helpers.ts and secrecy.test.ts). Unpublishing sets
+// unpublished_at and keeps the row, so the slug stays taken and its page can
+// say the helper was taken down. A conversation has at most one live helper.
+export const publishedHelpers = pgTable(
+  "published_helpers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    slug: text("slug").notNull().unique(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    inputHint: text("input_hint").notNull(),
+    systemPrompt: text("system_prompt").notNull(),
+    canary: text("canary").notNull(),
+    sourceConversationId: uuid("source_conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    unpublishedAt: timestamp("unpublished_at", { withTimezone: true }),
+  },
+  (t) => ({
+    byCreated: index("published_helpers_created_idx").on(t.createdAt),
+    oneLive: uniqueIndex("published_helpers_live_idx").on(t.sourceConversationId).where(sql`${t.unpublishedAt} is null`),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type AgentSketchRow = typeof agentSketches.$inferSelect;
+export type PublishedHelper = typeof publishedHelpers.$inferSelect;

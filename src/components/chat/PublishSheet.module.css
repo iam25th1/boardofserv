@@ -1,0 +1,51 @@
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.name {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  padding-bottom: var(--s-3);
+  border-bottom: 1px dashed var(--line);
+}
+.name strong {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+}
+/* A small handwritten note beside the name. */
+.note {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  font-weight: var(--w-medium);
+  line-height: 1;
+  color: var(--chalk-2);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field label {
+  font-size: var(--t-xs);
+  font-weight: var(--w-medium);
+  color: var(--chalk-2);
+}
+.field small {
+  font-size: var(--t-2xs);
+  color: var(--chalk-3);
+}
+
+.private {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+
+.error {
+  font-size: var(--t-sm);
+  color: var(--chalk);
+}

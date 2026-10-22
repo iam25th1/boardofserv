@@ -18,10 +18,11 @@ const now = Date.now();
 const iso = (daysAgo: number) => new Date(now - daysAgo * 86_400_000).toISOString();
 
 const CONVERSATIONS: ConversationDTO[] = [
-  { id: "1", title: "Tell my Telegram group when ETH drops 5 percent", sketchName: "ETH floor watch", createdAt: iso(0), updatedAt: iso(0) },
-  { id: "2", title: "Daily Gmail summary at 8am", sketchName: "Morning inbox digest", createdAt: iso(0), updatedAt: iso(0) },
-  { id: "3", title: "Post new blog articles to X", sketchName: "Blog to X", createdAt: iso(3), updatedAt: iso(3) },
-  { id: "4", title: "Watch a wallet for large transfers", sketchName: null, createdAt: iso(12), updatedAt: iso(12) },
+  { id: "1", title: "Tell my Telegram group when ETH drops 5 percent", sketchName: "ETH floor watch", publishedSlug: null, createdAt: iso(0), updatedAt: iso(0) },
+  { id: "2", title: "Daily Gmail summary at 8am", sketchName: "Morning inbox digest", publishedSlug: null, createdAt: iso(0), updatedAt: iso(0) },
+  { id: "5", title: "Write blurbs for my shop", sketchName: "Shop blurb writer", publishedSlug: "shop-blurb-writer", createdAt: iso(1), updatedAt: iso(1) },
+  { id: "3", title: "Post new blog articles to X", sketchName: "Blog to X", publishedSlug: null, createdAt: iso(3), updatedAt: iso(3) },
+  { id: "4", title: "Watch a wallet for large transfers", sketchName: null, publishedSlug: null, createdAt: iso(12), updatedAt: iso(12) },
 ];
 
 const ASSISTANT = `Here is what your agent would do.

@@ -1,5 +1,6 @@
 "use client";
 import { useId, useLayoutEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { animate, createTimeline, stagger, svg, utils } from "animejs";
 import {
   FIELD_LABELS,
@@ -13,7 +14,7 @@ import {
   type FieldKey,
   type NodeKey,
 } from "@/lib/agentSketch";
-import { dustIn, ease, prefersReducedMotion } from "@/lib/motion";
+import { animatePop, dustIn, ease, prefersReducedMotion } from "@/lib/motion";
 import styles from "./SketchDock.module.css";
 
 // The agent sketch, docked on top of the composer as one piece: name and
@@ -21,7 +22,8 @@ import styles from "./SketchDock.module.css";
 // gives for an answer helper), the on/off switch, and the details panel that
 // opens when you tap the name. Agents cannot run yet, so the switch only
 // works for the development fixtures (canSwitch); a real sketch keeps it
-// disabled and its status line says why.
+// disabled and its status line says why. A ready answer helper has a Publish
+// button in the switch's place, and once published a link to its page.
 
 // Where each of the three nodes sits, in drawing order.
 const NODE_X = [28, 104, 180];
@@ -53,9 +55,13 @@ interface Props {
   // The plan call is reading the latest message into the sketch.
   sketching?: boolean;
   onToggle?: (live: boolean) => void;
+  // An answer helper: the slug it is published under, while it is on the
+  // board, and what Publish does.
+  published?: string | null;
+  onPublish?: () => void;
 }
 
-export function SketchDock({ sketch, canSwitch = false, sketching = false, onToggle }: Props) {
+export function SketchDock({ sketch, canSwitch = false, sketching = false, onToggle, published = null, onPublish }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const details = useRef<HTMLUListElement>(null);
   const links = useRef<ReturnType<typeof svg.createDrawable> | null>(null);
@@ -69,6 +75,14 @@ export function SketchDock({ sketch, canSwitch = false, sketching = false, onTog
   const fieldKeys = fieldKeysOf(sketch);
   const linked = linksOf(nodes);
   const ready = isReady(sketch);
+  // What sits where the switch is: the switch, Publish, or a link to the page.
+  const action = sketch.kind !== "answer" ? "switch" : published ? "view" : ready ? "publish" : "switch";
+  const actionRef = useRef<HTMLElement | null>(null);
+
+  // Publish (or the link) appears in the switch's place with a small pop.
+  useLayoutEffect(() => {
+    if (action !== "switch" && actionRef.current) animatePop(actionRef.current);
+  }, [action]);
 
   // The dock arrives by opening up from the composer.
   useLayoutEffect(() => {
@@ -208,7 +222,9 @@ export function SketchDock({ sketch, canSwitch = false, sketching = false, onTog
           onClick={toggleDetails}
         >
           <strong>{sketch.name || "Unnamed agent"}</strong>
-          <small>{sketching ? <span className={styles.sketching}>sketching...</span> : statusLine(sketch, paused, canSwitch)}</small>
+          <small>
+            {sketching ? <span className={styles.sketching}>sketching...</span> : statusLine(sketch, paused, canSwitch, Boolean(published))}
+          </small>
         </button>
         <svg className={`${styles.flow} chalky`} viewBox="0 0 208 44" aria-hidden="true" focusable="false">
           {LINK_D.map((d, i) => (
@@ -227,15 +243,31 @@ export function SketchDock({ sketch, canSwitch = false, sketching = false, onTog
         <span className="visually-hidden">
           {nodeKeys.map((k) => `${NODE_LABEL[k]}: ${nodes[k] === "on" ? "done" : nodes[k] === "ask" ? "waiting on you" : "not yet"}`).join(", ")}
         </span>
-        <button
-          type="button"
-          role="switch"
-          className={styles.toggle}
-          aria-checked={sketch.live}
-          aria-label={canSwitch ? (sketch.live ? "Switch agent off" : "Switch agent on") : "Switch agent on (comes in the next update)"}
-          disabled={!ready || !canSwitch}
-          onClick={flip}
-        />
+        {action === "view" ? (
+          <Link ref={(el) => void (actionRef.current = el)} className={styles.publish} href={`/h/${published}`}>
+            View
+          </Link>
+        ) : action === "publish" ? (
+          <button
+            ref={(el) => void (actionRef.current = el)}
+            type="button"
+            className={styles.publish}
+            disabled={!onPublish}
+            onClick={onPublish}
+          >
+            Publish
+          </button>
+        ) : (
+          <button
+            type="button"
+            role="switch"
+            className={styles.toggle}
+            aria-checked={sketch.live}
+            aria-label={canSwitch ? (sketch.live ? "Switch agent off" : "Switch agent on") : "Switch agent on (comes in the next update)"}
+            disabled={!ready || !canSwitch}
+            onClick={flip}
+          />
+        )}
       </div>
       <ul className={styles.details} id={detailsId} ref={details} hidden={!open}>
         {fieldKeys.map((k) => (

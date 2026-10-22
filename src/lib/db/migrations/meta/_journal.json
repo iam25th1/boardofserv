@@ -43,6 +43,13 @@
       "when": 1792666345847,
       "tag": "0005_sketch_answer",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792666612276,
+      "tag": "0006_published_helpers",
+      "breakpoints": true
     }
   ]
 }
