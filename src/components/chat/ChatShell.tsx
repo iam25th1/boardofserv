@@ -14,8 +14,9 @@ import { ShortcutsDialog } from "./ShortcutsDialog";
 import { TopBar } from "./TopBar";
 import { SketchDock } from "./SketchDock";
 import { Chips } from "./Chips";
+import { PublishSheet, type PublishEdits } from "./PublishSheet";
 import { sketchFromDTO, type AgentSketch } from "@/lib/agentSketch";
-import type { SketchDTO } from "@/lib/types";
+import type { PublicHelperDTO, SketchDTO } from "@/lib/types";
 import type { MessageView } from "./Message";
 import styles from "./ChatShell.module.css";
 
@@ -47,6 +48,13 @@ export function ChatShell() {
   const [chips, setChips] = useState<{ messageId: string; options: string[] } | null>(null);
   // Development only: a fixture from ?sketch=demo or ?sketch=ready.
   const [fixture, setFixture] = useState<AgentSketch | null>(null);
+  // The helper published from the active conversation, while it is on the
+  // board, and the confirm sheet that publishes one.
+  const [published, setPublished] = useState<PublicHelperDTO | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [unpublishId, setUnpublishId] = useState<string | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -123,13 +131,18 @@ export function ChatShell() {
       activeRef.current = id;
       setError(null);
       try {
-        const { messages: rows, sketch: stored } = await api.getConversation(id);
+        const { messages: rows, sketch: stored, published: helper } = await api.getConversation(id);
+        // Another conversation was opened while this one loaded.
+        if (activeRef.current !== id) return;
         setMessages(rows.map((m) => ({ id: m.id, role: m.role, content: m.content, source: m.source, sourceLabel: m.sourceLabel })));
         setSketch(stored);
+        setPublished(helper ?? null);
         setChips(null);
       } catch {
+        if (activeRef.current !== id) return;
         setMessages([]);
         setSketch(null);
+        setPublished(null);
       }
     },
     [api, abortReply],
@@ -141,6 +154,7 @@ export function ChatShell() {
     activeRef.current = null;
     setMessages([]);
     setSketch(null);
+    setPublished(null);
     setChips(null);
     setError(null);
     setTimeout(() => (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus(), 30);
@@ -304,6 +318,53 @@ export function ChatShell() {
     void refreshConversations();
   }, [api, renameId, renameValue, activeId, refreshConversations]);
 
+  // Choose a handle: from the account menu, or confirmed in the publish sheet.
+  const saveHandle = useCallback(
+    async (handle: string) => {
+      const saved = await api.setHandle(handle);
+      setAccount((a) => a && { ...a, handle: saved.handle, handleChosen: saved.handleChosen });
+    },
+    [api],
+  );
+
+  // Publish the active conversation's answer helper with the sheet's edits,
+  // keeping the handle first when the sheet asked for it.
+  const doPublish = useCallback(
+    async ({ handle, ...edits }: PublishEdits) => {
+      const id = activeId;
+      if (!id) return;
+      setPublishing(true);
+      setPublishError(null);
+      try {
+        if (handle !== undefined) await saveHandle(handle);
+        const helper = await api.publishHelper({ conversationId: id, ...edits });
+        if (activeRef.current === id) setPublished(helper);
+        setSheetOpen(false);
+        toast.show({ title: "Published to the board" });
+        void refreshConversations();
+      } catch (err) {
+        setPublishError(err instanceof Error ? err.message : "It could not be published. Try again.");
+      } finally {
+        setPublishing(false);
+      }
+    },
+    [api, activeId, toast, refreshConversations, saveHandle],
+  );
+
+  const doUnpublish = useCallback(async () => {
+    const c = conversations.find((x) => x.id === unpublishId);
+    setUnpublishId(null);
+    if (!c?.publishedSlug) return;
+    try {
+      await api.unpublishHelper(c.publishedSlug);
+      if (c.id === activeRef.current) setPublished(null);
+      toast.show({ title: "Taken off the board" });
+    } catch {
+      toast.show({ title: "Could not take it down. Try again.", tone: "danger" });
+    }
+    void refreshConversations();
+  }, [api, conversations, unpublishId, toast, refreshConversations]);
+
   const doDelete = useCallback(async () => {
     if (!deleteId) return;
     await api.deleteConversation(deleteId);
@@ -352,6 +413,7 @@ export function ChatShell() {
               setRenameValue(c?.sketchName ?? c?.title ?? "");
             }}
             onDelete={(id) => setDeleteId(id)}
+            onUnpublish={(id) => setUnpublishId(id)}
           />
         }
         account={
@@ -361,6 +423,8 @@ export function ChatShell() {
             onLink={doLink}
             onSignOut={() => void logout()}
             onOpenShortcuts={() => setShortcuts(true)}
+            checkHandle={api.checkHandle}
+            onSaveHandle={saveHandle}
           />
         }
       />
@@ -392,12 +456,52 @@ export function ChatShell() {
             <SketchDock sketch={fixture} canSwitch onToggle={(live) => setFixture({ ...fixture, live })} />
           ) : sketch?.name ? (
             // Keyed by conversation: opening another one brings its dock in fresh.
-            <SketchDock key={activeId ?? "new"} sketch={sketchFromDTO(sketch)} sketching={sketchingTurn !== null} />
+            <SketchDock
+              key={activeId ?? "new"}
+              sketch={sketchFromDTO(sketch)}
+              sketching={sketchingTurn !== null}
+              published={published?.slug ?? null}
+              onPublish={() => {
+                setPublishError(null);
+                setSheetOpen(true);
+              }}
+            />
           ) : null
         }
       />
 
       <ShortcutsDialog open={shortcuts} onClose={() => setShortcuts(false)} />
+
+      <PublishSheet
+        open={sheetOpen}
+        name={sketch?.name ?? ""}
+        description={firstUpper(sketch?.does)}
+        inputHint={firstUpper(sketch?.takes)}
+        handle={account && { current: account.handle, chosen: account.handleChosen }}
+        checkHandle={api.checkHandle}
+        busy={publishing}
+        error={publishError}
+        onCancel={() => setSheetOpen(false)}
+        onPublish={doPublish}
+      />
+
+      <Dialog
+        open={unpublishId !== null}
+        onClose={() => setUnpublishId(null)}
+        title="Take it off the board?"
+        actions={
+          <>
+            <Button variant="ghost" onClick={() => setUnpublishId(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={doUnpublish}>
+              Take it down
+            </Button>
+          </>
+        }
+      >
+        <p className={styles.confirmText}>It leaves the board and its page says it was taken down. The conversation stays.</p>
+      </Dialog>
 
       <Dialog
         open={renameId !== null}
@@ -432,8 +536,17 @@ export function ChatShell() {
           </>
         }
       >
-        <p className={styles.confirmText}>This removes the conversation and its messages. It cannot be undone.</p>
+        <p className={styles.confirmText}>
+          This removes the conversation and its messages. It cannot be undone.
+          {conversations.find((c) => c.id === deleteId)?.publishedSlug ? " Its helper comes off the board too." : ""}
+        </p>
       </Dialog>
     </div>
   );
+}
+
+// The sheet's starting text, from the sketch's plain words.
+function firstUpper(text: string | null | undefined): string {
+  const t = (text ?? "").trim();
+  return t ? t[0]!.toUpperCase() + t.slice(1) : "";
 }

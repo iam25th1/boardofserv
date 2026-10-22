@@ -4,7 +4,7 @@ import type { SketchDTO } from "./types";
 
 // What the reply is told to ask, from the stored sketch and the turn's plan.
 
-const half: SketchDTO = { name: "ETH floor watch", kind: "watcher", watches: "ETH price", when: "below $2,000", how: null, tells: null, asking: "how", live: false };
+const half: SketchDTO = { name: "ETH floor watch", kind: "watcher", watches: "ETH price", when: "below $2,000", how: null, tells: null, takes: null, does: null, gives: null, asking: "how", live: false };
 const full: SketchDTO = { ...half, how: "every 5 minutes", tells: "Telegram", asking: null };
 
 describe("askLine", () => {

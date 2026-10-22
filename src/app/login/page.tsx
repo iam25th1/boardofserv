@@ -11,6 +11,10 @@ import { REDUCED_MOTION, ease } from "@/lib/motion";
 import { privyAppId } from "@/lib/privy-config";
 import styles from "./login.module.css";
 
+// Where sign-in may send someone back to: only our own helper pages and the
+// board, never another site.
+const SAFE_NEXT = /^\/(h\/[a-z0-9-]+|board)$/;
+
 export default function LoginPage() {
   // No Privy app id means there is nothing to sign in with.
   if (!privyAppId()) return <SignInUnset />;
@@ -23,7 +27,10 @@ function SignIn() {
   const root = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    if (ready && authenticated) router.replace(`/chat${window.location.search}`);
+    if (!ready || !authenticated) return;
+    // A helper's page or the board sends people here with ?next= to come back.
+    const next = new URLSearchParams(window.location.search).get("next");
+    router.replace(next && SAFE_NEXT.test(next) ? next : `/chat${window.location.search}`);
   }, [ready, authenticated, router]);
 
   // Same arrival as the empty chat: the line rises, the chalk arrow is drawn,

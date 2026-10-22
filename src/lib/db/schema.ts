@@ -1,20 +1,31 @@
-import { pgTable, text, timestamp, uuid, index, integer, boolean } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean } from "drizzle-orm/pg-core";
 
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
 // embedded wallet address and, encrypted, the OpenServ API key that this
 // wallet's SIWE sign-in produced. The key is ciphertext only (see crypto.ts);
 // the plaintext never touches the database or the browser.
-export const users = pgTable("users", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  privyUserId: text("privy_user_id").notNull().unique(),
-  email: text("email"),
-  walletAddress: text("wallet_address"),
-  // OpenServ linkage.
-  openservUserId: text("openserv_user_id"),
-  openservKeyEncrypted: text("openserv_key_encrypted"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-});
+//
+// The handle is the user's public name (without the @), unique ignoring case.
+// New users get a random one like maker_4821 until they choose their own (see
+// handles.ts). The email is never public: only its owner's account menu shows it.
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    privyUserId: text("privy_user_id").notNull().unique(),
+    email: text("email"),
+    handle: text("handle").notNull(),
+    handleChosen: boolean("handle_chosen").notNull().default(false),
+    walletAddress: text("wallet_address"),
+    // OpenServ linkage.
+    openservUserId: text("openserv_user_id"),
+    openservKeyEncrypted: text("openserv_key_encrypted"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ byHandle: uniqueIndex("users_handle_idx").on(sql`lower(${t.handle})`) }),
+);
 
 export const conversations = pgTable(
   "conversations",
@@ -83,25 +94,80 @@ export const replyUsage = pgTable(
 );
 
 // The agent being sketched in a conversation, one row per conversation. Each
-// reply's sketch block is merged in (see mergeSketch): a value the model sends
+// turn's plan is merged in (see mergeSketch): a value the model sends
 // replaces the stored one, a null never wipes it. live stays false until
-// agents can run.
+// agents can run. An answer helper uses takes, does and gives instead of
+// watches, when, how and tells.
 export const agentSketches = pgTable("agent_sketches", {
   conversationId: uuid("conversation_id")
     .primaryKey()
     .references(() => conversations.id, { onDelete: "cascade" }),
   name: text("name"),
-  kind: text("kind", { enum: ["watcher", "digest", "helper"] }),
+  kind: text("kind", { enum: ["watcher", "digest", "helper", "answer"] }),
   watches: text("watches"),
   when: text("when"),
   how: text("how"),
   tells: text("tells"),
-  asking: text("asking", { enum: ["watches", "when", "how", "tells"] }),
+  takes: text("takes"),
+  does: text("does"),
+  gives: text("gives"),
+  asking: text("asking", { enum: ["watches", "when", "how", "tells", "takes", "does", "gives"] }),
   live: boolean("live").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// An answer helper a maker published from a conversation, for anyone to use
+// from the board. system_prompt (written by the compile call, canary line
+// included) and canary are server only: no response, log or client ever
+// carries them (see helpers.ts and secrecy.test.ts). Unpublishing sets
+// unpublished_at and keeps the row, so the slug stays taken and its page can
+// say the helper was taken down. A conversation has at most one live helper.
+export const publishedHelpers = pgTable(
+  "published_helpers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    slug: text("slug").notNull().unique(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    inputHint: text("input_hint").notNull(),
+    systemPrompt: text("system_prompt").notNull(),
+    canary: text("canary").notNull(),
+    sourceConversationId: uuid("source_conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    unpublishedAt: timestamp("unpublished_at", { withTimezone: true }),
+  },
+  (t) => ({
+    byCreated: index("published_helpers_created_idx").on(t.createdAt),
+    oneLive: uniqueIndex("published_helpers_live_idx").on(t.sourceConversationId).where(sql`${t.unpublishedAt} is null`),
+  }),
+);
+
+// One row per use of a published helper: who used which helper, tokens,
+// latency and outcome ("ok", "blocked" when the answer was stopped for
+// leaking its instructions, "failed" when no answer came). Never the input or
+// the answer. The rows also count each user's uses for the daily limit.
+export const helperUses = pgTable(
+  "helper_uses",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    helperId: uuid("helper_id").references(() => publishedHelpers.id, { onDelete: "set null" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    promptTokens: integer("prompt_tokens"),
+    completionTokens: integer("completion_tokens"),
+    latencyMs: integer("latency_ms").notNull(),
+    outcome: text("outcome", { enum: ["ok", "blocked", "failed"] }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ byUserDay: index("helper_uses_user_idx").on(t.userId, t.createdAt) }),
+);
 
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type AgentSketchRow = typeof agentSketches.$inferSelect;
+export type PublishedHelper = typeof publishedHelpers.$inferSelect;

@@ -3,10 +3,14 @@ import { isReady, linksOf, nodesOf, statusLine, type AgentSketch } from "./agent
 
 const empty: AgentSketch = {
   name: "",
+  kind: null,
   watches: { value: "", status: "empty" },
   when: { value: "", status: "empty" },
   how: { value: "", status: "empty" },
   tells: { value: "", status: "empty" },
+  takes: { value: "", status: "empty" },
+  does: { value: "", status: "empty" },
+  gives: { value: "", status: "empty" },
   cost: null,
   live: false,
 };

@@ -18,10 +18,11 @@ const now = Date.now();
 const iso = (daysAgo: number) => new Date(now - daysAgo * 86_400_000).toISOString();
 
 const CONVERSATIONS: ConversationDTO[] = [
-  { id: "1", title: "Tell my Telegram group when ETH drops 5 percent", sketchName: "ETH floor watch", createdAt: iso(0), updatedAt: iso(0) },
-  { id: "2", title: "Daily Gmail summary at 8am", sketchName: "Morning inbox digest", createdAt: iso(0), updatedAt: iso(0) },
-  { id: "3", title: "Post new blog articles to X", sketchName: "Blog to X", createdAt: iso(3), updatedAt: iso(3) },
-  { id: "4", title: "Watch a wallet for large transfers", sketchName: null, createdAt: iso(12), updatedAt: iso(12) },
+  { id: "1", title: "Tell my Telegram group when ETH drops 5 percent", sketchName: "ETH floor watch", publishedSlug: null, createdAt: iso(0), updatedAt: iso(0) },
+  { id: "2", title: "Daily Gmail summary at 8am", sketchName: "Morning inbox digest", publishedSlug: null, createdAt: iso(0), updatedAt: iso(0) },
+  { id: "5", title: "Write blurbs for my shop", sketchName: "Shop blurb writer", publishedSlug: "shop-blurb-writer", createdAt: iso(1), updatedAt: iso(1) },
+  { id: "3", title: "Post new blog articles to X", sketchName: "Blog to X", publishedSlug: null, createdAt: iso(3), updatedAt: iso(3) },
+  { id: "4", title: "Watch a wallet for large transfers", sketchName: null, publishedSlug: null, createdAt: iso(12), updatedAt: iso(12) },
 ];
 
 const ASSISTANT = `Here is what your agent would do.
@@ -55,6 +56,9 @@ const MESSAGES: MessageView[] = [
 ];
 // backup=1 shows the same reply as if the backup model had answered it.
 const BACKUP_REPLY: MessageView = { ...MESSAGES[1]!, source: "fallback", sourceLabel: "GPT-4o mini" };
+
+// The account menu's handle check, without a server: "maya" is taken.
+const demoCheckHandle = async (handle: string) => (handle === "maya" ? { available: false, error: "That handle is taken." } : { available: true });
 
 // state=replay plays the seeded reply through the real streaming path: the
 // thinking scribble first, then chunks of a few words at network-like pace
@@ -118,10 +122,21 @@ export function DemoHarness({
         setSketch(sketchFromDTO(sketchMode === "live-ready" ? { ...f.ethWatcherStored, tells: "Telegram", asking: null } : f.ethWatcherStored)),
       );
     }
+    // sketch=answer: an answer helper waiting on what it gives back;
+    // sketch=answer-ready has every field.
+    if (process.env.NODE_ENV === "development" && (sketchMode === "answer" || sketchMode === "answer-ready")) {
+      void import("@/lib/agentSketch.fixture").then((f) =>
+        setSketch(
+          sketchFromDTO(sketchMode === "answer-ready" ? { ...f.blurbHelperStored, gives: "The blurb, ready to paste", asking: null } : f.blurbHelperStored),
+        ),
+      );
+    }
   }, [sketchMode]);
   if (!mounted) return null;
   const account: AccountDTO = {
     email: "maya@example.com",
+    handle: "maker_4821",
+    handleChosen: false,
     walletAddress: "0x5f88...3148",
     openservUserId: "134829",
     linked: true,
@@ -155,7 +170,18 @@ export function DemoHarness({
             startOpen={agentsOpen}
           />
         }
-        account={<AccountMenu account={account} linking={false} onLink={() => {}} onSignOut={() => {}} onOpenShortcuts={() => {}} startOpen={menuOpen} />}
+        account={
+          <AccountMenu
+            account={account}
+            linking={false}
+            onLink={() => {}}
+            onSignOut={() => {}}
+            onOpenShortcuts={() => {}}
+            checkHandle={demoCheckHandle}
+            onSaveHandle={async () => {}}
+            startOpen={menuOpen}
+          />
+        }
       />
       {state === "empty" ? (
         <EmptyState onPick={() => {}} />

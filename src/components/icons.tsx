@@ -41,6 +41,10 @@ export const EditIcon = ({ size = 16 }: P) => (
 export const TrashIcon = ({ size = 16 }: P) => (
   <svg {...base(size)}><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" /></svg>
 );
+// A board with an arrow coming down off it: take a helper off the board.
+export const UnpublishIcon = ({ size = 16 }: P) => (
+  <svg {...base(size)}><path d="M4 4h16v10H4zM12 9v11M8.5 16.5 12 20l3.5-3.5" /></svg>
+);
 export const MenuIcon = ({ size = 20 }: P) => (
   <svg {...base(size)}><path d="M4 7h16M4 12h16M4 17h16" /></svg>
 );

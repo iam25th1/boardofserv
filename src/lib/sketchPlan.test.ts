@@ -19,6 +19,9 @@ const stored: SketchDTO = {
   when: "below $2,000",
   how: null,
   tells: null,
+  takes: null,
+  does: null,
+  gives: null,
   asking: "how",
   live: false,
 };

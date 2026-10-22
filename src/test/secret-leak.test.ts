@@ -15,7 +15,7 @@ import { join } from "node:path";
 const ROOT = join(__dirname, "..", "..");
 const SRC = join(ROOT, "src");
 
-const SERVER_MODULES = ["lib/crypto", "lib/openserv", "lib/model", "lib/demoModel", "lib/sketchStore", "lib/privy", "lib/db", "lib/session", "lib/auth-route"];
+const SERVER_MODULES = ["lib/crypto", "lib/openserv", "lib/model", "lib/demoModel", "lib/sketchStore", "lib/helpers", "lib/leakGuard", "lib/privy", "lib/db", "lib/session", "lib/auth-route", "lib/users"];
 const SERVER_SECRET_ENVS = ["PRIVY_APP_SECRET", "OPENSERV_KEY_ENC_KEY", "SERV_API_KEY", "FALLBACK_API_KEY", "DATABASE_URL"];
 
 function walk(dir: string): string[] {

@@ -10,6 +10,24 @@
   padding: 18px max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-2) max(var(--gutter), env(safe-area-inset-left, 0px));
 }
 
+/* Board, and the way back to your agents: quiet text links like the pill. */
+.link {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  padding: 6px 10px;
+  border-radius: var(--r-full);
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+.link:hover,
+.link[aria-current="page"] {
+  color: var(--chalk);
+  background: var(--dust);
+}
+
 .end {
   margin-left: auto;
   display: flex;
@@ -28,8 +46,9 @@
   }
 }
 
-/* The narrowest phones keep the mark and drop the name beside it. */
-@media (max-width: 380px) {
+/* Phones keep the mark and drop the name beside it, so the pill, Board and
+   the account menu fit on one line. */
+@media (max-width: 480px) {
   .top :global(.wordmark-name) {
     display: none;
   }

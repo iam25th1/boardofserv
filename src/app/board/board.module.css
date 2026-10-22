@@ -1,0 +1,130 @@
+.page {
+  min-height: 100dvh;
+}
+
+.col {
+  width: 100%;
+  max-width: var(--top-col);
+  margin: 0 auto;
+  padding: var(--s-5) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-8) max(var(--gutter), env(safe-area-inset-left, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+.head h1 {
+  font-weight: var(--w-semibold);
+  font-size: var(--t-xl);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.02em;
+}
+.note {
+  margin-top: var(--s-1);
+  font-family: var(--font-hand);
+  font-weight: var(--w-medium);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  max-width: 360px;
+  padding: 8px 14px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--line);
+  color: var(--chalk-3);
+  transition: border-color var(--dur) var(--ease);
+}
+.search:focus-within {
+  border-color: var(--chalk-3);
+}
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-size: var(--t-sm);
+  color: var(--chalk);
+}
+.search input::placeholder {
+  color: var(--chalk-3);
+}
+
+.grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+/* A short card chalked on the slate. */
+.card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--s-4) 18px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-lg);
+  color: var(--chalk);
+  text-decoration: none;
+  transition:
+    border-color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+.card:hover {
+  border-color: var(--chalk-3);
+  background: var(--dust);
+}
+.card strong {
+  font-weight: var(--w-semibold);
+  font-size: var(--t-md);
+  line-height: var(--lh-snug);
+}
+.line {
+  width: 96px;
+  height: 6px;
+  overflow: visible;
+}
+.line path {
+  fill: none;
+  stroke: var(--chalk-3);
+  stroke-width: var(--stroke);
+  stroke-linecap: round;
+}
+.card p {
+  flex: 1;
+  font-size: var(--t-sm);
+  line-height: var(--lh-snug);
+  color: var(--chalk-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.card small {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  font-weight: var(--w-medium);
+  line-height: 1;
+  color: var(--chalk-3);
+}
+
+.loading {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+  color: var(--chalk-2);
+}

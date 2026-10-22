@@ -16,7 +16,8 @@ const SCRIBBLES = [
 
 const PHRASES = ["reading what you asked", "sketching the agent", "checking what it needs"];
 
-export function Thinking() {
+// A helper's page passes its own phrases.
+export function Thinking({ phrases = PHRASES }: { phrases?: string[] }) {
   const root = useRef<HTMLDivElement>(null);
   const phraseRef = useRef<HTMLSpanElement>(null);
   const [phrase, setPhrase] = useState(0);
@@ -28,7 +29,7 @@ export function Thinking() {
     let alive = true;
     const scope = createScope({ root, mediaQueries: { reduce: REDUCED_MOTION } }).add((self) => {
       const lines = svg.createDrawable("[data-scribble]", 0, 0);
-      const advance = () => alive && setPhrase((p) => (p + 1) % PHRASES.length);
+      const advance = () => alive && setPhrase((p) => p + 1);
 
       // Reduced motion: one scribble, fully drawn and still. The words still
       // change, without any fade.
@@ -72,7 +73,7 @@ export function Thinking() {
         ))}
       </svg>
       <span className={styles.ph} ref={phraseRef} aria-hidden="true">
-        {PHRASES[phrase]}
+        {phrases[phrase % phrases.length]}
       </span>
     </div>
   );

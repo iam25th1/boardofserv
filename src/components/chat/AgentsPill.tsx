@@ -2,7 +2,7 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 import type { ConversationDTO } from "@/lib/types";
 import { IconButton } from "@/components/ui";
-import { EditIcon, TrashIcon, SearchIcon } from "@/components/icons";
+import { EditIcon, TrashIcon, SearchIcon, UnpublishIcon } from "@/components/icons";
 import { animateDrop } from "@/lib/motion";
 import styles from "./AgentsPill.module.css";
 
@@ -10,9 +10,9 @@ import styles from "./AgentsPill.module.css";
 // do the popover lists the user's conversations. One with a sketch shows the
 // agent's name and counts as an agent; one without keeps its title. Ring
 // states follow the mockup: dashed and spinning while a reply is in progress,
-// outline for a draft, filled for live (unused until agents can run), and no
-// ring for a conversation with no sketch yet. Search, rename and delete moved
-// here from the old sidebar.
+// outline for a draft, filled for live (a helper on the board), and no ring
+// for a conversation with no sketch yet. Search, rename and delete moved here
+// from the old sidebar; a published helper can be taken off the board here.
 
 export type RingState = "live" | "wiring" | "draft" | "none";
 
@@ -24,6 +24,7 @@ interface Props {
   onSelect: (id: string) => void;
   onRename: (id: string) => void;
   onDelete: (id: string) => void;
+  onUnpublish?: (id: string) => void;
   startOpen?: boolean;
 }
 
@@ -42,13 +43,15 @@ function groupOf(updatedAt: string): Group {
   return "Earlier";
 }
 
+const STATE_TEXT: Record<RingState, string> = { wiring: "Being sketched", live: "On the board", draft: "Draft", none: "No sketch yet" };
+
 function countLabel(n: number): string {
   if (n === 0) return "No agents yet";
   return n === 1 ? "1 agent" : `${n} agents`;
 }
 
 export const AgentsPill = forwardRef<AgentsPillHandle, Props>(function AgentsPill(
-  { conversations, activeId, replyingId, onNew, onSelect, onRename, onDelete, startOpen },
+  { conversations, activeId, replyingId, onNew, onSelect, onRename, onDelete, onUnpublish, startOpen },
   ref,
 ) {
   const [open, setOpen] = useState(Boolean(startOpen));
@@ -96,7 +99,8 @@ export const AgentsPill = forwardRef<AgentsPillHandle, Props>(function AgentsPil
     };
   }, [open]);
 
-  const ringOf = (c: ConversationDTO): RingState => (c.id === replyingId ? "wiring" : c.sketchName ? "draft" : "none");
+  const ringOf = (c: ConversationDTO): RingState =>
+    c.id === replyingId ? "wiring" : c.publishedSlug ? "live" : c.sketchName ? "draft" : "none";
   const nameOf = (c: ConversationDTO) => c.sketchName ?? c.title;
   const agents = conversations.filter((c) => c.sketchName);
   const filtered = conversations.filter((c) => nameOf(c).toLowerCase().includes(query.trim().toLowerCase()));
@@ -158,11 +162,23 @@ export const AgentsPill = forwardRef<AgentsPillHandle, Props>(function AgentsPil
                         <i className={styles.ring} aria-hidden="true" />
                         <span className={styles.text}>
                           <strong>{nameOf(c)}</strong>
-                          <small>{state === "wiring" ? "Being sketched" : state === "draft" ? "Draft" : "No sketch yet"}</small>
+                          <small>{STATE_TEXT[state]}</small>
                         </span>
                       </button>
                       {/* Focus goes back to the pill first, so it returns there when the dialog closes. */}
                       <div className={styles.rowMenu}>
+                        {c.publishedSlug && onUnpublish && (
+                          <IconButton
+                            label={`Take ${nameOf(c)} off the board`}
+                            size="sm"
+                            onClick={() => {
+                              close(true);
+                              onUnpublish(c.id);
+                            }}
+                          >
+                            <UnpublishIcon />
+                          </IconButton>
+                        )}
                         <IconButton
                           label={`Rename ${nameOf(c)}`}
                           size="sm"

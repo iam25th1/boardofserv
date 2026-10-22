@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { fieldsOf, SKETCH_FIELDS, SKETCH_KINDS } from "./sketchFields";
 import type { SketchDTO } from "./types";
 
 // The agent sketch as JSON (parseSketchBlock, mergeSketch), and the safety net
@@ -16,11 +17,6 @@ import type { SketchDTO } from "./types";
 
 export const SKETCH_OPEN = "<<<SKETCH";
 export const SKETCH_CLOSE = "SKETCH>>>";
-
-export const SKETCH_KINDS = ["watcher", "digest", "helper"] as const;
-export const SKETCH_FIELDS = ["watches", "when", "how", "tells"] as const;
-export type SketchKind = (typeof SKETCH_KINDS)[number];
-export type SketchFieldKey = (typeof SKETCH_FIELDS)[number];
 
 // How many characters at the end of `text` could still be the start of the
 // opening marker. Those are held back until the next chunk decides.
@@ -161,6 +157,9 @@ const SketchBlock = z.object({
   when: words(80),
   how: words(80),
   tells: words(80),
+  takes: words(80),
+  does: words(80),
+  gives: words(80),
   asking: oneOf(SKETCH_FIELDS),
   choices: z.preprocess(
     (v) =>
@@ -187,18 +186,24 @@ export function parseSketchBlock(raw: string | null): ParsedSketch | null {
   return parsed.success ? parsed.data : null;
 }
 
-// A reply's sketch merged into the stored one. A value from the model replaces
+// A plan's sketch merged into the stored one. A value from the model replaces
 // the stored value (the person changed their mind); a null never wipes one.
-// "asking" always comes from the latest reply. Choices are not stored.
+// "asking" always comes from the latest plan, and only when it names a field
+// of the sketch's kind (an answer helper is never asked how often it checks).
+// Choices are not stored.
 export function mergeSketch(stored: SketchDTO | null, parsed: ParsedSketch): SketchDTO {
+  const kind = parsed.kind ?? stored?.kind ?? null;
   return {
     name: parsed.name ?? stored?.name ?? null,
-    kind: parsed.kind ?? stored?.kind ?? null,
+    kind,
     watches: parsed.watches ?? stored?.watches ?? null,
     when: parsed.when ?? stored?.when ?? null,
     how: parsed.how ?? stored?.how ?? null,
     tells: parsed.tells ?? stored?.tells ?? null,
-    asking: parsed.asking,
+    takes: parsed.takes ?? stored?.takes ?? null,
+    does: parsed.does ?? stored?.does ?? null,
+    gives: parsed.gives ?? stored?.gives ?? null,
+    asking: parsed.asking && fieldsOf(kind).includes(parsed.asking) ? parsed.asking : null,
     live: stored?.live ?? false,
   };
 }

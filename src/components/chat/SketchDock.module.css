@@ -122,6 +122,29 @@
   cursor: default;
 }
 
+/* Publish, in the switch's place once an answer helper is ready. */
+.publish {
+  flex: none;
+  padding: 5px 15px;
+  border-radius: var(--r-full);
+  border: 1.5px solid var(--chalk);
+  color: var(--chalk);
+  font-size: var(--t-sm);
+  font-weight: var(--w-semibold);
+  text-decoration: none;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.publish:hover:not(:disabled) {
+  background: var(--chalk);
+  color: var(--slate);
+}
+.publish:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* Details: two columns, one per row of what the agent does. */
 .details {
   list-style: none;

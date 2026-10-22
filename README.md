@@ -24,6 +24,12 @@ npm run db:push                 # create the tables
 npm run dev                     # http://localhost:3000
 ```
 
+A database created before handles existed that already has users in it can't
+take the new not-null `handle` column from `db:push`. Run
+`src/lib/db/migrations/0008_user_handles.sql` against it once first (for
+example `docker exec -i boardofserv-db psql -U boardofserv boardofserv < src/lib/db/migrations/0008_user_handles.sql`),
+which gives every user a random handle; `db:push` then has nothing left to do.
+
 `npm run db:up` uses `docker compose` when the plugin is installed. Without it
 (for example plain Colima) it runs the same Postgres with `docker run` in a
 container named `boardofserv-db`, and starts that container again if it
@@ -94,9 +100,11 @@ Replies stream from whichever answers first.
   Try again."
 - If nothing answers, the thread shows a plain error that says what happened
   and what to do. There is no fake reply.
-- Every request carries a system message and no paid add-on (no Prompt Guard,
-  Shadow Agent or Kronos), and json schemas lose their numeric range keywords:
-  the rules SERV enforces.
+- Every request carries a system message, and json schemas lose their numeric
+  range keywords: the rules SERV enforces. The chat switches no paid add-on on
+  (no Prompt Guard, Shadow Agent or Kronos). A published helper's use declares
+  `serv_prompt_guard` per request, to SERV only; nothing turns SERV's content
+  filter off.
 - Every stored reply records which provider answered, and the UI labels it.
 
 Usage stays low: one short system prompt (`src/lib/systemPrompt.ts`) plus the
@@ -118,6 +126,14 @@ production). States: `/demo?state=empty|convo|thinking|streaming|replay|error`, 
 `menu=1`, `agents=1`, `chips=1`, `backup=1` (the reply as if the backup model
 answered it) and `balance=low` flags. `replay` plays the seeded reply through
 the streaming path (`repeat=8` makes it long).
+
+A sketch is one of four kinds. Watchers, digests and helpers are agents,
+described by what they watch, when they act, how often they check and where
+they tell you; their dock reads watch / decide / tell you. An answer helper is
+asked something once and answers once: it is described by what it takes, what
+it does and what it gives back, and its dock reads takes / does / gives. Once
+those are set, the reply asks for the rules and the voice it should keep,
+which stay in the conversation.
 
 The agent sketch dock fills in from the conversation. Each turn makes two
 calls, plan first and reply second. The plan is one non-streaming call with a
@@ -146,4 +162,89 @@ with the mockup's ETH watcher waiting on one answer, and `sketch=ready` shows
 it ready so the switch can be flipped (local state only). `/demo?sketch=live`
 and `sketch=live-ready` show the same agent the way a real conversation does,
 and `sketching=1` adds the "sketching..." note it shows while the plan runs.
+`/demo?sketch=answer` and `sketch=answer-ready` show an answer helper.
 Production never loads the fixtures.
+
+## Handles
+
+Every user has a handle, their public name, shown with an @: 3 to 20 lower
+case letters, digits and underscores, unique ignoring case, and none of a few
+reserved words (admin, board, serv, boardofserv, support, help). A new user
+gets a random one like `maker_4821` until they choose their own; migration
+0008 gave existing users theirs the same way. The account menu shows it under
+"Your handle", edited in place with live availability checking. While it is
+still the random one, the publish sheet asks the maker to keep it or choose
+their own.
+
+- `GET /api/account/handle?handle=`: whether a handle is free (signed in;
+  your own counts as free).
+- `PATCH /api/account/handle`: set yours.
+
+## Publishing helpers
+
+When an answer helper's fields are all set, the dock's switch becomes a
+Publish button (other kinds keep "Switching on comes in the next update").
+Publish opens a confirm sheet: the public name, a one-line description and a
+"what to type" hint the maker can edit, and a note that their instructions
+stay private. Confirming runs one compile call (strict json_schema, `COMPILE_MAX_TOKENS`,
+default 600): from the sketch and the conversation's recent messages, the
+model writes the helper's private system prompt (rules, voice, format, what to
+refuse). A line with a per-helper random canary is appended, which the helper
+is told never to write.
+
+`published_helpers` holds id, slug (unique, from the name), owner, name,
+description, input hint, system prompt and canary (both server only), source
+conversation, created and unpublished times. A conversation has at most one
+helper on the board. The maker takes it down from the agents popover;
+deleting the conversation takes it down too. The row stays, so the slug is
+never reused and the helper's page says it was taken down.
+
+The system prompt and the canary never leave the server: every query behind a
+response selects the public columns only (`src/lib/helpers.ts`), and nothing
+logs them. Makers are known by their handles: no part of anyone's email
+reaches a page, an API response or a log, except the signed-in user's own
+email in their account menu.
+
+The board, at `/board`, shows the helpers on it as short chalk cards (name,
+description, maker handle), newest first, with a search by name. Signed out
+visitors can browse it; the top bar links to it next to the agents pill. The
+first time it loads, the cards are chalked on in a quick stagger; nothing
+else on it moves by itself, and reduced motion turns that off too.
+
+A helper's page, at `/h/:slug`, shows its name and description and an input
+with its hint; the answer streams in with the same chalk-dust word effect as
+the chat. Anyone can read the page; using the helper needs sign-in. Each use
+is a fresh single turn: the helper's system prompt plus what was typed,
+nothing else, on SERV only (a backup model would not know the guard). Every
+use declares `serv_prompt_guard` and leaves the content filter on.
+
+On the server, the answer streams through a leak guard
+(`src/lib/leakGuard.ts`). If it carries the helper's canary (any eight of
+its letters and digits in a row, even split by spaces), or 12 or more
+consecutive words of its system prompt (compared ignoring case and
+punctuation), the stream stops and the page shows "This helper can't share how
+it works." To catch that before any of it shows, the guard holds back the
+word still arriving and any tail of the answer that could be the start of
+such a run, usually a word or two.
+
+Until payments exist, uses run on the operator's key with a per-user limit:
+`HELPER_DAILY_USES` (default 20) a day across all helpers, counted midnight to
+midnight UTC. A use counts from the moment it starts, so uses running at the
+same time cannot pass the limit; one that gave no answer stops counting when
+it fails, and one cut off part way still counts. The page shows the
+uses left under the input and, at zero, when they reset. Each use writes one
+`helper_uses` row: helper, user, tokens, latency and outcome (ok, blocked,
+failed), never the input or the answer.
+
+- `POST /api/helpers`: publish (signed in, owner of the conversation).
+- `DELETE /api/helpers/:slug`: take it off the board (the maker only).
+- `GET /api/board?q=`: the board, for anyone.
+- `GET /api/helpers/:slug`: a helper's page, for anyone (410 once taken down).
+- `POST /api/helpers/:slug/use`: one use, streamed (signed in).
+- `GET /api/uses`: the signed-in user's uses left today.
+
+`src/test/secrecy.test.ts` drives every API route, including a model that
+echoes the prompt and the canary, and fails if any response body or console
+line carries either, or any part of anyone's email (apart from the account
+menu's response to its owner).
+

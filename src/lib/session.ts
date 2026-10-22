@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "./db/index";
 import { users, type User } from "./db/schema";
 import { verifyPrivyToken } from "./privy";
+import { createUser } from "./users";
 
 // Privy stores its access token in this cookie. We verify it on the server and
 // map it to our own user row. The user's OpenServ key is never read here; it is
@@ -26,8 +27,7 @@ export async function currentUser(): Promise<User | null> {
   if (!id) return null;
   const existing = await db.query.users.findFirst({ where: eq(users.privyUserId, id.userId) });
   if (existing) return existing;
-  const [created] = await db.insert(users).values({ privyUserId: id.userId, email: id.email }).returning();
-  return created ?? null;
+  return createUser(id);
 }
 
 export async function requireUser(): Promise<User> {
