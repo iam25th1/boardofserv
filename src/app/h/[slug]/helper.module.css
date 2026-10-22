@@ -1,0 +1,107 @@
+.page {
+  min-height: 100dvh;
+}
+
+.col {
+  width: 100%;
+  max-width: var(--col);
+  margin: 0 auto;
+  padding: var(--s-6) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-8) max(var(--gutter), env(safe-area-inset-left, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.head h1,
+.gone h1 {
+  font-weight: var(--w-semibold);
+  font-size: var(--t-xl);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.02em;
+}
+.head p {
+  color: var(--chalk-2);
+}
+.head small {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  font-weight: var(--w-medium);
+  line-height: 1;
+  color: var(--chalk-3);
+}
+
+.use {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.input {
+  min-height: 112px;
+  border-radius: var(--r-lg);
+  padding: var(--s-3) var(--s-4);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+}
+
+/* The uses left today, quiet under the input. */
+.quota {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+
+.signin {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px var(--s-5);
+  border-radius: var(--r-full);
+  background: var(--chalk);
+  color: var(--slate);
+  font-weight: var(--w-medium);
+  text-decoration: none;
+}
+
+.answer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+.blocked {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  font-weight: var(--w-medium);
+  color: var(--chalk);
+}
+
+.error {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+
+.loading,
+.note {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}
+
+.gone {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-3);
+  color: var(--chalk-2);
+}
+.gone h1 {
+  color: var(--chalk);
+}

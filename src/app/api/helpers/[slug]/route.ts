@@ -2,8 +2,18 @@ import { and, eq, isNull } from "drizzle-orm";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { db } from "@/lib/db";
 import { publishedHelpers } from "@/lib/db/schema";
+import { helperPage } from "@/lib/helpers";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+// A helper's page, for anyone: the public helper, or that it was taken down.
+export async function GET(_req: Request, { params }: { params: { slug: string } }) {
+  const page = await helperPage(params.slug);
+  if (!page) return Response.json({ error: "Not found" }, { status: 404 });
+  if ("takenDown" in page) return Response.json({ error: "This helper was taken down.", name: page.takenDown }, { status: 410 });
+  return Response.json(page);
+}
 
 // The maker takes their helper off the board. The row stays, so the slug is
 // not reused and the helper's page says it was taken down.

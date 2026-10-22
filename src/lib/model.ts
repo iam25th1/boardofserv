@@ -11,10 +11,13 @@ import "server-only";
 // request. After the first token nothing is retried; the result says it was
 // cut off and the route ends the reply with CUT_OFF_SUFFIX.
 //
-// SERV rules, proven in servpit: every request carries a system message, a
-// json schema carries no numeric range keywords, and no paid add-on is
-// switched on (no serv_* tools and no model suffix, so no Prompt Guard,
-// Shadow Agent or Kronos).
+// SERV rules, proven in servpit: every request carries a system message and
+// a json schema carries no numeric range keywords. The chat switches no paid
+// add-on on (no serv_* tools and no model suffix, so no Prompt Guard, Shadow
+// Agent or Kronos). A request may declare SERV tools of its own (a published
+// helper's use declares serv_prompt_guard); they go to SERV only, since to
+// any other provider they would be functions the model could call. Nothing
+// here turns SERV's content filter off.
 
 import { SYSTEM_PROMPT } from "./systemPrompt";
 
@@ -39,6 +42,9 @@ const DEFAULT_PLAN_MAX_TOKENS = 200;
 // survives a reload, and stripped again before the history goes back to a model.
 export const CUT_OFF_NOTE = "Reply cut off. Try again.";
 export const CUT_OFF_SUFFIX = `\n\n_${CUT_OFF_NOTE}_`;
+
+// SERV's Prompt Guard, declared per request as a tool with no parameters.
+export const SERV_PROMPT_GUARD = [{ type: "function", function: { name: "serv_prompt_guard" } }];
 
 export const NO_MODEL_ERROR =
   "No model is set up for this chat, so there is no reply. Add SERV_API_KEY to the server environment and restart.";
@@ -182,9 +188,10 @@ function fallsBack(f: Failure): boolean {
   return f.status === 402 || f.status === 429 || f.status >= 500;
 }
 
-export function requestBody(p: Provider, messages: ChatMessage[], maxTokens: number): Record<string, unknown> {
+export function requestBody(p: Provider, messages: ChatMessage[], maxTokens: number, servTools: unknown[] = []): Record<string, unknown> {
   const body: Record<string, unknown> = { model: p.model, messages: ensureSystemMessage(messages), max_tokens: maxTokens, stream: true };
   if (p.askForUsage) body.stream_options = { include_usage: true };
+  if (p.id === "serv" && servTools.length) body.tools = servTools;
   return body;
 }
 
@@ -200,7 +207,7 @@ interface StreamChunk {
 async function* attempt(
   p: Provider,
   messages: ChatMessage[],
-  opts: { timeoutMs: number; maxTokens: number; signal: AbortSignal; fetchImpl: typeof fetch },
+  opts: { timeoutMs: number; maxTokens: number; signal: AbortSignal; fetchImpl: typeof fetch; servTools?: unknown[] },
 ): AsyncGenerator<string, Usage> {
   const ctl = new AbortController();
   let timedOut = false;
@@ -222,7 +229,7 @@ async function* attempt(
       res = await opts.fetchImpl(`${p.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "content-type": "application/json", accept: "text/event-stream", authorization: `Bearer ${p.apiKey}` },
-        body: JSON.stringify(requestBody(p, messages, opts.maxTokens)),
+        body: JSON.stringify(requestBody(p, messages, opts.maxTokens, opts.servTools)),
         signal: ctl.signal,
       });
     } catch {
@@ -304,7 +311,7 @@ export function describeFailures(failures: Failure[], timeoutMs: number): string
 // failure: it always ends with an "end" event that says what happened.
 export async function* streamReply(
   messages: ChatMessage[],
-  opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch },
+  opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch; servTools?: unknown[] },
 ): AsyncGenerator<ReplyEvent> {
   const started = Date.now();
   const { config, signal } = opts;
@@ -344,7 +351,7 @@ export async function* streamReply(
 
   for (const p of config.providers) {
     let firstTokenMs: number | null = null;
-    const gen = attempt(p, messages, { timeoutMs: config.firstTokenTimeoutMs, maxTokens: config.maxTokens, signal, fetchImpl });
+    const gen = attempt(p, messages, { timeoutMs: config.firstTokenTimeoutMs, maxTokens: config.maxTokens, signal, fetchImpl, servTools: opts.servTools });
     try {
       for (;;) {
         const step = await gen.next();

@@ -94,9 +94,11 @@ Replies stream from whichever answers first.
   Try again."
 - If nothing answers, the thread shows a plain error that says what happened
   and what to do. There is no fake reply.
-- Every request carries a system message and no paid add-on (no Prompt Guard,
-  Shadow Agent or Kronos), and json schemas lose their numeric range keywords:
-  the rules SERV enforces.
+- Every request carries a system message, and json schemas lose their numeric
+  range keywords: the rules SERV enforces. The chat switches no paid add-on on
+  (no Prompt Guard, Shadow Agent or Kronos). A published helper's use declares
+  `serv_prompt_guard` per request, to SERV only; nothing turns SERV's content
+  filter off.
 - Every stored reply records which provider answered, and the UI labels it.
 
 Usage stays low: one short system prompt (`src/lib/systemPrompt.ts`) plus the
@@ -186,7 +188,36 @@ visitors can browse it; the top bar links to it next to the agents pill. The
 first time it loads, the cards are chalked on in a quick stagger; nothing
 else on it moves by itself, and reduced motion turns that off too.
 
+A helper's page, at `/h/:slug`, shows its name and description and an input
+with its hint; the answer streams in with the same chalk-dust word effect as
+the chat. Anyone can read the page; using the helper needs sign-in. Each use
+is a fresh single turn: the helper's system prompt plus what was typed,
+nothing else, on SERV only (a backup model would not know the guard). Every
+use declares `serv_prompt_guard` and leaves the content filter on.
+
+On the server, the answer streams through a leak guard
+(`src/lib/leakGuard.ts`). If it carries the helper's canary, or 12 or more
+consecutive words of its system prompt (compared ignoring case and
+punctuation), the stream stops and the page shows "This helper can't share how
+it works." To catch that before any of it shows, the guard holds back the
+word still arriving and any tail of the answer that could be the start of
+such a run, usually a word or two.
+
+Until payments exist, uses run on the operator's key with a per-user limit:
+`HELPER_DAILY_USES` (default 20) a day across all helpers, counted midnight to
+midnight UTC. A failed use (no answer) does not count. The page shows the
+uses left under the input and, at zero, when they reset. Each use writes one
+`helper_uses` row: helper, user, tokens, latency and outcome (ok, blocked,
+failed), never the input or the answer.
+
 - `POST /api/helpers`: publish (signed in, owner of the conversation).
 - `DELETE /api/helpers/:slug`: take it off the board (the maker only).
 - `GET /api/board?q=`: the board, for anyone.
+- `GET /api/helpers/:slug`: a helper's page, for anyone (410 once taken down).
+- `POST /api/helpers/:slug/use`: one use, streamed (signed in).
+- `GET /api/uses`: the signed-in user's uses left today.
+
+`src/test/secrecy.test.ts` drives every API route, including a model that
+echoes the prompt and the canary, and fails if any response body or console
+line carries either.
 

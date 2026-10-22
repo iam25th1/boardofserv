@@ -135,6 +135,27 @@ export const publishedHelpers = pgTable(
   }),
 );
 
+// One row per use of a published helper: who used which helper, tokens,
+// latency and outcome ("ok", "blocked" when the answer was stopped for
+// leaking its instructions, "failed" when no answer came). Never the input or
+// the answer. The rows also count each user's uses for the daily limit.
+export const helperUses = pgTable(
+  "helper_uses",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    helperId: uuid("helper_id").references(() => publishedHelpers.id, { onDelete: "set null" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    promptTokens: integer("prompt_tokens"),
+    completionTokens: integer("completion_tokens"),
+    latencyMs: integer("latency_ms").notNull(),
+    outcome: text("outcome", { enum: ["ok", "blocked", "failed"] }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ byUserDay: index("helper_uses_user_idx").on(t.userId, t.createdAt) }),
+);
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;

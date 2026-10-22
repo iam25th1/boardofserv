@@ -1,11 +1,11 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
-import { and, desc, eq, ilike, isNull, like, or } from "drizzle-orm";
+import { and, count, desc, eq, gte, ilike, isNull, like, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "./db";
-import { publishedHelpers, users } from "./db/schema";
+import { helperUses, publishedHelpers, users } from "./db/schema";
 import { completeJson, contextFor, type ChatMessage, type JsonResult, type ModelConfig } from "./model";
-import type { PublicHelperDTO, SketchDTO } from "./types";
+import type { PublicHelperDTO, QuotaDTO, SketchDTO } from "./types";
 
 // Published answer helpers.
 //
@@ -173,4 +173,64 @@ export async function compileHelper(
 // A unique violation, from node-postgres or PGlite.
 export function isUniqueViolation(err: unknown): boolean {
   return Boolean(err && typeof err === "object" && "code" in err && (err as { code?: unknown }).code === "23505");
+}
+
+// What a helper's page shows: the helper, or that it was taken down (with
+// its name), or null when no helper ever had that slug.
+export async function helperPage(slug: string): Promise<{ helper: PublicHelperDTO } | { takenDown: string } | null> {
+  const [row] = await db
+    .select(PUBLIC_COLUMNS)
+    .from(publishedHelpers)
+    .innerJoin(users, eq(users.id, publishedHelpers.ownerUserId))
+    .where(eq(publishedHelpers.slug, slug))
+    .limit(1);
+  if (!row) return null;
+  return row.unpublishedAt ? { takenDown: row.name } : { helper: publicHelper(row) };
+}
+
+// Server only, for the use route: what the helper runs on. Never put in a
+// response.
+export async function helperSecret(slug: string) {
+  return db.query.publishedHelpers.findFirst({
+    columns: { id: true, systemPrompt: true, canary: true, unpublishedAt: true },
+    where: eq(publishedHelpers.slug, slug),
+  });
+}
+
+// The daily limit on uses, across all helpers, until payments exist.
+export const DEFAULT_DAILY_USES = 20;
+
+export function dailyUses(env: Record<string, string | undefined> = process.env): number {
+  const n = Number(env.HELPER_DAILY_USES);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_DAILY_USES;
+}
+
+// Days run midnight to midnight UTC. A use counts unless it failed, since a
+// failed use gave nothing back.
+export async function quotaFor(userId: string, now: Date = new Date()): Promise<QuotaDTO> {
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const resetsAt = new Date(start.getTime() + 86_400_000);
+  const [row] = await db
+    .select({ used: count() })
+    .from(helperUses)
+    .where(and(eq(helperUses.userId, userId), gte(helperUses.createdAt, start), ne(helperUses.outcome, "failed")));
+  const limit = dailyUses();
+  return { limit, remaining: Math.max(0, limit - (row?.used ?? 0)), resetsAt: resetsAt.toISOString() };
+}
+
+// One row per use: tokens, latency and outcome, never the input or the
+// answer. A failure to record never breaks the use.
+export async function recordUse(row: {
+  helperId: string;
+  userId: string;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  latencyMs: number;
+  outcome: "ok" | "blocked" | "failed";
+}): Promise<void> {
+  try {
+    await db.insert(helperUses).values({ ...row, createdAt: new Date() });
+  } catch (err) {
+    console.error("helper use not recorded", err instanceof Error ? err.message : "unknown error");
+  }
 }

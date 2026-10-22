@@ -57,6 +57,24 @@ export interface PublicHelperDTO {
   createdAt: string;
 }
 
+// A signed-in user's uses of published helpers today. Uses run on the
+// operator's key until payments exist, so each user has a daily limit.
+export interface QuotaDTO {
+  limit: number;
+  remaining: number;
+  // When the count starts again (midnight UTC), as an ISO string.
+  resetsAt: string;
+}
+
+// One use of a helper, as the server streams it.
+export type HelperEvent =
+  | { type: "meta"; source: string; label: string }
+  | { type: "delta"; text: string }
+  // The answer was stopped for carrying the helper's instructions.
+  | { type: "blocked"; message: string; quota: QuotaDTO }
+  | { type: "done"; quota: QuotaDTO }
+  | { type: "error"; message: string; quota?: QuotaDTO };
+
 export type ChatEvent =
   // The plan's sketch, sent before the reply starts. It names the
   // conversation because it arrives before meta.
