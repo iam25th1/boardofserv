@@ -201,7 +201,9 @@ never reused and the helper's page says it was taken down.
 
 The system prompt and the canary never leave the server: every query behind a
 response selects the public columns only (`src/lib/helpers.ts`), and nothing
-logs them. The maker's handle is the part of their email before the @.
+logs them. Makers are known by their handles: no part of anyone's email
+reaches a page, an API response or a log, except the signed-in user's own
+email in their account menu.
 
 The board, at `/board`, shows the helpers on it as short chalk cards (name,
 description, maker handle), newest first, with a search by name. Signed out
@@ -243,5 +245,6 @@ failed), never the input or the answer.
 
 `src/test/secrecy.test.ts` drives every API route, including a model that
 echoes the prompt and the canary, and fails if any response body or console
-line carries either.
+line carries either, or any part of anyone's email (apart from the account
+menu's response to its owner).
 

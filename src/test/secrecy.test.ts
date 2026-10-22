@@ -27,6 +27,10 @@ import * as uses from "@/app/api/uses/route";
 // a helper while the model tries to echo its instructions, and the errors.
 // No response body and no console line may carry the prompt, the canary, or
 // eight words of the prompt in a row.
+//
+// Nor any part of anyone's email: makers are known by their handles. The one
+// exception is the account menu's own response, which may show the signed-in
+// user their own email.
 
 const state = vi.hoisted(() => ({ db: null as unknown, user: null as unknown }));
 vi.mock("@/lib/db", () => ({ db: new Proxy({}, { get: (_, key) => Reflect.get(state.db as object, key) }) }));
@@ -58,7 +62,7 @@ let maya: schema.User;
 let sam: schema.User;
 // What the mocked model streams for a use.
 let useChunks: string[] = [];
-const bodies: { label: string; body: string }[] = [];
+const bodies: { label: string; body: string; who: schema.User | null }[] = [];
 const logged: string[] = [];
 
 function stream(parts: string[]): Response {
@@ -79,8 +83,9 @@ function stream(parts: string[]): Response {
 const sketchJson = JSON.stringify({ name: "", kind: "none", watches: "", when: "", how: "", tells: "", takes: "", does: "", gives: "", asking: "none", choices: [] });
 
 async function hit(label: string, res: Response | Promise<Response>): Promise<Response> {
+  const who = state.user as schema.User | null;
   const r = await res;
-  bodies.push({ label, body: await r.clone().text() });
+  bodies.push({ label, body: await r.clone().text(), who });
   return r;
 }
 
@@ -137,11 +142,24 @@ function leaks(text: string, systemPrompt: string, canary: string): string | nul
   return null;
 }
 
+// The parts of an email that would give it away: all of it, the part before
+// the @, and that part in letters and digits only.
+function emailParts(email: string): string[] {
+  const local = email.toLowerCase().split("@")[0]!;
+  return [email.toLowerCase(), local, local.replace(/[^a-z0-9]/g, "")];
+}
+
+function emailIn(text: string, users: schema.User[]): string | null {
+  const lower = text.toLowerCase();
+  for (const u of users) for (const part of emailParts(u.email!)) if (lower.includes(part)) return `${part} (from ${u.email})`;
+  return null;
+}
+
 beforeAll(async () => {
   ({ client, db } = await testDb());
   state.db = db;
-  maya = await addUser(db, "maya");
-  sam = await addUser(db, "sam");
+  maya = await addUser(db, "maya.rivera", "maker_4821");
+  sam = await addUser(db, "sam.okafor", "maker_1234");
   vi.stubEnv("SERV_API_KEY", "test-serv-key");
   vi.stubEnv("FALLBACK_API_KEY", "");
   vi.stubEnv("HELPER_DAILY_USES", "6");
@@ -248,5 +266,19 @@ describe("a helper's instructions stay on the server", () => {
     expect(bodies.find((b) => b.label === "use echoing the canary")!.body).toContain("event: blocked");
     expect(bodies.find((b) => b.label === "use shouting the prompt")!.body).toContain("event: blocked");
     expect(bodies.find((b) => b.label === "use over the limit")!.body).toContain("No uses left today.");
+  });
+
+  it("never sends any part of anyone's email, except the account menu's own to its owner", async () => {
+    const everyone = [maya, sam];
+    for (const { label, body, who } of bodies) {
+      const others = label === "account" && who ? everyone.filter((u) => u.id !== who.id) : everyone;
+      for (const text of texts(body)) expect(emailIn(text, others), `${label}: ${body.slice(0, 160)}`).toBeNull();
+    }
+    for (const line of logged) expect(emailIn(line, everyone), line).toBeNull();
+
+    // The owner does see their own, and the public views show the handle.
+    expect(bodies.find((b) => b.label === "account")!.body).toContain(maya.email);
+    expect(JSON.parse(bodies.find((b) => b.label === "board")!.body).helpers[0].maker).toBe("shopkeeper");
+    expect(JSON.parse(bodies.find((b) => b.label === "helper page")!.body).helper.maker).toBe("shopkeeper");
   });
 });

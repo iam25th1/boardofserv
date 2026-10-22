@@ -56,7 +56,7 @@ export interface PublicHelperDTO {
   name: string;
   description: string;
   inputHint: string;
-  // The maker's handle, without the @.
+  // The maker's handle, without the @. Never anything from their email.
   maker: string;
   createdAt: string;
 }

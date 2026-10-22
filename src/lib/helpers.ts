@@ -17,7 +17,8 @@ import type { PublicHelperDTO, QuotaDTO, SketchDTO } from "./types";
 //
 // The system prompt and the canary never leave the server. Every query that
 // feeds a response selects PUBLIC_COLUMNS only, and publicHelper is the one
-// shape a helper takes in any response.
+// shape a helper takes in any response. The same goes for the maker's email:
+// a helper names its maker by handle only.
 
 // What the board, the helper page and the maker's own views may see.
 export const PUBLIC_COLUMNS = {
@@ -27,7 +28,7 @@ export const PUBLIC_COLUMNS = {
   inputHint: publishedHelpers.inputHint,
   createdAt: publishedHelpers.createdAt,
   unpublishedAt: publishedHelpers.unpublishedAt,
-  email: users.email,
+  maker: users.handle,
 };
 
 export interface PublicRow {
@@ -36,14 +37,7 @@ export interface PublicRow {
   description: string;
   inputHint: string;
   createdAt: Date;
-  email: string | null;
-}
-
-// The maker's handle: the part of their email before the @, in safe
-// characters. There is no handle setting yet.
-export function makerHandle(email: string | null): string {
-  const local = (email ?? "").split("@")[0]!.toLowerCase().replace(/[^a-z0-9._-]/g, "").slice(0, 24);
-  return local || "maker";
+  maker: string;
 }
 
 export function publicHelper(row: PublicRow): PublicHelperDTO {
@@ -52,7 +46,7 @@ export function publicHelper(row: PublicRow): PublicHelperDTO {
     name: row.name,
     description: row.description,
     inputHint: row.inputHint,
-    maker: makerHandle(row.email),
+    maker: row.maker,
     createdAt: row.createdAt.toISOString(),
   };
 }
