@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { join } from "node:path";
 import * as schema from "@/lib/db/schema";
 import { nodesOf, sketchFromDTO, statusLine } from "@/lib/agentSketch";
@@ -12,7 +12,7 @@ import { POST } from "./route";
 
 // Whole chat turns through the real /api/chat route: the real migrations run
 // on an in-memory Postgres, sign-in is stubbed, and SERV is a mocked fetch
-// that streams the reply and then answers the sketch extraction.
+// that answers the plan call and then streams the reply.
 
 const state = vi.hoisted(() => ({
   db: null as unknown as PgliteDatabase<typeof schema>,
@@ -26,9 +26,9 @@ vi.mock("@/lib/auth-route", () => ({ getUserFromRequest: async () => state.user 
 let client: PGlite;
 type Body = { stream: boolean; messages: { role: string; content: string }[]; response_format?: unknown };
 const calls: Body[] = [];
-// What the next turn's two calls answer: the reply's chunks, then the
-// extraction's JSON text (or an HTTP status for a failed extraction).
-let nextReply: string[] = [];
+// What the next turn's two calls answer: the plan's JSON text (or an HTTP
+// status for a failed plan), then the reply's chunks.
+let nextReply: string[] | number = [];
 let nextSketch: string | number = "";
 
 // SERV's stream shape: one delta per chunk, usage at the end, then [DONE].
@@ -59,7 +59,9 @@ function servJson(content: string | number): Response {
 interface Turn {
   events: { event: string; data: Record<string, unknown> }[];
   shown: string;
-  sketch: { sketch: SketchDTO; choices: string[] } | undefined;
+  sketch: { conversationId: string; sketch: SketchDTO } | undefined;
+  // The buttons, which come with reply_end.
+  choices: string[] | undefined;
   conversationId: string;
 }
 
@@ -80,7 +82,8 @@ async function turn(content: string, conversationId?: string): Promise<Turn> {
     events,
     shown: events.filter((e) => e.event === "delta").map((e) => e.data.text).join(""),
     sketch: events.find((e) => e.event === "sketch")?.data as Turn["sketch"],
-    conversationId: events.find((e) => e.event === "meta")!.data.conversationId as string,
+    choices: events.find((e) => e.event === "reply_end")?.data.choices as string[] | undefined,
+    conversationId: events.find((e) => e.event === "meta" || e.event === "sketch")!.data.conversationId as string,
   };
 }
 
@@ -101,7 +104,8 @@ beforeAll(async () => {
   vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body)) as Body;
     calls.push(body);
-    return body.stream ? servStream(nextReply) : servJson(nextSketch);
+    if (!body.stream) return servJson(nextSketch);
+    return typeof nextReply === "number" ? new Response("{}", { status: nextReply }) : servStream(nextReply);
   });
 });
 
@@ -114,7 +118,7 @@ afterAll(async () => {
 describe("a chat turn with a sketch", () => {
   let convo = "";
 
-  it("streams the reply, then extracts the sketch, saves it and sends it before done", async () => {
+  it("plans the turn, saves the sketch, then streams the reply that asks the planned question", async () => {
     const reply = "Good one. How often should it check the price?";
     nextReply = [reply.slice(0, 20), reply.slice(20)];
     nextSketch = extraction({
@@ -128,13 +132,19 @@ describe("a chat turn with a sketch", () => {
     const t = await turn("Tell me when ETH drops below $2,000");
     convo = t.conversationId;
 
-    expect(t.events.map((e) => e.event).filter((e, i, all) => e !== "delta" || all[i - 1] !== "delta")).toEqual(["meta", "delta", "reply_end", "sketch", "done"]);
+    expect(t.events.map((e) => e.event).filter((e, i, all) => e !== "delta" || all[i - 1] !== "delta")).toEqual(["sketch", "meta", "delta", "reply_end", "done"]);
     expect(t.shown).toBe(reply);
     // reply_end comes once the reply is saved, so it already names the message.
     const ids = t.events.filter((e) => e.event === "reply_end" || e.event === "done").map((e) => e.data.messageId);
     expect(ids[0]).toBeTruthy();
     expect(ids).toEqual([ids[0], ids[0]]);
-    expect(t.sketch?.choices).toEqual(["Every minute", "Every 5 minutes", "Every hour"]);
+    // The sketch lands before the reply's first word; the buttons come only
+    // with reply_end, after the last one.
+    const names = t.events.map((e) => e.event);
+    expect(names.indexOf("sketch")).toBeLessThan(names.indexOf("delta"));
+    expect(t.events.filter((e) => "choices" in e.data).map((e) => e.event)).toEqual(["reply_end"]);
+    expect(names.lastIndexOf("delta")).toBeLessThan(names.indexOf("reply_end"));
+    expect(t.choices).toEqual(["Every minute", "Every 5 minutes", "Every hour"]);
     expect(t.sketch?.sketch).toEqual({
       name: "ETH floor watch",
       kind: "watcher",
@@ -146,13 +156,18 @@ describe("a chat turn with a sketch", () => {
       live: false,
     });
 
-    // Two calls: the streamed reply, then the strict JSON extraction.
-    const [replyCall, extractCall] = calls.slice(-2);
+    // Two calls: the strict JSON plan, then the streamed reply, which knows
+    // the planned sketch and asks the planned question.
+    const [planCall, replyCall] = calls.slice(-2);
+    expect(planCall).toMatchObject({ stream: false, response_format: { type: "json_schema", json_schema: { name: "agent_sketch", strict: true } } });
+    expect(planCall!.messages[1]!.content).toContain("Person: Tell me when ETH drops below $2,000");
+    expect(planCall!.messages[1]!.content).not.toContain("Last reply");
     expect(replyCall).toMatchObject({ stream: true });
-    expect(replyCall!.messages[0]!.content).toContain("Known so far: nothing yet; missing: watches, when, how, tells.");
-    expect(extractCall).toMatchObject({ stream: false, response_format: { type: "json_schema", json_schema: { name: "agent_sketch", strict: true } } });
-    expect(extractCall!.messages[1]!.content).toContain("The person said: Tell me when ETH drops below $2,000");
-    expect(extractCall!.messages[1]!.content).toContain(`The reply: ${reply}`);
+    expect(replyCall!.messages[0]!.content).toContain("Known so far: name ETH floor watch, kind watcher, watches ETH price, when below $2,000; missing: how, tells.");
+    // It is told the planned field and the exact buttons.
+    expect(replyCall!.messages[0]!.content).toContain(
+      'Ask about: how (how often it checks). The user will see these buttons: "Every minute", "Every 5 minutes", "Every hour". Your question must fit them.',
+    );
 
     const [saved] = await state.db.select().from(schema.messages).where(eq(schema.messages.role, "assistant"));
     expect(saved?.content).toBe(reply);
@@ -180,26 +195,46 @@ describe("a chat turn with a sketch", () => {
     nextSketch = extraction({ how: "every 5 minutes", asking: "tells", choices: ["Telegram", "Email"] });
     const t = await turn("Every 5 minutes", convo);
 
-    // The reply knew what the sketch held.
-    expect(calls.at(-2)!.messages[0]!.content).toContain(
-      "Known so far: name ETH floor watch, kind watcher, watches ETH price, when below $2,000; missing: how, tells.",
+    // The plan saw only the stored sketch, the reply being answered and the
+    // new message: nothing older from the history.
+    const planCall = calls.at(-2)!;
+    expect(planCall.messages.map((m) => m.role)).toEqual(["system", "user"]);
+    expect(planCall.messages[1]!.content).toBe(
+      'Sketch: {"name":"ETH floor watch","kind":"watcher","watches":"ETH price","when":"below $2,000"}\n' +
+        "Last reply: Good one. How often should it check the price?\n" +
+        "Person: Every 5 minutes",
+    );
+
+    // The reply knew what the sketch held, with this turn's answer in it.
+    expect(calls.at(-1)!.messages[0]!.content).toContain(
+      "Known so far: name ETH floor watch, kind watcher, watches ETH price, when below $2,000, how every 5 minutes; missing: tells.",
     );
     expect(t.sketch?.sketch).toMatchObject({ name: "ETH floor watch", watches: "ETH price", when: "below $2,000", how: "every 5 minutes", asking: "tells" });
     expect(nodesOf(sketchFromDTO(t.sketch!.sketch))).toEqual({ watch: "on", decide: "on", tell: "ask" });
   });
 
-  it("keeps the reply and the stored sketch when the extraction does not validate or fails", async () => {
+  it("still replies, with no buttons, when the plan does not validate or fails", async () => {
     nextReply = ["Telegram works. Anything else?"];
     nextSketch = '{"name": "broken",';
     const bad = await turn("Telegram", convo);
     expect(bad.shown).toBe("Telegram works. Anything else?");
     expect(bad.sketch).toBeUndefined();
-    expect(bad.events.at(-1)?.event).toBe("done");
+    expect(bad.choices).toEqual([]);
+    expect(bad.events.map((e) => e.event)).toEqual(["meta", "delta", "reply_end", "done"]);
+    // The reply ran on the stored sketch and chose its own question.
+    const prompt = calls.at(-1)!.messages[0]!.content;
+    expect(prompt).toContain("Known so far: name ETH floor watch, kind watcher, watches ETH price, when below $2,000, how every 5 minutes; missing: tells.");
+    expect(prompt).toContain("Ask about the most important missing piece.");
+    expect(prompt).not.toContain("buttons");
 
     nextSketch = 500;
     const failed = await turn("Telegram, I said", convo);
+    expect(failed.shown).toBe("Telegram works. Anything else?");
     expect(failed.sketch).toBeUndefined();
+    expect(failed.choices).toEqual([]);
     expect(failed.events.at(-1)?.event).toBe("done");
+    // Still only the last reply and the new message, however long the chat.
+    expect(calls.at(-2)!.messages[1]!.content).not.toContain("Tell me when ETH");
 
     expect(await sketchRow(convo)).toMatchObject({ name: "ETH floor watch", how: "every 5 minutes", tells: null });
     const usage = await state.db.select().from(schema.replyUsage).orderBy(schema.replyUsage.createdAt);
@@ -211,6 +246,18 @@ describe("a chat turn with a sketch", () => {
     ]);
   });
 
+  it("keeps a valid plan's sketch when the reply then fails", async () => {
+    const other = await turn("Ping me when gas is cheap");
+    nextReply = 402;
+    nextSketch = extraction({ name: "Gas watch", kind: "watcher", watches: "gas price", asking: "when", choices: ["Under 10 gwei"] });
+    const t = await turn("Watch gas instead", other.conversationId);
+    expect(t.events.map((e) => e.event)).toEqual(["sketch", "error"]);
+    expect(t.choices).toBeUndefined();
+    expect(await sketchRow(other.conversationId)).toMatchObject({ name: "Gas watch", watches: "gas price", asking: "when" });
+    const [usage] = await state.db.select().from(schema.replyUsage).orderBy(desc(schema.replyUsage.createdAt)).limit(1);
+    expect(usage).toMatchObject({ outcome: "failed", sketchOk: true, extractOutcome: "ok" });
+  });
+
   it("still keeps an old sketch block or bare sketch JSON in a reply off the screen", async () => {
     const block = '{"name":"ETH floor watch","tells":"Telegram"}';
     nextReply = ["Telegram it is.\n\n<<<SK", `ETCH\n${block}\nSKETCH>>>`];
@@ -218,9 +265,13 @@ describe("a chat turn with a sketch", () => {
     const marked = await turn("Use Telegram", convo);
     expect(marked.shown).toBe("Telegram it is.\n\n");
 
+    // Every field known and nothing to ask: the reply confirms, with no buttons.
     nextReply = ["All set.\n", JSON.stringify(JSON.parse(block), null, 2)];
+    nextSketch = extraction({ tells: "Telegram", choices: ["Yes"] });
     const bare = await turn("Thanks", convo);
     expect(bare.shown).toBe("All set.\n");
+    expect(bare.choices).toEqual([]);
+    expect(calls.at(-1)!.messages[0]!.content).toContain("The agent is fully described: confirm that, say switching it on comes in the next update, and ask nothing.");
     expect(statusLine(sketchFromDTO(bare.sketch!.sketch), false)).toBe("Ready. Switching on comes in the next update.");
   });
 });

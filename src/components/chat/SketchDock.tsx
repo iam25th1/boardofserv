@@ -40,7 +40,7 @@ function Emphasis({ text }: { text: string }) {
 interface Props {
   sketch: AgentSketch;
   canSwitch?: boolean;
-  // The sketch is being read from the latest reply.
+  // The plan call is reading the latest message into the sketch.
   sketching?: boolean;
   onToggle?: (live: boolean) => void;
 }

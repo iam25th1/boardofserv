@@ -32,8 +32,8 @@ const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 20_000;
 // history is dropped, not summarised), and a reply is capped at 700 tokens.
 const DEFAULT_HISTORY_MESSAGES = 12;
 const DEFAULT_MAX_TOKENS = 700;
-// The sketch extraction answers in a small JSON object.
-const DEFAULT_EXTRACT_MAX_TOKENS = 200;
+// The plan call answers in a small JSON object.
+const DEFAULT_PLAN_MAX_TOKENS = 200;
 
 // Appended to a reply that broke off mid-stream. Stored with the reply so it
 // survives a reload, and stripped again before the history goes back to a model.
@@ -61,7 +61,7 @@ export interface ModelConfig {
   firstTokenTimeoutMs: number;
   historyMessages: number;
   maxTokens: number;
-  extractMaxTokens: number;
+  planMaxTokens: number;
 }
 
 function positiveInt(raw: string | undefined, fallback: number): number {
@@ -90,7 +90,7 @@ export function modelConfig(env: Record<string, string | undefined> = process.en
     firstTokenTimeoutMs: positiveInt(env.MODEL_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_FIRST_TOKEN_TIMEOUT_MS),
     historyMessages: positiveInt(env.CHAT_HISTORY_MESSAGES, DEFAULT_HISTORY_MESSAGES),
     maxTokens: positiveInt(env.CHAT_MAX_TOKENS, DEFAULT_MAX_TOKENS),
-    extractMaxTokens: positiveInt(env.SKETCH_MAX_TOKENS, DEFAULT_EXTRACT_MAX_TOKENS),
+    planMaxTokens: positiveInt(env.SKETCH_MAX_TOKENS, DEFAULT_PLAN_MAX_TOKENS),
   };
 }
 

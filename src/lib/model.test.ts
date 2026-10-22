@@ -28,7 +28,7 @@ const BACKUP: Provider = {
 const ASK: ChatMessage[] = [{ role: "user", content: "Watch ETH for me" }];
 
 function config(providers: Provider[], firstTokenTimeoutMs = 20_000): ModelConfig {
-  return { providers, firstTokenTimeoutMs, historyMessages: 12, maxTokens: 700, extractMaxTokens: 200 };
+  return { providers, firstTokenTimeoutMs, historyMessages: 12, maxTokens: 700, planMaxTokens: 200 };
 }
 
 const enc = new TextEncoder();

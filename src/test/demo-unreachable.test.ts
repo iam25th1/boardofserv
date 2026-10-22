@@ -8,7 +8,7 @@ import { DEMO_TEXT } from "@/lib/demoModel";
 // The demo model answers only in development with no model set up. Anywhere
 // else, no model means a plain error and never a fake reply.
 
-const NONE = { providers: [], firstTokenTimeoutMs: 1_000, historyMessages: 12, maxTokens: 50, extractMaxTokens: 50 };
+const NONE = { providers: [], firstTokenTimeoutMs: 1_000, historyMessages: 12, maxTokens: 50, planMaxTokens: 50 };
 
 async function run(): Promise<ReplyEvent[]> {
   const events: ReplyEvent[] = [];

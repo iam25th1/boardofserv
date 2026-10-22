@@ -5,9 +5,9 @@ import { db } from "@/lib/db";
 import { conversations, messages, replyUsage, type Message } from "@/lib/db/schema";
 import { contextFor, CUT_OFF_SUFFIX, modelConfig, streamReply, type ChatMessage, type JsonResult, type ReplyResult } from "@/lib/model";
 import { mergeSketch, SketchSplitter } from "@/lib/sketchBlock";
-import { extractSketch } from "@/lib/sketchExtract";
+import { planTurn } from "@/lib/sketchPlan";
 import { loadSketch, saveSketch } from "@/lib/sketchStore";
-import { replySystemPrompt } from "@/lib/systemPrompt";
+import { replySystemPrompt, type TurnPlan } from "@/lib/systemPrompt";
 
 export const runtime = "nodejs";
 
@@ -76,16 +76,16 @@ export async function POST(req: Request) {
     .where(eq(messages.conversationId, cid))
     .orderBy(asc(messages.createdAt));
   const config = modelConfig();
-  // The reply's system message carries what the sketch holds so far.
+  const context = contextFor(
+    history.map((m) => ({ role: m.role, content: m.content })),
+    config.historyMessages,
+  );
+  // The plan call sees only the stored sketch, the reply the person is
+  // answering and what they just said.
   const stored = await loadSketch(cid);
-  const chat: ChatMessage[] = [
-    { role: "system", content: replySystemPrompt(stored) },
-    ...contextFor(
-      history.map((m) => ({ role: m.role, content: m.content })),
-      config.historyMessages,
-    ),
-  ];
-  const said = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
+  const at = context.map((m) => m.role).lastIndexOf("user");
+  const said = context[at]?.content ?? "";
+  const previous = context.slice(0, Math.max(at, 0)).reverse().find((m) => m.role === "assistant")?.content ?? null;
 
   // Name the conversation from its first user message.
   const firstUser = history.find((m) => m.role === "user");
@@ -111,6 +111,26 @@ export async function POST(req: Request) {
           open = false; // the browser went away; keep going so the reply is saved
         }
       };
+      // First the plan: the sketch from what the person just said, and what the
+      // reply asks next with the answers shown as buttons. If it fails or does
+      // not validate, the reply runs on the stored sketch with no buttons.
+      const plan = await planTurn({ stored, previous, said }, { config, signal: controller.signal });
+      let sketch = stored;
+      let turnPlan: TurnPlan | null = null;
+      if (plan.sketch) {
+        sketch = mergeSketch(stored, plan.sketch);
+        await saveSketch(cid, sketch);
+        turnPlan = { asking: sketch.asking, choices: sketch.asking ? plan.sketch.choices : [] };
+        // The dock fills in now, while the reply is still being written.
+        send("sketch", { conversationId: cid, sketch });
+      }
+
+      // Then the reply. Its system message carries what the sketch holds and
+      // exactly what to ask, in words that fit the buttons.
+      const chat: ChatMessage[] = [
+        { role: "system", content: replySystemPrompt(sketch, turnPlan) },
+        ...context,
+      ];
       // Replies no longer write a sketch, but if one still carries the old
       // block or bare sketch JSON, the splitter keeps it off the screen.
       const split = new SketchSplitter();
@@ -143,7 +163,7 @@ export async function POST(req: Request) {
       }
 
       if (!full.trim()) {
-        await recordUsage(cid, result, null, null);
+        await recordUsage(cid, result, plan.result, plan.sketch !== null);
         send("error", { message: result?.error ?? "The reply could not be completed. You can retry." });
         if (open) ctrl.close();
         return;
@@ -154,21 +174,10 @@ export async function POST(req: Request) {
         .values({ conversationId: cid, role: "assistant", content: full.trimEnd(), source, sourceLabel: label })
         .returning();
       await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
-      // The reply is finished and saved: the browser unlocks the composer
-      // here, before the sketch, which can take a few seconds more.
-      send("reply_end", { messageId: saved?.id, source, label });
-
-      // Then the sketch, read out of this turn by a second call. It runs on
-      // its own signal: leaving the page after the reply still saves it. If
-      // it fails or does not validate, the stored sketch stays as it was.
-      const extraction = await extractSketch({ stored, said, reply: full.trimEnd() }, { config, signal: AbortSignal.timeout(60_000) });
-      if (extraction.sketch) {
-        // Merged into the latest stored sketch, in case another turn saved one meanwhile.
-        const sketch = mergeSketch(await loadSketch(cid), extraction.sketch);
-        await saveSketch(cid, sketch);
-        send("sketch", { sketch, choices: extraction.sketch.choices });
-      }
-      await recordUsage(cid, result, extraction.result, extraction.sketch !== null);
+      // The reply is finished and saved: the browser unlocks the composer and
+      // shows the plan's answers under it.
+      send("reply_end", { messageId: saved?.id, source, label, choices: turnPlan?.choices ?? [] });
+      await recordUsage(cid, result, plan.result, plan.sketch !== null);
       send("done", { messageId: saved?.id, source, label });
       if (open) ctrl.close();
     },
@@ -186,7 +195,7 @@ export async function POST(req: Request) {
   });
 }
 
-// One usage row per reply, with the sketch extraction's next to it. A failure
+// One usage row per reply, with the plan call's next to it. A failure
 // to record must never break the reply.
 async function recordUsage(conversationId: string, r: ReplyResult | null, x: JsonResult | null, sketchOk: boolean | null): Promise<void> {
   if (!r) return;

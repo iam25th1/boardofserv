@@ -31,7 +31,9 @@ vi.mock("@/lib/useApi", () => {
 // The animated pieces are not what is under test.
 vi.mock("./Thinking", () => ({ Thinking: () => <p>thinking</p> }));
 vi.mock("./SketchDock", () => ({
-  SketchDock: ({ sketching }: { sketching?: boolean }) => <p data-testid="dock">{sketching ? "sketching..." : "sketched"}</p>,
+  SketchDock: ({ sketch, sketching }: { sketch: { name: string; how: { value: string } }; sketching?: boolean }) => (
+    <p data-testid="dock">{sketching ? "sketching..." : `sketched ${sketch.name}, how ${sketch.how.value || "-"}`}</p>
+  ),
 }));
 
 const UNLINKED: AccountDTO = { email: "maya@example.com", walletAddress: null, openservUserId: null, linked: false, balance: "unknown" };
@@ -64,6 +66,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const SERV = { source: "serv", label: "SERV Reasoning" };
+const ETH = { name: "ETH floor watch", kind: "watcher", watches: "ETH price", when: "below $2,000", how: null, tells: null, asking: "how", live: false } as const;
+const answers = () => screen.queryByRole("group", { name: "Suggested answers" });
+
 describe("ChatShell", () => {
   it("sends with no OpenServ link, from the composer and the examples", async () => {
     await renderShell();
@@ -75,24 +81,23 @@ describe("ChatShell", () => {
     expect(api.sent).toEqual([{ conversationId: undefined, content: "Tell me when ETH drops" }]);
   });
 
-  it("unlocks the composer at reply_end, before the sketch and done", async () => {
+  it("fills the dock from the plan, then unlocks the composer at reply_end", async () => {
     api.account = { ...UNLINKED, linked: true, openservUserId: "1", walletAddress: "0x1", balance: "ok" };
     await renderShell();
     fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "Watch ETH" } });
     fireEvent.click(screen.getByLabelText("Send message"));
 
+    const sketch = { name: "ETH floor watch", kind: "watcher", watches: "ETH price", when: null, how: null, tells: null, asking: "tells", live: false } as const;
+    await emit({ type: "sketch", conversationId: "c1", sketch });
+    expect(screen.getByTestId("dock")).toHaveTextContent("sketched");
     await emit({ type: "meta", conversationId: "c1", source: "serv", label: "SERV Reasoning" }, { type: "delta", text: "Where should it tell you?" });
     expect(screen.getByLabelText("Stop generating")).toBeInTheDocument();
 
-    await emit({ type: "reply_end", messageId: "m1", source: "serv", label: "SERV Reasoning" });
+    await emit({ type: "reply_end", messageId: "m1", source: "serv", label: "SERV Reasoning", choices: ["Telegram", "Email"] });
     expect(screen.queryByLabelText("Stop generating")).toBeNull();
     expect(screen.getByRole("log")).toHaveTextContent("Where should it tell you?");
     fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "Telegram" } });
     expect(screen.getByLabelText("Send message")).not.toBeDisabled();
-
-    const sketch = { name: "ETH floor watch", kind: "watcher", watches: "ETH price", when: null, how: null, tells: null, asking: "tells", live: false } as const;
-    await emit({ type: "sketch", sketch, choices: ["Telegram", "Email"] });
-    expect(screen.getByTestId("dock")).toHaveTextContent("sketched");
     expect(screen.getByRole("group", { name: "Suggested answers" })).toHaveTextContent("TelegramEmail");
 
     await emit({ type: "done", messageId: "m1", source: "serv", label: "SERV Reasoning" });
@@ -100,19 +105,61 @@ describe("ChatShell", () => {
     expect(screen.getByRole("log").textContent?.split("Where should it tell you?")).toHaveLength(2);
   });
 
-  it("shows sketching... on the dock between reply_end and the sketch", async () => {
+  it("shows sketching... on the dock while the plan runs", async () => {
     await renderShell();
     fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "Watch ETH" } });
     fireEvent.click(screen.getByLabelText("Send message"));
     const sketch = { name: "ETH floor watch", kind: null, watches: "ETH price", when: null, how: null, tells: null, asking: null, live: false } as const;
-    await emit({ type: "meta", conversationId: "c1", source: "serv", label: "SERV Reasoning" }, { type: "delta", text: "Noted." }, { type: "reply_end", messageId: "m1", source: "serv", label: "SERV Reasoning" }, { type: "sketch", sketch, choices: [] }, { type: "done", messageId: "m1", source: "serv", label: "SERV Reasoning" });
+    await emit({ type: "sketch", conversationId: "c1", sketch }, { type: "meta", conversationId: "c1", source: "serv", label: "SERV Reasoning" }, { type: "delta", text: "Noted." }, { type: "reply_end", messageId: "m1", source: "serv", label: "SERV Reasoning", choices: [] }, { type: "done", messageId: "m1", source: "serv", label: "SERV Reasoning" });
     expect(screen.getByTestId("dock")).toHaveTextContent("sketched");
 
     fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "Every minute" } });
     fireEvent.click(screen.getByLabelText("Send message"));
-    await emit({ type: "delta", text: "Every minute. Where to?" }, { type: "reply_end", messageId: "m2", source: "serv", label: "SERV Reasoning" });
+    await emit();
     expect(screen.getByTestId("dock")).toHaveTextContent("sketching...");
-    await emit({ type: "sketch", sketch: { ...sketch, how: "every minute" }, choices: [] });
+    await emit({ type: "sketch", conversationId: "c1", sketch: { ...sketch, how: "every minute" } });
     expect(screen.getByTestId("dock")).toHaveTextContent("sketched");
+  });
+
+  it("fills the dock while the thinking scribble shows, and shows the buttons only at reply_end", async () => {
+    await renderShell();
+    fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "Tell me when ETH drops below $2,000" } });
+    fireEvent.click(screen.getByLabelText("Send message"));
+
+    // The plan's sketch arrives first: the dock fills in, the reply has not started.
+    await emit({ type: "sketch", conversationId: "c1", sketch: ETH });
+    expect(screen.getByTestId("dock")).toHaveTextContent("sketched ETH floor watch");
+    expect(screen.getByText("thinking")).toBeInTheDocument();
+    expect(answers()).toBeNull();
+
+    await emit({ type: "meta", conversationId: "c1", ...SERV }, { type: "delta", text: "How often should it check the price?" });
+    expect(screen.queryByText("thinking")).toBeNull();
+    expect(answers()).toBeNull();
+
+    await emit({ type: "reply_end", messageId: "m1", ...SERV, choices: ["Every minute", "Every hour"] });
+    expect(answers()).toHaveTextContent("Every minuteEvery hour");
+
+    // Tapping one sends it, and the buttons go.
+    fireEvent.click(screen.getByText("Every hour"));
+    expect(api.sent.at(-1)).toEqual({ conversationId: "c1", content: "Every hour" });
+    expect(answers()).toBeNull();
+  });
+
+  it("after a failed plan, stops sketching when the reply starts and shows no buttons", async () => {
+    await renderShell();
+    fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "Watch ETH" } });
+    fireEvent.click(screen.getByLabelText("Send message"));
+    await emit({ type: "sketch", conversationId: "c1", sketch: ETH }, { type: "meta", conversationId: "c1", ...SERV }, { type: "delta", text: "How often?" }, { type: "reply_end", messageId: "m1", ...SERV, choices: [] }, { type: "done", messageId: "m1", ...SERV });
+
+    fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "Every hour" } });
+    fireEvent.click(screen.getByLabelText("Send message"));
+    await emit();
+    expect(screen.getByTestId("dock")).toHaveTextContent("sketching...");
+    // No sketch event: the plan failed, and the reply starts anyway.
+    await emit({ type: "meta", conversationId: "c1", ...SERV }, { type: "delta", text: "Got it. Where should it tell you?" });
+    expect(screen.getByTestId("dock")).toHaveTextContent("sketched ETH floor watch, how -");
+    await emit({ type: "reply_end", messageId: "m2", ...SERV, choices: [] }, { type: "done", messageId: "m2", ...SERV });
+    expect(screen.getByRole("log")).toHaveTextContent("Got it. Where should it tell you?");
+    expect(answers()).toBeNull();
   });
 });

@@ -4,8 +4,8 @@ import type { SketchDTO } from "./types";
 // The agent sketch as JSON (parseSketchBlock, mergeSketch), and the safety net
 // that keeps a sketch out of a reply's text (SketchSplitter).
 //
-// Replies no longer write a sketch: a second call extracts it (see
-// sketchExtract.ts). But if a reply still ends with the old block
+// Replies no longer write a sketch: a plan call before the reply reads it
+// (see sketchPlan.ts). But if a reply still ends with the old block
 //
 //   <<<SKETCH
 //   {"name": ..., "watches": ..., ...}
