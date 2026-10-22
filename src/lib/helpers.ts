@@ -1,6 +1,6 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
-import { and, eq, isNull, like, or } from "drizzle-orm";
+import { and, desc, eq, ilike, isNull, like, or } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "./db";
 import { publishedHelpers, users } from "./db/schema";
@@ -68,11 +68,27 @@ export async function liveHelperFor(conversationId: string): Promise<PublicHelpe
   return row ? publicHelper(row) : null;
 }
 
+// The board: helpers on it, newest first, optionally those whose name
+// contains the search.
+const BOARD_LIMIT = 60;
+
+export async function boardHelpers(search: string): Promise<PublicHelperDTO[]> {
+  const q = search.trim().slice(0, 80).replace(/[\\%_]/g, "\\$&");
+  const rows = await db
+    .select(PUBLIC_COLUMNS)
+    .from(publishedHelpers)
+    .innerJoin(users, eq(users.id, publishedHelpers.ownerUserId))
+    .where(and(isNull(publishedHelpers.unpublishedAt), q ? ilike(publishedHelpers.name, `%${q}%`) : undefined))
+    .orderBy(desc(publishedHelpers.createdAt))
+    .limit(BOARD_LIMIT);
+  return rows.map(publicHelper);
+}
+
 // A slug from the helper's name: lower case ascii words joined by dashes.
 export function slugify(name: string): string {
   const slug = name
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/\p{M}/gu, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+/, "")

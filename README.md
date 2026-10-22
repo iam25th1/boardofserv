@@ -180,6 +180,13 @@ The system prompt and the canary never leave the server: every query behind a
 response selects the public columns only (`src/lib/helpers.ts`), and nothing
 logs them. The maker's handle is the part of their email before the @.
 
+The board, at `/board`, shows the helpers on it as short chalk cards (name,
+description, maker handle), newest first, with a search by name. Signed out
+visitors can browse it; the top bar links to it next to the agents pill. The
+first time it loads, the cards are chalked on in a quick stagger; nothing
+else on it moves by itself, and reduced motion turns that off too.
+
 - `POST /api/helpers`: publish (signed in, owner of the conversation).
 - `DELETE /api/helpers/:slug`: take it off the board (the maker only).
+- `GET /api/board?q=`: the board, for anyone.
 
