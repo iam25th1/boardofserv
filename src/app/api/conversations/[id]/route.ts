@@ -44,10 +44,12 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   if (!(await owned(user.id, params.id))) return Response.json({ error: "Not found" }, { status: 404 });
   // A helper published from it comes off the board with it: without the
   // conversation, the maker would have nowhere to take it down from.
-  await db
-    .update(publishedHelpers)
-    .set({ unpublishedAt: new Date() })
-    .where(and(eq(publishedHelpers.sourceConversationId, params.id), isNull(publishedHelpers.unpublishedAt)));
-  await db.delete(conversations).where(eq(conversations.id, params.id));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(publishedHelpers)
+      .set({ unpublishedAt: new Date() })
+      .where(and(eq(publishedHelpers.sourceConversationId, params.id), isNull(publishedHelpers.unpublishedAt)));
+    await tx.delete(conversations).where(eq(conversations.id, params.id));
+  });
   return Response.json({ ok: true });
 }

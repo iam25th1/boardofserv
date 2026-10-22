@@ -196,7 +196,8 @@ nothing else, on SERV only (a backup model would not know the guard). Every
 use declares `serv_prompt_guard` and leaves the content filter on.
 
 On the server, the answer streams through a leak guard
-(`src/lib/leakGuard.ts`). If it carries the helper's canary, or 12 or more
+(`src/lib/leakGuard.ts`). If it carries the helper's canary (any eight of
+its letters and digits in a row, even split by spaces), or 12 or more
 consecutive words of its system prompt (compared ignoring case and
 punctuation), the stream stops and the page shows "This helper can't share how
 it works." To catch that before any of it shows, the guard holds back the
@@ -205,7 +206,9 @@ such a run, usually a word or two.
 
 Until payments exist, uses run on the operator's key with a per-user limit:
 `HELPER_DAILY_USES` (default 20) a day across all helpers, counted midnight to
-midnight UTC. A failed use (no answer) does not count. The page shows the
+midnight UTC. A use counts from the moment it starts, so uses running at the
+same time cannot pass the limit; one that gave no answer stops counting when
+it fails, and one cut off part way still counts. The page shows the
 uses left under the input and, at zero, when they reset. Each use writes one
 `helper_uses` row: helper, user, tokens, latency and outcome (ok, blocked,
 failed), never the input or the answer.

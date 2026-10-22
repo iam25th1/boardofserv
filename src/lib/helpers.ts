@@ -206,7 +206,8 @@ export function dailyUses(env: Record<string, string | undefined> = process.env)
 }
 
 // Days run midnight to midnight UTC. A use counts unless it failed, since a
-// failed use gave nothing back.
+// failed use gave nothing back (an answer cut off part way is ok: it gave
+// something).
 export async function quotaFor(userId: string, now: Date = new Date()): Promise<QuotaDTO> {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const resetsAt = new Date(start.getTime() + 86_400_000);
@@ -219,17 +220,29 @@ export async function quotaFor(userId: string, now: Date = new Date()): Promise<
 }
 
 // One row per use: tokens, latency and outcome, never the input or the
-// answer. A failure to record never breaks the use.
-export async function recordUse(row: {
-  helperId: string;
-  userId: string;
-  promptTokens: number | null;
-  completionTokens: number | null;
-  latencyMs: number;
-  outcome: "ok" | "blocked" | "failed";
-}): Promise<void> {
+// answer. The row is written as the use starts, so uses running at the same
+// time all count against the limit, and finished when it ends. A failure to
+// record never breaks the use.
+export async function startUse(helperId: string, userId: string): Promise<string | null> {
   try {
-    await db.insert(helperUses).values({ ...row, createdAt: new Date() });
+    const [row] = await db
+      .insert(helperUses)
+      .values({ helperId, userId, latencyMs: 0, outcome: "ok", createdAt: new Date() })
+      .returning({ id: helperUses.id });
+    return row?.id ?? null;
+  } catch (err) {
+    console.error("helper use not recorded", err instanceof Error ? err.message : "unknown error");
+    return null;
+  }
+}
+
+export async function finishUse(
+  id: string | null,
+  row: { promptTokens: number | null; completionTokens: number | null; latencyMs: number; outcome: "ok" | "blocked" | "failed" },
+): Promise<void> {
+  if (!id) return;
+  try {
+    await db.update(helperUses).set(row).where(eq(helperUses.id, id));
   } catch (err) {
     console.error("helper use not recorded", err instanceof Error ? err.message : "unknown error");
   }

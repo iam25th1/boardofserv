@@ -5,14 +5,21 @@ import "server-only";
 // more consecutive words from its system prompt (compared as lower case
 // letters and digits, so case and punctuation do not hide a run).
 //
+// Any CANARY_PART letters and digits of the canary in a row count as the
+// canary, even split by spaces: it is random, so that never happens by chance.
+//
 // The answer streams through push(), which returns only text that can no
 // longer become part of a leak. Held back each time: the last word while it
-// may still be growing, and the longest tail of whole words that is itself a
-// run of the prompt, since the next words could complete a leak. So a leak is
+// may still be growing (or, for a word with no end in sight such as a long
+// link, its last few characters), the longest tail of whole words that is
+// itself a run of the prompt, and a tail of short words that spell part of
+// the canary, since the next words could complete a leak. So a leak is
 // caught, even split across chunks, before any word of it is shown. Ordinary
 // text is held a word or two at most.
 
 export const LEAK_RUN_WORDS = 12;
+const CANARY_PART = 8;
+const LONG_WORD = 64;
 export const BLOCKED_MESSAGE = "This helper can't share how it works.";
 
 const normal = (raw: string) => raw.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
@@ -47,6 +54,7 @@ export class LeakGuard {
   // end of the answer may become one.
   private readonly runs = new Set<string>();
   private readonly canary: string;
+  private readonly canaryParts: string[] = [];
 
   constructor(systemPrompt: string, canary: string) {
     const words = wordsOf(systemPrompt).map((w) => w.norm);
@@ -54,6 +62,8 @@ export class LeakGuard {
       for (let k = 1; k <= LEAK_RUN_WORDS && i + k <= words.length; k++) this.runs.add(words.slice(i, i + k).join(" "));
     }
     this.canary = normal(canary);
+    const part = Math.min(CANARY_PART, this.canary.length);
+    for (let i = 0; part && i + part <= this.canary.length; i++) this.canaryParts.push(this.canary.slice(i, i + part));
   }
 
   get blocked(): boolean {
@@ -80,7 +90,8 @@ export class LeakGuard {
     const open = growing ? words.at(-1)! : null;
     if (growing) words = words.slice(0, -1);
 
-    if (this.canary && normal(this.text).includes(this.canary)) return this.stop();
+    const flat = normal(this.text);
+    if (this.canaryParts.some((p) => flat.includes(p))) return this.stop();
     for (let end = LEAK_RUN_WORDS; end <= words.length; end++) {
       if (this.runs.has(join(words, end - LEAK_RUN_WORDS, end))) return this.stop();
     }
@@ -94,7 +105,19 @@ export class LeakGuard {
         break;
       }
     }
-    const cut = Math.min(hold < words.length ? words[hold]!.start : this.text.length, open ? open.start : this.text.length);
+    // And the tail of words that, run together, spell part of the canary.
+    for (let from = words.length - 1; from >= 0; from--) {
+      const spelt = words
+        .slice(from)
+        .map((w) => w.norm)
+        .join("");
+      if (spelt.length >= CANARY_PART || !this.canary.includes(spelt)) break;
+      hold = Math.min(hold, from);
+    }
+    // A growing word is held whole, unless it runs long: then only its end.
+    const long = open !== null && this.text.length - open.start > LONG_WORD;
+    const openFrom = !open ? this.text.length : long ? this.text.length - CANARY_PART : open.start;
+    const cut = Math.min(hold < words.length ? words[hold]!.start : this.text.length, openFrom);
     return this.release(cut);
   }
 

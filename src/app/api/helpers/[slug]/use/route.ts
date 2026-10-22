@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getUserFromRequest } from "@/lib/auth-route";
-import { helperSecret, quotaFor, recordUse } from "@/lib/helpers";
+import { finishUse, helperSecret, quotaFor, startUse } from "@/lib/helpers";
 import { BLOCKED_MESSAGE, LeakGuard } from "@/lib/leakGuard";
 import { CUT_OFF_SUFFIX, modelConfig, SERV_PROMPT_GUARD, streamReply, type ReplyResult } from "@/lib/model";
 import type { QuotaDTO } from "@/lib/types";
@@ -39,6 +39,7 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
   const controller = new AbortController();
   req.signal.addEventListener("abort", () => controller.abort());
   const started = Date.now();
+  const useId = await startUse(helper.id, user.id);
 
   const stream = new ReadableStream<Uint8Array>({
     async start(ctrl) {
@@ -60,26 +61,29 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
         send("delta", { text });
       };
       let result: ReplyResult | null = null;
-      for await (const ev of streamReply(
-        [
-          { role: "system", content: helper.systemPrompt },
-          { role: "user", content: parsed.data.input },
-        ],
-        { config, signal: controller.signal, servTools: SERV_PROMPT_GUARD },
-      )) {
-        if (ev.type === "start") send("meta", { source: ev.provider, label: ev.label });
-        else if (ev.type === "delta") {
-          show(guard.push(ev.text).text);
-          // Stop the model as soon as the answer leaks.
-          if (guard.blocked) break;
-        } else result = ev.result;
+      try {
+        for await (const ev of streamReply(
+          [
+            { role: "system", content: helper.systemPrompt },
+            { role: "user", content: parsed.data.input },
+          ],
+          { config, signal: controller.signal, servTools: SERV_PROMPT_GUARD },
+        )) {
+          if (ev.type === "start") send("meta", { source: ev.provider, label: ev.label });
+          else if (ev.type === "delta") {
+            show(guard.push(ev.text).text);
+            // Stop the model as soon as the answer leaks.
+            if (guard.blocked) break;
+          } else result = ev.result;
+        }
+        if (!guard.blocked) show(guard.finish().text);
+      } catch {
+        // Whatever broke, the use still ends with an event and a record.
+        controller.abort();
       }
-      if (!guard.blocked) show(guard.finish().text);
 
-      const outcome = guard.blocked ? "blocked" : shown.trim() && !result?.cutOff ? "ok" : "failed";
-      await recordUse({
-        helperId: helper.id,
-        userId: user.id,
+      const outcome = guard.blocked ? "blocked" : shown.trim() ? "ok" : "failed";
+      await finishUse(useId, {
         promptTokens: result?.promptTokens ?? null,
         completionTokens: result?.completionTokens ?? null,
         latencyMs: Date.now() - started,

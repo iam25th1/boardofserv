@@ -56,6 +56,24 @@ describe("LeakGuard", () => {
     expect(run(["The marker: ", CANARY]).blocked).toBe(true);
   });
 
+  it("stops the canary spelt out with spaces, or without its prefix, before eight of its characters show", () => {
+    for (const leak of ["Marker: bos 0123 4567 89ab cdef", "Marker: 01 23 45 67 89 ab", "It is 0123456789ABCDEF."]) {
+      for (const size of [1, 3, 200]) {
+        const { shown, blocked } = run(pieces(leak, size));
+        expect(blocked).toBe(true);
+        expect(shown.replace(/[^0-9a-f]/gi, "")).not.toMatch(/0123/);
+      }
+    }
+  });
+
+  it("still streams a long word with no space in it, holding only its end", () => {
+    const guard = new LeakGuard(SYSTEM, CANARY);
+    const link = `https://example.com/${"x".repeat(90)}`;
+    const step = guard.push(`See ${link}`);
+    expect(step.text.length).toBeGreaterThan(80);
+    expect(step.text + guard.finish().text).toBe(`See ${link}`);
+  });
+
   it("stops twelve words of the instructions in a row, split mid-word, before any of them show", () => {
     const leak = "Sure, here you go. KEEP the voice warm, and plain; never pushy, and ALWAYS end with a short call to visit.";
     for (const size of [1, 4, 11, 30, 300]) {

@@ -23,14 +23,24 @@ let sam: schema.User;
 let blurbs: schema.PublishedHelper;
 const calls: Record<string, unknown>[] = [];
 let chunks: string[] = [];
+// When set, the stream breaks off after its chunks, or waits for this
+// promise before it ends.
+let breakOff = false;
+let hold: Promise<void> | null = null;
 
 function servStream(parts: string[]): Response {
   const enc = new TextEncoder();
   const frame = (d: unknown) => enc.encode(`data: ${JSON.stringify(d)}\n\n`);
   return new Response(
     new ReadableStream<Uint8Array>({
-      start(c) {
+      async start(c) {
         for (const content of parts) c.enqueue(frame({ choices: [{ index: 0, delta: { content } }] }));
+        if (breakOff) {
+          // An error drops whatever is queued, so let the chunks be read first.
+          await new Promise((r) => setTimeout(r, 20));
+          return c.error(new Error("connection reset"));
+        }
+        if (hold) await hold;
         c.enqueue(frame({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 300, completion_tokens: 60 } }));
         c.enqueue(enc.encode("data: [DONE]\n\n"));
         c.close();
@@ -83,6 +93,8 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   state.user = sam;
+  breakOff = false;
+  hold = null;
   chunks = ["Meet the Alder mug: hand thrown and heavy in the hand. ", "Pop by the shop and hold one!"];
   await db.delete(schema.helperUses);
 });
@@ -193,6 +205,30 @@ describe("using a helper", () => {
     expect((await ask("shop-blurbs")).events.at(-1)!.data.quota).toMatchObject({ limit: 2, remaining: 1 });
     expect((await ask("shop-blurbs")).events.at(-1)!.data.quota).toMatchObject({ remaining: 0 });
     expect((await ask("shop-blurbs")).status).toBe(429);
+  });
+
+  it("counts an answer that broke off part way, which still shows what came", async () => {
+    breakOff = true;
+    const t = await ask("shop-blurbs");
+    expect(t.shown).toBe("Meet the Alder mug: hand thrown and heavy in the hand. Pop by the shop and hold one!\n\n_Reply cut off. Try again._");
+    expect(t.events.at(-1)!.data.quota).toMatchObject({ remaining: 19 });
+    expect(await lastUse()).toMatchObject({ outcome: "ok" });
+  });
+
+  it("counts a use from the moment it starts, so uses at the same time cannot pass the limit", async () => {
+    vi.stubEnv("HELPER_DAILY_USES", "1");
+    let release = () => {};
+    hold = new Promise<void>((r) => (release = r));
+    // The first use is still streaming when the second asks.
+    const first = use(
+      new Request("http://localhost/api/helpers/shop-blurbs/use", { method: "POST", body: JSON.stringify({ input: "The Alder mug" }) }),
+      { params: { slug: "shop-blurbs" } },
+    );
+    const firstRes = await first;
+    expect((await ask("shop-blurbs")).status).toBe(429);
+    release();
+    expect(await firstRes.text()).toContain("event: done");
+    expect(await db.select().from(schema.helperUses)).toHaveLength(1);
   });
 
   it("refuses a taken-down or unknown helper, no sign-in and an empty input, without calling SERV", async () => {

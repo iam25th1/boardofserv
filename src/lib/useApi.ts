@@ -34,8 +34,13 @@ export function useApi() {
       deleteConversation: (id: string) => json<{ ok: boolean }>(`/api/conversations/${id}`, { method: "DELETE" }),
       getConversation: (id: string) =>
         json<{ messages: MessageDTO[]; sketch: SketchDTO | null; published: PublicHelperDTO | null }>(`/api/conversations/${id}/messages`),
-      publishHelper: (body: { conversationId: string; description: string; inputHint: string }) =>
-        json<{ helper: PublicHelperDTO }>("/api/helpers", { method: "POST", body: JSON.stringify(body) }).then((d) => d.helper),
+      // Already on the board (409) comes back as the helper that is there.
+      publishHelper: async (body: { conversationId: string; description: string; inputHint: string }): Promise<PublicHelperDTO> => {
+        const res = await authed("/api/helpers", { method: "POST", body: JSON.stringify(body) });
+        const data = (await res.json().catch(() => ({}))) as { helper?: PublicHelperDTO; error?: string };
+        if (data.helper && (res.ok || res.status === 409)) return data.helper;
+        throw new Error(data.error ?? `Request failed (${res.status})`);
+      },
       unpublishHelper: (slug: string) => json<{ ok: boolean }>(`/api/helpers/${encodeURIComponent(slug)}`, { method: "DELETE" }),
       getAccount: () => json<AccountDTO>("/api/account"),
       linkStart: (address: string) => json<{ message: string }>("/api/openserv/link/start", { method: "POST", body: JSON.stringify({ address }) }),

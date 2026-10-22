@@ -132,11 +132,14 @@ export function ChatShell() {
       setError(null);
       try {
         const { messages: rows, sketch: stored, published: helper } = await api.getConversation(id);
+        // Another conversation was opened while this one loaded.
+        if (activeRef.current !== id) return;
         setMessages(rows.map((m) => ({ id: m.id, role: m.role, content: m.content, source: m.source, sourceLabel: m.sourceLabel })));
         setSketch(stored);
         setPublished(helper ?? null);
         setChips(null);
       } catch {
+        if (activeRef.current !== id) return;
         setMessages([]);
         setSketch(null);
         setPublished(null);
