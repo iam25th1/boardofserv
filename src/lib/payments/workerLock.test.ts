@@ -1,7 +1,7 @@
 // @vitest-environment node
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import pg from "pg";
-import { paymentsWorker, type LockConnection, type PaymentsWorker, type WorkerOptions } from "./workerLock";
+import { paymentsWorker, runEvery, type LockConnection, type PaymentsWorker, type WorkerOptions } from "./workerLock";
 
 // An advisory lock belongs to a Postgres session, so two workers have to be
 // two real connections to one real server: PGlite has a single session and
@@ -152,6 +152,32 @@ describe.skipIf(!URL)("the payments worker lock, on a real Postgres", () => {
     expect(await holders()).toBe(1);
   });
 
+  it("a deployed server takes the lock from a development server ticking in step with it, and keeps it", async () => {
+    // Seen live: both ticked every 30 seconds, the development server just
+    // before the deployed one, so the deployed one always found the lock
+    // taken by a cycle and never ran. Here: the same, at a smaller scale.
+    const runs: string[] = [];
+    const cycle = (who: string) => async () => {
+      runs.push(who);
+      await new Promise((r) => setTimeout(r, 120));
+    };
+    const dev = worker(a, { hold: false, cycle: cycle("dev") });
+    const prod = worker(b, { hold: true, cycle: cycle("prod") });
+    // The deployed server started 20 ms after the development one, so each
+    // of its ticks lands inside a development cycle.
+    const stops = [runEvery(dev, { firstMs: 0, intervalMs: 300, followMs: 50, onError: quiet })];
+    await new Promise((r) => setTimeout(r, 20));
+    stops.push(runEvery(prod, { firstMs: 0, intervalMs: 300, followMs: 50, onError: quiet }));
+    await new Promise((r) => setTimeout(r, 1_400));
+    stops.forEach((stop) => stop());
+    await new Promise((r) => setTimeout(r, 150));
+    const firstProd = runs.indexOf("prod");
+    expect(firstProd).toBeGreaterThan(0);
+    // Once the deployed server had it, the development server never ran again.
+    expect(runs.slice(firstProd)).not.toContain("dev");
+    expect(runs.filter((r) => r === "prod").length).toBeGreaterThanOrEqual(3);
+  });
+
   it("payments work asked for in a request runs under the same lock", async () => {
     let paid = 0;
     const wa = worker(a);
@@ -248,5 +274,66 @@ describe("the payments worker lock, its own rules", () => {
     const w = paymentsWorker({ connect: f.connect, hold: true, log: quiet, cycle: task });
     await Promise.all([w.tick(), w.run(task), w.tick()]);
     expect(most).toBe(1);
+  });
+});
+
+describe("runEvery", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function scripted(hold: boolean, results: ("ran" | "skipped")[]) {
+    let calls = 0;
+    const w: PaymentsWorker = {
+      hold,
+      tick: async () => {
+        calls++;
+        return results.shift() ?? "ran";
+      },
+      run: async () => "ran",
+      stop: async () => {},
+    };
+    return { w, calls: () => calls };
+  }
+
+  it("a worker that keeps the lock tries again soon after finding it taken", async () => {
+    vi.useFakeTimers();
+    const s = scripted(true, ["skipped", "skipped", "ran"]);
+    const stop = runEvery(s.w, { firstMs: 3_000, intervalMs: 30_000, followMs: 3_000, onError: quiet });
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(s.calls()).toBe(1);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(s.calls()).toBe(2);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(s.calls()).toBe(3);
+    // It has the lock: back to the interval.
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(s.calls()).toBe(3);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(s.calls()).toBe(4);
+    stop();
+  });
+
+  it("a development worker that finds it taken just waits for the interval", async () => {
+    vi.useFakeTimers();
+    const s = scripted(false, ["skipped", "skipped", "skipped"]);
+    const stop = runEvery(s.w, { firstMs: 3_000, intervalMs: 30_000, followMs: 3_000, onError: quiet });
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(s.calls()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(s.calls()).toBe(2);
+    stop();
+  });
+
+  it("passes a cycle's error on and keeps going", async () => {
+    vi.useFakeTimers();
+    const errors: unknown[] = [];
+    let n = 0;
+    const w: PaymentsWorker = { hold: true, tick: async () => (++n === 1 ? Promise.reject(new Error("boom")) : "ran"), run: async () => "ran", stop: async () => {} };
+    const stop = runEvery(w, { firstMs: 10, intervalMs: 100, followMs: 10, onError: (e) => errors.push(e) });
+    await vi.advanceTimersByTimeAsync(210);
+    expect(errors).toHaveLength(1);
+    expect(n).toBe(3);
+    stop();
   });
 });

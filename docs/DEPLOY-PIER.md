@@ -61,9 +61,12 @@ Everything written on one shows on the other.
 Only one process ever runs the payments worker (deposit scan, hold sweep,
 payouts): it needs a Postgres advisory lock, held on a connection of its own
 (`src/lib/payments/workerLock.ts`). A production server keeps the lock while
-it runs; a development server gives it back after each cycle, so the deployed
-service takes it at its next cycle and keeps it. Each process logs once which
-role it has:
+it runs; a development server gives it back after each cycle. The deployed
+service, when it finds the lock taken, tries again after 3 seconds rather
+than waiting a whole 30 second interval, so it takes the lock in the gap after
+a development cycle and keeps it. (Without that, two servers ticking in step
+left the deployed one skipping every time while the development server ran
+the cycles.) Each process logs once which role it has:
 
 ```
 payments: this process holds the worker lock and runs the payments cycles.
@@ -71,8 +74,8 @@ payments: another process holds the worker lock, so this one skips its payments 
 ```
 
 While the deployed service restarts (a deploy), a running development server
-may run a cycle in the gap; the deployed service takes the lock back on its
-first cycle. To keep a development server out of payments altogether, set
+may run a cycle in the gap; the deployed service takes the lock back within
+seconds. To keep a development server out of payments altogether, set
 `BOS_PAYMENTS_WORKER=0` in its `.env.local`.
 
 The database comes from Colima, which does not start by itself after a

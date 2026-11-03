@@ -371,8 +371,10 @@ process holding the payments worker lock, a Postgres advisory lock on a
 connection of its own, checked before each cycle. Two servers on one
 database (a development server next to the deployed one) never run it at
 once: the other skips its cycles. A production server keeps the lock between
-cycles; a development server gives it back after each, so a deployed service
-takes over at its next cycle and keeps it. The lock is given back when a
+cycles; a development server gives it back after each, and a production
+server that finds it taken tries again after 3 seconds rather than a whole
+interval, so a deployed service takes over in the gap after a development
+cycle and keeps it, even when both tick in step. The lock is given back when a
 cycle throws, and Postgres drops it when its process dies. The log says once
 which process runs the cycles and once when one starts skipping them. A
 payout asked for in a request is sent under the same lock, or left to the
@@ -508,7 +510,7 @@ refuses to start under Vitest unless a test has put the fake in place.
 - Worker lock (`workerLock.test.ts`): two workers on one database, only one
   runs cycles and the other skips, logging that once; the lock is released
   when a cycle throws or its process dies; a development server hands over
-  to a deployed one. An advisory lock belongs to a database session and PGlite has only
+  to a deployed one, also when both tick in step. An advisory lock belongs to a database session and PGlite has only
   one, so these run against a real Postgres named by `TEST_POSTGRES_URL` (CI
   starts one; locally they are skipped without it). For example:
   `docker run -d --rm --name bos-locktest-pg -e POSTGRES_PASSWORD=locktest -p 127.0.0.1:55432:5432 postgres:16-alpine`,

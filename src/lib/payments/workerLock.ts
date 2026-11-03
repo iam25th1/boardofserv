@@ -8,8 +8,10 @@
 //
 // A production process keeps the lock between cycles, so while it runs it is
 // the only worker and every other process skips. A development process
-// (hold: false) gives it back after each cycle, so a deployed service started
-// next to it takes the lock at its next cycle and keeps it. The lock is given
+// (hold: false) gives it back after each cycle, and a production process that
+// finds the lock taken tries again after a few seconds rather than a whole
+// interval (runEvery), so it takes the lock in the gap after a development
+// server's cycle and keeps it, even when both tick in step. The lock is given
 // back when a cycle throws, so a failing worker steps aside, and when a
 // process dies its connection closes and Postgres drops the lock with it.
 //
@@ -37,6 +39,8 @@ export interface WorkerOptions {
 }
 
 export interface PaymentsWorker {
+  // Whether it keeps the lock between cycles.
+  readonly hold: boolean;
   // One cycle, if this process holds the lock or can take it. A cycle's own
   // error is passed on once the lock is given back.
   tick(): Promise<"ran" | "skipped">;
@@ -130,8 +134,52 @@ export function paymentsWorker({ connect, cycle, hold, key = PAYMENTS_WORKER_LOC
   };
 
   return {
+    hold,
     tick: () => serial(() => locked(cycle)),
     run: (task) => serial(() => locked(task)),
     stop: () => serial(giveBack),
+  };
+}
+
+export interface Schedule {
+  // The first cycle, soon after the server starts.
+  firstMs: number;
+  intervalMs: number;
+  // How soon a worker that keeps the lock tries again after finding it taken.
+  followMs: number;
+  onError: (err: unknown) => void;
+}
+
+// Runs the worker's cycle on an interval, one at a time. Returns a stop.
+export function runEvery(worker: PaymentsWorker, { firstMs, intervalMs, followMs, onError }: Schedule): () => void {
+  let busy = false;
+  let follow: ReturnType<typeof setTimeout> | null = null;
+  const tick = async () => {
+    if (busy) return;
+    busy = true;
+    let result: "ran" | "skipped" | null = null;
+    try {
+      result = await worker.tick();
+    } catch (err) {
+      onError(err);
+    } finally {
+      busy = false;
+    }
+    if (result === "skipped" && worker.hold && !follow) {
+      follow = setTimeout(() => {
+        follow = null;
+        void tick();
+      }, followMs);
+      follow.unref?.();
+    }
+  };
+  const first = setTimeout(() => void tick(), firstMs);
+  const every = setInterval(() => void tick(), intervalMs);
+  first.unref?.();
+  every.unref?.();
+  return () => {
+    clearTimeout(first);
+    clearInterval(every);
+    if (follow) clearTimeout(follow);
   };
 }

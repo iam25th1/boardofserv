@@ -5,6 +5,7 @@ import { bootLines, paymentsConfig, readPaymentsConfig, setPaymentsLock } from "
 // The config from the environment alone, before any lock.
 const readUnlocked = () => readPaymentsConfig();
 import { errorCode, processWorker } from "./worker";
+import { runEvery } from "./workerLock";
 
 // Runs once when the server starts (see src/instrumentation.ts): checks the
 // database belongs to this network (binding.ts), says in the log whether
@@ -63,19 +64,10 @@ function start(): void {
   log();
   const config = paymentsConfig();
   if (!config.enabled || process.env.BOS_PAYMENTS_WORKER === "0") return;
-  const worker = processWorker();
-  let busy = false;
-  const tick = async () => {
-    if (busy) return;
-    busy = true;
-    try {
-      await worker.tick();
-    } catch (err) {
-      console.error(`payments: worker cycle failed: ${errorCode(err)}`);
-    } finally {
-      busy = false;
-    }
-  };
-  setTimeout(() => void tick(), 3_000).unref?.();
-  setInterval(() => void tick(), config.scanIntervalMs).unref?.();
+  runEvery(processWorker(), {
+    firstMs: 3_000,
+    intervalMs: config.scanIntervalMs,
+    followMs: 3_000,
+    onError: (err) => console.error(`payments: worker cycle failed: ${errorCode(err)}`),
+  });
 }
