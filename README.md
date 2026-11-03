@@ -61,6 +61,19 @@ labelled demo reply; a production build shows a plain error instead.
 npm run gate     # typecheck, lint, test, build. Run before every commit.
 ```
 
+`npm run gate` builds into `.next`, which is also where a running `npm run dev`
+keeps its files, so run it in a separate checkout (or with the development
+server stopped).
+
+A production build runs with `npm run build` then `npm run start:prod`, which
+serves on 127.0.0.1:7560 (the deployment is in
+[docs/DEPLOY-PIER.md](docs/DEPLOY-PIER.md)). In production, `/demo` and the
+`?sketch=` fixtures are gone (`src/test/production.test.ts` starts the built
+server and checks). `GET /api/health` answers
+`{"ok":true,"database":"up","network":"Base Sepolia","payments":"on"}`, or a
+503 with `ok: false` while the database can't be reached; it never carries an
+address, a version or an error.
+
 ## How a user signs in and links OpenServ
 
 1. The user signs in with an email code through Privy and gets an embedded EOA.
@@ -85,6 +98,14 @@ the server:
   server module or reads a server secret, if any tracked file contains a
   secret-shaped string, if an env file with secrets is tracked, or if a secret
   value appears in the built client bundle.
+- Every response carries security headers (`next.config.mjs`): a content
+  security policy following Privy's guidance (Privy's iframe and API,
+  WalletConnect and Coinbase Wallet for linking a wallet, Cloudflare Turnstile,
+  `frame-ancestors 'none'`), `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff` and
+  `Referrer-Policy: strict-origin-when-cross-origin`. The development server
+  only sends `frame-ancestors 'none'` from the policy, since fast refresh needs
+  eval. After a Privy upgrade, check sign-in against the policy again.
 
 ## The model behind the chat
 
@@ -345,7 +366,9 @@ payout asked for in a request is sent under the same lock, or left to the
 process holding it. "Check for my deposit" scans outside the lock, which is
 safe: crediting is keyed per transfer, so two scans that overlap credit once. On the first scan it starts at
 the newest confirmed block, or at `DEPOSIT_START_BLOCK` when set;
-`DEPOSIT_SCAN_CHUNK` (default 2000) is how many blocks one log query covers.
+`DEPOSIT_SCAN_CHUNK` (default 200) is how many blocks one log query covers;
+Base's public RPC refuses a log query over more than 201 blocks with HTTP 413,
+so raise it only with a `BOS_RPC_URL` that allows more.
 The RPC endpoint is checked to be on the configured chain before any call.
 
 The wallet page, at `/wallet` (linked from the account menu), shows the

@@ -21,6 +21,9 @@ export const addr = (n: number): Address => `0x${n.toString(16).padStart(40, "0"
 let hashes = 0;
 export const newHash = (): Hex => `0x${(++hashes).toString(16).padStart(64, "0")}` as Hex;
 
+// sepolia.base.org answers a wider eth_getLogs with HTTP 413.
+export const MAX_LOG_SPAN = 200n;
+
 export class FakeChain implements ChainClient {
   readonly chainId: number;
   head = 1000n;
@@ -105,6 +108,8 @@ export class FakeChain implements ChainClient {
 
   async transferLogs(q: { token: Address; to: Address; fromBlock: bigint; toBlock: bigint }): Promise<TransferLog[]> {
     this.calls.push({ method: "transferLogs", args: [q] });
+    // As Base's public RPC: a query over more than 201 blocks is refused.
+    if (q.toBlock - q.fromBlock > MAX_LOG_SPAN) throw new Error("eth_getLogs is limited to a 200 range");
     return this.logs
       .filter((l) => l.token.toLowerCase() === q.token.toLowerCase() && l.to.toLowerCase() === q.to.toLowerCase())
       .filter((l) => l.blockNumber >= q.fromBlock && l.blockNumber <= q.toBlock && l.blockNumber <= this.head)
