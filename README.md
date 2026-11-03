@@ -1,5 +1,8 @@
 # boardofserv
 
+Live at **https://boardofserv.25th.dev** (Base Sepolia), served from this Mac
+by Pier: see [docs/DEPLOY-PIER.md](docs/DEPLOY-PIER.md).
+
 A chat where you describe an agent in plain English and it gets built for you on
 [OpenServ](https://openserv.ai). This is phase 1, the app shell: email login,
 linking each user to their own OpenServ account, and the conversation. Building
