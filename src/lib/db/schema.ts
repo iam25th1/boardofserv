@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint } from "drizzle-orm/pg-core";
+import { CURRENCIES } from "../money";
 
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
 // embedded wallet address and, encrypted, the OpenServ API key that this
@@ -161,10 +162,255 @@ export const helperUses = pgTable(
     completionTokens: integer("completion_tokens"),
     latencyMs: integer("latency_ms").notNull(),
     outcome: text("outcome", { enum: ["ok", "blocked", "failed"] }).notNull(),
+    // The hold that pays for a paid use; null for a free one. Only free uses
+    // count against the daily limit.
+    holdId: uuid("hold_id").references(() => holds.id),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({ byUserDay: index("helper_uses_user_idx").on(t.userId, t.createdAt) }),
 );
+
+// Money. Every change to anyone's balance is one ledger row, written in the
+// same transaction as the balance it changes, and never updated or deleted
+// afterwards. The amount is a signed whole number of the currency's minor
+// units, stored as a string of digits: positive for a deposit, a maker's
+// earning, the platform's fee and a reversed withdrawal; negative for a use's
+// charge and a withdrawal. The platform's own rows (its fee from each paid
+// use) have no user. The idempotency key is unique, so the same credit or
+// payout can never be written twice (see src/lib/payments/ledger.ts).
+export const LEDGER_KINDS = ["deposit", "use_charge", "maker_earning", "platform_fee", "withdrawal", "withdrawal_reversal"] as const;
+export type LedgerKind = (typeof LEDGER_KINDS)[number];
+
+export const ledgerEntries = pgTable(
+  "ledger_entries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").references(() => users.id),
+    currency: text("currency", { enum: CURRENCIES }).notNull(),
+    amount: text("amount").notNull(),
+    kind: text("kind", { enum: LEDGER_KINDS }).notNull(),
+    // What the entry is about: a deposit, a hold or a withdrawal id.
+    referenceId: text("reference_id"),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byUser: index("ledger_entries_user_idx").on(t.userId, t.currency, t.createdAt),
+    knownCurrency: check("ledger_entries_currency", sql`${t.currency} in ('USDC', 'SERV')`),
+    knownKind: check(
+      "ledger_entries_kind",
+      sql`${t.kind} in ('deposit', 'use_charge', 'maker_earning', 'platform_fee', 'withdrawal', 'withdrawal_reversal')`,
+    ),
+    wholeNumber: check("ledger_entries_amount_whole", sql`${t.amount} ~ '^-?[1-9][0-9]{0,77}$'`),
+    signByKind: check("ledger_entries_sign", sql`(${t.kind} in ('use_charge', 'withdrawal')) = (${t.amount} like '-%')`),
+    platformHasNoUser: check("ledger_entries_platform", sql`(${t.kind} = 'platform_fee') = (${t.userId} is null)`),
+  }),
+);
+
+// Each user's balance in each currency, in minor units: available to spend
+// or withdraw, and held for uses still running. The database refuses either
+// going below zero. The sum of a user's ledger rows in a currency always
+// equals available plus held.
+export const balances = pgTable(
+  "balances",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    currency: text("currency", { enum: CURRENCIES }).notNull(),
+    available: numeric("available", { precision: 78, scale: 0 }).notNull().default("0"),
+    held: numeric("held", { precision: 78, scale: 0 }).notNull().default("0"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.currency] }),
+    knownCurrency: check("balances_currency", sql`${t.currency} in ('USDC', 'SERV')`),
+    availableNotNegative: check("balances_available_not_negative", sql`${t.available} >= 0`),
+    heldNotNegative: check("balances_held_not_negative", sql`${t.held} >= 0`),
+  }),
+);
+
+// Wallets linked to a user in Privy: the embedded wallet, and any external
+// wallet the user linked by signing with it. Privy is the source of truth;
+// this copy is brought in step with it when the user opens their wallet page
+// or checks for a deposit, and lets the deposit watcher match a transfer's
+// sender to a user. Addresses are kept in lower case.
+export const linkedWallets = pgTable(
+  "linked_wallets",
+  {
+    address: text("address").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    embedded: boolean("embedded").notNull().default(false),
+    linkedAt: timestamp("linked_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byUser: index("linked_wallets_user_idx").on(t.userId),
+    lowerCase: check("linked_wallets_lower_case", sql`${t.address} = lower(${t.address})`),
+  }),
+);
+
+// Every token transfer to the treasury the watcher has seen, one row per log
+// (chain id, transaction hash, log index). "confirming" until its block has
+// enough confirmations; then "credited" to the user whose linked wallet sent
+// it, or "unmatched" when no user has that wallet (credited to nobody, listed
+// for the admin). "dropped" when a reorg took it away before it confirmed.
+export const DEPOSIT_STATUSES = ["confirming", "credited", "unmatched", "dropped"] as const;
+
+export const deposits = pgTable(
+  "deposits",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    chainId: integer("chain_id").notNull(),
+    txHash: text("tx_hash").notNull(),
+    logIndex: integer("log_index").notNull(),
+    blockNumber: bigint("block_number", { mode: "bigint" }).notNull(),
+    currency: text("currency", { enum: CURRENCIES }).notNull(),
+    fromAddress: text("from_address").notNull(),
+    amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
+    userId: uuid("user_id").references(() => users.id),
+    status: text("status", { enum: DEPOSIT_STATUSES }).notNull(),
+    seenAt: timestamp("seen_at", { withTimezone: true }).defaultNow().notNull(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (t) => ({
+    onePerLog: uniqueIndex("deposits_log_idx").on(t.chainId, t.txHash, t.logIndex),
+    byUser: index("deposits_user_idx").on(t.userId, t.seenAt),
+    byStatus: index("deposits_status_idx").on(t.status, t.seenAt),
+    knownCurrency: check("deposits_currency", sql`${t.currency} in ('USDC', 'SERV')`),
+    knownStatus: check("deposits_status", sql`${t.status} in ('confirming', 'credited', 'unmatched', 'dropped')`),
+    positive: check("deposits_amount_positive", sql`${t.amount} > 0`),
+  }),
+);
+
+// How far a chain scan has got: the last block it finished, so a restart
+// resumes from the next one.
+export const chainCursors = pgTable("chain_cursors", {
+  key: text("key").primaryKey(),
+  block: bigint("block", { mode: "bigint" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// What a helper's maker charges per use, in minor units, for each currency
+// they accept. No row (or a currency that is off) means that currency is not
+// accepted; a helper with no prices is free and keeps the daily limit.
+export const helperPrices = pgTable(
+  "helper_prices",
+  {
+    helperId: uuid("helper_id")
+      .notNull()
+      .references(() => publishedHelpers.id, { onDelete: "cascade" }),
+    currency: text("currency", { enum: CURRENCIES }).notNull(),
+    price: numeric("price", { precision: 78, scale: 0 }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.helperId, t.currency] }),
+    knownCurrency: check("helper_prices_currency", sql`${t.currency} in ('USDC', 'SERV')`),
+    positive: check("helper_prices_positive", sql`${t.price} > 0`),
+  }),
+);
+
+// The price of a paid use, set aside from the user's balance before the model
+// is called. "held" until the use ends: "captured" on a good answer (the
+// charge, the maker's 90% and the platform's 10% are posted), "released" on
+// a failed or blocked one, or by the sweep once it is older than ten minutes.
+// A hold changes state once only, so it is never both charged and given back.
+export const HOLD_STATUSES = ["held", "captured", "released"] as const;
+
+export const holds = pgTable(
+  "holds",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    currency: text("currency", { enum: CURRENCIES }).notNull(),
+    amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
+    helperId: uuid("helper_id").references(() => publishedHelpers.id, { onDelete: "set null" }),
+    makerUserId: uuid("maker_user_id")
+      .notNull()
+      .references(() => users.id),
+    status: text("status", { enum: HOLD_STATUSES }).notNull().default("held"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (t) => ({
+    byStatus: index("holds_status_idx").on(t.status, t.createdAt),
+    knownCurrency: check("holds_currency", sql`${t.currency} in ('USDC', 'SERV')`),
+    knownStatus: check("holds_status", sql`${t.status} in ('held', 'captured', 'released')`),
+    positive: check("holds_amount_positive", sql`${t.amount} > 0`),
+  }),
+);
+
+// A maker taking money out to one of their linked wallets. The amount is
+// debited (a "withdrawal" ledger row) when it is asked for. Then:
+// "awaiting_approval" (over the automatic limit or the day's cap) or
+// "queued" (paid automatically); "broadcast" once the payout transaction is
+// signed and sent, with its nonce, hash and signed bytes recorded first, so a
+// resend is the very same transaction; "paid" once it has enough
+// confirmations. "reverted" (the transfer failed on chain), "rejected" (by an
+// admin, before it was sent) and "failed" (an admin found it never went out)
+// each post a "withdrawal_reversal" that gives the amount back. At most one
+// payout is in flight per chain at a time: the database refuses a second
+// "broadcast" row.
+export const WITHDRAWAL_STATUSES = ["awaiting_approval", "queued", "broadcast", "paid", "reverted", "rejected", "failed"] as const;
+export type WithdrawalStatus = (typeof WITHDRAWAL_STATUSES)[number];
+
+export const withdrawals = pgTable(
+  "withdrawals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    chainId: integer("chain_id").notNull(),
+    currency: text("currency", { enum: CURRENCIES }).notNull(),
+    amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
+    toAddress: text("to_address").notNull(),
+    status: text("status", { enum: WITHDRAWAL_STATUSES }).notNull(),
+    // Paid without approval, and so counted against the day's cap.
+    auto: boolean("auto").notNull(),
+    // Why it waits for approval, for the user and the admin.
+    reason: text("reason"),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    // The address that signed the payout, with its nonce.
+    fromAddress: text("from_address"),
+    nonce: integer("nonce"),
+    txHash: text("tx_hash"),
+    rawTx: text("raw_tx"),
+    broadcastAt: timestamp("broadcast_at", { withTimezone: true }),
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+    sends: integer("sends").notNull().default(0),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byUser: index("withdrawals_user_idx").on(t.userId, t.createdAt),
+    byStatus: index("withdrawals_status_idx").on(t.status, t.createdAt),
+    oneInFlight: uniqueIndex("withdrawals_one_in_flight").on(t.chainId).where(sql`${t.status} = 'broadcast'`),
+    oneNonce: uniqueIndex("withdrawals_nonce_idx").on(t.chainId, t.nonce).where(sql`${t.status} in ('broadcast', 'paid', 'reverted')`),
+    knownCurrency: check("withdrawals_currency", sql`${t.currency} in ('USDC', 'SERV')`),
+    knownStatus: check(
+      "withdrawals_status",
+      sql`${t.status} in ('awaiting_approval', 'queued', 'broadcast', 'paid', 'reverted', 'rejected', 'failed')`,
+    ),
+    positive: check("withdrawals_amount_positive", sql`${t.amount} > 0`),
+    sentHasHash: check("withdrawals_sent_has_hash", sql`${t.status} not in ('broadcast', 'paid', 'reverted') or (${t.txHash} is not null and ${t.nonce} is not null)`),
+  }),
+);
+
+// Switches the admin flips without a restart. "payouts_paused" = "true"
+// stops every payout from being sent.
+export const paymentSettings = pgTable("payment_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
 
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;

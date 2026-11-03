@@ -248,3 +248,255 @@ echoes the prompt and the canary, and fails if any response body or console
 line carries either, or any part of anyone's email (apart from the account
 menu's response to its owner).
 
+
+## Payments
+
+Users top up a balance in USDC or $SERV, pay for helper uses from it, and
+makers withdraw what they earn. Testnet (Base Sepolia) first.
+
+Money is always an integer count of a token's smallest unit, held as a
+`BigInt` and sent over JSON as a string of digits (`src/lib/money.ts`). A
+number never stands for an amount: every money function throws on one.
+
+### Configuration
+
+Payments stay off until `TREASURY_ADDRESS` is set. All of it is read from the
+environment (`src/lib/payments/config.ts`) and the boot log says what is on,
+what is off and why:
+
+- `BOS_NETWORK`: `base-sepolia` (default) or `base`. Base mainnet also needs
+  `BOS_MAINNET=1`, and then logs a warning at every boot. Without it,
+  payments stay off.
+- `BOS_RPC_URL` (optional): the RPC endpoint; blank uses the network's public
+  one.
+- `TREASURY_ADDRESS`: the wallet users deposit to and payouts come from.
+- `TREASURY_PRIVATE_KEY`: server only, read only by the payout signer, and
+  only needed to pay withdrawals. Never commit or log it.
+- `USDC_TOKEN_ADDRESS`, `USDC_DECIMALS`, `USDC_ENABLED`: USDC defaults to
+  Circle's address for the network
+  ([Circle's list](https://developers.circle.com/stablecoins/usdc-contract-addresses)),
+  6 decimals, on.
+- `SERV_TOKEN_ADDRESS`, `SERV_TOKEN_DECIMALS`, `SERV_ENABLED`: SERV stays off
+  until the owner sets both the address and the decimals. OpenServ's docs
+  ([the $SERV token page](https://docs.openserv.ai/what-is-serv/the-serv-token.md))
+  list a Base address but no decimals and no testnet token, so the app never
+  assumes either.
+
+A database's balances belong to one network: the first time payments run,
+the chain id and each currency's token address are written down
+(`src/lib/payments/binding.ts`). Pointing the same database at another chain
+later (Base Sepolia balances meeting Base mainnet, say) turns payments off,
+and a currency whose token changed is turned off; use a separate database
+per network.
+
+### Ledger and balances
+
+`ledger_entries` holds one row for every change to anyone's balance: user,
+currency, a signed whole amount in minor units stored as a string, kind
+(`deposit`, `use_charge`, `maker_earning`, `platform_fee`, `withdrawal`,
+`withdrawal_reversal`), reference id, a unique idempotency key and the time.
+Rows are only ever added. `balances` holds each user's available and held
+amount per currency, changed in the same transaction as the ledger row
+(`src/lib/payments/ledger.ts`). The database refuses a balance below zero,
+an amount that is not a whole number, a debit kind with a positive amount (or
+the reverse), and a second row with the same idempotency key. The platform's
+fee rows have no user: that money stays in the treasury. For every user and
+currency, the sum of their ledger rows equals available plus held.
+
+### Deposits
+
+A user tops up by sending USDC (or SERV, once it is on) to the treasury from
+a wallet linked to their account. The embedded wallet counts as linked, and
+the wallet page links an external one through Privy, which asks the wallet to
+sign. The server only trusts the wallets Privy reports for the user
+(`linked_wallets`, brought in step whenever the user opens their wallet page
+or checks for a deposit), never an address the browser sends.
+
+The deposit watcher (`src/lib/payments/deposits.ts`) reads each enabled
+token's `Transfer` logs to the treasury from the block after the last one it
+finished (`chain_cursors`, so a restart resumes there) to the newest block
+with `DEPOSIT_CONFIRMATIONS` confirmations (default 5). A transfer from a
+linked wallet credits that user once: the `deposits` row is unique per chain
+id, transaction hash and log index, and so is the ledger row's idempotency key.
+A transfer from any other wallet is recorded as unmatched, credited to
+nobody, and listed on the admin page. Who sent it is decided by Privy when
+Privy is set up (`getUserByWalletAddress`: the wallet must be linked to the
+user right now), and the stored copy is updated from the answer; if Privy
+can't be asked, that range waits for the next scan. Every scan also reads the
+last 120 blocks below where it stopped again, so a node that once answered
+with stale, empty logs can't make a deposit be missed. Newer transfers show as confirming; one
+a reorg takes away is marked dropped. Before crediting anything in a token,
+the watcher checks the token's `decimals()` on chain against the config.
+
+The watcher runs in the server every `DEPOSIT_SCAN_INTERVAL_MS` (default 30
+seconds; `BOS_PAYMENTS_WORKER=0` turns the interval off), and the wallet
+page's "Check for my deposit" runs it at once. On the first scan it starts at
+the newest confirmed block, or at `DEPOSIT_START_BLOCK` when set;
+`DEPOSIT_SCAN_CHUNK` (default 2000) is how many blocks one log query covers.
+The RPC endpoint is checked to be on the configured chain before any call.
+
+The wallet page, at `/wallet` (linked from the account menu), shows the
+balances, a currency picker, the network name in big letters, the treasury
+address with a copy button and a QR code, a warning that the wrong network or
+token loses the funds, the linked wallets, and recent deposits with their
+status.
+
+- `GET /api/payments`: whether payments are on, the network, the treasury
+  address and the currencies (public).
+- `GET /api/wallet`: the signed-in user's balances, linked wallets and recent
+  deposits.
+- `POST /api/deposits/check`: run the watcher now (at most every 10 seconds
+  per user) and return the wallet.
+
+### Paid uses
+
+A maker sets a price per use for each currency payments take, on the publish
+sheet and later from the agents popover (the price tag on a helper that is on
+the board). An empty price, or 0, means that currency isn't accepted. A helper
+with no price stays free to try and keeps the daily limit; a price in a
+currency that is turned off is ignored. Paid uses don't count against the
+daily limit. Prices show on the board cards and the helper's page.
+
+On a paid helper's page the user picks the balance to pay from, and the price
+and what is left show under the input. Before the model is called, the price
+is moved from available to held in one transaction (`holds`, the balance check
+and the hold together, so parallel uses can't spend the same money). After
+the answer (`src/lib/payments/uses.ts`):
+
+- a good answer captures the hold: `use_charge` on the user, `maker_earning`
+  of 90% (rounded down) to the maker, `platform_fee` of the rest to the
+  platform;
+- a failed or blocked answer releases it;
+- a sweep in the server releases holds older than ten minutes, for a use
+  that never ended.
+
+A hold leaves `held` once only, so it can't be both charged and given back.
+A short balance gets a 402 before any model call. The page sends the price
+it showed, and a use is only charged at that price: if the maker changed it
+in the meantime, the use is refused (409) with the new price, which the page
+then shows.
+
+- `PUT /api/helpers/:slug/prices`: the maker sets prices, in minor units per
+  currency (`null` or `"0"` stops accepting one).
+
+### Withdrawals
+
+The wallet page shows what a maker earned from their helpers and what is
+available, per currency, and takes money out to one of their linked wallets
+once the balance reaches the currency's minimum (`WITHDRAW_MIN_USDC`, default
+5; `WITHDRAW_MIN_SERV`, which the owner sets: SERV withdrawals stay closed
+until then). The amount is debited at once, with a pending row
+(`src/lib/payments/withdrawals.ts`).
+
+- Below `WITHDRAW_AUTO_MAX_<CURRENCY>`, and while the day's automatic payouts
+  (UTC) stay within `WITHDRAW_DAILY_CAP_<CURRENCY>`, it is paid without
+  approval. Otherwise it waits for an admin, who approves it or rejects it
+  (rejecting gives the amount back). Both default to 0: every withdrawal waits
+  for approval until the owner sets them, and an automatic limit without a
+  daily cap stays off.
+- Payouts are signed with `TREASURY_PRIVATE_KEY` (`src/lib/payments/signer.ts`,
+  the only code that reads it, and only if its address is `TREASURY_ADDRESS`)
+  and go out one at a time: the database refuses a second payout in flight.
+  The nonce, the hash and the signed bytes are recorded under the
+  withdrawal's idempotency key before anything is sent, and the payout is
+  sent once. If it isn't mined within a minute it is sent again: the very same
+  signed transaction, so the same nonce and hash.
+- Once its block has `DEPOSIT_CONFIRMATIONS` confirmations it is paid; a
+  reverted transfer posts a `withdrawal_reversal` that gives the amount back.
+  If another transaction took its nonce, so it can never be mined, the admin
+  page offers to mark it failed after ten minutes, which also gives it back.
+- Before signing, the treasury must hold the amount and enough ETH for gas,
+  and the node must be able to estimate the transfer; otherwise that payout
+  waits (the log says why) and the next one in the queue goes instead, so one
+  payout can never hold up the rest. An admin can cancel a queued payout that
+  hasn't been sent, which gives the amount back.
+- The nonce is the signer's next one on chain. Every earlier payout is mined
+  (paid or reverted) before another goes out, so there is never a gap.
+- The admin switch pauses every payout, resends included.
+
+- `POST /api/withdrawals`: ask for a withdrawal (signed in): currency, amount
+  in minor units, a linked wallet, and a key so a double submit is one
+  withdrawal.
+
+### Admin
+
+`/admin` is for the users named in `ADMIN_USER_IDS` (boardofserv user ids or
+Privy user ids, comma separated); everyone else gets a 404, and the account
+menu links to it only for them. It shows, per currency, the treasury's
+balance on chain, the total owed (every balance plus withdrawals not yet
+paid out), the difference (the platform's fees and anything unmatched; it
+must never go below zero, and the page says so loudly if it does) and the
+platform's fees. Below that: withdrawals waiting for approval (approve or
+reject), unmatched deposits, payout history with transaction links (a queued
+payout can be cancelled there, and a stuck one marked failed), and the switch
+that pauses every payout,
+which takes effect at the next payout step without a restart. Users appear by
+handle only.
+
+- `GET /api/admin`, `POST /api/admin/pause`, `POST /api/admin/withdrawals/:id`
+  (`approve`, `reject` to reject or cancel before it is sent, or `fail`).
+
+### Payment tests
+
+Every onchain part runs against a fake chain (`src/test/fakeChain.ts`): blocks,
+ERC-20 balances, Transfer logs, nonces and a mempool of really signed
+transactions it decodes. No test makes an RPC call: the real chain client
+refuses to start under Vitest unless a test has put the fake in place.
+
+- Ledger (`src/lib/payments/ledger.test.ts`, `uses.test.ts`): a key posts
+  once, the database refuses a negative balance, parallel uses never go below
+  zero, holds are released on failure and by the sweep, the 90/10 split gives
+  the remainder to the platform, and every money function throws on a number.
+- Deposits (`deposits.test.ts`, `wallets.test.ts`): a linked wallet is
+  credited once, an unlinked one recorded and not credited, the confirmation
+  depth is respected, a restart resumes from the last block, a reorged
+  deposit is dropped, and linked wallets come from Privy only.
+- Withdrawals (`withdrawals.test.ts`): the minimum, the automatic limit, the
+  daily cap, admin approval, reversal on revert, one payout in flight, a
+  resend with the same nonce, the pause switch.
+- Config (`config.test.ts`): SERV off without an address, mainnet off without
+  `BOS_MAINNET=1`.
+- Routes: paid uses, the wallet, deposit check and withdrawal routes, and the
+  admin routes. `src/test/secrecy.test.ts` also runs payments end to end and
+  fails if any response or log line carries the treasury key, an email, a
+  helper's prompt or its canary.
+
+### Testnet smoke test
+
+`scripts/testnet-smoke.ts` (`npm run testnet-smoke`) is for the owner to run
+by hand. It runs on Base Sepolia only: it refuses any other `BOS_NETWORK`, any
+`BOS_MAINNET`, and an RPC endpoint that is not chain 84532. It checks the
+treasury's test USDC and ETH, prints the deposit address, waits for one USDC
+deposit from `SMOKE_FROM` (the linked wallet the owner sends from; no one
+else's deposit counts), credited by the app's own watcher, then sends one
+tiny withdrawal back to that wallet through the app's own payout path. It
+prints transaction hashes, never a key, a database address or an RPC address.
+No test or CI run ever makes a real chain call; this script is the only thing
+that sends a testnet transaction.
+
+1. Make a testnet-only treasury and append it to `.env.local` without showing
+   the key on screen (never reuse a key that holds real funds):
+
+   ```sh
+   node -e 'const a=require("viem/accounts");const k=a.generatePrivateKey();console.log(`TREASURY_PRIVATE_KEY=${k}\nTREASURY_ADDRESS=${a.privateKeyToAddress(k)}`)' >> .env.local
+   grep TREASURY_ADDRESS .env.local
+   ```
+
+2. Give the treasury a little Base Sepolia ETH for gas from one of the faucets
+   Base lists at https://docs.base.org/base-chain/tools/network-faucets (for
+   example the Coinbase Developer Platform faucet).
+3. Start the app on its database (`npm run db:up`, `npm run db:push`,
+   `npm run dev`), sign in, open `/wallet` and link the wallet you will send
+   from with "Link a wallet" (MetaMask or any wallet set to Base Sepolia).
+4. Get test USDC into that wallet from Circle's faucet,
+   https://faucet.circle.com: pick USDC and Base Sepolia and paste the
+   wallet's address. It also needs a little Base Sepolia ETH for its own gas.
+5. Run `SMOKE_FROM=0xYourLinkedWallet npm run testnet-smoke`. When it
+   prints the deposit address, send about 1 USDC to it on Base Sepolia from
+   that wallet.
+6. It prints the deposit's hash when it is credited, then the payout's hash,
+   and "The smoke test passed." once the payout has the configured
+   confirmations. `SMOKE_WITHDRAW_USDC` sets the payout (default 0.01) and
+   `SMOKE_TIMEOUT_MINUTES` how long it waits for the deposit (default 30).
+7. Check `/wallet` (the deposit and the withdrawal) and `/admin` (the books,
+   the payout in the history).

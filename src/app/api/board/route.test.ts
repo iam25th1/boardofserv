@@ -44,6 +44,7 @@ describe("GET /api/board", () => {
       inputHint: "A product and a few facts",
       maker: "sam",
       createdAt: "2026-10-22T09:03:00.000Z",
+      prices: [],
     });
   });
 

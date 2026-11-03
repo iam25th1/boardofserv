@@ -96,6 +96,12 @@
   background: transparent;
   border-color: var(--chalk-3);
 }
+.links {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
 .topup {
   font-family: var(--font-hand);
   font-size: var(--t-hand-sm);

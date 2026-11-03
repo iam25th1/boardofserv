@@ -64,6 +64,41 @@
       "when": 1792672385007,
       "tag": "0008_user_handles",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793664939272,
+      "tag": "0009_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793665131113,
+      "tag": "0010_deposits",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793665588942,
+      "tag": "0011_paid_uses",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793666054266,
+      "tag": "0012_withdrawals",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793667582634,
+      "tag": "0013_withdrawal_sender",
+      "breakpoints": true
     }
   ]
 }

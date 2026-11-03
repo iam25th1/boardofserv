@@ -15,8 +15,10 @@ import { TopBar } from "./TopBar";
 import { SketchDock } from "./SketchDock";
 import { Chips } from "./Chips";
 import { PublishSheet, type PublishEdits } from "./PublishSheet";
+import { PriceFields, draftsOf, readPrices, type PriceDrafts } from "./PriceFields";
+import { fetchHelper, fetchPayments } from "@/lib/publicApi";
 import { sketchFromDTO, type AgentSketch } from "@/lib/agentSketch";
-import type { PublicHelperDTO, SketchDTO } from "@/lib/types";
+import type { CurrencyDTO, PublicHelperDTO, SketchDTO } from "@/lib/types";
 import type { MessageView } from "./Message";
 import styles from "./ChatShell.module.css";
 
@@ -55,6 +57,13 @@ export function ChatShell() {
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [unpublishId, setUnpublishId] = useState<string | null>(null);
+  // The currencies payments take (none while they are off), and the price
+  // dialog for a helper on the board.
+  const [currencies, setCurrencies] = useState<CurrencyDTO[]>([]);
+  const [priceSlug, setPriceSlug] = useState<string | null>(null);
+  const [priceDrafts, setPriceDrafts] = useState<PriceDrafts>({});
+  const [priceBusy, setPriceBusy] = useState(false);
+  const [priceError, setPriceError] = useState<string | null>(null);
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -85,6 +94,10 @@ export function ChatShell() {
   useEffect(() => {
     void refreshConversations();
     void refreshAccount();
+    fetchPayments().then(
+      (p) => setCurrencies(p.enabled ? p.currencies : []),
+      () => setCurrencies([]),
+    );
   }, [refreshConversations, refreshAccount]);
 
   useEffect(() => {
@@ -365,6 +378,40 @@ export function ChatShell() {
     void refreshConversations();
   }, [api, conversations, unpublishId, toast, refreshConversations]);
 
+  // The price dialog starts from the helper's current prices.
+  const openPrice = useCallback(
+    async (id: string) => {
+      const slug = conversations.find((x) => x.id === id)?.publishedSlug;
+      if (!slug) return;
+      setPriceError(null);
+      try {
+        const page = await fetchHelper(slug);
+        setPriceDrafts("helper" in page ? draftsOf(page.helper.prices) : {});
+        setPriceSlug(slug);
+      } catch {
+        toast.show({ title: "Could not load its price. Try again.", tone: "danger" });
+      }
+    },
+    [conversations, toast],
+  );
+
+  const pricing = readPrices(priceDrafts, currencies);
+  const doSetPrice = useCallback(async () => {
+    if (!priceSlug || pricing.problem) return;
+    setPriceBusy(true);
+    setPriceError(null);
+    try {
+      const helper = await api.setPrices(priceSlug, pricing.prices);
+      setPublished((p) => (p && p.slug === helper.slug ? helper : p));
+      setPriceSlug(null);
+      toast.show({ title: helper.prices.length ? "Price saved" : "Free to try again" });
+    } catch (err) {
+      setPriceError(err instanceof Error ? err.message : "The price could not be saved. Try again.");
+    } finally {
+      setPriceBusy(false);
+    }
+  }, [api, priceSlug, pricing, toast]);
+
   const doDelete = useCallback(async () => {
     if (!deleteId) return;
     await api.deleteConversation(deleteId);
@@ -414,6 +461,7 @@ export function ChatShell() {
             }}
             onDelete={(id) => setDeleteId(id)}
             onUnpublish={(id) => setUnpublishId(id)}
+            onPrice={currencies.length ? (id) => void openPrice(id) : undefined}
           />
         }
         account={
@@ -479,6 +527,7 @@ export function ChatShell() {
         inputHint={firstUpper(sketch?.takes)}
         handle={account && { current: account.handle, chosen: account.handleChosen }}
         checkHandle={api.checkHandle}
+        currencies={currencies}
         busy={publishing}
         error={publishError}
         onCancel={() => setSheetOpen(false)}
@@ -501,6 +550,24 @@ export function ChatShell() {
         }
       >
         <p className={styles.confirmText}>It leaves the board and its page says it was taken down. The conversation stays.</p>
+      </Dialog>
+
+      <Dialog
+        open={priceSlug !== null}
+        onClose={() => !priceBusy && setPriceSlug(null)}
+        title="Price per use"
+        actions={
+          <>
+            <Button variant="ghost" onClick={() => setPriceSlug(null)} disabled={priceBusy}>
+              Cancel
+            </Button>
+            <Button onClick={doSetPrice} disabled={priceBusy || Boolean(pricing.problem)}>
+              {priceBusy ? "Saving..." : "Save"}
+            </Button>
+          </>
+        }
+      >
+        <PriceFields currencies={currencies} drafts={priceDrafts} onChange={setPriceDrafts} disabled={priceBusy} problem={pricing.problem ?? priceError} />
       </Dialog>
 
       <Dialog

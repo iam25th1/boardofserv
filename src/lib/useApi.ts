@@ -1,7 +1,7 @@
 "use client";
 import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
-import type { AccountDTO, ChatEvent, ConversationDTO, HelperEvent, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO } from "./types";
+import type { AccountDTO, AdminDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
 
 // Every request carries the Privy access token as a bearer, which the server
 // verifies. The token is the only credential the browser holds; the OpenServ
@@ -35,13 +35,20 @@ export function useApi() {
       getConversation: (id: string) =>
         json<{ messages: MessageDTO[]; sketch: SketchDTO | null; published: PublicHelperDTO | null }>(`/api/conversations/${id}/messages`),
       // Already on the board (409) comes back as the helper that is there.
-      publishHelper: async (body: { conversationId: string; description: string; inputHint: string }): Promise<PublicHelperDTO> => {
+      publishHelper: async (body: {
+        conversationId: string;
+        description: string;
+        inputHint: string;
+        prices?: Partial<Record<"USDC" | "SERV", string | null>>;
+      }): Promise<PublicHelperDTO> => {
         const res = await authed("/api/helpers", { method: "POST", body: JSON.stringify(body) });
         const data = (await res.json().catch(() => ({}))) as { helper?: PublicHelperDTO; error?: string };
         if (data.helper && (res.ok || res.status === 409)) return data.helper;
         throw new Error(data.error ?? `Request failed (${res.status})`);
       },
       unpublishHelper: (slug: string) => json<{ ok: boolean }>(`/api/helpers/${encodeURIComponent(slug)}`, { method: "DELETE" }),
+      setPrices: (slug: string, prices: Partial<Record<"USDC" | "SERV", string | null>>) =>
+        json<{ helper: PublicHelperDTO }>(`/api/helpers/${encodeURIComponent(slug)}/prices`, { method: "PUT", body: JSON.stringify({ prices }) }).then((d) => d.helper),
       getAccount: () => json<AccountDTO>("/api/account"),
       checkHandle: (handle: string, signal: AbortSignal) =>
         json<{ available: boolean; error?: string }>(`/api/account/handle?handle=${encodeURIComponent(handle)}`, { signal }),
@@ -53,15 +60,26 @@ export function useApi() {
 
       getQuota: () => json<{ quota: QuotaDTO }>("/api/uses").then((d) => d.quota),
 
-      // Use a published helper once, streamed. Returns an abort function.
-      runHelper(slug: string, input: string, on: (e: HelperEvent) => void): () => void {
+      getWallet: () => json<{ wallet: WalletDTO }>("/api/wallet").then((d) => d.wallet),
+      checkDeposits: () => json<{ wallet: WalletDTO }>("/api/deposits/check", { method: "POST" }).then((d) => d.wallet),
+      getAdmin: () => json<{ admin: AdminDTO }>("/api/admin").then((d) => d.admin),
+      adminPause: (paused: boolean) => json<{ admin: AdminDTO }>("/api/admin/pause", { method: "POST", body: JSON.stringify({ paused }) }).then((d) => d.admin),
+      adminDecide: (id: string, action: "approve" | "reject" | "fail") =>
+        json<{ admin: AdminDTO }>(`/api/admin/withdrawals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.admin),
+      requestWithdrawal: (body: { currency: "USDC" | "SERV"; amount: string; to: string; key: string }) =>
+        json<{ wallet: WalletDTO }>("/api/withdrawals", { method: "POST", body: JSON.stringify(body) }).then((d) => d.wallet),
+
+      // Use a published helper once, streamed, paying `pay` (the currency and
+      // the price the page showed) when it has prices. Returns an abort
+      // function.
+      runHelper(slug: string, input: string, on: (e: HelperEvent) => void, pay?: { currency: "USDC" | "SERV"; price: string }): () => void {
         const controller = new AbortController();
         (async () => {
           try {
-            const res = await authed(`/api/helpers/${encodeURIComponent(slug)}/use`, { method: "POST", body: JSON.stringify({ input }), signal: controller.signal });
+            const res = await authed(`/api/helpers/${encodeURIComponent(slug)}/use`, { method: "POST", body: JSON.stringify({ input, ...pay }), signal: controller.signal });
             if (!res.ok || !res.body) {
-              const body = (await res.json().catch(() => ({}))) as { error?: string; quota?: QuotaDTO };
-              on({ type: "error", message: body.error ?? "The helper could not start. Try again.", quota: body.quota });
+              const body = (await res.json().catch(() => ({}))) as { error?: string; quota?: QuotaDTO; balance?: BalanceDTO; prices?: PriceDTO[] };
+              on({ type: "error", message: body.error ?? "The helper could not start. Try again.", quota: body.quota, balance: body.balance, prices: body.prices });
               return;
             }
             await readEvents(res.body, (type, data) => on({ type, ...data } as HelperEvent));

@@ -15,6 +15,7 @@ const api = vi.hoisted(() => ({
 
 vi.mock("@privy-io/react-auth", () => ({ usePrivy: () => ({ logout: () => {} }) }));
 vi.mock("@/lib/useOpenServLink", () => ({ useOpenServLink: () => async () => {} }));
+vi.mock("@/lib/publicApi", () => ({ fetchPayments: async () => ({ enabled: false, currencies: [] }), fetchHelper: async () => ({ missing: true }) }));
 vi.mock("@/lib/useApi", () => {
   const client = {
     listConversations: async () => [],

@@ -14,6 +14,7 @@ const helper: PublicHelperDTO = {
   inputHint: "A product and a few facts",
   maker: "maya",
   createdAt: "2026-10-22T09:00:00.000Z",
+  prices: [],
 };
 
 const net = vi.hoisted(() => ({

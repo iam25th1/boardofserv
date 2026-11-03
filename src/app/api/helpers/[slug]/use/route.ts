@@ -3,11 +3,26 @@ import { getUserFromRequest } from "@/lib/auth-route";
 import { finishUse, helperSecret, quotaFor, startUse } from "@/lib/helpers";
 import { BLOCKED_MESSAGE, LeakGuard } from "@/lib/leakGuard";
 import { CUT_OFF_SUFFIX, modelConfig, SERV_PROMPT_GUARD, streamReply, type ReplyResult } from "@/lib/model";
-import type { QuotaDTO } from "@/lib/types";
+import { CURRENCIES, formatAmount, type Currency } from "@/lib/money";
+import { paymentsConfig } from "@/lib/payments/config";
+import { balancesOf } from "@/lib/payments/ledger";
+import { capture, pricesOf, release, reserve, type Hold } from "@/lib/payments/uses";
+import type { BalanceDTO, PriceDTO, QuotaDTO } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-const Body = z.object({ input: z.string().trim().min(1).max(4000) });
+const Body = z.object({
+  input: z.string().trim().min(1).max(4000),
+  currency: z.enum(CURRENCIES).optional(),
+  // The price the page showed, in minor units: a paid use is only charged at
+  // the price the user saw.
+  price: z.string().regex(/^\d{1,78}$/).optional(),
+});
+
+async function balanceIn(userId: string, currency: Currency): Promise<BalanceDTO> {
+  const b = (await balancesOf(userId))[currency];
+  return { currency, available: b.available.toString(), held: b.held.toString() };
+}
 
 function sse(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -19,6 +34,11 @@ function sse(event: string, data: unknown): string {
 // through the leak guard, which stops it if it carries the helper's canary or
 // a long run of its instructions. The system prompt and canary are never in
 // an event or a log.
+//
+// A helper with prices is paid for from the balance the user picks: the
+// price is held before the model is called, captured on a good answer and
+// released on a failed or blocked one. A helper without prices is free, with
+// the daily limit.
 export async function POST(req: Request, { params }: { params: { slug: string } }) {
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Sign in to use this helper." }, { status: 401 });
@@ -30,8 +50,32 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
   if (!helper) return Response.json({ error: "Not found" }, { status: 404 });
   if (helper.unpublishedAt) return Response.json({ error: "This helper was taken down." }, { status: 410 });
 
-  const quota = await quotaFor(user.id);
-  if (quota.remaining === 0) return Response.json({ error: "No uses left today.", quota }, { status: 429 });
+  const prices = (await pricesOf([helper.id])).get(helper.id) ?? [];
+  let hold: Hold | null = null;
+  if (prices.length) {
+    const price = prices.find((p) => p.currency === parsed.data.currency);
+    if (!price) {
+      return Response.json({ error: `Pick a balance to pay from: ${prices.map((p) => p.currency).join(" or ")}.` }, { status: 400 });
+    }
+    if (parsed.data.price !== price.amount.toString()) {
+      const decimals = paymentsConfig().currencies[price.currency].decimals;
+      const now: PriceDTO[] = prices.map((p) => ({ currency: p.currency, amount: p.amount.toString(), decimals: paymentsConfig().currencies[p.currency].decimals }));
+      return Response.json(
+        { error: `The price is now ${formatAmount(price.amount, decimals)} ${price.currency} a use. Check it and ask again.`, prices: now },
+        { status: 409 },
+      );
+    }
+    hold = await reserve({ userId: user.id, helperId: helper.id, makerUserId: helper.ownerUserId, currency: price.currency, amount: price.amount });
+    if (!hold) {
+      return Response.json(
+        { error: `Not enough ${price.currency}. Top up your wallet to use this helper.`, balance: await balanceIn(user.id, price.currency) },
+        { status: 402 },
+      );
+    }
+  } else {
+    const quota = await quotaFor(user.id);
+    if (quota.remaining === 0) return Response.json({ error: "No uses left today.", quota }, { status: 429 });
+  }
 
   const base = modelConfig();
   // Uses go to SERV only: a backup model would not know the guard.
@@ -39,7 +83,7 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
   const controller = new AbortController();
   req.signal.addEventListener("abort", () => controller.abort());
   const started = Date.now();
-  const useId = await startUse(helper.id, user.id);
+  const useId = await startUse(helper.id, user.id, hold?.id ?? null);
 
   const stream = new ReadableStream<Uint8Array>({
     async start(ctrl) {
@@ -89,12 +133,22 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
         latencyMs: Date.now() - started,
         outcome,
       });
-      const after: QuotaDTO = await quotaFor(user.id);
-      if (outcome === "blocked") send("blocked", { message: BLOCKED_MESSAGE, quota: after });
+      // A good answer is paid for; a blocked or failed one costs nothing.
+      if (hold) {
+        try {
+          if (outcome === "ok") await capture(hold.id);
+          else await release(hold.id);
+        } catch (err) {
+          // The sweep gives the hold back if it is still held.
+          console.error(`payments: a use's hold was not settled: ${err instanceof Error ? err.name : "unknown error"}`);
+        }
+      }
+      const after: { quota: QuotaDTO } | { balance: BalanceDTO } = hold ? { balance: await balanceIn(user.id, hold.currency) } : { quota: await quotaFor(user.id) };
+      if (outcome === "blocked") send("blocked", { message: BLOCKED_MESSAGE, ...after });
       else if (shown.trim()) {
         if (result?.cutOff) show(CUT_OFF_SUFFIX);
-        send("done", { quota: after });
-      } else send("error", { message: "The helper could not answer just now. Try again in a minute.", quota: after });
+        send("done", after);
+      } else send("error", { message: "The helper could not answer just now. Try again in a minute.", ...after });
       if (open) ctrl.close();
     },
     cancel() {

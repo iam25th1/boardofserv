@@ -45,6 +45,10 @@ export const TrashIcon = ({ size = 16 }: P) => (
 export const UnpublishIcon = ({ size = 16 }: P) => (
   <svg {...base(size)}><path d="M4 4h16v10H4zM12 9v11M8.5 16.5 12 20l3.5-3.5" /></svg>
 );
+// A price tag: set what one use of a helper costs.
+export const PriceIcon = ({ size = 16 }: P) => (
+  <svg {...base(size)}><path d="M3.5 12.5V4.5a1 1 0 0 1 1-1h8l8 8-9 9-8-8zM8 8h.01" /></svg>
+);
 export const MenuIcon = ({ size = 20 }: P) => (
   <svg {...base(size)}><path d="M4 7h16M4 12h16M4 17h16" /></svg>
 );

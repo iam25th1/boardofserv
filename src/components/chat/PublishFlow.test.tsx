@@ -27,6 +27,7 @@ const helper: PublicHelperDTO = {
   inputHint: "A product and a few facts",
   maker: "maya",
   createdAt: "2026-10-22T09:00:00.000Z",
+  prices: [],
 };
 
 const api = vi.hoisted(() => ({
@@ -36,11 +37,14 @@ const api = vi.hoisted(() => ({
   publish: vi.fn(),
   unpublish: vi.fn(),
   setHandle: vi.fn(),
+  setPrices: vi.fn(),
   calls: [] as string[],
+  payments: { enabled: false, currencies: [] } as unknown,
 }));
 
 vi.mock("@privy-io/react-auth", () => ({ usePrivy: () => ({ logout: () => {} }) }));
 vi.mock("@/lib/useOpenServLink", () => ({ useOpenServLink: () => async () => {} }));
+vi.mock("@/lib/publicApi", () => ({ fetchPayments: async () => api.payments, fetchHelper: async () => ({ helper: api.published }) }));
 vi.mock("@/lib/useApi", () => {
   const client = {
     listConversations: async () => api.conversations,
@@ -56,6 +60,7 @@ vi.mock("@/lib/useApi", () => {
       return api.publish(body);
     },
     unpublishHelper: api.unpublish,
+    setPrices: api.setPrices,
     sendChat: () => () => {},
   };
   return { useApi: () => client };
@@ -91,6 +96,8 @@ beforeEach(() => {
   api.publish.mockReset();
   api.unpublish.mockReset();
   api.setHandle.mockReset();
+  api.setPrices.mockReset();
+  api.payments = { enabled: false, currencies: [] };
   vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce"), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
 });
 
@@ -207,5 +214,58 @@ describe("publishing from the chat", () => {
     expect(api.unpublish).toHaveBeenCalledWith("shop-blurb-writer");
     expect(screen.queryByRole("link", { name: "View" })).toBeNull();
     expect(screen.getByRole("button", { name: "Publish" })).toBeInTheDocument();
+  });
+});
+
+describe("prices", () => {
+  const usdc = { code: "USDC", decimals: 6, token: `0x${"c".repeat(40)}`, withdrawMin: "5000000" };
+
+  it("sets a price per use on the publish sheet, in minor units", async () => {
+    api.payments = { enabled: true, currencies: [usdc] };
+    await openBlurb();
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const sheet = screen.getByRole("dialog", { name: "Put it on the board" });
+    const price = within(sheet).getByLabelText("Price per use in USDC");
+    fireEvent.change(price, { target: { value: "0.1234567" } });
+    expect(within(sheet).getByRole("alert")).toHaveTextContent("at most 6 decimals");
+    expect(within(sheet).getByRole("button", { name: "Publish" })).toBeDisabled();
+    fireEvent.change(price, { target: { value: "0.25" } });
+    api.publish.mockResolvedValue({ ...helper, prices: [{ currency: "USDC", amount: "250000", decimals: 6 }] });
+    await act(async () => {
+      fireEvent.click(within(sheet).getByRole("button", { name: "Publish" }));
+    });
+    expect(api.publish).toHaveBeenCalledWith(expect.objectContaining({ prices: { USDC: "250000" } }));
+  });
+
+  it("shows no price field while payments are off", async () => {
+    await openBlurb();
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    expect(screen.queryByLabelText("Price per use in USDC")).toBeNull();
+  });
+
+  it("changes the price of a helper on the board from the agents popover", async () => {
+    api.payments = { enabled: true, currencies: [usdc] };
+    api.conversations = [convo("shop-blurb-writer")];
+    api.published = { ...helper, prices: [{ currency: "USDC", amount: "250000", decimals: 6 }] };
+    render(
+      <ToastProvider>
+        <ChatShell />
+      </ToastProvider>,
+    );
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: /agent/ }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Set the price of Shop blurb writer" }));
+    });
+    const dialog = screen.getByRole("dialog", { name: "Price per use" });
+    const price = within(dialog).getByLabelText("Price per use in USDC");
+    expect(price).toHaveValue("0.25");
+    fireEvent.change(price, { target: { value: "" } });
+    api.setPrices.mockResolvedValue({ ...helper, prices: [] });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    });
+    expect(api.setPrices).toHaveBeenCalledWith("shop-blurb-writer", { USDC: null });
+    expect(screen.getByText("Free to try again")).toBeInTheDocument();
   });
 });

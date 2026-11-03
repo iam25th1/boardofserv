@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
+import Link from "next/link";
 import type { AccountDTO } from "@/lib/types";
 import { Button } from "@/components/ui";
 import { SignOutIcon } from "@/components/icons";
@@ -124,6 +125,20 @@ export function AccountMenu({ account, linking, onLink, onSignOut, onOpenShortcu
                 {linking ? "Linking..." : "Link your OpenServ account"}
               </Button>
             )}
+          </div>
+
+          <div className={styles.section}>
+            <p className={styles.label}>Wallet</p>
+            <div className={styles.links}>
+              <Link className={styles.topup} href="/wallet">
+                Balance, top up and earnings
+              </Link>
+              {account?.admin && (
+                <Link className={styles.topup} href="/admin">
+                  Payments admin
+                </Link>
+              )}
+            </div>
           </div>
 
           <div className={styles.rowActions}>

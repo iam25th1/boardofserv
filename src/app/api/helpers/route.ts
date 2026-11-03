@@ -3,7 +3,9 @@ import { z } from "zod";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { db } from "@/lib/db";
 import { conversations, messages, publishedHelpers, users } from "@/lib/db/schema";
-import { compileHelper, freeSlug, guardLine, liveHelperFor, newCanary, PUBLIC_COLUMNS, publicHelper } from "@/lib/helpers";
+import { compileHelper, freeSlug, guardLine, liveHelperFor, newCanary, PUBLIC_COLUMNS, withPrices } from "@/lib/helpers";
+import { PricesBody, readPrices } from "@/lib/payments/prices";
+import { setPrices } from "@/lib/payments/uses";
 import { isUniqueViolation } from "@/lib/users";
 import { modelConfig } from "@/lib/model";
 import { fieldsOf } from "@/lib/sketchFields";
@@ -23,6 +25,8 @@ const Body = z.object({
   conversationId: z.string().uuid(),
   description: oneLine(140),
   inputHint: oneLine(80),
+  // A price per use in each currency the maker accepts, in minor units.
+  prices: PricesBody.optional(),
 });
 
 // Publish the answer helper sketched in a conversation: compile its private
@@ -35,6 +39,8 @@ export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "A description and a hint are required" }, { status: 400 });
   const { conversationId, description, inputHint } = parsed.data;
+  const prices = readPrices(parsed.data.prices ?? {});
+  if ("error" in prices) return Response.json({ error: prices.error }, { status: 400 });
 
   const convo = await db.query.conversations.findFirst({
     where: and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)),
@@ -78,13 +84,14 @@ export async function POST(req: Request) {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const slug = await freeSlug(sketch.name);
-      const [row] = await db.insert(publishedHelpers).values({ ...values, slug }).returning({ slug: publishedHelpers.slug });
+      const [row] = await db.insert(publishedHelpers).values({ ...values, slug }).returning({ id: publishedHelpers.id, slug: publishedHelpers.slug });
+      await setPrices(row!.id, prices.prices);
       const [saved] = await db
         .select(PUBLIC_COLUMNS)
         .from(publishedHelpers)
         .innerJoin(users, eq(users.id, publishedHelpers.ownerUserId))
         .where(eq(publishedHelpers.slug, row!.slug));
-      return Response.json({ helper: publicHelper(saved!) });
+      return Response.json({ helper: (await withPrices([saved!]))[0] });
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
       const raced = await liveHelperFor(conversationId);
