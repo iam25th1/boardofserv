@@ -27,6 +27,7 @@ const helper: PublicHelperDTO = {
   inputHint: "A product and a few facts",
   maker: "maya",
   createdAt: "2026-10-22T09:00:00.000Z",
+  prices: [],
 };
 
 const api = vi.hoisted(() => ({
@@ -41,6 +42,7 @@ const api = vi.hoisted(() => ({
 
 vi.mock("@privy-io/react-auth", () => ({ usePrivy: () => ({ logout: () => {} }) }));
 vi.mock("@/lib/useOpenServLink", () => ({ useOpenServLink: () => async () => {} }));
+vi.mock("@/lib/publicApi", () => ({ fetchPayments: async () => ({ enabled: false, currencies: [] }), fetchHelper: async () => ({ missing: true }) }));
 vi.mock("@/lib/useApi", () => {
   const client = {
     listConversations: async () => api.conversations,

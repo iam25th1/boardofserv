@@ -162,6 +162,9 @@ export const helperUses = pgTable(
     completionTokens: integer("completion_tokens"),
     latencyMs: integer("latency_ms").notNull(),
     outcome: text("outcome", { enum: ["ok", "blocked", "failed"] }).notNull(),
+    // The hold that pays for a paid use; null for a free one. Only free uses
+    // count against the daily limit.
+    holdId: uuid("hold_id").references(() => holds.id),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({ byUserDay: index("helper_uses_user_idx").on(t.userId, t.createdAt) }),
@@ -288,6 +291,58 @@ export const chainCursors = pgTable("chain_cursors", {
   block: bigint("block", { mode: "bigint" }).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// What a helper's maker charges per use, in minor units, for each currency
+// they accept. No row (or a currency that is off) means that currency is not
+// accepted; a helper with no prices is free and keeps the daily limit.
+export const helperPrices = pgTable(
+  "helper_prices",
+  {
+    helperId: uuid("helper_id")
+      .notNull()
+      .references(() => publishedHelpers.id, { onDelete: "cascade" }),
+    currency: text("currency", { enum: CURRENCIES }).notNull(),
+    price: numeric("price", { precision: 78, scale: 0 }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.helperId, t.currency] }),
+    knownCurrency: check("helper_prices_currency", sql`${t.currency} in ('USDC', 'SERV')`),
+    positive: check("helper_prices_positive", sql`${t.price} > 0`),
+  }),
+);
+
+// The price of a paid use, set aside from the user's balance before the model
+// is called. "held" until the use ends: "captured" on a good answer (the
+// charge, the maker's 90% and the platform's 10% are posted), "released" on
+// a failed or blocked one, or by the sweep once it is older than ten minutes.
+// A hold changes state once only, so it is never both charged and given back.
+export const HOLD_STATUSES = ["held", "captured", "released"] as const;
+
+export const holds = pgTable(
+  "holds",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    currency: text("currency", { enum: CURRENCIES }).notNull(),
+    amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
+    helperId: uuid("helper_id").references(() => publishedHelpers.id, { onDelete: "set null" }),
+    makerUserId: uuid("maker_user_id")
+      .notNull()
+      .references(() => users.id),
+    status: text("status", { enum: HOLD_STATUSES }).notNull().default("held"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (t) => ({
+    byStatus: index("holds_status_idx").on(t.status, t.createdAt),
+    knownCurrency: check("holds_currency", sql`${t.currency} in ('USDC', 'SERV')`),
+    knownStatus: check("holds_status", sql`${t.status} in ('held', 'captured', 'released')`),
+    positive: check("holds_amount_positive", sql`${t.amount} > 0`),
+  }),
+);
 
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;

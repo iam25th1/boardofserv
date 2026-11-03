@@ -2,7 +2,7 @@
 import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 import type { ConversationDTO } from "@/lib/types";
 import { IconButton } from "@/components/ui";
-import { EditIcon, TrashIcon, SearchIcon, UnpublishIcon } from "@/components/icons";
+import { EditIcon, TrashIcon, SearchIcon, UnpublishIcon, PriceIcon } from "@/components/icons";
 import { animateDrop } from "@/lib/motion";
 import styles from "./AgentsPill.module.css";
 
@@ -12,7 +12,8 @@ import styles from "./AgentsPill.module.css";
 // states follow the mockup: dashed and spinning while a reply is in progress,
 // outline for a draft, filled for live (a helper on the board), and no ring
 // for a conversation with no sketch yet. Search, rename and delete moved here
-// from the old sidebar; a published helper can be taken off the board here.
+// from the old sidebar; a published helper can be taken off the board here,
+// and, with payments on, given a price per use.
 
 export type RingState = "live" | "wiring" | "draft" | "none";
 
@@ -25,6 +26,7 @@ interface Props {
   onRename: (id: string) => void;
   onDelete: (id: string) => void;
   onUnpublish?: (id: string) => void;
+  onPrice?: (id: string) => void;
   startOpen?: boolean;
 }
 
@@ -51,7 +53,7 @@ function countLabel(n: number): string {
 }
 
 export const AgentsPill = forwardRef<AgentsPillHandle, Props>(function AgentsPill(
-  { conversations, activeId, replyingId, onNew, onSelect, onRename, onDelete, onUnpublish, startOpen },
+  { conversations, activeId, replyingId, onNew, onSelect, onRename, onDelete, onUnpublish, onPrice, startOpen },
   ref,
 ) {
   const [open, setOpen] = useState(Boolean(startOpen));
@@ -167,6 +169,18 @@ export const AgentsPill = forwardRef<AgentsPillHandle, Props>(function AgentsPil
                       </button>
                       {/* Focus goes back to the pill first, so it returns there when the dialog closes. */}
                       <div className={styles.rowMenu}>
+                        {c.publishedSlug && onPrice && (
+                          <IconButton
+                            label={`Set the price of ${nameOf(c)}`}
+                            size="sm"
+                            onClick={() => {
+                              close(true);
+                              onPrice(c.id);
+                            }}
+                          >
+                            <PriceIcon />
+                          </IconButton>
+                        )}
                         {c.publishedSlug && onUnpublish && (
                           <IconButton
                             label={`Take ${nameOf(c)} off the board`}

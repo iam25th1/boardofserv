@@ -1,0 +1,48 @@
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.fields legend {
+  padding: 0;
+  margin-bottom: 6px;
+  font-size: var(--t-xs);
+  font-weight: var(--w-medium);
+  color: var(--chalk-2);
+}
+.fields small {
+  font-size: var(--t-2xs);
+  color: var(--chalk-3);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+}
+.price {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.price > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+.price span {
+  font-size: var(--t-xs);
+  font-weight: var(--w-medium);
+  letter-spacing: 0.06em;
+  color: var(--chalk-2);
+}
+
+.problem {
+  font-size: var(--t-sm);
+  color: var(--chalk);
+}

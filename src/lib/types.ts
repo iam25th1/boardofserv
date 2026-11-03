@@ -59,6 +59,15 @@ export interface PublicHelperDTO {
   // The maker's handle, without the @. Never anything from their email.
   maker: string;
   createdAt: string;
+  // The price of one use in each currency the maker accepts (minor units).
+  // Empty: free to try, with the daily limit.
+  prices: PriceDTO[];
+}
+
+export interface PriceDTO {
+  currency: "USDC" | "SERV";
+  amount: string;
+  decimals: number;
 }
 
 // A signed-in user's uses of published helpers today. Uses run on the
@@ -122,14 +131,15 @@ export interface WalletDTO {
   deposits: DepositDTO[];
 }
 
-// One use of a helper, as the server streams it.
+// One use of a helper, as the server streams it. A free use reports the
+// uses left today; a paid one, the balance it was paid from.
 export type HelperEvent =
   | { type: "meta"; source: string; label: string }
   | { type: "delta"; text: string }
   // The answer was stopped for carrying the helper's instructions.
-  | { type: "blocked"; message: string; quota: QuotaDTO }
-  | { type: "done"; quota: QuotaDTO }
-  | { type: "error"; message: string; quota?: QuotaDTO };
+  | { type: "blocked"; message: string; quota?: QuotaDTO; balance?: BalanceDTO }
+  | { type: "done"; quota?: QuotaDTO; balance?: BalanceDTO }
+  | { type: "error"; message: string; quota?: QuotaDTO; balance?: BalanceDTO };
 
 export type ChatEvent =
   // The plan's sketch, sent before the reply starts. It names the

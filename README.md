@@ -335,3 +335,31 @@ status.
   deposits.
 - `POST /api/deposits/check`: run the watcher now (at most every 10 seconds
   per user) and return the wallet.
+
+### Paid uses
+
+A maker sets a price per use for each currency payments take, on the publish
+sheet and later from the agents popover (the price tag on a helper that is on
+the board). An empty price, or 0, means that currency isn't accepted. A helper
+with no price stays free to try and keeps the daily limit; a price in a
+currency that is turned off is ignored. Paid uses don't count against the
+daily limit. Prices show on the board cards and the helper's page.
+
+On a paid helper's page the user picks the balance to pay from, and the price
+and what is left show under the input. Before the model is called, the price
+is moved from available to held in one transaction (`holds`, the balance check
+and the hold together, so parallel uses can't spend the same money). After
+the answer (`src/lib/payments/uses.ts`):
+
+- a good answer captures the hold: `use_charge` on the user, `maker_earning`
+  of 90% (rounded down) to the maker, `platform_fee` of the rest to the
+  platform;
+- a failed or blocked answer releases it;
+- a sweep in the server releases holds older than ten minutes, for a use
+  that never ended.
+
+A hold leaves `held` once only, so it can't be both charged and given back.
+A short balance gets a 402 before any model call.
+
+- `PUT /api/helpers/:slug/prices`: the maker sets prices, in minor units per
+  currency (`null` or `"0"` stops accepting one).

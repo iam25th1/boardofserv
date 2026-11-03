@@ -71,14 +71,23 @@ export async function post(tx: Exec, e: Entry): Promise<boolean> {
 async function addToBalance(tx: Exec, userId: string, currency: Currency, column: "available" | "held", delta: bigint): Promise<void> {
   const d = minor(delta).toString();
   const by = sql`${d}::numeric`;
+  const set = column === "available" ? { available: sql`${balances.available} + ${by}`, updatedAt: new Date() } : { held: sql`${balances.held} + ${by}`, updatedAt: new Date() };
   try {
-    await tx
-      .insert(balances)
-      .values({ userId, currency, available: column === "available" ? d : "0", held: column === "held" ? d : "0" })
-      .onConflictDoUpdate({
-        target: [balances.userId, balances.currency],
-        set: column === "available" ? { available: sql`${balances.available} + ${by}`, updatedAt: new Date() } : { held: sql`${balances.held} + ${by}`, updatedAt: new Date() },
-      });
+    if (delta > 0n) {
+      await tx
+        .insert(balances)
+        .values({ userId, currency, available: column === "available" ? d : "0", held: column === "held" ? d : "0" })
+        .onConflictDoUpdate({ target: [balances.userId, balances.currency], set });
+      return;
+    }
+    // Taking money away needs a balance to take it from. (An upsert would be
+    // refused for its negative first row even when the balance exists.)
+    const rows = await tx
+      .update(balances)
+      .set(set)
+      .where(and(eq(balances.userId, userId), eq(balances.currency, currency)))
+      .returning({ userId: balances.userId });
+    if (rows.length === 0) throw new NotEnoughFunds();
   } catch (err) {
     if (isCheckViolation(err)) throw new NotEnoughFunds();
     throw err;

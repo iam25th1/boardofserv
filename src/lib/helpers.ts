@@ -6,6 +6,8 @@ import { db } from "./db";
 import { helperUses, publishedHelpers, users } from "./db/schema";
 import { completeJson, contextFor, type ChatMessage, type JsonResult, type ModelConfig } from "./model";
 import type { PublicHelperDTO, QuotaDTO, SketchDTO } from "./types";
+import { paymentsConfig } from "./payments/config";
+import { pricesOf, type Price } from "./payments/uses";
 
 // Published answer helpers.
 //
@@ -20,8 +22,10 @@ import type { PublicHelperDTO, QuotaDTO, SketchDTO } from "./types";
 // shape a helper takes in any response. The same goes for the maker's email:
 // a helper names its maker by handle only.
 
-// What the board, the helper page and the maker's own views may see.
+// What the board, the helper page and the maker's own views may see. The id
+// is only used to look up the prices; it is not in the response.
 export const PUBLIC_COLUMNS = {
+  id: publishedHelpers.id,
   slug: publishedHelpers.slug,
   name: publishedHelpers.name,
   description: publishedHelpers.description,
@@ -32,6 +36,7 @@ export const PUBLIC_COLUMNS = {
 };
 
 export interface PublicRow {
+  id: string;
   slug: string;
   name: string;
   description: string;
@@ -40,7 +45,7 @@ export interface PublicRow {
   maker: string;
 }
 
-export function publicHelper(row: PublicRow): PublicHelperDTO {
+export function publicHelper(row: PublicRow, prices: Price[] = []): PublicHelperDTO {
   return {
     slug: row.slug,
     name: row.name,
@@ -48,7 +53,14 @@ export function publicHelper(row: PublicRow): PublicHelperDTO {
     inputHint: row.inputHint,
     maker: row.maker,
     createdAt: row.createdAt.toISOString(),
+    prices: prices.map((p) => ({ currency: p.currency, amount: p.amount.toString(), decimals: paymentsConfig().currencies[p.currency].decimals })),
   };
+}
+
+// The public helpers for these rows, each with its prices.
+export async function withPrices(rows: PublicRow[]): Promise<PublicHelperDTO[]> {
+  const prices = await pricesOf(rows.map((r) => r.id));
+  return rows.map((r) => publicHelper(r, prices.get(r.id)));
 }
 
 // The helper published from a conversation, while it is on the board.
@@ -59,7 +71,7 @@ export async function liveHelperFor(conversationId: string): Promise<PublicHelpe
     .innerJoin(users, eq(users.id, publishedHelpers.ownerUserId))
     .where(and(eq(publishedHelpers.sourceConversationId, conversationId), isNull(publishedHelpers.unpublishedAt)))
     .limit(1);
-  return row ? publicHelper(row) : null;
+  return row ? (await withPrices([row]))[0]! : null;
 }
 
 // The board: helpers on it, newest first, optionally those whose name
@@ -75,7 +87,7 @@ export async function boardHelpers(search: string): Promise<PublicHelperDTO[]> {
     .where(and(isNull(publishedHelpers.unpublishedAt), q ? ilike(publishedHelpers.name, `%${q}%`) : undefined))
     .orderBy(desc(publishedHelpers.createdAt))
     .limit(BOARD_LIMIT);
-  return rows.map(publicHelper);
+  return withPrices(rows);
 }
 
 // A slug from the helper's name: lower case ascii words joined by dashes.
@@ -174,19 +186,19 @@ export async function helperPage(slug: string): Promise<{ helper: PublicHelperDT
     .where(eq(publishedHelpers.slug, slug))
     .limit(1);
   if (!row) return null;
-  return row.unpublishedAt ? { takenDown: row.name } : { helper: publicHelper(row) };
+  return row.unpublishedAt ? { takenDown: row.name } : { helper: (await withPrices([row]))[0]! };
 }
 
 // Server only, for the use route: what the helper runs on. Never put in a
 // response.
 export async function helperSecret(slug: string) {
   return db.query.publishedHelpers.findFirst({
-    columns: { id: true, systemPrompt: true, canary: true, unpublishedAt: true },
+    columns: { id: true, ownerUserId: true, systemPrompt: true, canary: true, unpublishedAt: true },
     where: eq(publishedHelpers.slug, slug),
   });
 }
 
-// The daily limit on uses, across all helpers, until payments exist.
+// The daily limit on free uses, across all helpers. Paid uses don't count.
 export const DEFAULT_DAILY_USES = 20;
 
 export function dailyUses(env: Record<string, string | undefined> = process.env): number {
@@ -194,16 +206,16 @@ export function dailyUses(env: Record<string, string | undefined> = process.env)
   return Number.isInteger(n) && n > 0 ? n : DEFAULT_DAILY_USES;
 }
 
-// Days run midnight to midnight UTC. A use counts unless it failed, since a
-// failed use gave nothing back (an answer cut off part way is ok: it gave
-// something).
+// Days run midnight to midnight UTC. A free use counts unless it failed,
+// since a failed use gave nothing back (an answer cut off part way is ok: it
+// gave something). Paid uses never count.
 export async function quotaFor(userId: string, now: Date = new Date()): Promise<QuotaDTO> {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const resetsAt = new Date(start.getTime() + 86_400_000);
   const [row] = await db
     .select({ used: count() })
     .from(helperUses)
-    .where(and(eq(helperUses.userId, userId), gte(helperUses.createdAt, start), ne(helperUses.outcome, "failed")));
+    .where(and(eq(helperUses.userId, userId), gte(helperUses.createdAt, start), ne(helperUses.outcome, "failed"), isNull(helperUses.holdId)));
   const limit = dailyUses();
   return { limit, remaining: Math.max(0, limit - (row?.used ?? 0)), resetsAt: resetsAt.toISOString() };
 }
@@ -212,11 +224,11 @@ export async function quotaFor(userId: string, now: Date = new Date()): Promise<
 // answer. The row is written as the use starts, so uses running at the same
 // time all count against the limit, and finished when it ends. A failure to
 // record never breaks the use.
-export async function startUse(helperId: string, userId: string): Promise<string | null> {
+export async function startUse(helperId: string, userId: string, holdId: string | null = null): Promise<string | null> {
   try {
     const [row] = await db
       .insert(helperUses)
-      .values({ helperId, userId, latencyMs: 0, outcome: "ok", createdAt: new Date() })
+      .values({ helperId, userId, holdId, latencyMs: 0, outcome: "ok", createdAt: new Date() })
       .returning({ id: helperUses.id });
     return row?.id ?? null;
   } catch (err) {

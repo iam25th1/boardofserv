@@ -92,6 +92,7 @@ describe("publishing an answer helper", () => {
         inputHint: "A product and a few facts",
         maker: "maya_r",
         createdAt: expect.any(String),
+        prices: [],
       },
     });
 

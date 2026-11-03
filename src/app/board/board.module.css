@@ -114,6 +114,12 @@
   line-height: 1;
   color: var(--chalk-3);
 }
+/* A paid helper's price per use, plain beside the handwriting. */
+.card small.price {
+  font-family: var(--font-body);
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
+}
 
 .loading {
   font-family: var(--font-hand);

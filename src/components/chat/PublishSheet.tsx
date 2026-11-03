@@ -2,20 +2,25 @@
 import { useEffect, useId, useState } from "react";
 import { Button, Dialog, TextInput } from "@/components/ui";
 import { normalHandle } from "@/lib/handles";
+import type { CurrencyDTO } from "@/lib/types";
 import { HandleInput, useHandleStatus, type HandleCheck } from "./HandleField";
+import { PriceFields, readPrices, type PriceDrafts } from "./PriceFields";
 import styles from "./PublishSheet.module.css";
 
 // The confirm sheet before an answer helper goes on the board: its public
 // name, a one-line description and a "what to type" hint the maker can edit,
 // and a plain note that their instructions stay private. While the maker's
 // handle is still the random one they were given, the sheet asks them to
-// keep it or choose their own: it is how the board names them.
+// keep it or choose their own: it is how the board names them. With payments
+// on, the maker can also set a price per use in each currency.
 
 export interface PublishEdits {
   description: string;
   inputHint: string;
   // Set when the sheet asked for the handle.
   handle?: string;
+  // Minor units per currency; null or missing means free in it.
+  prices?: Partial<Record<CurrencyDTO["code"], string | null>>;
 }
 
 interface Props {
@@ -26,14 +31,17 @@ interface Props {
   // The maker's handle, once the account has loaded.
   handle: { current: string; chosen: boolean } | null;
   checkHandle: HandleCheck;
+  // The currencies payments take; empty when payments are off.
+  currencies?: CurrencyDTO[];
   busy: boolean;
   error: string | null;
   onCancel: () => void;
   onPublish: (edits: PublishEdits) => void;
 }
 
-export function PublishSheet({ open, name, description, inputHint, handle, checkHandle, busy, error, onCancel, onPublish }: Props) {
+export function PublishSheet({ open, name, description, inputHint, handle, checkHandle, currencies = [], busy, error, onCancel, onPublish }: Props) {
   const [line, setLine] = useState(description);
+  const [drafts, setDrafts] = useState<PriceDrafts>({});
   const [hint, setHint] = useState(inputHint);
   const [draft, setDraft] = useState(handle?.current ?? "");
   // Decided as it opens, so saving the handle part way through publishing
@@ -51,12 +59,14 @@ export function PublishSheet({ open, name, description, inputHint, handle, check
     setLine(description);
     setHint(inputHint);
     setDraft(current);
+    setDrafts({});
     setAskHandle(Boolean(handle && !handle.chosen));
     // Only on opening: the handle saved while publishing must not reset it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, description, inputHint]);
 
-  const ready = line.trim() && hint.trim() && !busy && (!askHandle || status.ok);
+  const priced = readPrices(drafts, currencies);
+  const ready = line.trim() && hint.trim() && !busy && (!askHandle || status.ok) && !priced.problem;
   const by = askHandle ? normalHandle(draft) || current : current;
 
   return (
@@ -70,7 +80,14 @@ export function PublishSheet({ open, name, description, inputHint, handle, check
             Cancel
           </Button>
           <Button
-            onClick={() => onPublish({ description: line.trim(), inputHint: hint.trim(), ...(askHandle && { handle: normalHandle(draft) }) })}
+            onClick={() =>
+              onPublish({
+                description: line.trim(),
+                inputHint: hint.trim(),
+                ...(askHandle && { handle: normalHandle(draft) }),
+                ...(currencies.length > 0 && { prices: priced.prices }),
+              })
+            }
             disabled={!ready}
           >
             {busy ? "Publishing..." : "Publish"}
@@ -114,6 +131,7 @@ export function PublishSheet({ open, name, description, inputHint, handle, check
           />
           <small id={`${hintId}-note`}>Shown in the box people type into.</small>
         </div>
+        <PriceFields currencies={currencies} drafts={drafts} onChange={setDrafts} disabled={busy} problem={priced.problem} />
         <p className={styles.private}>Your instructions stay private. People see the name, this line and the hint, never how it works.</p>
         {error && (
           <p className={styles.error} role="alert">

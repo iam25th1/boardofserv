@@ -5,6 +5,7 @@ import { createScope, createTimeline, stagger, svg, utils } from "animejs";
 import { TopBar, TopLink } from "@/components/chat/TopBar";
 import { SearchIcon } from "@/components/icons";
 import { Button } from "@/components/ui";
+import { formatAmount } from "@/lib/money";
 import { REDUCED_MOTION, ease } from "@/lib/motion";
 import { fetchBoard } from "@/lib/publicApi";
 import type { PublicHelperDTO } from "@/lib/types";
@@ -113,6 +114,11 @@ export default function BoardPage() {
                   </svg>
                   <p>{h.description}</p>
                   <small>@{h.maker}</small>
+                  {h.prices.length > 0 && (
+                    <small className={styles.price}>
+                      {h.prices.map((p) => `${formatAmount(BigInt(p.amount), p.decimals)} ${p.currency}`).join(" or ")} a use
+                    </small>
+                  )}
                 </Link>
               </li>
             ))}

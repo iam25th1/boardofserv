@@ -105,3 +105,39 @@
 .gone h1 {
   color: var(--chalk);
 }
+
+/* Which balance pays, when the maker accepts more than one. */
+.pay {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: var(--s-1);
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.pay span {
+  margin-right: var(--s-1);
+}
+.pay button {
+  padding: 4px var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--chalk-2);
+  font: inherit;
+  font-weight: var(--w-medium);
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.pay button[aria-checked="true"] {
+  border-color: var(--chalk);
+  background: var(--chalk);
+  color: var(--slate);
+}
+.pay button:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.quota a {
+  color: var(--chalk-2);
+}

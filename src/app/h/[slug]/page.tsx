@@ -7,8 +7,9 @@ import { Message } from "@/components/chat/Message";
 import { Thinking } from "@/components/chat/Thinking";
 import { Button, Textarea } from "@/components/ui";
 import { privyAppId } from "@/lib/privy-config";
+import { formatAmount } from "@/lib/money";
 import { fetchHelper, type HelperPage } from "@/lib/publicApi";
-import type { PublicHelperDTO, QuotaDTO } from "@/lib/types";
+import type { BalanceDTO, PriceDTO, PublicHelperDTO, QuotaDTO } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 import styles from "./helper.module.css";
 
@@ -94,12 +95,23 @@ function SignedOut({ helper, unset = false, waiting = false }: { helper: PublicH
             <Link className={styles.signin} href={`/login?next=${encodeURIComponent(`/h/${helper.slug}`)}`} aria-disabled={waiting}>
               Sign in to use it
             </Link>
-            <p className={styles.quota}>Free to try, with just your email.</p>
+            <p className={styles.quota}>{helper.prices.length ? `${priceText(helper.prices)} a use, from your wallet.` : "Free to try, with just your email."}</p>
           </>
         )}
       </div>
     </div>
   );
+}
+
+// A paid helper's line under the input: the price and, once the wallet has
+// loaded (null until then), what is left.
+function paidLine(price: PriceDTO | undefined, balance: BalanceDTO | null | undefined): string {
+  if (!price) return "";
+  const each = `${formatAmount(BigInt(price.amount), price.decimals)} ${price.currency} a use`;
+  if (balance === null) return each;
+  const left = BigInt(balance?.available ?? "0");
+  const line = `${each}, ${formatAmount(left, price.decimals)} ${price.currency} left`;
+  return left < BigInt(price.amount) ? `${line}. Not enough for a use.` : line;
 }
 
 function quotaLine(q: QuotaDTO | null): string {
@@ -111,6 +123,10 @@ function quotaLine(q: QuotaDTO | null): string {
   return `No uses left today. They reset ${day}at ${time}.`;
 }
 
+function priceText(prices: PriceDTO[]): string {
+  return prices.map((p) => `${formatAmount(BigInt(p.amount), p.decimals)} ${p.currency}`).join(" or ");
+}
+
 interface Answer {
   key: string;
   content: string;
@@ -120,8 +136,12 @@ interface Answer {
 
 function UsePanel({ helper }: { helper: PublicHelperDTO }) {
   const api = useApi();
+  const paid = helper.prices.length > 0;
   const [input, setInput] = useState("");
   const [quota, setQuota] = useState<QuotaDTO | null>(null);
+  // A paid helper: the user's balances and the one they pay from.
+  const [balances, setBalances] = useState<Partial<Record<BalanceDTO["currency"], BalanceDTO>> | null>(null);
+  const [pay, setPay] = useState<PriceDTO["currency"]>(helper.prices[0]?.currency ?? "USDC");
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [busy, setBusy] = useState(false);
   const [blocked, setBlocked] = useState<string | null>(null);
@@ -132,11 +152,32 @@ function UsePanel({ helper }: { helper: PublicHelperDTO }) {
   const frame = useRef<number | null>(null);
 
   useEffect(() => {
-    api.getQuota().then(setQuota, () => setQuota(null));
-  }, [api]);
+    if (!paid) {
+      api.getQuota().then(setQuota, () => setQuota(null));
+      return;
+    }
+    api.getWallet().then(
+      (w) => {
+        const mine = Object.fromEntries(w.balances.map((b) => [b.currency, b]));
+        setBalances(mine);
+        // Start on a balance that covers the price, if one does.
+        const covers = helper.prices.find((p) => BigInt(mine[p.currency]?.available ?? "0") >= BigInt(p.amount));
+        if (covers) setPay(covers.currency);
+      },
+      () => setBalances({}),
+    );
+  }, [api, paid, helper.prices]);
   useEffect(() => () => stopRef.current?.(), []);
 
-  const out = quota?.remaining === 0;
+  const price = helper.prices.find((p) => p.currency === pay);
+  const have = balances ? BigInt(balances[pay]?.available ?? "0") : null;
+  const short = paid && (!price || have === null || have < BigInt(price.amount));
+  const out = paid ? short : quota?.remaining === 0;
+  const settle = (e: { quota?: QuotaDTO; balance?: BalanceDTO }) => {
+    if (e.quota) setQuota(e.quota);
+    const b = e.balance;
+    if (b) setBalances((prev) => ({ ...prev, [b.currency]: b }));
+  };
 
   const ask = () => {
     const text = input.trim();
@@ -163,33 +204,38 @@ function UsePanel({ helper }: { helper: PublicHelperDTO }) {
       setBusy(false);
       stopRef.current = null;
     };
-    stopRef.current = api.runHelper(helper.slug, text, (e) => {
-      if (e.type === "meta") {
-        live = { ...live, source: e.source, label: e.label };
-        setAnswer(live);
-      } else if (e.type === "delta") {
-        pending.current += e.text;
-        if (frame.current === null) frame.current = requestAnimationFrame(flush);
-      } else if (e.type === "done") {
-        flush();
-        setQuota(e.quota);
-        end();
-      } else if (e.type === "blocked") {
-        // Nothing of the answer stays on the screen.
-        drop();
-        setAnswer(null);
-        setBlocked(e.message);
-        setQuota(e.quota);
-        end();
-      } else if (e.type === "error") {
-        flush();
-        if (!live.content) setAnswer(null);
-        if (e.quota) setQuota(e.quota);
-        // Out of uses: the line under the input already says when they reset.
-        if (e.quota?.remaining !== 0) setError(e.message);
-        end();
-      }
-    });
+    stopRef.current = api.runHelper(
+      helper.slug,
+      text,
+      (e) => {
+        if (e.type === "meta") {
+          live = { ...live, source: e.source, label: e.label };
+          setAnswer(live);
+        } else if (e.type === "delta") {
+          pending.current += e.text;
+          if (frame.current === null) frame.current = requestAnimationFrame(flush);
+        } else if (e.type === "done") {
+          flush();
+          settle(e);
+          end();
+        } else if (e.type === "blocked") {
+          // Nothing of the answer stays on the screen.
+          drop();
+          setAnswer(null);
+          setBlocked(e.message);
+          settle(e);
+          end();
+        } else if (e.type === "error") {
+          flush();
+          if (!live.content) setAnswer(null);
+          settle(e);
+          // Out of uses: the line under the input already says when they reset.
+          if (e.quota?.remaining !== 0) setError(e.message);
+          end();
+        }
+      },
+      paid ? pay : undefined,
+    );
   };
 
   const stop = () => {
@@ -222,6 +268,16 @@ function UsePanel({ helper }: { helper: PublicHelperDTO }) {
           maxLength={4000}
           rows={4}
         />
+        {paid && helper.prices.length > 1 && (
+          <div className={styles.pay} role="radiogroup" aria-label="Pay from">
+            <span>Pay from</span>
+            {helper.prices.map((p) => (
+              <button key={p.currency} type="button" role="radio" aria-checked={p.currency === pay} onClick={() => setPay(p.currency)}>
+                {p.currency}
+              </button>
+            ))}
+          </div>
+        )}
         <div className={styles.row}>
           {busy ? (
             <Button variant="ghost" onClick={stop}>
@@ -233,7 +289,13 @@ function UsePanel({ helper }: { helper: PublicHelperDTO }) {
             </Button>
           )}
           <p className={styles.quota} aria-live="polite">
-            {quotaLine(quota)}
+            {paid ? paidLine(price, balances ? balances[pay] : null) : quotaLine(quota)}
+            {paid && short && balances && (
+              <>
+                {" "}
+                <Link href="/wallet">Top up</Link>
+              </>
+            )}
           </p>
         </div>
       </form>

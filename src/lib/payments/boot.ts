@@ -1,11 +1,13 @@
 import "server-only";
 import { bootLines, paymentsConfig } from "./config";
 import { scanTick } from "./deposits";
+import { sweepTick } from "./uses";
 
 // Runs once when the server starts (see src/instrumentation.ts): says in the
 // log whether payments are on, on which network, and what is off and why
 // (Base mainnet always gets a warning), then, with payments on, runs the
-// payments work on an interval: the deposit watcher.
+// payments work on an interval: the deposit watcher and the sweep that
+// releases holds of uses that never ended.
 let booted = false;
 
 export function bootPayments(): void {
@@ -34,4 +36,5 @@ export function bootPayments(): void {
 // One round of the payments work. Each part logs its own failures.
 export async function paymentsTick(): Promise<void> {
   await scanTick();
+  await sweepTick();
 }

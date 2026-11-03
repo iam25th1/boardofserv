@@ -1,4 +1,4 @@
-import type { PublicHelperDTO } from "./types";
+import type { PaymentsDTO, PublicHelperDTO } from "./types";
 
 // Calls that need no sign-in: the board and a helper's public page.
 
@@ -16,4 +16,11 @@ export async function fetchHelper(slug: string, signal?: AbortSignal): Promise<H
   if (res.status === 410) return { takenDown: ((await res.json()) as { name: string }).name };
   if (!res.ok) throw new Error(`Request failed (${res.status})`);
   return (await res.json()) as { helper: PublicHelperDTO };
+}
+
+// Whether payments are on, and the currencies they take.
+export async function fetchPayments(signal?: AbortSignal): Promise<PaymentsDTO> {
+  const res = await fetch("/api/payments", { signal });
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  return ((await res.json()) as { payments: PaymentsDTO }).payments;
 }

@@ -27,6 +27,7 @@ const helper = (slug: string, name: string): PublicHelperDTO => ({
   inputHint: "Something",
   maker: "maya",
   createdAt: "2026-10-22T09:00:00.000Z",
+  prices: [],
 });
 const requests: string[] = [];
 let board: PublicHelperDTO[] = [];

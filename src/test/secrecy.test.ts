@@ -16,6 +16,7 @@ import * as conversation from "@/app/api/conversations/[id]/route";
 import * as conversations from "@/app/api/conversations/route";
 import * as helper from "@/app/api/helpers/[slug]/route";
 import * as helperUse from "@/app/api/helpers/[slug]/use/route";
+import * as helperPrices from "@/app/api/helpers/[slug]/prices/route";
 import * as helpers from "@/app/api/helpers/route";
 import * as linkFinish from "@/app/api/openserv/link/finish/route";
 import * as linkStart from "@/app/api/openserv/link/start/route";
@@ -50,6 +51,7 @@ const ROUTES: Record<string, object> = {
   "helpers": helpers,
   "helpers/[slug]": helper,
   "helpers/[slug]/use": helperUse,
+  "helpers/[slug]/prices": helperPrices,
   "openserv/link/finish": linkFinish,
   "openserv/link/start": linkStart,
   "uses": uses,
@@ -221,6 +223,10 @@ describe("a helper's instructions stay on the server", () => {
     await hit("deposit check", depositsCheck.POST(req("/api/deposits/check", "POST")));
     await hit("link start", linkStart.POST(req("/api/openserv/link/start", "POST", { address: "nope" })));
     await hit("link finish", linkFinish.POST(req("/api/openserv/link/finish", "POST", {})));
+    await hit(
+      "price",
+      helperPrices.PUT(req("/api/helpers/shop-blurbs/prices", "PUT", { prices: { USDC: "250000" } }), { params: { slug: "shop-blurbs" } }),
+    );
     await hit("take down second", helper.DELETE(req("/api/helpers/second-helper", "DELETE"), { params: { slug: "second-helper" } }));
     await hit("delete conversation", conversation.DELETE(req(`/api/conversations/${other}`, "DELETE"), { params: { id: other } }));
 
