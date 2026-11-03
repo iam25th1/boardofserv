@@ -439,3 +439,41 @@ refuses to start under Vitest unless a test has put the fake in place.
   admin routes. `src/test/secrecy.test.ts` also runs payments end to end and
   fails if any response or log line carries the treasury key, an email, a
   helper's prompt or its canary.
+
+### Testnet smoke test
+
+`scripts/testnet-smoke.ts` (`npm run testnet-smoke`) is for the owner to run
+by hand. It runs on Base Sepolia only: it refuses any other `BOS_NETWORK`, any
+`BOS_MAINNET`, and an RPC endpoint that is not chain 84532. It checks the
+treasury's test USDC and ETH, prints the deposit address, waits for one USDC
+deposit from a linked wallet (credited by the app's own watcher), then sends
+one tiny withdrawal back to that wallet through the app's own payout path. It
+prints transaction hashes, never a key, a database address or an RPC address.
+No test or CI run ever makes a real chain call; this script is the only thing
+that sends a testnet transaction.
+
+1. Make a testnet-only treasury and append it to `.env.local` without showing
+   the key on screen (never reuse a key that holds real funds):
+
+   ```sh
+   node -e 'const a=require("viem/accounts");const k=a.generatePrivateKey();console.log(`TREASURY_PRIVATE_KEY=${k}\nTREASURY_ADDRESS=${a.privateKeyToAddress(k)}`)' >> .env.local
+   grep TREASURY_ADDRESS .env.local
+   ```
+
+2. Give the treasury a little Base Sepolia ETH for gas from one of the faucets
+   Base lists at https://docs.base.org/base-chain/tools/network-faucets (for
+   example the Coinbase Developer Platform faucet).
+3. Start the app on its database (`npm run db:up`, `npm run db:push`,
+   `npm run dev`), sign in, open `/wallet` and link the wallet you will send
+   from with "Link a wallet" (MetaMask or any wallet set to Base Sepolia).
+4. Get test USDC into that wallet from Circle's faucet,
+   https://faucet.circle.com: pick USDC and Base Sepolia and paste the
+   wallet's address. It also needs a little Base Sepolia ETH for its own gas.
+5. Run `npm run testnet-smoke`. When it prints the deposit address, send about
+   1 USDC to it on Base Sepolia from the linked wallet.
+6. It prints the deposit's hash when it is credited, then the payout's hash,
+   and "The smoke test passed." once the payout has the configured
+   confirmations. `SMOKE_WITHDRAW_USDC` sets the payout (default 0.01) and
+   `SMOKE_TIMEOUT_MINUTES` how long it waits for the deposit (default 30).
+7. Check `/wallet` (the deposit and the withdrawal) and `/admin` (the books,
+   the payout in the history).

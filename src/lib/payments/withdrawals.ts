@@ -86,11 +86,11 @@ export interface WithdrawalRequest {
 }
 
 // Ask for a withdrawal: checked, debited and queued (or held for approval)
-// in one transaction. `approvedBy` queues it as approved by that admin; the
-// testnet smoke script also skips the minimum.
+// in one transaction. `approvedBy` queues it as approved by that admin (null:
+// by the owner, from the testnet smoke script, which also skips the minimum).
 export async function requestWithdrawal(
   r: WithdrawalRequest,
-  opts: { approvedBy?: string; ignoreMinimum?: boolean } = {},
+  opts: { approvedBy?: string | null; ignoreMinimum?: boolean } = {},
   config: PaymentsConfig = paymentsConfig(),
 ): Promise<Withdrawal> {
   const amount = minor(r.amount);
@@ -115,7 +115,7 @@ export async function requestWithdrawal(
       let status: WithdrawalStatus = "awaiting_approval";
       let auto = false;
       let reason: string | null = null;
-      if (opts.approvedBy) status = "queued";
+      if (opts.approvedBy !== undefined) status = "queued";
       else if (amount < c.autoMax && (await autoToday(tx, config.chainId, r.currency)) + amount <= c.dailyCap) {
         status = "queued";
         auto = true;
@@ -134,7 +134,7 @@ export async function requestWithdrawal(
           reason,
           idempotencyKey: key,
           decidedBy: opts.approvedBy ?? null,
-          decidedAt: opts.approvedBy ? new Date() : null,
+          decidedAt: opts.approvedBy !== undefined ? new Date() : null,
         })
         .returning();
       await post(tx, { userId: r.userId, currency: r.currency, kind: "withdrawal", amount: -amount, referenceId: row!.id, key: `withdrawal:${row!.id}` });
