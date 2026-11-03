@@ -414,3 +414,28 @@ handle only.
 
 - `GET /api/admin`, `POST /api/admin/pause`, `POST /api/admin/withdrawals/:id`
   (`approve`, `reject` or `fail`).
+
+### Payment tests
+
+Every onchain part runs against a fake chain (`src/test/fakeChain.ts`): blocks,
+ERC-20 balances, Transfer logs, nonces and a mempool of really signed
+transactions it decodes. No test makes an RPC call: the real chain client
+refuses to start under Vitest unless a test has put the fake in place.
+
+- Ledger (`src/lib/payments/ledger.test.ts`, `uses.test.ts`): a key posts
+  once, the database refuses a negative balance, parallel uses never go below
+  zero, holds are released on failure and by the sweep, the 90/10 split gives
+  the remainder to the platform, and every money function throws on a number.
+- Deposits (`deposits.test.ts`, `wallets.test.ts`): a linked wallet is
+  credited once, an unlinked one recorded and not credited, the confirmation
+  depth is respected, a restart resumes from the last block, a reorged
+  deposit is dropped, and linked wallets come from Privy only.
+- Withdrawals (`withdrawals.test.ts`): the minimum, the automatic limit, the
+  daily cap, admin approval, reversal on revert, one payout in flight, a
+  resend with the same nonce, the pause switch.
+- Config (`config.test.ts`): SERV off without an address, mainnet off without
+  `BOS_MAINNET=1`.
+- Routes: paid uses, the wallet, deposit check and withdrawal routes, and the
+  admin routes. `src/test/secrecy.test.ts` also runs payments end to end and
+  fails if any response or log line carries the treasury key, an email, a
+  helper's prompt or its canary.
