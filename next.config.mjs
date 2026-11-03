@@ -6,6 +6,8 @@ const nextConfig = {
   poweredByHeader: false,
   experimental: {
     serverComponentsExternalPackages: ["pg"],
+    // src/instrumentation.ts: payments boot when the server starts.
+    instrumentationHook: true,
   },
 };
 

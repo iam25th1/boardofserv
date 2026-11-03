@@ -248,3 +248,36 @@ echoes the prompt and the canary, and fails if any response body or console
 line carries either, or any part of anyone's email (apart from the account
 menu's response to its owner).
 
+
+## Payments
+
+Users top up a balance in USDC or $SERV, pay for helper uses from it, and
+makers withdraw what they earn. Testnet (Base Sepolia) first.
+
+Money is always an integer count of a token's smallest unit, held as a
+`BigInt` and sent over JSON as a string of digits (`src/lib/money.ts`). A
+number never stands for an amount: every money function throws on one.
+
+### Configuration
+
+Payments stay off until `TREASURY_ADDRESS` is set. All of it is read from the
+environment (`src/lib/payments/config.ts`) and the boot log says what is on,
+what is off and why:
+
+- `BOS_NETWORK`: `base-sepolia` (default) or `base`. Base mainnet also needs
+  `BOS_MAINNET=1`, and then logs a warning at every boot. Without it,
+  payments stay off.
+- `BOS_RPC_URL` (optional): the RPC endpoint; blank uses the network's public
+  one.
+- `TREASURY_ADDRESS`: the wallet users deposit to and payouts come from.
+- `TREASURY_PRIVATE_KEY`: server only, read only by the payout signer, and
+  only needed to pay withdrawals. Never commit or log it.
+- `USDC_TOKEN_ADDRESS`, `USDC_DECIMALS`, `USDC_ENABLED`: USDC defaults to
+  Circle's address for the network
+  ([Circle's list](https://developers.circle.com/stablecoins/usdc-contract-addresses)),
+  6 decimals, on.
+- `SERV_TOKEN_ADDRESS`, `SERV_TOKEN_DECIMALS`, `SERV_ENABLED`: SERV stays off
+  until the owner sets both the address and the decimals. OpenServ's docs
+  ([the $SERV token page](https://docs.openserv.ai/what-is-serv/the-serv-token.md))
+  list a Base address but no decimals and no testnet token, so the app never
+  assumes either.
