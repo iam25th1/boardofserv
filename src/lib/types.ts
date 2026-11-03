@@ -70,6 +70,58 @@ export interface QuotaDTO {
   resetsAt: string;
 }
 
+// Payments as the browser sees them. Every amount is a whole number of the
+// currency's minor units, as a string of digits (see money.ts).
+export interface CurrencyDTO {
+  code: "USDC" | "SERV";
+  decimals: number;
+  token: string;
+  // The smallest withdrawal, or null while withdrawals of it are closed.
+  withdrawMin: string | null;
+}
+
+export interface PaymentsDTO {
+  enabled: boolean;
+  network: "base-sepolia" | "base";
+  networkLabel: string;
+  chainId: number;
+  mainnet: boolean;
+  // The block explorer for the network, for transaction links.
+  explorer: string;
+  // Where deposits go. Public.
+  treasury: string | null;
+  confirmations: number;
+  currencies: CurrencyDTO[];
+}
+
+export interface BalanceDTO {
+  currency: "USDC" | "SERV";
+  available: string;
+  // Set aside for uses still running.
+  held: string;
+}
+
+export interface LinkedWalletDTO {
+  address: string;
+  embedded: boolean;
+}
+
+export interface DepositDTO {
+  id: string;
+  currency: "USDC" | "SERV";
+  amount: string;
+  txHash: string;
+  status: "confirming" | "credited" | "dropped";
+  seenAt: string;
+}
+
+// The signed-in user's own money: never anyone else's.
+export interface WalletDTO {
+  balances: BalanceDTO[];
+  wallets: LinkedWalletDTO[];
+  deposits: DepositDTO[];
+}
+
 // One use of a helper, as the server streams it.
 export type HelperEvent =
   | { type: "meta"; source: string; label: string }

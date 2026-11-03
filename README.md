@@ -295,3 +295,43 @@ an amount that is not a whole number, a debit kind with a positive amount (or
 the reverse), and a second row with the same idempotency key. The platform's
 fee rows have no user: that money stays in the treasury. For every user and
 currency, the sum of their ledger rows equals available plus held.
+
+### Deposits
+
+A user tops up by sending USDC (or SERV, once it is on) to the treasury from
+a wallet linked to their account. The embedded wallet counts as linked, and
+the wallet page links an external one through Privy, which asks the wallet to
+sign. The server only trusts the wallets Privy reports for the user
+(`linked_wallets`, brought in step whenever the user opens their wallet page
+or checks for a deposit), never an address the browser sends.
+
+The deposit watcher (`src/lib/payments/deposits.ts`) reads each enabled
+token's `Transfer` logs to the treasury from the block after the last one it
+finished (`chain_cursors`, so a restart resumes there) to the newest block
+with `DEPOSIT_CONFIRMATIONS` confirmations (default 5). A transfer from a
+linked wallet credits that user once: the `deposits` row is unique per chain
+id, transaction hash and log index, and so is the ledger row's idempotency key.
+A transfer from any other wallet is recorded as unmatched, credited to
+nobody, and listed on the admin page. Newer transfers show as confirming; one
+a reorg takes away is marked dropped. Before crediting anything in a token,
+the watcher checks the token's `decimals()` on chain against the config.
+
+The watcher runs in the server every `DEPOSIT_SCAN_INTERVAL_MS` (default 30
+seconds; `BOS_PAYMENTS_WORKER=0` turns the interval off), and the wallet
+page's "Check for my deposit" runs it at once. On the first scan it starts at
+the newest confirmed block, or at `DEPOSIT_START_BLOCK` when set;
+`DEPOSIT_SCAN_CHUNK` (default 2000) is how many blocks one log query covers.
+The RPC endpoint is checked to be on the configured chain before any call.
+
+The wallet page, at `/wallet` (linked from the account menu), shows the
+balances, a currency picker, the network name in big letters, the treasury
+address with a copy button and a QR code, a warning that the wrong network or
+token loses the funds, the linked wallets, and recent deposits with their
+status.
+
+- `GET /api/payments`: whether payments are on, the network, the treasury
+  address and the currencies (public).
+- `GET /api/wallet`: the signed-in user's balances, linked wallets and recent
+  deposits.
+- `POST /api/deposits/check`: run the watcher now (at most every 10 seconds
+  per user) and return the wallet.

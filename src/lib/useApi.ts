@@ -1,7 +1,7 @@
 "use client";
 import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
-import type { AccountDTO, ChatEvent, ConversationDTO, HelperEvent, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO } from "./types";
+import type { AccountDTO, ChatEvent, ConversationDTO, HelperEvent, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
 
 // Every request carries the Privy access token as a bearer, which the server
 // verifies. The token is the only credential the browser holds; the OpenServ
@@ -52,6 +52,9 @@ export function useApi() {
         json<{ ok: boolean; openservUserId: string }>("/api/openserv/link/finish", { method: "POST", body: JSON.stringify({ address, message, signature }) }),
 
       getQuota: () => json<{ quota: QuotaDTO }>("/api/uses").then((d) => d.quota),
+
+      getWallet: () => json<{ wallet: WalletDTO }>("/api/wallet").then((d) => d.wallet),
+      checkDeposits: () => json<{ wallet: WalletDTO }>("/api/deposits/check", { method: "POST" }).then((d) => d.wallet),
 
       // Use a published helper once, streamed. Returns an abort function.
       runHelper(slug: string, input: string, on: (e: HelperEvent) => void): () => void {

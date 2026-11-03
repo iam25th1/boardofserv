@@ -1,0 +1,305 @@
+.page {
+  min-height: 100dvh;
+}
+
+.col {
+  width: 100%;
+  max-width: var(--col);
+  margin: 0 auto;
+  padding: var(--s-6) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-8) max(var(--gutter), env(safe-area-inset-left, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+
+.head h1 {
+  font-weight: var(--w-semibold);
+  font-size: var(--t-xl);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.02em;
+}
+.note {
+  margin-top: var(--s-1);
+  font-family: var(--font-hand);
+  font-weight: var(--w-medium);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}
+
+.quiet {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.loading {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-3);
+}
+
+.signin a {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px var(--s-5);
+  border-radius: var(--r-full);
+  background: var(--chalk);
+  color: var(--slate);
+  font-weight: var(--w-medium);
+  text-decoration: none;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+}
+.section h2 {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+}
+.titleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.said {
+  min-height: 1.2em;
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+
+/* Balances: one tile per currency, the amount large. */
+.balances {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--s-3);
+}
+.tile {
+  padding: var(--s-4) var(--s-5);
+  border-radius: var(--r-xl);
+  background: var(--slate-2);
+}
+.amount {
+  font-size: var(--t-xl);
+  font-weight: var(--w-semibold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.code {
+  font-size: var(--t-xs);
+  font-weight: var(--w-medium);
+  color: var(--chalk-2);
+  letter-spacing: 0.06em;
+}
+.held {
+  margin-top: var(--s-1);
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk-3);
+}
+
+/* Currency picker: two pills, the chosen one filled with chalk. */
+.picker {
+  display: inline-flex;
+  align-self: flex-start;
+  gap: var(--s-1);
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+}
+.picker button {
+  padding: 6px var(--s-4);
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--chalk-2);
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: var(--w-medium);
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.picker button[aria-checked="true"] {
+  background: var(--chalk);
+  color: var(--slate);
+}
+.picker button:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+
+/* The network, in big letters: the one thing to get right. */
+.network {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.networkLabel {
+  font-size: var(--t-2xs);
+  font-weight: var(--w-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--chalk-3);
+}
+.networkName {
+  font-size: var(--t-hero);
+  font-weight: var(--w-bold);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+
+.warning {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  border: var(--stroke) dashed var(--chalk-2);
+  border-radius: var(--r-lg);
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.warning strong {
+  color: var(--chalk);
+  font-weight: var(--w-semibold);
+}
+
+.deposit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--s-5);
+}
+/* Always dark modules on a light ground, whatever the theme, with a quiet
+   zone around them, so any camera reads it. */
+.qr {
+  flex: none;
+  width: 168px;
+  height: 168px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--chalk);
+  color: var(--slate);
+}
+@media (prefers-color-scheme: light) {
+  :global(:root:not([data-theme="dark"])) .qr {
+    background: var(--slate);
+    color: var(--chalk);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+}
+:global(:root[data-theme="light"]) .qr {
+  background: var(--slate);
+  color: var(--chalk);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.addressBox {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.address {
+  font-family: var(--font-mono);
+  font-size: var(--t-base);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.copyRow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.quiet code {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.wallets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.wallets li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-1) var(--s-3);
+}
+.wallets code {
+  font-family: var(--font-mono);
+  font-size: var(--t-sm);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.tag {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk-3);
+}
+
+.deposits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.deposits li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s-1) var(--s-3);
+  align-items: baseline;
+  padding: var(--s-3) 0;
+  border-top: 1px solid var(--line);
+}
+.depAmount {
+  font-weight: var(--w-medium);
+  font-variant-numeric: tabular-nums;
+}
+.tx {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+}
+
+/* Status in the agents popover's language: a solid ring when done, a dashed
+   one while waiting, a faint one when it fell away. */
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: end;
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+}
+.status i {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-full);
+  border: var(--stroke) solid var(--chalk);
+}
+.status[data-state="confirming"] i {
+  border-style: dashed;
+  border-color: var(--chalk-2);
+}
+.status[data-state="dropped"] {
+  color: var(--chalk-3);
+}
+.status[data-state="dropped"] i {
+  border-color: var(--chalk-3);
+}

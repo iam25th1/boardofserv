@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint } from "drizzle-orm/pg-core";
 import { CURRENCIES } from "../money";
 
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
@@ -226,6 +226,68 @@ export const balances = pgTable(
     heldNotNegative: check("balances_held_not_negative", sql`${t.held} >= 0`),
   }),
 );
+
+// Wallets linked to a user in Privy: the embedded wallet, and any external
+// wallet the user linked by signing with it. Privy is the source of truth;
+// this copy is brought in step with it when the user opens their wallet page
+// or checks for a deposit, and lets the deposit watcher match a transfer's
+// sender to a user. Addresses are kept in lower case.
+export const linkedWallets = pgTable(
+  "linked_wallets",
+  {
+    address: text("address").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    embedded: boolean("embedded").notNull().default(false),
+    linkedAt: timestamp("linked_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byUser: index("linked_wallets_user_idx").on(t.userId),
+    lowerCase: check("linked_wallets_lower_case", sql`${t.address} = lower(${t.address})`),
+  }),
+);
+
+// Every token transfer to the treasury the watcher has seen, one row per log
+// (chain id, transaction hash, log index). "confirming" until its block has
+// enough confirmations; then "credited" to the user whose linked wallet sent
+// it, or "unmatched" when no user has that wallet (credited to nobody, listed
+// for the admin). "dropped" when a reorg took it away before it confirmed.
+export const DEPOSIT_STATUSES = ["confirming", "credited", "unmatched", "dropped"] as const;
+
+export const deposits = pgTable(
+  "deposits",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    chainId: integer("chain_id").notNull(),
+    txHash: text("tx_hash").notNull(),
+    logIndex: integer("log_index").notNull(),
+    blockNumber: bigint("block_number", { mode: "bigint" }).notNull(),
+    currency: text("currency", { enum: CURRENCIES }).notNull(),
+    fromAddress: text("from_address").notNull(),
+    amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
+    userId: uuid("user_id").references(() => users.id),
+    status: text("status", { enum: DEPOSIT_STATUSES }).notNull(),
+    seenAt: timestamp("seen_at", { withTimezone: true }).defaultNow().notNull(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (t) => ({
+    onePerLog: uniqueIndex("deposits_log_idx").on(t.chainId, t.txHash, t.logIndex),
+    byUser: index("deposits_user_idx").on(t.userId, t.seenAt),
+    byStatus: index("deposits_status_idx").on(t.status, t.seenAt),
+    knownCurrency: check("deposits_currency", sql`${t.currency} in ('USDC', 'SERV')`),
+    knownStatus: check("deposits_status", sql`${t.status} in ('confirming', 'credited', 'unmatched', 'dropped')`),
+    positive: check("deposits_amount_positive", sql`${t.amount} > 0`),
+  }),
+);
+
+// How far a chain scan has got: the last block it finished, so a restart
+// resumes from the next one.
+export const chainCursors = pgTable("chain_cursors", {
+  key: text("key").primaryKey(),
+  block: bigint("block", { mode: "bigint" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
 
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;

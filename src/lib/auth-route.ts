@@ -4,11 +4,13 @@ import { db } from "./db/index";
 import { users, type User } from "./db/schema";
 import { verifyPrivyToken } from "./privy";
 import { createUser } from "./users";
+import { syncWallets } from "./payments/wallets";
 
 // Resolve the signed-in user for an API route. Accepts the Privy access token
 // from an Authorization bearer header (the client sends it) or the privy-token
-// cookie. Returns null when there is no valid token.
-export async function getUserFromRequest(req: Request): Promise<User | null> {
+// cookie. Returns null when there is no valid token. With `wallets`, the
+// user's linked wallets are also brought in step with what Privy reports.
+export async function getUserFromRequest(req: Request, opts: { wallets?: boolean } = {}): Promise<User | null> {
   const header = req.headers.get("authorization");
   const bearer = header?.toLowerCase().startsWith("bearer ") ? header.slice(7) : null;
   const cookieToken = req.headers
@@ -27,12 +29,12 @@ export async function getUserFromRequest(req: Request): Promise<User | null> {
     return null;
   }
 
-  const existing = await db.query.users.findFirst({ where: eq(users.privyUserId, identity.userId) });
-  if (existing) {
-    if (!existing.email && identity.email) {
-      await db.update(users).set({ email: identity.email, updatedAt: new Date() }).where(eq(users.id, existing.id));
+  let user = (await db.query.users.findFirst({ where: eq(users.privyUserId, identity.userId) })) ?? null;
+  if (user) {
+    if (!user.email && identity.email) {
+      await db.update(users).set({ email: identity.email, updatedAt: new Date() }).where(eq(users.id, user.id));
     }
-    return existing;
-  }
-  return createUser(identity);
+  } else user = await createUser(identity);
+  if (user && opts.wallets && identity.wallets) await syncWallets(user.id, identity.wallets);
+  return user;
 }

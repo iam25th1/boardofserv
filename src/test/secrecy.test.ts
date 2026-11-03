@@ -20,6 +20,9 @@ import * as helpers from "@/app/api/helpers/route";
 import * as linkFinish from "@/app/api/openserv/link/finish/route";
 import * as linkStart from "@/app/api/openserv/link/start/route";
 import * as uses from "@/app/api/uses/route";
+import * as payments from "@/app/api/payments/route";
+import * as wallet from "@/app/api/wallet/route";
+import * as depositsCheck from "@/app/api/deposits/check/route";
 
 // A published helper's system prompt and canary never leave the server. This
 // drives every API route (and fails if a route is added without being driven
@@ -50,6 +53,9 @@ const ROUTES: Record<string, object> = {
   "openserv/link/finish": linkFinish,
   "openserv/link/start": linkStart,
   "uses": uses,
+  "payments": payments,
+  "wallet": wallet,
+  "deposits/check": depositsCheck,
 };
 
 // What the compile call writes: the private part of the helper's prompt.
@@ -211,6 +217,8 @@ describe("a helper's instructions stay on the server", () => {
     await hit("account", account.GET(req("/api/account")));
     await hit("handle check", handle.GET(req("/api/account/handle?handle=shopkeeper")));
     await hit("handle set", handle.PATCH(req("/api/account/handle", "PATCH", { handle: "shopkeeper" })));
+    await hit("wallet", wallet.GET(req("/api/wallet")));
+    await hit("deposit check", depositsCheck.POST(req("/api/deposits/check", "POST")));
     await hit("link start", linkStart.POST(req("/api/openserv/link/start", "POST", { address: "nope" })));
     await hit("link finish", linkFinish.POST(req("/api/openserv/link/finish", "POST", {})));
     await hit("take down second", helper.DELETE(req("/api/helpers/second-helper", "DELETE"), { params: { slug: "second-helper" } }));
@@ -225,6 +233,9 @@ describe("a helper's instructions stay on the server", () => {
     await hit("missing page", helper.GET(req("/api/helpers/nope"), { params: { slug: "nope" } }));
     await hit("use signed out", helperUse.POST(req("/api/helpers/shop-blurbs/use", "POST", { input: "hi" }), { params: { slug: "shop-blurbs" } }));
     await hit("uses signed out", uses.GET(req("/api/uses")));
+    await hit("payments", payments.GET());
+    await hit("wallet signed out", wallet.GET(req("/api/wallet")));
+    await hit("deposit check signed out", depositsCheck.POST(req("/api/deposits/check", "POST")));
     await hit("handle check signed out", handle.GET(req("/api/account/handle?handle=shopkeeper")));
     await hit("publish signed out", helpers.POST(req("/api/helpers", "POST", { conversationId: cid, description: "x", inputHint: "x" })));
 

@@ -11,9 +11,9 @@ import { REDUCED_MOTION, ease } from "@/lib/motion";
 import { privyAppId } from "@/lib/privy-config";
 import styles from "./login.module.css";
 
-// Where sign-in may send someone back to: only our own helper pages and the
-// board, never another site.
-const SAFE_NEXT = /^\/(h\/[a-z0-9-]+|board)$/;
+// Where sign-in may send someone back to: only our own helper pages, the
+// board and the wallet, never another site.
+const SAFE_NEXT = /^\/(h\/[a-z0-9-]+|board|wallet)$/;
 
 export default function LoginPage() {
   // No Privy app id means there is nothing to sign in with.
