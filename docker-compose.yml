@@ -11,8 +11,9 @@ services:
       POSTGRES_PASSWORD: boardofserv
       POSTGRES_DB: boardofserv
     ports:
-      # 5433 on the host so a local system Postgres on 5432 is left alone.
-      - "5433:5432"
+      # 5433 on the host so a local system Postgres on 5432 is left alone,
+      # and on 127.0.0.1 only, so nothing else on the network reaches it.
+      - "127.0.0.1:5433:5432"
     volumes:
       - boardofserv_pgdata:/var/lib/postgresql/data
 
