@@ -12,8 +12,8 @@ import { privyAppId } from "@/lib/privy-config";
 import styles from "./login.module.css";
 
 // Where sign-in may send someone back to: only our own helper pages, the
-// board and the wallet, never another site.
-const SAFE_NEXT = /^\/(h\/[a-z0-9-]+|board|wallet)$/;
+// board, the wallet and the admin page, never another site.
+const SAFE_NEXT = /^\/(h\/[a-z0-9-]+|board|wallet|admin)$/;
 
 export default function LoginPage() {
   // No Privy app id means there is nothing to sign in with.

@@ -30,6 +30,8 @@ export interface AccountDTO {
   openservUserId: string | null;
   linked: boolean;
   balance: "ok" | "low" | "unknown";
+  // Named in ADMIN_USER_IDS: the account menu links to /admin.
+  admin?: boolean;
 }
 
 // The agent sketch for one conversation, as the server stores and sends it.
@@ -134,6 +136,43 @@ export interface WithdrawalDTO {
   reason: string | null;
   txHash: string | null;
   createdAt: string;
+}
+
+// The admin page. Users appear by handle only.
+export interface AdminWithdrawalDTO extends WithdrawalDTO {
+  maker: string;
+  auto: boolean;
+  nonce: number | null;
+  // Never mined and its nonce went to another transaction: it can be marked
+  // failed, which gives the amount back.
+  stuck: boolean;
+}
+
+export interface AdminDTO {
+  network: "base-sepolia" | "base";
+  networkLabel: string;
+  chainId: number;
+  explorer: string;
+  treasury: string | null;
+  paused: boolean;
+  // Why payouts can't be signed, or null when they can.
+  signer: string | null;
+  currencies: {
+    code: "USDC" | "SERV";
+    decimals: number;
+    // On chain; null when it could not be read.
+    treasury: string | null;
+    // Balances plus withdrawals not yet paid out.
+    owed: string;
+    // treasury minus owed. Must never be below zero.
+    difference: string | null;
+    // The platform's 10% of paid uses, all time.
+    fees: string;
+    problem: string | null;
+  }[];
+  approvals: AdminWithdrawalDTO[];
+  history: AdminWithdrawalDTO[];
+  unmatched: { id: string; currency: "USDC" | "SERV"; amount: string; from: string; txHash: string; seenAt: string }[];
 }
 
 // The signed-in user's own money: never anyone else's.

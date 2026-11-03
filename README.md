@@ -397,3 +397,20 @@ until then). The amount is debited at once, with a pending row
 - `POST /api/withdrawals`: ask for a withdrawal (signed in): currency, amount
   in minor units, a linked wallet, and a key so a double submit is one
   withdrawal.
+
+### Admin
+
+`/admin` is for the users named in `ADMIN_USER_IDS` (boardofserv user ids or
+Privy user ids, comma separated); everyone else gets a 404, and the account
+menu links to it only for them. It shows, per currency, the treasury's
+balance on chain, the total owed (every balance plus withdrawals not yet
+paid out), the difference (the platform's fees and anything unmatched; it
+must never go below zero, and the page says so loudly if it does) and the
+platform's fees. Below that: withdrawals waiting for approval (approve or
+reject), unmatched deposits, payout history with transaction links (a stuck
+payout can be marked failed there), and the switch that pauses every payout,
+which takes effect at the next payout step without a restart. Users appear by
+handle only.
+
+- `GET /api/admin`, `POST /api/admin/pause`, `POST /api/admin/withdrawals/:id`
+  (`approve`, `reject` or `fail`).

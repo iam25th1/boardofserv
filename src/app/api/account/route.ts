@@ -1,6 +1,7 @@
 import { getUserFromRequest } from "@/lib/auth-route";
 import { decryptSecret } from "@/lib/crypto";
 import { balanceSufficient } from "@/lib/openserv";
+import { isAdmin } from "@/lib/payments/admin";
 
 export const runtime = "nodejs";
 
@@ -31,5 +32,6 @@ export async function GET(req: Request) {
     openservUserId: user.openservUserId,
     linked,
     balance,
+    admin: isAdmin(user),
   });
 }
