@@ -62,6 +62,8 @@ export function useApi() {
 
       getWallet: () => json<{ wallet: WalletDTO }>("/api/wallet").then((d) => d.wallet),
       checkDeposits: () => json<{ wallet: WalletDTO }>("/api/deposits/check", { method: "POST" }).then((d) => d.wallet),
+      requestWithdrawal: (body: { currency: "USDC" | "SERV"; amount: string; to: string; key: string }) =>
+        json<{ wallet: WalletDTO }>("/api/withdrawals", { method: "POST", body: JSON.stringify(body) }).then((d) => d.wallet),
 
       // Use a published helper once, streamed, paying from `currency` when it
       // has prices. Returns an abort function.

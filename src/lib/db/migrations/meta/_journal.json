@@ -85,6 +85,13 @@
       "when": 1793665588942,
       "tag": "0011_paid_uses",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793666054266,
+      "tag": "0012_withdrawals",
+      "breakpoints": true
     }
   ]
 }

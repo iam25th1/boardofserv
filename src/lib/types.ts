@@ -124,11 +124,26 @@ export interface DepositDTO {
   seenAt: string;
 }
 
+export interface WithdrawalDTO {
+  id: string;
+  currency: "USDC" | "SERV";
+  amount: string;
+  to: string;
+  status: "awaiting_approval" | "queued" | "broadcast" | "paid" | "reverted" | "rejected" | "failed";
+  // Why it waits for approval.
+  reason: string | null;
+  txHash: string | null;
+  createdAt: string;
+}
+
 // The signed-in user's own money: never anyone else's.
 export interface WalletDTO {
   balances: BalanceDTO[];
+  // All a maker has earned from their helpers, per currency.
+  earned: { currency: "USDC" | "SERV"; amount: string }[];
   wallets: LinkedWalletDTO[];
   deposits: DepositDTO[];
+  withdrawals: WithdrawalDTO[];
 }
 
 // One use of a helper, as the server streams it. A free use reports the

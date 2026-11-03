@@ -303,3 +303,76 @@
 .status[data-state="dropped"] i {
   border-color: var(--chalk-3);
 }
+
+/* Earnings and withdrawals. */
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--s-3);
+  margin: 0;
+}
+.figures dt {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.figures dd {
+  margin: 2px 0 0;
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.withdraw {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--s-3);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.field > span:first-child {
+  font-size: var(--t-xs);
+  font-weight: var(--w-medium);
+  color: var(--chalk-2);
+}
+.amountRow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.amountRow span {
+  font-size: var(--t-xs);
+  font-weight: var(--w-medium);
+  letter-spacing: 0.06em;
+  color: var(--chalk-2);
+}
+.field input,
+.field select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--slate-2);
+  color: var(--chalk);
+  font: inherit;
+  font-size: var(--t-sm);
+  transition: border-color var(--dur) var(--ease);
+}
+.field select {
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+}
+.field input:focus-visible,
+.field select:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.field input:disabled,
+.field select:disabled {
+  opacity: 0.55;
+}

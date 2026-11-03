@@ -344,6 +344,71 @@ export const holds = pgTable(
   }),
 );
 
+// A maker taking money out to one of their linked wallets. The amount is
+// debited (a "withdrawal" ledger row) when it is asked for. Then:
+// "awaiting_approval" (over the automatic limit or the day's cap) or
+// "queued" (paid automatically); "broadcast" once the payout transaction is
+// signed and sent, with its nonce, hash and signed bytes recorded first, so a
+// resend is the very same transaction; "paid" once it has enough
+// confirmations. "reverted" (the transfer failed on chain), "rejected" (by an
+// admin) and "failed" (an admin found it never went out) each post a
+// "withdrawal_reversal" that gives the amount back. At most one payout is in
+// flight per chain at a time: the database refuses a second "broadcast" row.
+export const WITHDRAWAL_STATUSES = ["awaiting_approval", "queued", "broadcast", "paid", "reverted", "rejected", "failed"] as const;
+export type WithdrawalStatus = (typeof WITHDRAWAL_STATUSES)[number];
+
+export const withdrawals = pgTable(
+  "withdrawals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    chainId: integer("chain_id").notNull(),
+    currency: text("currency", { enum: CURRENCIES }).notNull(),
+    amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
+    toAddress: text("to_address").notNull(),
+    status: text("status", { enum: WITHDRAWAL_STATUSES }).notNull(),
+    // Paid without approval, and so counted against the day's cap.
+    auto: boolean("auto").notNull(),
+    // Why it waits for approval, for the user and the admin.
+    reason: text("reason"),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    nonce: integer("nonce"),
+    txHash: text("tx_hash"),
+    rawTx: text("raw_tx"),
+    broadcastAt: timestamp("broadcast_at", { withTimezone: true }),
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+    sends: integer("sends").notNull().default(0),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byUser: index("withdrawals_user_idx").on(t.userId, t.createdAt),
+    byStatus: index("withdrawals_status_idx").on(t.status, t.createdAt),
+    oneInFlight: uniqueIndex("withdrawals_one_in_flight").on(t.chainId).where(sql`${t.status} = 'broadcast'`),
+    oneNonce: uniqueIndex("withdrawals_nonce_idx").on(t.chainId, t.nonce).where(sql`${t.status} in ('broadcast', 'paid', 'reverted')`),
+    knownCurrency: check("withdrawals_currency", sql`${t.currency} in ('USDC', 'SERV')`),
+    knownStatus: check(
+      "withdrawals_status",
+      sql`${t.status} in ('awaiting_approval', 'queued', 'broadcast', 'paid', 'reverted', 'rejected', 'failed')`,
+    ),
+    positive: check("withdrawals_amount_positive", sql`${t.amount} > 0`),
+    sentHasHash: check("withdrawals_sent_has_hash", sql`${t.status} not in ('broadcast', 'paid', 'reverted') or (${t.txHash} is not null and ${t.nonce} is not null)`),
+  }),
+);
+
+// Switches the admin flips without a restart. "payouts_paused" = "true"
+// stops every payout from being sent.
+export const paymentSettings = pgTable("payment_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;

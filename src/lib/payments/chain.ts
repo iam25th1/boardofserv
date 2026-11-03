@@ -1,12 +1,22 @@
 import "server-only";
-import { createPublicClient, erc20Abi, http, parseAbiItem, type Address, type Hex } from "viem";
+import {
+  createPublicClient,
+  encodeFunctionData,
+  erc20Abi,
+  http,
+  parseAbiItem,
+  TransactionReceiptNotFoundError,
+  type Address,
+  type Hex,
+} from "viem";
 import { base, baseSepolia } from "viem/chains";
 import { paymentsConfig, type PaymentsConfig } from "./config";
 
 // Everything payments ask of the chain, behind one interface: the watcher
-// reads Transfer logs, the admin page reads balances. Tests use a fake
-// (src/test/fakeChain.ts) through setChainClient, so they never make an RPC
-// call. The real client checks the endpoint's chain id before its first
+// reads Transfer logs, payouts send signed transactions (signed elsewhere,
+// see signer.ts: this client never holds a key), the admin page reads
+// balances. Tests use a fake (src/test/fakeChain.ts) through setChainClient,
+// so they never make an RPC call. The real client checks the endpoint's chain id before its first
 // call and refuses to go on if it is not the configured network.
 
 export interface TransferLog {
@@ -25,6 +35,15 @@ export interface ChainClient {
   transferLogs(q: { token: Address; to: Address; fromBlock: bigint; toBlock: bigint }): Promise<TransferLog[]>;
   tokenDecimals(token: Address): Promise<number>;
   tokenBalance(token: Address, owner: Address): Promise<bigint>;
+  nativeBalance(owner: Address): Promise<bigint>;
+  // How many transactions the address has sent: mined ("latest") or
+  // including those waiting in the mempool ("pending").
+  nonce(address: Address, blockTag: "latest" | "pending"): Promise<number>;
+  // Gas and fees for an ERC-20 transfer of `amount` from `from` to `to`.
+  transferFees(q: { token: Address; from: Address; to: Address; amount: bigint }): Promise<{ gas: bigint; maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }>;
+  // Send a signed transaction. Sending one the node already has is fine.
+  sendRaw(raw: Hex): Promise<void>;
+  receipt(hash: Hex): Promise<{ status: "success" | "reverted"; blockNumber: bigint } | null>;
 }
 
 const TRANSFER = parseAbiItem("event Transfer(address indexed from, address indexed to, uint256 value)");
@@ -70,12 +89,49 @@ export function viemChainClient(config: PaymentsConfig): ChainClient {
       await ready();
       return client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [owner] });
     },
+    async nativeBalance(owner) {
+      await ready();
+      return client.getBalance({ address: owner });
+    },
+    async nonce(address, blockTag) {
+      await ready();
+      return client.getTransactionCount({ address, blockTag });
+    },
+    async transferFees({ token, from, to, amount }) {
+      await ready();
+      const data = encodeFunctionData({ abi: erc20Abi, functionName: "transfer", args: [to, amount] });
+      const [gas, fees] = await Promise.all([client.estimateGas({ account: from, to: token, data }), client.estimateFeesPerGas()]);
+      // Headroom: a fifth more gas, twice the fee cap (only what is used is paid).
+      return { gas: (gas * 6n) / 5n, maxFeePerGas: fees.maxFeePerGas * 2n, maxPriorityFeePerGas: fees.maxPriorityFeePerGas };
+    },
+    async sendRaw(raw) {
+      await ready();
+      try {
+        await client.sendRawTransaction({ serializedTransaction: raw });
+      } catch (err) {
+        // The node has it already, or it was mined: the same transaction.
+        if (/already known|known transaction|nonce too low|already imported/i.test(chainError(err))) return;
+        throw err;
+      }
+    },
+    async receipt(hash) {
+      await ready();
+      try {
+        const r = await client.getTransactionReceipt({ hash });
+        return { status: r.status, blockNumber: r.blockNumber };
+      } catch (err) {
+        if (err instanceof TransactionReceiptNotFoundError) return null;
+        throw err;
+      }
+    },
   };
 }
 
 let current: ChainClient | null = null;
 
 export function chainClient(): ChainClient {
+  // A test that forgot its fake chain fails here instead of reaching an RPC.
+  if (!current && process.env.VITEST) throw new Error("Tests use a fake chain: call setChainClient first.");
   current ??= viemChainClient(paymentsConfig());
   return current;
 }

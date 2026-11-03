@@ -6,16 +6,17 @@ import { TopBar, TopLink } from "@/components/chat/TopBar";
 import { Button, IconButton } from "@/components/ui";
 import { CheckIcon, CopyIcon } from "@/components/icons";
 import { animateEnter, animateStateChange } from "@/lib/motion";
-import { formatAmount } from "@/lib/money";
+import { formatAmount, parseAmount } from "@/lib/money";
 import { privyAppId } from "@/lib/privy-config";
-import type { CurrencyDTO, DepositDTO, PaymentsDTO, WalletDTO } from "@/lib/types";
+import type { CurrencyDTO, DepositDTO, PaymentsDTO, WalletDTO, WithdrawalDTO } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 import styles from "./wallet.module.css";
 
-// The wallet: the signed-in user's balances, how to top up, and their recent
-// deposits. Topping up is a plain token transfer to the treasury from a
-// linked wallet; the server's watcher credits it once it has enough
-// confirmations.
+// The wallet: the signed-in user's balances, how to top up, their recent
+// deposits, and what they earned from their helpers with a way to withdraw
+// it. Topping up is a plain token transfer to the treasury from a linked
+// wallet; the server's watcher credits it once it has enough confirmations.
+// A withdrawal goes to a linked wallet too.
 
 export interface QrPath {
   size: number;
@@ -145,6 +146,7 @@ function Wallet({ payments, qr }: { payments: PaymentsDTO; qr: QrPath | null }) 
           </Button>
         </div>
       </section>
+      <Withdraw payments={payments} wallet={wallet} onWallet={setWallet} />
       <section className={styles.section} aria-labelledby="deposits-h">
         <div className={styles.titleRow}>
           <h2 id="deposits-h">Recent deposits</h2>
@@ -303,5 +305,160 @@ function Deposits({ payments, deposits }: { payments: PaymentsDTO; deposits: Dep
         </li>
       ))}
     </ul>
+  );
+}
+
+const WITHDRAWAL_TEXT: Record<WithdrawalDTO["status"], string> = {
+  awaiting_approval: "waiting for approval",
+  queued: "queued",
+  broadcast: "sending",
+  paid: "paid",
+  reverted: "reverted, given back",
+  rejected: "not approved, given back",
+  failed: "failed, given back",
+};
+
+const WITHDRAWAL_STATE: Record<WithdrawalDTO["status"], "confirming" | "credited" | "dropped"> = {
+  awaiting_approval: "confirming",
+  queued: "confirming",
+  broadcast: "confirming",
+  paid: "credited",
+  reverted: "dropped",
+  rejected: "dropped",
+  failed: "dropped",
+};
+
+// Earnings and withdrawals: what the maker earned, and taking money out to a
+// linked wallet once the balance passes the currency's minimum.
+function Withdraw({ payments, wallet, onWallet }: { payments: PaymentsDTO; wallet: WalletDTO; onWallet: (w: WalletDTO) => void }) {
+  const api = useApi();
+  const [code, setCode] = useState(payments.currencies[0]?.code);
+  const [amount, setAmount] = useState("");
+  const [to, setTo] = useState(wallet.wallets[0]?.address ?? "");
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  // One key per withdrawal the user means, so a double submit is one.
+  const key = useRef<string>(crypto.randomUUID());
+  const c = payments.currencies.find((x) => x.code === code);
+  useEffect(() => {
+    if (!wallet.wallets.some((w) => w.address === to)) setTo(wallet.wallets[0]?.address ?? "");
+  }, [wallet.wallets, to]);
+  if (!c) return null;
+
+  const available = BigInt(wallet.balances.find((b) => b.currency === c.code)?.available ?? "0");
+  const earned = BigInt(wallet.earned.find((e) => e.currency === c.code)?.amount ?? "0");
+  const min = c.withdrawMin === null ? null : BigInt(c.withdrawMin);
+  const units = parseAmount(amount, c.decimals);
+  const open = min !== null && available >= min;
+  const problem =
+    min === null
+      ? `${c.code} withdrawals aren't open yet.`
+      : !open
+        ? `You can withdraw once your balance reaches ${formatAmount(min, c.decimals)} ${c.code}.`
+        : amount.trim() && units === null
+          ? `Write an amount like 12.50, with at most ${c.decimals} decimals.`
+          : units !== null && units < min
+            ? `The smallest withdrawal is ${formatAmount(min, c.decimals)} ${c.code}.`
+            : units !== null && units > available
+              ? "That is more than your balance."
+              : !to
+                ? "Link a wallet to withdraw to."
+                : null;
+  const ready = open && units !== null && units > 0n && !problem && !busy;
+
+  const submit = async () => {
+    if (!ready || units === null) return;
+    setBusy(true);
+    setSaid(null);
+    try {
+      onWallet(await api.requestWithdrawal({ currency: c.code, amount: units.toString(), to, key: key.current }));
+      key.current = crypto.randomUUID();
+      setAmount("");
+      setSaid("Withdrawal asked for. Its status is below.");
+    } catch (err) {
+      setSaid(err instanceof Error ? err.message : "The withdrawal could not be asked for. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const mine = wallet.withdrawals;
+  return (
+    <section className={styles.section} aria-labelledby="withdraw-h">
+      <h2 id="withdraw-h">Earnings and withdrawals</h2>
+      {payments.currencies.length > 1 && (
+        <div className={styles.picker} role="radiogroup" aria-label="Currency to withdraw">
+          {payments.currencies.map((x) => (
+            <button key={x.code} type="button" role="radio" aria-checked={x.code === code} onClick={() => setCode(x.code)}>
+              {x.code}
+            </button>
+          ))}
+        </div>
+      )}
+      <dl className={styles.figures}>
+        <div>
+          <dt>Earned from your helpers</dt>
+          <dd>{amountText(earned.toString(), c)}</dd>
+        </div>
+        <div>
+          <dt>Available to withdraw</dt>
+          <dd>{amountText(available.toString(), c)}</dd>
+        </div>
+      </dl>
+      <form
+        className={styles.withdraw}
+        onSubmit={(e) => {
+          e.preventDefault();
+          void submit();
+        }}
+      >
+        <label className={styles.field}>
+          <span>Amount</span>
+          <span className={styles.amountRow}>
+            <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="0.00" disabled={!open || busy} aria-describedby="withdraw-note" />
+            <span aria-hidden="true">{c.code}</span>
+          </span>
+        </label>
+        <label className={styles.field}>
+          <span>To</span>
+          <select value={to} onChange={(e) => setTo(e.target.value)} disabled={!open || busy || wallet.wallets.length === 0}>
+            {wallet.wallets.map((w) => (
+              <option key={w.address} value={w.address}>
+                {w.address}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Button type="submit" disabled={!ready}>
+          {busy ? "Asking..." : "Withdraw"}
+        </Button>
+      </form>
+      <p id="withdraw-note" className={styles.said} aria-live="polite">
+        {said ?? problem ?? `Sent on ${payments.networkLabel}. Larger withdrawals wait for an admin to approve them.`}
+      </p>
+      {mine.length > 0 && (
+        <ul className={styles.deposits}>
+          {mine.map((w) => (
+            <li key={w.id}>
+              <span className={styles.depAmount}>{amountText(w.amount, currencyOf(payments, w))}</span>
+              <span className={styles.status} data-state={WITHDRAWAL_STATE[w.status]}>
+                <i aria-hidden="true" />
+                {WITHDRAWAL_TEXT[w.status]}
+              </span>
+              {w.txHash ? (
+                <a href={`${payments.explorer}/tx/${w.txHash}`} target="_blank" rel="noopener noreferrer" className={styles.tx}>
+                  {w.txHash.slice(0, 10)}...
+                </a>
+              ) : (
+                <span className={styles.quiet}>{w.reason ?? `to ${w.to.slice(0, 8)}...`}</span>
+              )}
+              <time dateTime={w.createdAt} className={styles.quiet}>
+                {new Date(w.createdAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              </time>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

@@ -363,3 +363,37 @@ A short balance gets a 402 before any model call.
 
 - `PUT /api/helpers/:slug/prices`: the maker sets prices, in minor units per
   currency (`null` or `"0"` stops accepting one).
+
+### Withdrawals
+
+The wallet page shows what a maker earned from their helpers and what is
+available, per currency, and takes money out to one of their linked wallets
+once the balance reaches the currency's minimum (`WITHDRAW_MIN_USDC`, default
+5; `WITHDRAW_MIN_SERV`, which the owner sets: SERV withdrawals stay closed
+until then). The amount is debited at once, with a pending row
+(`src/lib/payments/withdrawals.ts`).
+
+- Below `WITHDRAW_AUTO_MAX_<CURRENCY>`, and while the day's automatic payouts
+  (UTC) stay within `WITHDRAW_DAILY_CAP_<CURRENCY>`, it is paid without
+  approval. Otherwise it waits for an admin, who approves it or rejects it
+  (rejecting gives the amount back). Both default to 0: every withdrawal waits
+  for approval until the owner sets them, and an automatic limit without a
+  daily cap stays off.
+- Payouts are signed with `TREASURY_PRIVATE_KEY` (`src/lib/payments/signer.ts`,
+  the only code that reads it, and only if its address is `TREASURY_ADDRESS`)
+  and go out one at a time: the database refuses a second payout in flight.
+  The nonce, the hash and the signed bytes are recorded under the
+  withdrawal's idempotency key before anything is sent, and the payout is
+  sent once. If it isn't mined within a minute it is sent again: the very same
+  signed transaction, so the same nonce and hash.
+- Once its block has `DEPOSIT_CONFIRMATIONS` confirmations it is paid; a
+  reverted transfer posts a `withdrawal_reversal` that gives the amount back.
+  If another transaction took its nonce, so it can never be mined, the admin
+  page offers to mark it failed after ten minutes, which also gives it back.
+- Before signing, the treasury must hold the amount and enough ETH for gas;
+  otherwise the payout waits and the log says why.
+- The admin switch pauses every payout, resends included.
+
+- `POST /api/withdrawals`: ask for a withdrawal (signed in): currency, amount
+  in minor units, a linked wallet, and a key so a double submit is one
+  withdrawal.

@@ -24,6 +24,7 @@ import * as uses from "@/app/api/uses/route";
 import * as payments from "@/app/api/payments/route";
 import * as wallet from "@/app/api/wallet/route";
 import * as depositsCheck from "@/app/api/deposits/check/route";
+import * as withdrawalsRoute from "@/app/api/withdrawals/route";
 
 // A published helper's system prompt and canary never leave the server. This
 // drives every API route (and fails if a route is added without being driven
@@ -58,6 +59,7 @@ const ROUTES: Record<string, object> = {
   "payments": payments,
   "wallet": wallet,
   "deposits/check": depositsCheck,
+  "withdrawals": withdrawalsRoute,
 };
 
 // What the compile call writes: the private part of the helper's prompt.
@@ -221,6 +223,7 @@ describe("a helper's instructions stay on the server", () => {
     await hit("handle set", handle.PATCH(req("/api/account/handle", "PATCH", { handle: "shopkeeper" })));
     await hit("wallet", wallet.GET(req("/api/wallet")));
     await hit("deposit check", depositsCheck.POST(req("/api/deposits/check", "POST")));
+    await hit("withdraw", withdrawalsRoute.POST(req("/api/withdrawals", "POST", { currency: "USDC", amount: "5000000", to: `0x${"ab".repeat(20)}`, key: "secrecy-1" })));
     await hit("link start", linkStart.POST(req("/api/openserv/link/start", "POST", { address: "nope" })));
     await hit("link finish", linkFinish.POST(req("/api/openserv/link/finish", "POST", {})));
     await hit(
@@ -242,6 +245,7 @@ describe("a helper's instructions stay on the server", () => {
     await hit("payments", payments.GET());
     await hit("wallet signed out", wallet.GET(req("/api/wallet")));
     await hit("deposit check signed out", depositsCheck.POST(req("/api/deposits/check", "POST")));
+    await hit("withdraw signed out", withdrawalsRoute.POST(req("/api/withdrawals", "POST", {})));
     await hit("handle check signed out", handle.GET(req("/api/account/handle?handle=shopkeeper")));
     await hit("publish signed out", helpers.POST(req("/api/helpers", "POST", { conversationId: cid, description: "x", inputHint: "x" })));
 
