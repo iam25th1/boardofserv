@@ -1,0 +1,16 @@
+{
+  "name": "boardofserv",
+  "slug": "boardofserv",
+  "runtime": "node",
+  "command": "npm run start:prod",
+  "port": 7560,
+  "healthPath": "/api/health",
+  "autostart": true,
+  "deploySteps": [
+    "git pull --ff-only",
+    "npm ci --ignore-scripts --include=dev",
+    "npm run build",
+    "npm run db:push"
+  ],
+  "notes": "boardofserv.25th.dev. Runs from its own clone at ~/.boardofserv/app, never the dev checkout. Env is in Pier's store, copied from .env.local. Shares the dev database and treasury; the payments worker lock keeps one worker. Its tunnel is the separate boardofserv-tunnel service. Runbook: docs/DEPLOY-PIER.md."
+}
