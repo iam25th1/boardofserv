@@ -13,6 +13,7 @@
     "test:build": "CHECK_BUILD=1 vitest run src/test/demo-unreachable.test.ts src/test/production.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
+    "db:push:deploy": "vite-node scripts/db-push.ts",
     "db:up": "sh scripts/db.sh up",
     "db:down": "sh scripts/db.sh down",
     "testnet-smoke": "vite-node --config vitest.config.ts scripts/testnet-smoke.ts",

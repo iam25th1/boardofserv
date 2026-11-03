@@ -30,6 +30,12 @@ take the new not-null `handle` column from `db:push`. Run
 example `docker exec -i boardofserv-db psql -U boardofserv boardofserv < src/lib/db/migrations/0008_user_handles.sql`),
 which gives every user a random handle; `db:push` then has nothing left to do.
 
+A deploy runs `npm run db:push:deploy` instead (`scripts/db-push.ts`). With
+no terminal, `drizzle-kit push` applies an additive change but gives up on
+one it would ask about (data loss, or a rename it can't tell apart) and still
+exits 0; the wrapper fails the deploy then, so such a change is made by hand
+first (see [docs/DEPLOY-PIER.md](docs/DEPLOY-PIER.md)).
+
 `npm run db:up` uses `docker compose` when the plugin is installed. Without it
 (for example plain Colima) it runs the same Postgres with `docker run` in a
 container named `boardofserv-db`, and starts that container again if it
