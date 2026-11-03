@@ -330,7 +330,20 @@ the watcher checks the token's `decimals()` on chain against the config.
 
 The watcher runs in the server every `DEPOSIT_SCAN_INTERVAL_MS` (default 30
 seconds; `BOS_PAYMENTS_WORKER=0` turns the interval off), and the wallet
-page's "Check for my deposit" runs it at once. On the first scan it starts at
+page's "Check for my deposit" runs it at once.
+
+The interval's cycle (deposit scan, hold sweep, payouts) runs only in the
+process holding the payments worker lock, a Postgres advisory lock on a
+connection of its own, checked before each cycle. Two servers on one
+database (a development server next to the deployed one) never run it at
+once: the other skips its cycles. A production server keeps the lock between
+cycles; a development server gives it back after each, so a deployed service
+takes over at its next cycle and keeps it. The lock is given back when a
+cycle throws, and Postgres drops it when its process dies. The log says once
+which process runs the cycles and once when one starts skipping them. A
+payout asked for in a request is sent under the same lock, or left to the
+process holding it. "Check for my deposit" scans outside the lock, which is
+safe: crediting is keyed per transfer, so two scans that overlap credit once. On the first scan it starts at
 the newest confirmed block, or at `DEPOSIT_START_BLOCK` when set;
 `DEPOSIT_SCAN_CHUNK` (default 2000) is how many blocks one log query covers.
 The RPC endpoint is checked to be on the configured chain before any call.
@@ -456,6 +469,14 @@ refuses to start under Vitest unless a test has put the fake in place.
   resend with the same nonce, the pause switch.
 - Config (`config.test.ts`): SERV off without an address, mainnet off without
   `BOS_MAINNET=1`.
+- Worker lock (`workerLock.test.ts`): two workers on one database, only one
+  runs cycles and the other skips, logging that once; the lock is released
+  when a cycle throws or its process dies; a development server hands over
+  to a deployed one. An advisory lock belongs to a database session and PGlite has only
+  one, so these run against a real Postgres named by `TEST_POSTGRES_URL` (CI
+  starts one; locally they are skipped without it). For example:
+  `docker run -d --rm --name bos-locktest-pg -e POSTGRES_PASSWORD=locktest -p 127.0.0.1:55432:5432 postgres:16-alpine`,
+  then `TEST_POSTGRES_URL=postgres://postgres:locktest@127.0.0.1:55432/postgres npm test`.
 - Routes: paid uses, the wallet, deposit check and withdrawal routes, and the
   admin routes. `src/test/secrecy.test.ts` also runs payments end to end and
   fails if any response or log line carries the treasury key, an email, a

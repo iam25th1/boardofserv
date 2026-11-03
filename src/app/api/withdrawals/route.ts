@@ -2,7 +2,8 @@ import { z } from "zod";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { CURRENCIES } from "@/lib/money";
 import { walletDTO, withdrawalDTO } from "@/lib/payments/dto";
-import { payoutTick, requestWithdrawal, WithdrawalRefused } from "@/lib/payments/withdrawals";
+import { requestWithdrawal, WithdrawalRefused } from "@/lib/payments/withdrawals";
+import { payoutSoon } from "@/lib/payments/worker";
 
 export const runtime = "nodejs";
 
@@ -25,8 +26,9 @@ export async function POST(req: Request) {
   const { currency, amount, to, key } = parsed.data;
   try {
     const w = await requestWithdrawal({ userId: user.id, currency, amount: BigInt(amount), to, key });
-    // Send it now rather than at the next interval. Its errors are logged there.
-    if (w.status === "queued") void payoutTick();
+    // Send it now rather than at the next interval, under the worker lock:
+    // if another process holds it, that one sends it. Errors are logged.
+    if (w.status === "queued") void payoutSoon();
     return Response.json({ withdrawal: withdrawalDTO(w), wallet: await walletDTO(user.id) });
   } catch (err) {
     if (err instanceof WithdrawalRefused) return Response.json({ error: err.message }, { status: err.status });
