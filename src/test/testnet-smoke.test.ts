@@ -38,6 +38,7 @@ function env(extra: Record<string, string> = {}) {
   vi.stubEnv("TREASURY_PRIVATE_KEY", KEY);
   vi.stubEnv("BOS_NETWORK", "");
   vi.stubEnv("BOS_MAINNET", "");
+  vi.stubEnv("SMOKE_FROM", MAYA_WALLET);
   for (const [k, v] of Object.entries(extra)) vi.stubEnv(k, v);
 }
 
@@ -58,7 +59,16 @@ describe("the testnet smoke script", () => {
     expect(mainnetRpc.sent).toEqual([]);
   });
 
-  it("waits for a linked deposit, sends a tiny withdrawal back, and prints hashes but never the key", async () => {
+  it("needs the sender's address", async () => {
+    env({ SMOKE_FROM: "" });
+    const lines: string[] = [];
+    const chain = new FakeChain();
+    expect(await runSmoke({ chain, say: (l = "") => void lines.push(l) })).toBe(1);
+    expect(lines[0]).toMatch(/^Set SMOKE_FROM/);
+    expect(chain.calls).toEqual([]);
+  });
+
+  it("waits for the sender's deposit, ignores anyone else's, sends a tiny withdrawal back, and prints hashes but never the key", async () => {
     env({ SMOKE_WITHDRAW_USDC: "0.05" });
     const maya = await addUser(db, "maya");
     await syncWallets(maya.id, [{ address: MAYA_WALLET, embedded: false }]);
@@ -69,9 +79,13 @@ describe("the testnet smoke script", () => {
     let waits = 0;
     let deposit = "";
     // Each wait moves the chain on: the owner's transfer lands, then blocks.
+    // Someone else's deposit lands first: the script must leave it alone.
+    const sam = await addUser(db, "sam");
+    await syncWallets(sam.id, [{ address: addr(0x5a11), embedded: false }]);
     const sleep = async () => {
       waits++;
-      if (waits === 1) deposit = chain.transfer(usdc, MAYA_WALLET, TREASURY, 1_000_000n, chain.head + 1n).txHash;
+      if (waits === 1) chain.transfer(usdc, addr(0x5a11), TREASURY, 2_000_000n, chain.head + 1n);
+      if (waits === 2) deposit = chain.transfer(usdc, MAYA_WALLET, TREASURY, 1_000_000n, chain.head + 1n).txHash;
       chain.mine(3);
     };
 
@@ -89,7 +103,8 @@ describe("the testnet smoke script", () => {
     const [w] = await db.select().from(schema.withdrawals);
     expect(w).toMatchObject({ status: "paid", amount: "50000", toAddress: MAYA_WALLET.toLowerCase(), idempotencyKey: expect.stringMatching(/:smoke:/) });
     expect(await chain.tokenBalance(usdc, MAYA_WALLET)).toBe(-1_000_000n + 50_000n);
-    const [b] = await db.select().from(schema.balances);
-    expect(b).toMatchObject({ available: "950000", held: "0" });
+    const balances = Object.fromEntries((await db.select().from(schema.balances)).map((b) => [b.userId, b.available]));
+    expect(balances).toEqual({ [maya.id]: "950000", [sam.id]: "2000000" });
+    expect(await db.select().from(schema.withdrawals)).toHaveLength(1);
   });
 });

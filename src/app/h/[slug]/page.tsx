@@ -68,7 +68,15 @@ export default function HelperPageView({ params }: { params: { slug: string } })
               <p>{page.helper.description}</p>
               <small>by @{page.helper.maker}</small>
             </header>
-            {privyAppId() ? <SignedInOrNot helper={page.helper} /> : <SignedOut helper={page.helper} unset />}
+            {privyAppId() ? (
+              <SignedInOrNot
+                helper={page.helper}
+                // The price changed since the page loaded: show the new one.
+                onPrices={(prices) => setPage((p) => (p && "helper" in p ? { helper: { ...p.helper, prices } } : p))}
+              />
+            ) : (
+              <SignedOut helper={page.helper} unset />
+            )}
           </>
         )}
       </main>
@@ -76,9 +84,9 @@ export default function HelperPageView({ params }: { params: { slug: string } })
   );
 }
 
-function SignedInOrNot({ helper }: { helper: PublicHelperDTO }) {
+function SignedInOrNot({ helper, onPrices }: { helper: PublicHelperDTO; onPrices: (prices: PriceDTO[]) => void }) {
   const { ready, authenticated } = usePrivy();
-  if (ready && authenticated) return <UsePanel helper={helper} />;
+  if (ready && authenticated) return <UsePanel helper={helper} onPrices={onPrices} />;
   return <SignedOut helper={helper} waiting={!ready} />;
 }
 
@@ -134,7 +142,7 @@ interface Answer {
   label?: string;
 }
 
-function UsePanel({ helper }: { helper: PublicHelperDTO }) {
+function UsePanel({ helper, onPrices }: { helper: PublicHelperDTO; onPrices: (prices: PriceDTO[]) => void }) {
   const api = useApi();
   const paid = helper.prices.length > 0;
   const [input, setInput] = useState("");
@@ -229,12 +237,13 @@ function UsePanel({ helper }: { helper: PublicHelperDTO }) {
           flush();
           if (!live.content) setAnswer(null);
           settle(e);
+          if (e.prices) onPrices(e.prices);
           // Out of uses: the line under the input already says when they reset.
           if (e.quota?.remaining !== 0) setError(e.message);
           end();
         }
       },
-      paid ? pay : undefined,
+      paid && price ? { currency: price.currency, price: price.amount } : undefined,
     );
   };
 

@@ -4,6 +4,6 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     const { bootPayments } = await import("./lib/payments/boot");
-    bootPayments();
+    await bootPayments();
   }
 }

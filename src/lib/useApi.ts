@@ -1,7 +1,7 @@
 "use client";
 import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
-import type { AccountDTO, AdminDTO, BalanceDTO, ChatEvent, ConversationDTO, HelperEvent, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
 
 // Every request carries the Privy access token as a bearer, which the server
 // verifies. The token is the only credential the browser holds; the OpenServ
@@ -69,16 +69,17 @@ export function useApi() {
       requestWithdrawal: (body: { currency: "USDC" | "SERV"; amount: string; to: string; key: string }) =>
         json<{ wallet: WalletDTO }>("/api/withdrawals", { method: "POST", body: JSON.stringify(body) }).then((d) => d.wallet),
 
-      // Use a published helper once, streamed, paying from `currency` when it
-      // has prices. Returns an abort function.
-      runHelper(slug: string, input: string, on: (e: HelperEvent) => void, currency?: "USDC" | "SERV"): () => void {
+      // Use a published helper once, streamed, paying `pay` (the currency and
+      // the price the page showed) when it has prices. Returns an abort
+      // function.
+      runHelper(slug: string, input: string, on: (e: HelperEvent) => void, pay?: { currency: "USDC" | "SERV"; price: string }): () => void {
         const controller = new AbortController();
         (async () => {
           try {
-            const res = await authed(`/api/helpers/${encodeURIComponent(slug)}/use`, { method: "POST", body: JSON.stringify({ input, currency }), signal: controller.signal });
+            const res = await authed(`/api/helpers/${encodeURIComponent(slug)}/use`, { method: "POST", body: JSON.stringify({ input, ...pay }), signal: controller.signal });
             if (!res.ok || !res.body) {
-              const body = (await res.json().catch(() => ({}))) as { error?: string; quota?: QuotaDTO; balance?: BalanceDTO };
-              on({ type: "error", message: body.error ?? "The helper could not start. Try again.", quota: body.quota, balance: body.balance });
+              const body = (await res.json().catch(() => ({}))) as { error?: string; quota?: QuotaDTO; balance?: BalanceDTO; prices?: PriceDTO[] };
+              on({ type: "error", message: body.error ?? "The helper could not start. Try again.", quota: body.quota, balance: body.balance, prices: body.prices });
               return;
             }
             await readEvents(res.body, (type, data) => on({ type, ...data } as HelperEvent));

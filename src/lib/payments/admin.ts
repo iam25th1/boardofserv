@@ -22,8 +22,10 @@ export function isAdmin(user: Pick<User, "id" | "privyUserId">, config: Payments
 }
 
 // What the treasury owes in a currency: balances plus withdrawals that have
-// left the balances but not the treasury.
-export async function owed(currency: Currency, chainId: number): Promise<bigint> {
+// left the balances but not the treasury. `mined` is what in-flight payouts
+// already took out of the treasury (mined, not yet confirmed enough to be
+// marked paid), so it isn't counted twice.
+export async function owed(currency: Currency, chainId: number, mined = 0n): Promise<bigint> {
   const [b] = await db
     .select({ total: sql<string>`coalesce(sum(${balances.available} + ${balances.held}), 0)::text` })
     .from(balances)
@@ -32,7 +34,7 @@ export async function owed(currency: Currency, chainId: number): Promise<bigint>
     .select({ total: sql<string>`coalesce(sum(${withdrawals.amount}), 0)::text` })
     .from(withdrawals)
     .where(and(eq(withdrawals.currency, currency), eq(withdrawals.chainId, chainId), inArray(withdrawals.status, ["awaiting_approval", "queued", "broadcast"])));
-  return BigInt(b?.total ?? "0") + BigInt(w?.total ?? "0");
+  return BigInt(b?.total ?? "0") + BigInt(w?.total ?? "0") - mined;
 }
 
 async function fees(currency: Currency): Promise<bigint> {
@@ -45,9 +47,19 @@ async function fees(currency: Currency): Promise<bigint> {
 
 export async function adminDTO(chain: ChainClient, config: PaymentsConfig = paymentsConfig()): Promise<AdminDTO> {
   const treasury = config.treasury;
+  // Payouts in flight that are already mined: the treasury has paid them.
+  const mined: Partial<Record<Currency, bigint>> = {};
+  const flying = await db
+    .select()
+    .from(withdrawals)
+    .where(and(eq(withdrawals.chainId, config.chainId), eq(withdrawals.status, "broadcast")));
+  for (const w of flying) {
+    const r = w.txHash ? await chain.receipt(w.txHash as `0x${string}`).catch(() => null) : null;
+    if (r?.status === "success") mined[w.currency] = (mined[w.currency] ?? 0n) + BigInt(w.amount);
+  }
   const currencies: AdminDTO["currencies"] = [];
   for (const c of enabledCurrencies(config)) {
-    const due = await owed(c.code, config.chainId);
+    const due = await owed(c.code, config.chainId, mined[c.code] ?? 0n);
     let held: bigint | null = null;
     let problem: string | null = null;
     try {

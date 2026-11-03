@@ -22,7 +22,7 @@ const net = vi.hoisted(() => ({
   signedIn: true,
   wallet: null as unknown,
   emit: null as null | ((e: HelperEvent) => void),
-  asked: [] as { input: string; currency?: string }[],
+  asked: [] as { input: string; pay?: { currency: string; price: string } }[],
 }));
 
 vi.mock("@/lib/privy-config", () => ({ privyAppId: () => "app-id-for-the-page-test" }));
@@ -32,8 +32,8 @@ vi.mock("@/lib/useApi", () => {
   const client = {
     getQuota: async () => ({ limit: 20, remaining: 20, resetsAt: "2026-10-23T00:00:00.000Z" }),
     getWallet: async () => net.wallet,
-    runHelper: (_slug: string, input: string, on: (e: HelperEvent) => void, currency?: string) => {
-      net.asked.push({ input, currency });
+    runHelper: (_slug: string, input: string, on: (e: HelperEvent) => void, pay?: { currency: string; price: string }) => {
+      net.asked.push({ input, pay });
       net.emit = on;
       return () => {};
     },
@@ -81,7 +81,7 @@ describe("a paid helper's page", () => {
 
     fireEvent.change(screen.getByLabelText("What to give Shop blurbs"), { target: { value: "The Alder mug" } });
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
-    expect(net.asked).toEqual([{ input: "The Alder mug", currency: "USDC" }]);
+    expect(net.asked).toEqual([{ input: "The Alder mug", pay: { currency: "USDC", price: "250000" } }]);
     await act(async () => {
       net.emit!({ type: "delta", text: "A mug." });
       net.emit!({ type: "done", balance: { currency: "USDC", available: "4500000", held: "0" } });
@@ -114,5 +114,22 @@ describe("a paid helper's page", () => {
     });
     expect(screen.getByRole("alert").textContent).toBe("Not enough USDC. Top up your wallet to use this helper.");
     expect(screen.getByText(/0.0001 USDC left. Not enough for a use./)).toBeTruthy();
+  });
+
+  it("shows the new price when it changed since the page loaded", async () => {
+    net.wallet = walletWith("4750000", "0");
+    await open();
+    fireEvent.change(screen.getByLabelText("What to give Shop blurbs"), { target: { value: "Hi" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await act(async () => {
+      net.emit!({
+        type: "error",
+        message: "The price is now 0.90 USDC a use. Check it and ask again.",
+        prices: [{ currency: "USDC", amount: "900000", decimals: 6 }],
+      });
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    expect(screen.getByRole("alert").textContent).toBe("The price is now 0.90 USDC a use. Check it and ask again.");
+    expect(screen.getByText("0.90 USDC a use, 4.75 USDC left")).toBeTruthy();
   });
 });

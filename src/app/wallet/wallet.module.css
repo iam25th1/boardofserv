@@ -352,9 +352,11 @@
 }
 .field input,
 .field select {
+  box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  padding: 9px var(--s-3);
+  height: 40px;
+  padding: 0 var(--s-3);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--slate-2);

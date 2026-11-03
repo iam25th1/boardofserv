@@ -12,7 +12,7 @@ import { setChainClient } from "@/lib/payments/chain";
 import { balancesOf, post } from "@/lib/payments/ledger";
 import { signerFromKey } from "@/lib/payments/signer";
 import { syncWallets } from "@/lib/payments/wallets";
-import { requestWithdrawal } from "@/lib/payments/withdrawals";
+import { approveWithdrawal, requestWithdrawal, sendNextPayout } from "@/lib/payments/withdrawals";
 import { GET as admin } from "./route";
 import { POST as pause } from "./pause/route";
 import { POST as decide } from "./withdrawals/[id]/route";
@@ -124,5 +124,47 @@ describe("the admin routes", () => {
     const [setting] = await db.select().from(schema.paymentSettings).where(eq(schema.paymentSettings.key, "payouts_paused"));
     expect(setting).toMatchObject({ value: "true", updatedBy: boss.id });
     expect((await (await pause(req("/api/admin/pause", { paused: false }))).json()).admin.paused).toBe(false);
+  });
+
+  it("doesn't count a payout twice while it is mined but not yet confirmed", async () => {
+    const w = await requestWithdrawal({ userId: maya.id, currency: "USDC", amount: 10_000_000n, to: MAYA_WALLET, key: "m" });
+    await approveWithdrawal(w.id, boss.id);
+    expect(await sendNextPayout(chain, signerFromKey(KEY), paymentsConfig())).toBe(w.id);
+    state.user = boss;
+    const before = (await (await admin(req("/api/admin"))).json()).admin.currencies[0];
+    expect(before).toMatchObject({ treasury: "60000000", owed: "50000000", difference: "10000000" });
+    chain.mine(1); // mined, one confirmation of five: still "sending"
+    const mined = (await (await admin(req("/api/admin"))).json()).admin;
+    expect(mined.history[0].status).toBe("broadcast");
+    expect(mined.currencies[0]).toMatchObject({ treasury: "50000000", owed: "40000000", difference: "10000000" });
+  });
+
+  it("cancels a queued payout before it is sent", async () => {
+    const w = await requestWithdrawal({ userId: maya.id, currency: "USDC", amount: 10_000_000n, to: MAYA_WALLET, key: "c" });
+    await approveWithdrawal(w.id, boss.id);
+    state.user = boss;
+    const res = await decide(req(`/api/admin/withdrawals/${w.id}`, { action: "reject" }), { params: { id: w.id } });
+    expect(res.status).toBe(200);
+    expect((await res.json()).admin.history[0]).toMatchObject({ id: w.id, status: "rejected" });
+    expect((await balancesOf(maya.id)).USDC.available).toBe(50_000_000n);
+  });
+
+  it("answers a chain error on fail with a 502 and logs it without the RPC address", async () => {
+    const w = await requestWithdrawal({ userId: maya.id, currency: "USDC", amount: 10_000_000n, to: MAYA_WALLET, key: "f" });
+    await approveWithdrawal(w.id, boss.id);
+    await sendNextPayout(chain, signerFromKey(KEY), paymentsConfig());
+    await db.update(schema.withdrawals).set({ broadcastAt: new Date(Date.now() - 3_600_000) }).where(eq(schema.withdrawals.id, w.id));
+    chain.nonce = async () => {
+      throw new Error("HTTP request failed. URL: https://base-sepolia.example/v2/secret-api-key Details: 500");
+    };
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    state.user = boss;
+    const res = await decide(req(`/api/admin/withdrawals/${w.id}`, { action: "fail" }), { params: { id: w.id } });
+    expect(res.status).toBe(502);
+    const logged = errors.mock.calls.map((c) => c.join(" ")).join("\n");
+    errors.mockRestore();
+    expect(logged).toContain("an admin fail failed");
+    expect(logged).not.toContain("secret-api-key");
+    expect(await res.text()).not.toContain("secret-api-key");
   });
 });

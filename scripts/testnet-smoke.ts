@@ -10,9 +10,12 @@
 // never the database or RPC address (either can carry a secret).
 //
 // It reads .env.local like the app does. It needs DATABASE_URL (the app's
-// database, migrated), TREASURY_ADDRESS and TREASURY_PRIVATE_KEY.
-// SMOKE_WITHDRAW_USDC sets the withdrawal (default 0.01) and
-// SMOKE_TIMEOUT_MINUTES how long to wait for the deposit (default 30).
+// database, migrated), TREASURY_ADDRESS, TREASURY_PRIVATE_KEY, and
+// SMOKE_FROM: the linked wallet the owner sends from. Only a deposit from
+// that wallet counts, and the withdrawal goes back to it, so nobody else's
+// money is ever touched. SMOKE_WITHDRAW_USDC sets the withdrawal (default
+// 0.01) and SMOKE_TIMEOUT_MINUTES how long to wait for the deposit (default
+// 30).
 
 import { existsSync } from "node:fs";
 import { and, asc, eq, gte } from "drizzle-orm";
@@ -21,7 +24,8 @@ import { db } from "@/lib/db";
 import { deposits, linkedWallets, withdrawals } from "@/lib/db/schema";
 import { formatAmount, parseAmount } from "@/lib/money";
 import { chainError, viemChainClient, type ChainClient } from "@/lib/payments/chain";
-import { readPaymentsConfig } from "@/lib/payments/config";
+import { applyLock, readPaymentsConfig } from "@/lib/payments/config";
+import { checkBinding } from "@/lib/payments/binding";
 import { scanOnce } from "@/lib/payments/deposits";
 import { treasurySigner } from "@/lib/payments/signer";
 import { payoutsPaused, reconcilePayouts, requestWithdrawal, sendNextPayout } from "@/lib/payments/withdrawals";
@@ -42,12 +46,19 @@ export async function runSmoke(deps: SmokeDeps = {}): Promise<number> {
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   if (!deps.chain && existsSync(".env.local")) process.loadEnvFile(".env.local");
 
-  const config = readPaymentsConfig();
+  const env = readPaymentsConfig();
   const network = (process.env.BOS_NETWORK ?? "").trim() || "base-sepolia";
-  if (network !== "base-sepolia" || config.chainId !== BASE_SEPOLIA || config.mainnet || process.env.BOS_MAINNET?.trim()) {
+  if (network !== "base-sepolia" || env.chainId !== BASE_SEPOLIA || env.mainnet || process.env.BOS_MAINNET?.trim()) {
     say("Refused: the smoke test runs on Base Sepolia only. Unset BOS_MAINNET and set BOS_NETWORK=base-sepolia (or leave it unset).");
     return 1;
   }
+  const sender = process.env.SMOKE_FROM?.trim().toLowerCase() ?? "";
+  if (!/^0x[0-9a-f]{40}$/.test(sender)) {
+    say("Set SMOKE_FROM to the linked wallet you will send the test USDC from. Only its deposit counts, and the withdrawal goes back to it.");
+    return 1;
+  }
+  // The same database binding as the app: never another network's balances.
+  const config = applyLock(env, env.enabled ? await checkBinding(env) : null);
   for (const p of config.problems) say(`Config: ${p}`);
   const usdc = config.currencies.USDC;
   if (!config.enabled || !config.treasury || !usdc.enabled || !usdc.token) {
@@ -84,15 +95,15 @@ export async function runSmoke(deps: SmokeDeps = {}): Promise<number> {
     return 1;
   }
 
-  const linked = await db.select({ address: linkedWallets.address }).from(linkedWallets);
-  say(`Linked wallets in the app: ${linked.length}`);
-  if (linked.length === 0) say("  None yet: sign in, open /wallet once (or link a wallet there), then send from that wallet.");
+  const [linked] = await db.select({ userId: linkedWallets.userId }).from(linkedWallets).where(eq(linkedWallets.address, sender));
+  say(`Sender: ${sender}, ${linked ? "linked to a boardofserv account" : "not linked here yet"}`);
+  if (!linked) say("  Link it on /wallet before you send, or the deposit is credited to nobody.");
 
   say();
   say("Deposit address (Base Sepolia, USDC only):");
   say(`  ${treasury}`);
   say(`  USDC token: ${token}`);
-  say("Send a little test USDC (1 USDC is plenty) to it from a linked wallet.");
+  say(`Send a little test USDC (1 USDC is plenty) to it from ${sender}.`);
   say(`Waiting for ${config.confirmations} confirmations once it lands. Ctrl+C stops.`);
   say();
 
@@ -110,14 +121,14 @@ export async function runSmoke(deps: SmokeDeps = {}): Promise<number> {
     const seen = await db
       .select()
       .from(deposits)
-      .where(and(eq(deposits.chainId, config.chainId), eq(deposits.currency, "USDC"), gte(deposits.seenAt, since)))
+      .where(and(eq(deposits.chainId, config.chainId), eq(deposits.currency, "USDC"), eq(deposits.fromAddress, sender), gte(deposits.seenAt, since)))
       .orderBy(asc(deposits.seenAt));
     for (const d of seen) {
       const note = `${d.id}:${d.status}`;
       if (told.has(note)) continue;
       told.add(note);
       if (d.status === "confirming") say(`  seen ${fmt(BigInt(d.amount))} in ${d.txHash}, confirming`);
-      if (d.status === "unmatched") say(`  ${fmt(BigInt(d.amount))} from ${d.fromAddress}, a wallet no one linked: credited to nobody. Link it on /wallet and send again.`);
+      if (d.status === "unmatched") say(`  ${fmt(BigInt(d.amount))} arrived, but ${d.fromAddress} isn't linked to anyone: credited to nobody. Link it on /wallet and send again.`);
       if (d.status === "dropped") say(`  ${d.txHash} was dropped by a reorg`);
     }
     credited = seen.find((d) => d.status === "credited" && d.userId);

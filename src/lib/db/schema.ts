@@ -351,9 +351,10 @@ export const holds = pgTable(
 // signed and sent, with its nonce, hash and signed bytes recorded first, so a
 // resend is the very same transaction; "paid" once it has enough
 // confirmations. "reverted" (the transfer failed on chain), "rejected" (by an
-// admin) and "failed" (an admin found it never went out) each post a
-// "withdrawal_reversal" that gives the amount back. At most one payout is in
-// flight per chain at a time: the database refuses a second "broadcast" row.
+// admin, before it was sent) and "failed" (an admin found it never went out)
+// each post a "withdrawal_reversal" that gives the amount back. At most one
+// payout is in flight per chain at a time: the database refuses a second
+// "broadcast" row.
 export const WITHDRAWAL_STATUSES = ["awaiting_approval", "queued", "broadcast", "paid", "reverted", "rejected", "failed"] as const;
 export type WithdrawalStatus = (typeof WITHDRAWAL_STATUSES)[number];
 
@@ -374,6 +375,8 @@ export const withdrawals = pgTable(
     // Why it waits for approval, for the user and the admin.
     reason: text("reason"),
     idempotencyKey: text("idempotency_key").notNull().unique(),
+    // The address that signed the payout, with its nonce.
+    fromAddress: text("from_address"),
     nonce: integer("nonce"),
     txHash: text("tx_hash"),
     rawTx: text("raw_tx"),

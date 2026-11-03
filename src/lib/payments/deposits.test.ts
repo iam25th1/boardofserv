@@ -8,7 +8,7 @@ import * as schema from "@/lib/db/schema";
 import { addUser, testDb } from "@/test/helperDb";
 import { FakeChain, addr } from "@/test/fakeChain";
 import { readPaymentsConfig, type PaymentsConfig } from "./config";
-import { scanOnce } from "./deposits";
+import { RESCAN_BLOCKS, scanOnce } from "./deposits";
 import { balancesOf, ledgerTotal } from "./ledger";
 import { syncWallets } from "./wallets";
 
@@ -91,7 +91,7 @@ describe("deposits", () => {
     expect((await balancesOf(maya.id)).USDC.available).toBe(1_000_000n);
   });
 
-  it("resumes from the block after the last one it finished", async () => {
+  it("resumes where it stopped, reading only the last stretch again", async () => {
     chain.mine(30);
     await scanOnce(chain, config);
     const [cursor] = await db.select().from(schema.chainCursors);
@@ -102,8 +102,13 @@ describe("deposits", () => {
     again.head = chain.head + 20n;
     again.logs = chain.logs;
     await scanOnce(again, readPaymentsConfig({ TREASURY_ADDRESS: TREASURY, DEPOSIT_CONFIRMATIONS: "5", DEPOSIT_SCAN_CHUNK: "50" }));
-    const first = again.calls.find((c) => c.method === "transferLogs")!.args[0] as { fromBlock: bigint };
-    expect(first.fromBlock).toBe(cursor!.block + 1n);
+    const ranges = again.calls.filter((c) => c.method === "transferLogs").map((c) => c.args[0] as { fromBlock: bigint; toBlock: bigint });
+    // Not from the start: from RESCAN_BLOCKS below where it stopped, through
+    // everything new, with nothing skipped.
+    expect(ranges[0]!.fromBlock).toBe(cursor!.block - RESCAN_BLOCKS + 1n);
+    for (let i = 1; i < ranges.length; i++) expect(ranges[i]!.fromBlock).toBe(ranges[i - 1]!.toBlock + 1n);
+    const [after] = await db.select().from(schema.chainCursors);
+    expect(after!.block).toBe(again.head - 4n);
   });
 
   it("marks a deposit that a reorg took away as dropped, never credited", async () => {
@@ -113,6 +118,10 @@ describe("deposits", () => {
     expect((await rows())[0]!.status).toBe("confirming");
     chain.drop(log.txHash);
     chain.mine(10);
+    await scanOnce(chain, config);
+    // Still inside the stretch that is read again: not given up on yet.
+    expect((await rows())[0]!.status).toBe("confirming");
+    chain.mine(Number(RESCAN_BLOCKS));
     await scanOnce(chain, config);
     expect((await rows())[0]!.status).toBe("dropped");
     expect((await balancesOf(maya.id)).USDC.available).toBe(0n);
@@ -153,5 +162,36 @@ describe("deposits", () => {
     expect((await balancesOf(maya.id)).USDC.available).toBe(0n);
     const wallets = await db.select().from(schema.linkedWallets).where(eq(schema.linkedWallets.userId, maya.id));
     expect(wallets).toHaveLength(0);
+  });
+
+  it("credits a deposit a stale node answered with no logs the first time", async () => {
+    const log = chain.transfer(usdc, MAYA_WALLET, TREASURY, 4_000_000n);
+    chain.mine(10);
+    // A node that lags: a whole scan's answers have no logs.
+    const real = chain.transferLogs.bind(chain);
+    let stale = true;
+    chain.transferLogs = async (q) => (stale ? [] : real(q));
+    await scanOnce(chain, config);
+    expect(await rows()).toHaveLength(0);
+    stale = false;
+    chain.mine(2);
+    await scanOnce(chain, config);
+    expect((await rows())[0]).toMatchObject({ status: "credited", txHash: log.txHash });
+    expect((await balancesOf(maya.id)).USDC.available).toBe(4_000_000n);
+  });
+
+  it("asks who owns the sending wallet, and settles nothing when it can't be asked", async () => {
+    const sam = await addUser(db, "sam");
+    chain.transfer(usdc, addr(0x5a11), TREASURY, 2_000_000n);
+    chain.mine(10);
+    const down = async () => {
+      throw new Error("privy is down");
+    };
+    await expect(scanOnce(chain, config, down)).rejects.toThrow("privy is down");
+    expect(await rows()).toHaveLength(0);
+    // Privy says the wallet is Sam's, though nothing here knew it yet.
+    await scanOnce(chain, config, async (a) => (a === addr(0x5a11).toLowerCase() ? sam.id : null));
+    expect((await rows())[0]).toMatchObject({ status: "credited", userId: sam.id });
+    expect((await balancesOf(sam.id)).USDC.available).toBe(2_000_000n);
   });
 });

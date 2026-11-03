@@ -46,7 +46,9 @@ function servStream(parts: string[]): Response {
   );
 }
 
+// Pays at the price the page showed: 0.25 USDC unless a test says otherwise.
 async function ask(body: Record<string, unknown>, slug = "shop-blurbs") {
+  if (body.currency && !("price" in body)) body = { price: "250000", ...body };
   const res = await use(
     new Request(`http://localhost/api/helpers/${slug}/use`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: "A mug", ...body }) }),
     { params: { slug } },
@@ -137,11 +139,27 @@ describe("paid uses", () => {
   it("refuses with 402 before calling the model when the balance is short", async () => {
     await setPrices(helper.id, { USDC: 2_000_000n });
     const before = modelCalls;
-    const t = await ask({ currency: "USDC" });
+    const t = await ask({ currency: "USDC", price: "2000000" });
     expect(t.status).toBe(402);
     expect(JSON.parse(t.text)).toEqual({ error: "Not enough USDC. Top up your wallet to use this helper.", balance: { currency: "USDC", available: "1000000", held: "0" } });
     expect(modelCalls).toBe(before);
     expect(await db.select().from(schema.holds)).toHaveLength(0);
+  });
+
+  it("charges only the price the page showed: a changed price is refused before anything is held", async () => {
+    await setPrices(helper.id, { USDC: 900_000n });
+    const before = modelCalls;
+    const t = await ask({ currency: "USDC", price: "250000" });
+    expect(t.status).toBe(409);
+    expect(JSON.parse(t.text)).toEqual({
+      error: "The price is now 0.90 USDC a use. Check it and ask again.",
+      prices: [{ currency: "USDC", amount: "900000", decimals: 6 }],
+    });
+    expect(modelCalls).toBe(before);
+    expect(await db.select().from(schema.holds)).toHaveLength(0);
+    expect(await usdc(sam)).toEqual({ available: 1_000_000n, held: 0n });
+    // And with no price at all.
+    expect((await ask({ currency: "USDC", price: undefined })).status).toBe(409);
   });
 
   it("asks which balance to pay from", async () => {

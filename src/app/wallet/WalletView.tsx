@@ -60,8 +60,41 @@ export function amountText(units: string, c: Pick<CurrencyDTO, "decimals" | "cod
   return `${formatAmount(BigInt(units), c.decimals)} ${c.code}`;
 }
 
+// What the wallet asks of the server. The page passes the real calls; the
+// development demo passes canned ones.
+export type WalletApi = Pick<ReturnType<typeof useApi>, "getWallet" | "checkDeposits" | "requestWithdrawal">;
+
+const WALLETS_TO_LINK = ["detected_ethereum_wallets", "metamask", "coinbase_wallet", "rainbow", "wallet_connect"] as const;
+
 function Wallet({ payments, qr }: { payments: PaymentsDTO; qr: QrPath | null }) {
   const api = useApi();
+  const reload = useRef<() => void>(() => {});
+  // Privy links the wallet; loading the wallet again brings our copy in step.
+  const { linkWallet } = useLinkAccount({ onSuccess: () => reload.current() });
+  return (
+    <WalletBody
+      payments={payments}
+      qr={qr}
+      api={api}
+      reload={reload}
+      onLinkWallet={() => linkWallet({ walletList: [...WALLETS_TO_LINK], walletChainType: "ethereum-only" })}
+    />
+  );
+}
+
+export function WalletBody({
+  payments,
+  qr,
+  api,
+  reload,
+  onLinkWallet,
+}: {
+  payments: PaymentsDTO;
+  qr: QrPath | null;
+  api: WalletApi;
+  reload?: { current: () => void };
+  onLinkWallet: () => void;
+}) {
   const [wallet, setWallet] = useState<WalletDTO | null>(null);
   const [failed, setFailed] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -78,10 +111,8 @@ function Wallet({ payments, qr }: { payments: PaymentsDTO; qr: QrPath | null }) 
 
   useEffect(() => {
     void load();
-  }, [load]);
-
-  // Privy links the wallet; loading the wallet again brings our copy in step.
-  const { linkWallet } = useLinkAccount({ onSuccess: () => void load() });
+    if (reload) reload.current = () => void load();
+  }, [load, reload]);
 
   const check = async () => {
     setChecking(true);
@@ -135,18 +166,12 @@ function Wallet({ payments, qr }: { payments: PaymentsDTO; qr: QrPath | null }) 
           {wallet.wallets.length === 0 && <li className={styles.quiet}>None yet.</li>}
         </ul>
         <div className={styles.actions}>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() =>
-              linkWallet({ walletList: ["detected_ethereum_wallets", "metamask", "coinbase_wallet", "rainbow", "wallet_connect"], walletChainType: "ethereum-only" })
-            }
-          >
+          <Button variant="ghost" size="sm" onClick={onLinkWallet}>
             Link a wallet
           </Button>
         </div>
       </section>
-      <Withdraw payments={payments} wallet={wallet} onWallet={setWallet} />
+      <Withdraw payments={payments} wallet={wallet} onWallet={setWallet} api={api} />
       <section className={styles.section} aria-labelledby="deposits-h">
         <div className={styles.titleRow}>
           <h2 id="deposits-h">Recent deposits</h2>
@@ -330,8 +355,7 @@ const WITHDRAWAL_STATE: Record<WithdrawalDTO["status"], "confirming" | "credited
 
 // Earnings and withdrawals: what the maker earned, and taking money out to a
 // linked wallet once the balance passes the currency's minimum.
-function Withdraw({ payments, wallet, onWallet }: { payments: PaymentsDTO; wallet: WalletDTO; onWallet: (w: WalletDTO) => void }) {
-  const api = useApi();
+function Withdraw({ payments, wallet, onWallet, api }: { payments: PaymentsDTO; wallet: WalletDTO; onWallet: (w: WalletDTO) => void; api: WalletApi }) {
   const [code, setCode] = useState(payments.currencies[0]?.code);
   const [amount, setAmount] = useState("");
   const [to, setTo] = useState(wallet.wallets[0]?.address ?? "");

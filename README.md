@@ -282,6 +282,13 @@ what is off and why:
   list a Base address but no decimals and no testnet token, so the app never
   assumes either.
 
+A database's balances belong to one network: the first time payments run,
+the chain id and each currency's token address are written down
+(`src/lib/payments/binding.ts`). Pointing the same database at another chain
+later (Base Sepolia balances meeting Base mainnet, say) turns payments off,
+and a currency whose token changed is turned off; use a separate database
+per network.
+
 ### Ledger and balances
 
 `ledger_entries` holds one row for every change to anyone's balance: user,
@@ -312,7 +319,12 @@ with `DEPOSIT_CONFIRMATIONS` confirmations (default 5). A transfer from a
 linked wallet credits that user once: the `deposits` row is unique per chain
 id, transaction hash and log index, and so is the ledger row's idempotency key.
 A transfer from any other wallet is recorded as unmatched, credited to
-nobody, and listed on the admin page. Newer transfers show as confirming; one
+nobody, and listed on the admin page. Who sent it is decided by Privy when
+Privy is set up (`getUserByWalletAddress`: the wallet must be linked to the
+user right now), and the stored copy is updated from the answer; if Privy
+can't be asked, that range waits for the next scan. Every scan also reads the
+last 120 blocks below where it stopped again, so a node that once answered
+with stale, empty logs can't make a deposit be missed. Newer transfers show as confirming; one
 a reorg takes away is marked dropped. Before crediting anything in a token,
 the watcher checks the token's `decimals()` on chain against the config.
 
@@ -359,7 +371,10 @@ the answer (`src/lib/payments/uses.ts`):
   that never ended.
 
 A hold leaves `held` once only, so it can't be both charged and given back.
-A short balance gets a 402 before any model call.
+A short balance gets a 402 before any model call. The page sends the price
+it showed, and a use is only charged at that price: if the maker changed it
+in the meantime, the use is refused (409) with the new price, which the page
+then shows.
 
 - `PUT /api/helpers/:slug/prices`: the maker sets prices, in minor units per
   currency (`null` or `"0"` stops accepting one).
@@ -390,8 +405,13 @@ until then). The amount is debited at once, with a pending row
   reverted transfer posts a `withdrawal_reversal` that gives the amount back.
   If another transaction took its nonce, so it can never be mined, the admin
   page offers to mark it failed after ten minutes, which also gives it back.
-- Before signing, the treasury must hold the amount and enough ETH for gas;
-  otherwise the payout waits and the log says why.
+- Before signing, the treasury must hold the amount and enough ETH for gas,
+  and the node must be able to estimate the transfer; otherwise that payout
+  waits (the log says why) and the next one in the queue goes instead, so one
+  payout can never hold up the rest. An admin can cancel a queued payout that
+  hasn't been sent, which gives the amount back.
+- The nonce is the signer's next one on chain. Every earlier payout is mined
+  (paid or reverted) before another goes out, so there is never a gap.
 - The admin switch pauses every payout, resends included.
 
 - `POST /api/withdrawals`: ask for a withdrawal (signed in): currency, amount
@@ -407,13 +427,14 @@ balance on chain, the total owed (every balance plus withdrawals not yet
 paid out), the difference (the platform's fees and anything unmatched; it
 must never go below zero, and the page says so loudly if it does) and the
 platform's fees. Below that: withdrawals waiting for approval (approve or
-reject), unmatched deposits, payout history with transaction links (a stuck
-payout can be marked failed there), and the switch that pauses every payout,
+reject), unmatched deposits, payout history with transaction links (a queued
+payout can be cancelled there, and a stuck one marked failed), and the switch
+that pauses every payout,
 which takes effect at the next payout step without a restart. Users appear by
 handle only.
 
 - `GET /api/admin`, `POST /api/admin/pause`, `POST /api/admin/withdrawals/:id`
-  (`approve`, `reject` or `fail`).
+  (`approve`, `reject` to reject or cancel before it is sent, or `fail`).
 
 ### Payment tests
 
@@ -446,8 +467,9 @@ refuses to start under Vitest unless a test has put the fake in place.
 by hand. It runs on Base Sepolia only: it refuses any other `BOS_NETWORK`, any
 `BOS_MAINNET`, and an RPC endpoint that is not chain 84532. It checks the
 treasury's test USDC and ETH, prints the deposit address, waits for one USDC
-deposit from a linked wallet (credited by the app's own watcher), then sends
-one tiny withdrawal back to that wallet through the app's own payout path. It
+deposit from `SMOKE_FROM` (the linked wallet the owner sends from; no one
+else's deposit counts), credited by the app's own watcher, then sends one
+tiny withdrawal back to that wallet through the app's own payout path. It
 prints transaction hashes, never a key, a database address or an RPC address.
 No test or CI run ever makes a real chain call; this script is the only thing
 that sends a testnet transaction.
@@ -469,8 +491,9 @@ that sends a testnet transaction.
 4. Get test USDC into that wallet from Circle's faucet,
    https://faucet.circle.com: pick USDC and Base Sepolia and paste the
    wallet's address. It also needs a little Base Sepolia ETH for its own gas.
-5. Run `npm run testnet-smoke`. When it prints the deposit address, send about
-   1 USDC to it on Base Sepolia from the linked wallet.
+5. Run `SMOKE_FROM=0xYourLinkedWallet npm run testnet-smoke`. When it
+   prints the deposit address, send about 1 USDC to it on Base Sepolia from
+   that wallet.
 6. It prints the deposit's hash when it is credited, then the payout's hash,
    and "The smoke test passed." once the payout has the configured
    confirmations. `SMOKE_WITHDRAW_USDC` sets the payout (default 0.01) and

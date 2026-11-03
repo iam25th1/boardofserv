@@ -193,7 +193,8 @@ export type HelperEvent =
   // The answer was stopped for carrying the helper's instructions.
   | { type: "blocked"; message: string; quota?: QuotaDTO; balance?: BalanceDTO }
   | { type: "done"; quota?: QuotaDTO; balance?: BalanceDTO }
-  | { type: "error"; message: string; quota?: QuotaDTO; balance?: BalanceDTO };
+  // `prices` when the price changed since the page loaded.
+  | { type: "error"; message: string; quota?: QuotaDTO; balance?: BalanceDTO; prices?: PriceDTO[] };
 
 export type ChatEvent =
   // The plan's sketch, sent before the reply starts. It names the

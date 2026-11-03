@@ -167,12 +167,14 @@ export async function approveWithdrawal(id: string, adminId: string): Promise<bo
   return rows.length === 1;
 }
 
+// Reject one waiting for approval, or cancel one queued but not yet sent:
+// the amount goes back to the balance.
 export async function rejectWithdrawal(id: string, adminId: string): Promise<boolean> {
   return db.transaction(async (tx) => {
     const [w] = await tx
       .update(withdrawals)
       .set({ status: "rejected", decidedBy: adminId, decidedAt: new Date(), settledAt: new Date() })
-      .where(and(eq(withdrawals.id, id), eq(withdrawals.status, "awaiting_approval")))
+      .where(and(eq(withdrawals.id, id), inArray(withdrawals.status, ["awaiting_approval", "queued"])))
       .returning();
     if (!w) return false;
     await reverse(tx, w);
@@ -187,13 +189,18 @@ export async function rejectWithdrawal(id: string, adminId: string): Promise<boo
 export async function isStuck(chain: ChainClient, w: Withdrawal, treasury: Address, now: Date = new Date()): Promise<boolean> {
   if (w.status !== "broadcast" || !w.txHash || w.nonce === null || !w.broadcastAt) return false;
   if (now.getTime() - w.broadcastAt.getTime() < STUCK_MS) return false;
-  if (await chain.receipt(w.txHash as Hex)) return false;
-  return (await chain.nonce(treasury, "latest")) > w.nonce;
+  const from = (w.fromAddress ?? treasury) as Address;
+  // The nonce first, then the receipt: if the payout itself took the nonce,
+  // its receipt is there by the time it is read.
+  if ((await chain.nonce(from, "latest")) <= w.nonce) return false;
+  return !(await chain.receipt(w.txHash as Hex));
 }
 
 export async function failStuckWithdrawal(id: string, adminId: string, chain: ChainClient, config: PaymentsConfig = paymentsConfig()): Promise<boolean> {
   const [w] = await db.select().from(withdrawals).where(eq(withdrawals.id, id)).limit(1);
   if (!w || !config.treasury || !(await isStuck(chain, w, config.treasury))) return false;
+  // Once more, just before giving the amount back.
+  if (await chain.receipt(w.txHash as Hex)) return false;
   return db.transaction(async (tx) => {
     const [row] = await tx
       .update(withdrawals)
@@ -206,8 +213,13 @@ export async function failStuckWithdrawal(id: string, adminId: string, chain: Ch
   });
 }
 
-// Sign and send the oldest queued payout, if none is in flight and payouts
-// aren't paused. Returns its id, or null when nothing was sent.
+// Sign and send the oldest queued payout that can go now, if none is in
+// flight and payouts aren't paused. One that can't go yet (its currency is
+// off, the treasury is short of it, or the node won't estimate it) is passed
+// over, so it never holds up the others; an admin can cancel it. Returns the
+// id sent, or null when nothing was sent.
+const MAX_TRIES_PER_STEP = 10;
+
 export async function sendNextPayout(chain: ChainClient, signer: PayoutSigner, config: PaymentsConfig = paymentsConfig()): Promise<string | null> {
   const treasury = config.treasury;
   if (!config.enabled || !treasury) return null;
@@ -218,43 +230,60 @@ export async function sendNextPayout(chain: ChainClient, signer: PayoutSigner, c
     .where(and(eq(withdrawals.chainId, config.chainId), eq(withdrawals.status, "broadcast")))
     .limit(1);
   if (inFlight) return null;
-  const [next] = await db
+  const queued = await db
     .select()
     .from(withdrawals)
     .where(and(eq(withdrawals.chainId, config.chainId), eq(withdrawals.status, "queued")))
     .orderBy(asc(withdrawals.createdAt))
-    .limit(1);
-  if (!next) return null;
+    .limit(MAX_TRIES_PER_STEP);
+  for (const next of queued) {
+    const sent = await trySend(chain, signer, config, treasury, next);
+    if (sent !== "skip") return sent;
+  }
+  return null;
+}
+
+async function trySend(chain: ChainClient, signer: PayoutSigner, config: PaymentsConfig, treasury: Address, next: Withdrawal): Promise<string | null | "skip"> {
   const c = config.currencies[next.currency];
-  if (!c.enabled || !c.token) return null;
+  if (!c.enabled || !c.token) return "skip";
   const amount = BigInt(next.amount);
   const to = next.toAddress as Address;
 
   if ((await chain.tokenBalance(c.token, treasury)) < amount) {
-    console.warn(`payments: the treasury has less ${c.code} than the next payout; it waits.`);
-    return null;
+    console.warn(`payments: the treasury has less ${c.code} than a queued payout; it waits.`);
+    return "skip";
   }
-  const fees = await chain.transferFees({ token: c.token, from: treasury, to, amount });
+  let fees: Awaited<ReturnType<ChainClient["transferFees"]>>;
+  try {
+    fees = await chain.transferFees({ token: c.token, from: treasury, to, amount });
+  } catch (err) {
+    console.warn(`payments: a queued payout can't be estimated, it waits: ${chainError(err)}`);
+    return "skip";
+  }
   if ((await chain.nativeBalance(treasury)) < fees.gas * fees.maxFeePerGas) {
     console.warn("payments: the treasury has too little ETH for gas; payouts wait.");
     return null;
   }
-  // The chain's next nonce, and never one of ours already used.
+  // The signer's next nonce on chain. Every earlier payout from it is mined
+  // (paid or reverted) before another goes out, so this leaves no gap; ours
+  // is a floor in case the node lags.
+  const from = signer.address.toLowerCase();
   const [ours] = await db
     .select({ max: sql<number | null>`max(${withdrawals.nonce})` })
     .from(withdrawals)
-    .where(and(eq(withdrawals.chainId, config.chainId), inArray(withdrawals.status, ["paid", "reverted"])));
+    .where(and(eq(withdrawals.chainId, config.chainId), eq(withdrawals.fromAddress, from), inArray(withdrawals.status, ["paid", "reverted"])));
   const afterOurs = ours?.max === null || ours?.max === undefined ? 0 : Number(ours.max) + 1;
-  const nonce = Math.max(await chain.nonce(treasury, "pending"), afterOurs);
+  const nonce = Math.max(await chain.nonce(signer.address, "latest"), afterOurs);
   const signed = await signer.signTransfer({ chainId: config.chainId, token: c.token, to, amount, nonce, ...fees });
 
-  // Recorded before it is sent: the nonce, the hash and the signed bytes.
-  // The database refuses this if another payout went in flight meanwhile.
+  // Recorded before it is sent: the signer, the nonce, the hash and the
+  // signed bytes. The database refuses this if another payout went in flight
+  // meanwhile.
   let recorded: { id: string }[];
   try {
     recorded = await db
       .update(withdrawals)
-      .set({ status: "broadcast", nonce, txHash: signed.hash, rawTx: signed.raw, broadcastAt: new Date(), lastSentAt: new Date(), sends: 1 })
+      .set({ status: "broadcast", fromAddress: from, nonce, txHash: signed.hash, rawTx: signed.raw, broadcastAt: new Date(), lastSentAt: new Date(), sends: 1 })
       .where(and(eq(withdrawals.id, next.id), eq(withdrawals.status, "queued")))
       .returning({ id: withdrawals.id });
   } catch (err) {

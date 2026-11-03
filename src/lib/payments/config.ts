@@ -170,16 +170,52 @@ export function readPaymentsConfig(env: Env = process.env): PaymentsConfig {
   };
 }
 
+// What the database's binding (see binding.ts) turned off: payments
+// altogether when the database holds another network's balances, or the
+// currencies whose token changed.
+export interface PaymentsLock {
+  off: boolean;
+  currencies: Currency[];
+  problems: string[];
+}
+
+export function applyLock(config: PaymentsConfig, lock: PaymentsLock | null): PaymentsConfig {
+  if (!lock || (!lock.off && lock.currencies.length === 0)) return config;
+  const currencies = Object.fromEntries(
+    CURRENCIES.map((c) => [c, lock.off || lock.currencies.includes(c) ? { ...config.currencies[c], enabled: false } : config.currencies[c]]),
+  ) as Record<Currency, CurrencyConfig>;
+  return {
+    ...config,
+    currencies,
+    enabled: !lock.off && config.enabled && CURRENCIES.some((c) => currencies[c].enabled),
+    problems: [...config.problems, ...lock.problems],
+  };
+}
+
+// The boot sets the lock for the whole process (route handlers are bundled
+// apart from the boot code, so it lives on globalThis, like the database
+// pool).
+const g = globalThis as unknown as { __bosPaymentsLock?: PaymentsLock | null };
+
+export function setPaymentsLock(lock: PaymentsLock | null): void {
+  g.__bosPaymentsLock = lock;
+  locked = null;
+}
+
 let cached: PaymentsConfig | null = null;
+let locked: { lock: PaymentsLock | null | undefined; config: PaymentsConfig } | null = null;
 
 export function paymentsConfig(): PaymentsConfig {
   cached ??= readPaymentsConfig();
-  return cached;
+  const lock = g.__bosPaymentsLock;
+  if (!locked || locked.lock !== lock) locked = { lock, config: applyLock(cached, lock ?? null) };
+  return locked.config;
 }
 
 // Tests change the environment between cases.
 export function resetPaymentsConfig(): void {
   cached = null;
+  locked = null;
 }
 
 // The currencies that are on, in a fixed order.

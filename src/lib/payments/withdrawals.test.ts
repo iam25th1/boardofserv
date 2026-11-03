@@ -246,6 +246,66 @@ describe("payouts", () => {
   });
 });
 
+describe("payouts that can't go yet", () => {
+  it("never hold up the others: a payout the treasury can't cover waits while a smaller one goes", async () => {
+    chain.setBalance(token, TREASURY, USDC(10));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const big = await requestWithdrawal({ userId: maya.id, currency: "USDC", amount: USDC(15), to: MAYA_WALLET, key: "big" }, { approvedBy: null }, config);
+    const small = await ask(USDC(6));
+    expect(await sendNextPayout(chain, signer, config)).toBe(small.id);
+    expect((await row(big.id)).status).toBe("queued");
+    warn.mockRestore();
+  });
+
+  it("skip one the node won't estimate", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const other = addr(0xb10c);
+    await syncWallets(maya.id, [{ address: MAYA_WALLET, embedded: false }, { address: other, embedded: false }]);
+    const blocked = await ask(USDC(7), { to: other });
+    const fine = await ask(USDC(8));
+    const real = chain.transferFees.bind(chain);
+    chain.transferFees = async (q) => {
+      if (q.to.toLowerCase() === other.toLowerCase()) throw new Error("execution reverted: blacklisted");
+      return real(q);
+    };
+    expect(await sendNextPayout(chain, signer, config)).toBe(fine.id);
+    expect((await row(blocked.id)).status).toBe("queued");
+    warn.mockRestore();
+  });
+
+  it("can be cancelled by an admin before they are sent, which gives the amount back; a sent one can't", async () => {
+    const admin = await addUser(db, "admin");
+    const w = await ask(USDC(9));
+    const sent = await ask(USDC(5));
+    expect(await rejectWithdrawal(w.id, admin.id)).toBe(true);
+    expect((await row(w.id)).status).toBe("rejected");
+    expect(await sendNextPayout(chain, signer, config)).toBe(sent.id);
+    expect(await rejectWithdrawal(sent.id, admin.id)).toBe(false);
+    expect(await available()).toBe(USDC(95));
+    await balanced();
+  });
+
+  it("take the signer's next nonce on chain, not one left by another treasury", async () => {
+    // An old treasury's paid payout with a high nonce, on the same chain.
+    await db.insert(schema.withdrawals).values({
+      userId: maya.id,
+      chainId: config.chainId,
+      currency: "USDC",
+      amount: "1",
+      toAddress: MAYA_WALLET.toLowerCase(),
+      status: "paid",
+      auto: true,
+      idempotencyKey: "old",
+      fromAddress: addr(0x01d).toLowerCase(),
+      nonce: 50,
+      txHash: "0x01",
+    });
+    const w = await ask(USDC(6));
+    await sendNextPayout(chain, signer, config);
+    expect(await row(w.id)).toMatchObject({ status: "broadcast", nonce: 0, fromAddress: TREASURY.toLowerCase() });
+  });
+});
+
 describe("the treasury key", () => {
   it("signs only for TREASURY_ADDRESS, and no problem message carries the key", () => {
     expect("address" in treasurySigner(config, { TREASURY_PRIVATE_KEY: KEY })).toBe(true);

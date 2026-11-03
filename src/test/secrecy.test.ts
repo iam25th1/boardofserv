@@ -354,7 +354,7 @@ describe("a helper's instructions stay on the server", () => {
       await hit("pay: board", board.GET(req("/api/board")));
 
       // Paid uses, one echoing the prompt.
-      const use = (input: string) => helperUse.POST(req("/api/helpers/shop-blurbs/use", "POST", { input, currency: "USDC" }), { params: { slug: "shop-blurbs" } });
+      const use = (input: string) => helperUse.POST(req("/api/helpers/shop-blurbs/use", "POST", { input, currency: "USDC", price: "2500000" }), { params: { slug: "shop-blurbs" } });
       useChunks = ["Meet the mug. ", "Come and hold one!"];
       await hit("pay: use", use("The Alder mug"));
       useChunks = (systemPrompt.match(/[\s\S]{1,7}/g) ?? []) as string[];

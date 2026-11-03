@@ -2,7 +2,8 @@ import "server-only";
 import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
 import type { Address } from "viem";
 import { db } from "../db";
-import { chainCursors, deposits } from "../db/schema";
+import { chainCursors, deposits, linkedWallets, users } from "../db/schema";
+import { privyWalletOwner } from "../privy";
 import { enabledCurrencies, paymentsConfig, type CurrencyConfig, type PaymentsConfig } from "./config";
 import { chainClient, chainError, type ChainClient, type TransferLog } from "./chain";
 import { post, type Exec } from "./ledger";
@@ -20,11 +21,49 @@ import type { Currency } from "../money";
 // recorded as confirming, so the user sees them arrive.
 //
 // Credits and the cursor move in one transaction per block range, so a crash
-// part way never skips a range or credits one twice.
+// part way never skips a range or credits one twice. Each scan also reads
+// the last RESCAN_BLOCKS below the cursor again (settling is idempotent), so
+// a node that answered one query with stale, empty logs can't make a
+// deposit be missed for good.
+//
+// Who sent it is decided by Privy when Privy is set up: the sender's wallet
+// must be linked to the user right now. The stored copy of linked wallets is
+// updated from the answer. Without Privy (tests, a bare development setup)
+// the stored copy decides. If Privy can't be asked, nothing in that range is
+// settled and the scan tries again next time.
 
 // At most this many log queries per currency per scan, so one scan stays
 // short even when the cursor is far behind; the next scan carries on.
 const MAX_RANGES_PER_SCAN = 25;
+export const RESCAN_BLOCKS = 120n;
+
+// The user a sending wallet belongs to, or null.
+export type OwnerLookup = (address: string) => Promise<string | null>;
+
+export function defaultOwnerLookup(): OwnerLookup {
+  if (!process.env.PRIVY_APP_SECRET || !process.env.NEXT_PUBLIC_PRIVY_APP_ID) return (address) => ownerOf(db, address);
+  return async (address) => {
+    const privyId = await privyWalletOwner(address);
+    if (!privyId) return null;
+    const [user] = await db.select({ id: users.id }).from(users).where(eq(users.privyUserId, privyId)).limit(1);
+    if (!user) return null;
+    await db
+      .insert(linkedWallets)
+      .values({ address: address.toLowerCase(), userId: user.id })
+      .onConflictDoUpdate({ target: linkedWallets.address, set: { userId: user.id } });
+    return user.id;
+  };
+}
+
+// Asks once per address per scan.
+function cached(lookup: OwnerLookup): OwnerLookup {
+  const known = new Map<string, Promise<string | null>>();
+  return (address) => {
+    const k = address.toLowerCase();
+    if (!known.has(k)) known.set(k, lookup(k));
+    return known.get(k)!;
+  };
+}
 
 export interface ScanReport {
   currency: Currency;
@@ -72,8 +111,7 @@ export function depositKey(chainId: number, log: Pick<TransferLog, "txHash" | "l
 
 // A transfer with enough confirmations: credit its sender's user, or record
 // it as unmatched. Nothing happens to a log already settled.
-async function settle(tx: Exec, config: PaymentsConfig, c: CurrencyConfig, log: TransferLog): Promise<"credited" | "unmatched" | null> {
-  const userId = await ownerOf(tx, log.from);
+async function settle(tx: Exec, config: PaymentsConfig, c: CurrencyConfig, log: TransferLog, userId: string | null): Promise<"credited" | "unmatched" | null> {
   const status = userId ? "credited" : "unmatched";
   const [row] = await tx
     .insert(deposits)
@@ -105,8 +143,7 @@ async function settle(tx: Exec, config: PaymentsConfig, c: CurrencyConfig, log: 
 }
 
 // A transfer in a block too new to count: shown to its sender as confirming.
-async function seen(config: PaymentsConfig, c: CurrencyConfig, log: TransferLog): Promise<void> {
-  const userId = await ownerOf(db, log.from);
+async function seen(config: PaymentsConfig, c: CurrencyConfig, log: TransferLog, userId: string | null): Promise<void> {
   await db
     .insert(deposits)
     .values({
@@ -128,9 +165,10 @@ function counts(log: TransferLog, treasury: Address): boolean {
   return log.value > 0n && log.from.toLowerCase() !== treasury.toLowerCase();
 }
 
-export async function scanOnce(chain: ChainClient, config: PaymentsConfig): Promise<ScanReport[]> {
+export async function scanOnce(chain: ChainClient, config: PaymentsConfig, lookup: OwnerLookup = defaultOwnerLookup()): Promise<ScanReport[]> {
   const treasury = config.treasury;
   if (!config.enabled || !treasury) return [];
+  const owner = cached(lookup);
   const head = await chain.blockNumber();
   // A block's own confirmation is the first, so `confirmations` deep means
   // head - confirmations + 1 or older.
@@ -143,21 +181,27 @@ export async function scanOnce(chain: ChainClient, config: PaymentsConfig): Prom
     if (!c.token || !(await decimalsOk(chain, c))) continue;
     const key = cursorKey(config.chainId, c.token);
     const cursor = await readCursor(key);
-    let from = cursor === null ? (config.startBlock ?? (safe > 0n ? safe : 0n)) : cursor + 1n;
+    const first = cursor === null ? (config.startBlock ?? (safe > 0n ? safe : 0n)) : cursor + 1n;
+    // Read the last stretch below the cursor again, in case a node answered
+    // it with stale logs; anything already settled is left as it is.
+    const floor = config.startBlock ?? 0n;
+    let from = cursor === null ? first : cursor - RESCAN_BLOCKS + 1n > floor ? cursor - RESCAN_BLOCKS + 1n : floor;
     let scannedTo = cursor;
 
     for (let i = 0; i < MAX_RANGES_PER_SCAN && from <= safe; i++) {
       const to = from + config.scanChunk - 1n < safe ? from + config.scanChunk - 1n : safe;
       const logs = (await chain.transferLogs({ token: c.token, to: treasury, fromBlock: from, toBlock: to })).filter((l) => counts(l, treasury));
+      // Asked before the transaction: a network call never holds it open.
+      const owners = await Promise.all(logs.map((l) => owner(l.from)));
       await db.transaction(async (tx) => {
-        for (const log of logs) {
-          const done = await settle(tx, config, c, log);
+        for (const [i, log] of logs.entries()) {
+          const done = await settle(tx, config, c, log, owners[i]!);
           if (done === "credited") report.credited++;
           else if (done === "unmatched") report.unmatched++;
         }
         await writeCursor(tx, key, to);
       });
-      scannedTo = to;
+      scannedTo = scannedTo === null || to > scannedTo ? to : scannedTo;
       from = to + 1n;
     }
     report.scannedTo = scannedTo;
@@ -166,14 +210,22 @@ export async function scanOnce(chain: ChainClient, config: PaymentsConfig): Prom
     // range stays a handful of blocks.
     if (from > safe && safe < head) {
       const tail = await chain.transferLogs({ token: c.token, to: treasury, fromBlock: safe + 1n > 0n ? safe + 1n : 0n, toBlock: head });
-      for (const log of tail.filter((l) => counts(l, treasury))) await seen(config, c, log);
+      for (const log of tail.filter((l) => counts(l, treasury))) await seen(config, c, log, await owner(log.from));
     }
-    // Still confirming at or below the scanned block: a reorg took it away.
-    if (scannedTo !== null) {
+    // Still confirming below everything that will be read again: a reorg
+    // took it away. (A later scan that finds it after all brings it back.)
+    if (scannedTo !== null && scannedTo >= RESCAN_BLOCKS) {
       await db
         .update(deposits)
         .set({ status: "dropped", settledAt: new Date() })
-        .where(and(eq(deposits.chainId, config.chainId), eq(deposits.currency, c.code), eq(deposits.status, "confirming"), lte(deposits.blockNumber, scannedTo)));
+        .where(
+          and(
+            eq(deposits.chainId, config.chainId),
+            eq(deposits.currency, c.code),
+            eq(deposits.status, "confirming"),
+            lte(deposits.blockNumber, scannedTo - RESCAN_BLOCKS),
+          ),
+        );
     }
   }
   return reports;

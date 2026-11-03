@@ -35,3 +35,11 @@ export async function verifyPrivyToken(token: string): Promise<PrivyIdentity> {
   );
   return { userId: claims.userId, email, wallets };
 }
+// The Privy user an Ethereum wallet (embedded, or external and linked with a
+// signature) belongs to, or null. Throws when Privy can't be asked.
+export async function privyWalletOwner(address: string): Promise<string | null> {
+  const user = await privy().getUserByWalletAddress(address);
+  if (!user) return null;
+  const linked = user.linkedAccounts.some((a) => a.type === "wallet" && a.chainType === "ethereum" && a.address.toLowerCase() === address.toLowerCase());
+  return linked ? user.id : null;
+}

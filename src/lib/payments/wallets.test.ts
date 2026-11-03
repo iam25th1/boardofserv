@@ -8,6 +8,7 @@ import { addr } from "@/test/fakeChain";
 import { verifyPrivyToken } from "@/lib/privy";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { ownerOf, walletsOf } from "./wallets";
+import { defaultOwnerLookup } from "./deposits";
 
 // Linked wallets come from Privy only: the server asks Privy who the user is
 // and which wallets they linked, and never takes an address from the browser.
@@ -22,6 +23,10 @@ vi.mock("@privy-io/server-auth", () => ({
     }
     async getUser() {
       return { email: { address: "maya@example.com" }, linkedAccounts: state.linked };
+    }
+    async getUserByWalletAddress(address: string) {
+      const has = state.linked.some((a) => (a as { address?: string }).address?.toLowerCase() === address.toLowerCase());
+      return has ? { id: "did:privy:maya", linkedAccounts: state.linked } : null;
     }
   },
 }));
@@ -88,5 +93,15 @@ describe("linked wallets", () => {
   it("does nothing for a bad token", async () => {
     expect(await getUserFromRequest(req("bad-token"), { wallets: true })).toBeNull();
     expect(await db.select().from(schema.linkedWallets)).toHaveLength(0);
+  });
+
+  it("the deposit watcher asks Privy who owns a sender, and keeps the answer", async () => {
+    const maya = await addUser(db, "maya");
+    const lookup = defaultOwnerLookup();
+    expect(await lookup(METAMASK)).toBe(maya.id);
+    expect(await ownerOf(db as never, METAMASK)).toBe(maya.id);
+    // A smart wallet or an unknown address belongs to no one.
+    expect(await lookup(addr(0xe3))).toBeNull();
+    expect(await lookup(addr(0xbad))).toBeNull();
   });
 });

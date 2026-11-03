@@ -3,14 +3,21 @@ import { getUserFromRequest } from "@/lib/auth-route";
 import { finishUse, helperSecret, quotaFor, startUse } from "@/lib/helpers";
 import { BLOCKED_MESSAGE, LeakGuard } from "@/lib/leakGuard";
 import { CUT_OFF_SUFFIX, modelConfig, SERV_PROMPT_GUARD, streamReply, type ReplyResult } from "@/lib/model";
-import { CURRENCIES, type Currency } from "@/lib/money";
+import { CURRENCIES, formatAmount, type Currency } from "@/lib/money";
+import { paymentsConfig } from "@/lib/payments/config";
 import { balancesOf } from "@/lib/payments/ledger";
 import { capture, pricesOf, release, reserve, type Hold } from "@/lib/payments/uses";
-import type { BalanceDTO, QuotaDTO } from "@/lib/types";
+import type { BalanceDTO, PriceDTO, QuotaDTO } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-const Body = z.object({ input: z.string().trim().min(1).max(4000), currency: z.enum(CURRENCIES).optional() });
+const Body = z.object({
+  input: z.string().trim().min(1).max(4000),
+  currency: z.enum(CURRENCIES).optional(),
+  // The price the page showed, in minor units: a paid use is only charged at
+  // the price the user saw.
+  price: z.string().regex(/^\d{1,78}$/).optional(),
+});
 
 async function balanceIn(userId: string, currency: Currency): Promise<BalanceDTO> {
   const b = (await balancesOf(userId))[currency];
@@ -49,6 +56,14 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
     const price = prices.find((p) => p.currency === parsed.data.currency);
     if (!price) {
       return Response.json({ error: `Pick a balance to pay from: ${prices.map((p) => p.currency).join(" or ")}.` }, { status: 400 });
+    }
+    if (parsed.data.price !== price.amount.toString()) {
+      const decimals = paymentsConfig().currencies[price.currency].decimals;
+      const now: PriceDTO[] = prices.map((p) => ({ currency: p.currency, amount: p.amount.toString(), decimals: paymentsConfig().currencies[p.currency].decimals }));
+      return Response.json(
+        { error: `The price is now ${formatAmount(price.amount, decimals)} ${price.currency} a use. Check it and ask again.`, prices: now },
+        { status: 409 },
+      );
     }
     hold = await reserve({ userId: user.id, helperId: helper.id, makerUserId: helper.ownerUserId, currency: price.currency, amount: price.amount });
     if (!hold) {
