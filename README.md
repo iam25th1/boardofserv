@@ -99,13 +99,17 @@ the server:
   secret-shaped string, if an env file with secrets is tracked, or if a secret
   value appears in the built client bundle.
 - Every response carries security headers (`next.config.mjs`): a content
-  security policy following Privy's guidance (Privy's iframe and API,
-  WalletConnect and Coinbase Wallet for linking a wallet, Cloudflare Turnstile,
-  `frame-ancestors 'none'`), `X-Frame-Options: DENY`,
+  security policy following Privy's guidance (Privy's iframe and API, Coinbase
+  Wallet, Cloudflare Turnstile, `frame-ancestors 'none'`) plus Reown's for the
+  WalletConnect modal Privy opens to link a wallet (its config, fonts and
+  wallet logos come from Reown's hosts), `X-Frame-Options: DENY`,
   `X-Content-Type-Options: nosniff` and
   `Referrer-Policy: strict-origin-when-cross-origin`. The development server
   only sends `frame-ancestors 'none'` from the policy, since fast refresh needs
-  eval. After a Privy upgrade, check sign-in against the policy again.
+  eval. After a Privy upgrade, check sign-in and wallet linking against the
+  policy again (the browser console names anything it blocks). The
+  Cloudflare Web Analytics beacon the 25th.dev zone injects is blocked on
+  purpose.
 
 ## The model behind the chat
 

@@ -1,25 +1,55 @@
 // Security headers on every response. The content security policy follows
 // Privy's guidance (docs.privy.io/security/implementation-guide/content-security-policy):
-// its iframe and API, WalletConnect and Coinbase Wallet for linking an
-// external wallet, and Cloudflare Turnstile for its captcha. Next's own
-// inline scripts need 'unsafe-inline'. The full policy applies to the
-// production build; the development server (which needs eval for fast
-// refresh) only refuses to be framed.
-const PRIVY_FRAMES = ["https://auth.privy.io", "https://verify.walletconnect.com", "https://verify.walletconnect.org"];
+// its iframe and API, Coinbase Wallet, and Cloudflare Turnstile for its
+// captcha. Privy bundles WalletConnect's modal (Reown AppKit) for linking an
+// external wallet, which loads its config, fonts and wallet logos from
+// Reown's own hosts, so those follow Reown's guidance
+// (docs.reown.com/advanced/security/content-security-policy), less
+// Coinbase's analytics host. Next's own inline scripts need 'unsafe-inline'.
+// The full policy applies to the production build; the development server
+// (which needs eval for fast refresh) only refuses to be framed.
+//
+// Cloudflare's Web Analytics beacon, which the 25th.dev zone injects into
+// pages, is left out on purpose: the browser blocks it and nothing else
+// changes.
+const WALLETCONNECT = ["walletconnect.com", "walletconnect.org"];
+const both = (sub, scheme = "https") => WALLETCONNECT.map((d) => `${scheme}://${sub}.${d}`);
+const REOWN_API = ["https://api.web3modal.com", "https://api.web3modal.org"];
+
+const FRAMES = ["https://auth.privy.io", ...both("verify"), ...both("secure")];
+
+const CONNECT = [
+  "'self'",
+  "https://auth.privy.io",
+  "https://*.rpc.privy.systems",
+  "wss://www.walletlink.org",
+  "https://explorer-api.walletconnect.com",
+  ...both("relay"),
+  ...both("relay", "wss"),
+  ...both("rpc"),
+  ...both("pulse"),
+  ...both("keys"),
+  ...both("notify"),
+  ...both("echo"),
+  ...both("push"),
+  ...REOWN_API,
+];
+
+const IMAGES = ["'self'", "data:", "blob:", ...WALLETCONNECT.map((d) => `https://${d}`), ...both("secure"), "https://explorer-api.walletconnect.com", ...REOWN_API];
 
 const CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self'",
+  `img-src ${IMAGES.join(" ")}`,
+  "font-src 'self' https://fonts.reown.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
   "frame-ancestors 'none'",
-  `child-src ${PRIVY_FRAMES.join(" ")}`,
-  `frame-src ${PRIVY_FRAMES.join(" ")} https://challenges.cloudflare.com`,
-  "connect-src 'self' https://auth.privy.io wss://relay.walletconnect.com wss://relay.walletconnect.org wss://www.walletlink.org https://*.rpc.privy.systems https://explorer-api.walletconnect.com",
+  `child-src ${FRAMES.join(" ")}`,
+  `frame-src ${FRAMES.join(" ")} https://challenges.cloudflare.com`,
+  `connect-src ${CONNECT.join(" ")}`,
   "worker-src 'self'",
   "manifest-src 'self'",
 ].join("; ");

@@ -85,7 +85,19 @@ describe("security headers", () => {
     for (const privy of ["frame-src https://auth.privy.io", "connect-src 'self' https://auth.privy.io", "https://*.rpc.privy.systems", "wss://relay.walletconnect.com"]) {
       expect(csp).toContain(privy);
     }
+    // WalletConnect's modal, which Privy opens to link a wallet, reaches
+    // Reown's hosts: seen blocked on the live site before they were listed.
+    const directive = (name: string) => csp.split("; ").find((d: string) => d.startsWith(`${name} `)) ?? "";
+    expect(directive("connect-src")).toContain("https://api.web3modal.org");
+    expect(directive("connect-src")).toContain("https://pulse.walletconnect.org");
+    expect(directive("font-src")).toContain("https://fonts.reown.com");
+    expect(directive("img-src")).toContain("https://api.web3modal.org");
+    expect(directive("frame-src")).toContain("https://secure.walletconnect.org");
+    // Nothing anywhere, and no analytics beacons.
     expect(csp).not.toContain("unsafe-eval");
+    expect(csp).not.toMatch(/(^|\s)\*(\s|;|$)/);
+    expect(csp).not.toContain("cloudflareinsights");
+    expect(csp).not.toContain("cca-lite.coinbase.com");
   });
 
   it("the development server only refuses framing, so fast refresh keeps working", async () => {
