@@ -18,6 +18,13 @@ function getDb(): NodePgDatabase<typeof schema> {
   return g.__bosDb;
 }
 
+// The pool itself, for a caller that needs one connection for a while: the
+// payments worker holds its lock on the connection that took it.
+export function dbPool(): pg.Pool {
+  getDb();
+  return g.__bosPool!;
+}
+
 // A lazy handle: property access initialises the real client on first touch.
 export const db = new Proxy({} as NodePgDatabase<typeof schema>, {
   get(_t, prop) {

@@ -4,16 +4,17 @@ import { bootLines, paymentsConfig, readPaymentsConfig, setPaymentsLock } from "
 
 // The config from the environment alone, before any lock.
 const readUnlocked = () => readPaymentsConfig();
-import { scanTick } from "./deposits";
-import { sweepTick } from "./uses";
-import { payoutTick } from "./withdrawals";
+import { errorCode, processWorker } from "./worker";
+import { runEvery } from "./workerLock";
 
 // Runs once when the server starts (see src/instrumentation.ts): checks the
 // database belongs to this network (binding.ts), says in the log whether
 // payments are on, on which network, and what is off and why (Base mainnet
 // always gets a warning), then, with payments on, runs the
 // payments work on an interval: the deposit watcher, the sweep that releases
-// holds of uses that never ended, and payouts.
+// holds of uses that never ended, and payouts (worker.ts). Each cycle runs
+// only while this process holds the worker lock (workerLock.ts), so two
+// servers on one database never run it at once.
 let booted = false;
 
 const UNREACHABLE = {
@@ -63,23 +64,10 @@ function start(): void {
   log();
   const config = paymentsConfig();
   if (!config.enabled || process.env.BOS_PAYMENTS_WORKER === "0") return;
-  let busy = false;
-  const tick = async () => {
-    if (busy) return;
-    busy = true;
-    try {
-      await paymentsTick();
-    } finally {
-      busy = false;
-    }
-  };
-  setTimeout(() => void tick(), 3_000).unref?.();
-  setInterval(() => void tick(), config.scanIntervalMs).unref?.();
-}
-
-// One round of the payments work. Each part logs its own failures.
-export async function paymentsTick(): Promise<void> {
-  await scanTick();
-  await sweepTick();
-  await payoutTick();
+  runEvery(processWorker(), {
+    firstMs: 3_000,
+    intervalMs: config.scanIntervalMs,
+    followMs: 3_000,
+    onError: (err) => console.error(`payments: worker cycle failed: ${errorCode(err)}`),
+  });
 }

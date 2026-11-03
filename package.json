@@ -10,13 +10,15 @@
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
     "test": "vitest run",
-    "test:build": "CHECK_BUILD=1 vitest run src/test/demo-unreachable.test.ts",
+    "test:build": "CHECK_BUILD=1 vitest run src/test/demo-unreachable.test.ts src/test/production.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
+    "db:push:deploy": "vite-node scripts/db-push.ts",
     "db:up": "sh scripts/db.sh up",
     "db:down": "sh scripts/db.sh down",
     "testnet-smoke": "vite-node --config vitest.config.ts scripts/testnet-smoke.ts",
-    "gate": "npm run typecheck && npm run lint && npm run test && npm run build && npm run test:build"
+    "gate": "npm run typecheck && npm run lint && npm run test && npm run build && npm run test:build",
+    "start:prod": "next start --hostname 127.0.0.1 --port 7560"
   },
   "dependencies": {
     "@privy-io/react-auth": "2.13.1",

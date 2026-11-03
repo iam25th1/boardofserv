@@ -1,3 +1,66 @@
+// Security headers on every response. The content security policy follows
+// Privy's guidance (docs.privy.io/security/implementation-guide/content-security-policy):
+// its iframe and API, Coinbase Wallet, and Cloudflare Turnstile for its
+// captcha. Privy bundles WalletConnect's modal (Reown AppKit) for linking an
+// external wallet, which loads its config, fonts and wallet logos from
+// Reown's own hosts, so those follow Reown's guidance
+// (docs.reown.com/advanced/security/content-security-policy), less
+// Coinbase's analytics host. Next's own inline scripts need 'unsafe-inline'.
+// The full policy applies to the production build; the development server
+// (which needs eval for fast refresh) only refuses to be framed.
+//
+// Cloudflare's Web Analytics beacon, which the 25th.dev zone injects into
+// pages, is left out on purpose: the browser blocks it and nothing else
+// changes.
+const WALLETCONNECT = ["walletconnect.com", "walletconnect.org"];
+const both = (sub, scheme = "https") => WALLETCONNECT.map((d) => `${scheme}://${sub}.${d}`);
+const REOWN_API = ["https://api.web3modal.com", "https://api.web3modal.org"];
+
+const FRAMES = ["https://auth.privy.io", ...both("verify"), ...both("secure")];
+
+const CONNECT = [
+  "'self'",
+  "https://auth.privy.io",
+  "https://*.rpc.privy.systems",
+  "wss://www.walletlink.org",
+  "https://explorer-api.walletconnect.com",
+  ...both("relay"),
+  ...both("relay", "wss"),
+  ...both("rpc"),
+  ...both("pulse"),
+  ...both("keys"),
+  ...both("notify"),
+  ...both("echo"),
+  ...both("push"),
+  ...REOWN_API,
+];
+
+const IMAGES = ["'self'", "data:", "blob:", ...WALLETCONNECT.map((d) => `https://${d}`), ...both("secure"), "https://explorer-api.walletconnect.com", ...REOWN_API];
+
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
+  "style-src 'self' 'unsafe-inline'",
+  `img-src ${IMAGES.join(" ")}`,
+  "font-src 'self' https://fonts.reown.com",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  `child-src ${FRAMES.join(" ")}`,
+  `frame-src ${FRAMES.join(" ")} https://challenges.cloudflare.com`,
+  `connect-src ${CONNECT.join(" ")}`,
+  "worker-src 'self'",
+  "manifest-src 'self'",
+].join("; ");
+
+export const SECURITY_HEADERS = (production) => [
+  { key: "Content-Security-Policy", value: production ? CSP : "frame-ancestors 'none'" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -8,6 +71,9 @@ const nextConfig = {
     serverComponentsExternalPackages: ["pg"],
     // src/instrumentation.ts: payments boot when the server starts.
     instrumentationHook: true,
+  },
+  async headers() {
+    return [{ source: "/:path*", headers: SECURITY_HEADERS(process.env.NODE_ENV === "production") }];
   },
 };
 

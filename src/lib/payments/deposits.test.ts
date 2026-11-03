@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import type { Address } from "viem";
 import * as schema from "@/lib/db/schema";
 import { addUser, testDb } from "@/test/helperDb";
-import { FakeChain, addr } from "@/test/fakeChain";
+import { FakeChain, MAX_LOG_SPAN, addr } from "@/test/fakeChain";
 import { readPaymentsConfig, type PaymentsConfig } from "./config";
 import { RESCAN_BLOCKS, scanOnce } from "./deposits";
 import { balancesOf, ledgerTotal } from "./ledger";
@@ -193,5 +193,19 @@ describe("deposits", () => {
     await scanOnce(chain, config, async (a) => (a === addr(0x5a11).toLowerCase() ? sam.id : null));
     expect((await rows())[0]).toMatchObject({ status: "credited", userId: sam.id });
     expect((await balancesOf(sam.id)).USDC.available).toBe(2_000_000n);
+  });
+});
+
+describe("the deposit watcher on Base's public RPC", () => {
+  it("keeps every log query within the 201 blocks Base allows, by default", async () => {
+    const c = readPaymentsConfig({ TREASURY_ADDRESS: TREASURY });
+    expect(c.scanChunk).toBe(200n);
+    const far = new FakeChain(c.chainId);
+    far.setDecimals(c.currencies.USDC.token!, 6);
+    far.head = 10_000n;
+    await scanOnce(far, { ...c, startBlock: 1n });
+    const ranges = far.calls.filter((x) => x.method === "transferLogs").map((x) => x.args[0] as { fromBlock: bigint; toBlock: bigint });
+    expect(ranges.length).toBeGreaterThan(1);
+    for (const r of ranges) expect(r.toBlock - r.fromBlock).toBeLessThanOrEqual(MAX_LOG_SPAN);
   });
 });

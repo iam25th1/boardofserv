@@ -8,6 +8,20 @@ on:
 jobs:
   gate:
     runs-on: ubuntu-latest
+    # A real Postgres for the payments worker lock test: an advisory lock
+    # belongs to a database session, and PGlite has only one.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: locktest
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,3 +34,4 @@ jobs:
           # Build-time only placeholders. No real secret is needed to gate, and
           # none is present in CI. The secret-leak test enforces that.
           NEXT_PUBLIC_PRIVY_APP_ID: ci-placeholder
+          TEST_POSTGRES_URL: postgres://postgres:locktest@localhost:5432/postgres

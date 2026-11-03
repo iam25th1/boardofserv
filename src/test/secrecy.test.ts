@@ -34,6 +34,7 @@ import * as withdrawalsRoute from "@/app/api/withdrawals/route";
 import * as adminRoute from "@/app/api/admin/route";
 import * as adminPause from "@/app/api/admin/pause/route";
 import * as adminDecide from "@/app/api/admin/withdrawals/[id]/route";
+import * as healthRoute from "@/app/api/health/route";
 
 // A published helper's system prompt and canary never leave the server. This
 // drives every API route (and fails if a route is added without being driven
@@ -76,6 +77,7 @@ const ROUTES: Record<string, object> = {
   "admin": adminRoute,
   "admin/pause": adminPause,
   "admin/withdrawals/[id]": adminDecide,
+  "health": healthRoute,
 };
 
 // What the compile call writes: the private part of the helper's prompt.
@@ -235,6 +237,7 @@ describe("a helper's instructions stay on the server", () => {
     await hit("rename", conversation.PATCH(req(`/api/conversations/${cid}`, "PATCH", { title: "Shop blurbs, renamed" }), { params: { id: cid } }));
     await hit("chat", chat.POST(req("/api/chat", "POST", { conversationId: cid, content: "Also refuse gift cards." })));
     await hit("account", account.GET(req("/api/account")));
+    await hit("health", healthRoute.GET());
     await hit("handle check", handle.GET(req("/api/account/handle?handle=shopkeeper")));
     await hit("handle set", handle.PATCH(req("/api/account/handle", "PATCH", { handle: "shopkeeper" })));
     await hit("wallet", wallet.GET(req("/api/wallet")));

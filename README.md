@@ -1,5 +1,8 @@
 # boardofserv
 
+Live at **https://boardofserv.25th.dev** (Base Sepolia), served from this Mac
+by Pier: see [docs/DEPLOY-PIER.md](docs/DEPLOY-PIER.md).
+
 A chat where you describe an agent in plain English and it gets built for you on
 [OpenServ](https://openserv.ai). This is phase 1, the app shell: email login,
 linking each user to their own OpenServ account, and the conversation. Building
@@ -29,6 +32,12 @@ take the new not-null `handle` column from `db:push`. Run
 `src/lib/db/migrations/0008_user_handles.sql` against it once first (for
 example `docker exec -i boardofserv-db psql -U boardofserv boardofserv < src/lib/db/migrations/0008_user_handles.sql`),
 which gives every user a random handle; `db:push` then has nothing left to do.
+
+A deploy runs `npm run db:push:deploy` instead (`scripts/db-push.ts`). With
+no terminal, `drizzle-kit push` applies an additive change but gives up on
+one it would ask about (data loss, or a rename it can't tell apart) and still
+exits 0; the wrapper fails the deploy then, so such a change is made by hand
+first (see [docs/DEPLOY-PIER.md](docs/DEPLOY-PIER.md)).
 
 `npm run db:up` uses `docker compose` when the plugin is installed. Without it
 (for example plain Colima) it runs the same Postgres with `docker run` in a
@@ -61,6 +70,19 @@ labelled demo reply; a production build shows a plain error instead.
 npm run gate     # typecheck, lint, test, build. Run before every commit.
 ```
 
+`npm run gate` builds into `.next`, which is also where a running `npm run dev`
+keeps its files, so run it in a separate checkout (or with the development
+server stopped).
+
+A production build runs with `npm run build` then `npm run start:prod`, which
+serves on 127.0.0.1:7560 (the deployment is in
+[docs/DEPLOY-PIER.md](docs/DEPLOY-PIER.md)). In production, `/demo` and the
+`?sketch=` fixtures are gone (`src/test/production.test.ts` starts the built
+server and checks). `GET /api/health` answers
+`{"ok":true,"database":"up","network":"Base Sepolia","payments":"on"}`, or a
+503 with `ok: false` while the database can't be reached; it never carries an
+address, a version or an error.
+
 ## How a user signs in and links OpenServ
 
 1. The user signs in with an email code through Privy and gets an embedded EOA.
@@ -85,6 +107,18 @@ the server:
   server module or reads a server secret, if any tracked file contains a
   secret-shaped string, if an env file with secrets is tracked, or if a secret
   value appears in the built client bundle.
+- Every response carries security headers (`next.config.mjs`): a content
+  security policy following Privy's guidance (Privy's iframe and API, Coinbase
+  Wallet, Cloudflare Turnstile, `frame-ancestors 'none'`) plus Reown's for the
+  WalletConnect modal Privy opens to link a wallet (its config, fonts and
+  wallet logos come from Reown's hosts), `X-Frame-Options: DENY`,
+  `X-Content-Type-Options: nosniff` and
+  `Referrer-Policy: strict-origin-when-cross-origin`. The development server
+  only sends `frame-ancestors 'none'` from the policy, since fast refresh needs
+  eval. After a Privy upgrade, check sign-in and wallet linking against the
+  policy again (the browser console names anything it blocks). The
+  Cloudflare Web Analytics beacon the 25th.dev zone injects is blocked on
+  purpose.
 
 ## The model behind the chat
 
@@ -330,9 +364,26 @@ the watcher checks the token's `decimals()` on chain against the config.
 
 The watcher runs in the server every `DEPOSIT_SCAN_INTERVAL_MS` (default 30
 seconds; `BOS_PAYMENTS_WORKER=0` turns the interval off), and the wallet
-page's "Check for my deposit" runs it at once. On the first scan it starts at
+page's "Check for my deposit" runs it at once.
+
+The interval's cycle (deposit scan, hold sweep, payouts) runs only in the
+process holding the payments worker lock, a Postgres advisory lock on a
+connection of its own, checked before each cycle. Two servers on one
+database (a development server next to the deployed one) never run it at
+once: the other skips its cycles. A production server keeps the lock between
+cycles; a development server gives it back after each, and a production
+server that finds it taken tries again after 3 seconds rather than a whole
+interval, so a deployed service takes over in the gap after a development
+cycle and keeps it, even when both tick in step. The lock is given back when a
+cycle throws, and Postgres drops it when its process dies. The log says once
+which process runs the cycles and once when one starts skipping them. A
+payout asked for in a request is sent under the same lock, or left to the
+process holding it. "Check for my deposit" scans outside the lock, which is
+safe: crediting is keyed per transfer, so two scans that overlap credit once. On the first scan it starts at
 the newest confirmed block, or at `DEPOSIT_START_BLOCK` when set;
-`DEPOSIT_SCAN_CHUNK` (default 2000) is how many blocks one log query covers.
+`DEPOSIT_SCAN_CHUNK` (default 200) is how many blocks one log query covers;
+Base's public RPC refuses a log query over more than 201 blocks with HTTP 413,
+so raise it only with a `BOS_RPC_URL` that allows more.
 The RPC endpoint is checked to be on the configured chain before any call.
 
 The wallet page, at `/wallet` (linked from the account menu), shows the
@@ -456,6 +507,14 @@ refuses to start under Vitest unless a test has put the fake in place.
   resend with the same nonce, the pause switch.
 - Config (`config.test.ts`): SERV off without an address, mainnet off without
   `BOS_MAINNET=1`.
+- Worker lock (`workerLock.test.ts`): two workers on one database, only one
+  runs cycles and the other skips, logging that once; the lock is released
+  when a cycle throws or its process dies; a development server hands over
+  to a deployed one, also when both tick in step. An advisory lock belongs to a database session and PGlite has only
+  one, so these run against a real Postgres named by `TEST_POSTGRES_URL` (CI
+  starts one; locally they are skipped without it). For example:
+  `docker run -d --rm --name bos-locktest-pg -e POSTGRES_PASSWORD=locktest -p 127.0.0.1:55432:5432 postgres:16-alpine`,
+  then `TEST_POSTGRES_URL=postgres://postgres:locktest@127.0.0.1:55432/postgres npm test`.
 - Routes: paid uses, the wallet, deposit check and withdrawal routes, and the
   admin routes. `src/test/secrecy.test.ts` also runs payments end to end and
   fails if any response or log line carries the treasury key, an email, a

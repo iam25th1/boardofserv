@@ -1,0 +1,23 @@
+# boardofserv's own Cloudflare tunnel, in the account that holds 25th.dev.
+#
+# The live copy is ~/.boardofserv/tunnel/config.yml, read by one cloudflared
+# process that Pier supervises as the boardofserv-tunnel service. This file
+# is the reference for it: change both, then restart that service.
+#
+# Not ~/.cloudflared/config.yml and not a Pier tunnel record: no other tunnel
+# on this Mac reads this file, and this tunnel serves nothing else. It runs
+# by id with its own credentials file, so it never reads a cert. Management
+# calls (create, route dns) use ~/.cloudflared/cert.pem, named
+# explicitly, never the default cert.pem.
+tunnel: <redacted>
+credentials-file: ~/.boardofserv/tunnel/boardofserv-credentials.json
+
+originRequest:
+  connectTimeout: 30s
+  noTLSVerify: false
+
+ingress:
+  # The production build, which Pier runs on this port. Never the dev server.
+  - hostname: boardofserv.25th.dev
+    service: http://127.0.0.1:7560
+  - service: http_status:404

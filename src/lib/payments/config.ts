@@ -158,7 +158,9 @@ export function readPaymentsConfig(env: Env = process.env): PaymentsConfig {
     currencies,
     confirmations: wholeNumber(env.DEPOSIT_CONFIRMATIONS, 5, 1, 1000),
     scanIntervalMs: wholeNumber(env.DEPOSIT_SCAN_INTERVAL_MS, 30_000, 5_000, 3_600_000),
-    scanChunk: BigInt(wholeNumber(env.DEPOSIT_SCAN_CHUNK, 2_000, 10, 100_000)),
+    // Base's public endpoints (sepolia.base.org, mainnet.base.org) answer a
+    // log query over more than 201 blocks with HTTP 413.
+    scanChunk: BigInt(wholeNumber(env.DEPOSIT_SCAN_CHUNK, 200, 10, 100_000)),
     startBlock,
     adminUserIds: (env.ADMIN_USER_IDS ?? "")
       .split(",")
