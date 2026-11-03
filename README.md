@@ -281,3 +281,17 @@ what is off and why:
   ([the $SERV token page](https://docs.openserv.ai/what-is-serv/the-serv-token.md))
   list a Base address but no decimals and no testnet token, so the app never
   assumes either.
+
+### Ledger and balances
+
+`ledger_entries` holds one row for every change to anyone's balance: user,
+currency, a signed whole amount in minor units stored as a string, kind
+(`deposit`, `use_charge`, `maker_earning`, `platform_fee`, `withdrawal`,
+`withdrawal_reversal`), reference id, a unique idempotency key and the time.
+Rows are only ever added. `balances` holds each user's available and held
+amount per currency, changed in the same transaction as the ledger row
+(`src/lib/payments/ledger.ts`). The database refuses a balance below zero,
+an amount that is not a whole number, a debit kind with a positive amount (or
+the reverse), and a second row with the same idempotency key. The platform's
+fee rows have no user: that money stays in the treasury. For every user and
+currency, the sum of their ledger rows equals available plus held.

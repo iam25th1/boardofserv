@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check } from "drizzle-orm/pg-core";
+import { CURRENCIES } from "../money";
 
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
 // embedded wallet address and, encrypted, the OpenServ API key that this
@@ -164,6 +165,66 @@ export const helperUses = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({ byUserDay: index("helper_uses_user_idx").on(t.userId, t.createdAt) }),
+);
+
+// Money. Every change to anyone's balance is one ledger row, written in the
+// same transaction as the balance it changes, and never updated or deleted
+// afterwards. The amount is a signed whole number of the currency's minor
+// units, stored as a string of digits: positive for a deposit, a maker's
+// earning, the platform's fee and a reversed withdrawal; negative for a use's
+// charge and a withdrawal. The platform's own rows (its fee from each paid
+// use) have no user. The idempotency key is unique, so the same credit or
+// payout can never be written twice (see src/lib/payments/ledger.ts).
+export const LEDGER_KINDS = ["deposit", "use_charge", "maker_earning", "platform_fee", "withdrawal", "withdrawal_reversal"] as const;
+export type LedgerKind = (typeof LEDGER_KINDS)[number];
+
+export const ledgerEntries = pgTable(
+  "ledger_entries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").references(() => users.id),
+    currency: text("currency", { enum: CURRENCIES }).notNull(),
+    amount: text("amount").notNull(),
+    kind: text("kind", { enum: LEDGER_KINDS }).notNull(),
+    // What the entry is about: a deposit, a hold or a withdrawal id.
+    referenceId: text("reference_id"),
+    idempotencyKey: text("idempotency_key").notNull().unique(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byUser: index("ledger_entries_user_idx").on(t.userId, t.currency, t.createdAt),
+    knownCurrency: check("ledger_entries_currency", sql`${t.currency} in ('USDC', 'SERV')`),
+    knownKind: check(
+      "ledger_entries_kind",
+      sql`${t.kind} in ('deposit', 'use_charge', 'maker_earning', 'platform_fee', 'withdrawal', 'withdrawal_reversal')`,
+    ),
+    wholeNumber: check("ledger_entries_amount_whole", sql`${t.amount} ~ '^-?[1-9][0-9]{0,77}$'`),
+    signByKind: check("ledger_entries_sign", sql`(${t.kind} in ('use_charge', 'withdrawal')) = (${t.amount} like '-%')`),
+    platformHasNoUser: check("ledger_entries_platform", sql`(${t.kind} = 'platform_fee') = (${t.userId} is null)`),
+  }),
+);
+
+// Each user's balance in each currency, in minor units: available to spend
+// or withdraw, and held for uses still running. The database refuses either
+// going below zero. The sum of a user's ledger rows in a currency always
+// equals available plus held.
+export const balances = pgTable(
+  "balances",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    currency: text("currency", { enum: CURRENCIES }).notNull(),
+    available: numeric("available", { precision: 78, scale: 0 }).notNull().default("0"),
+    held: numeric("held", { precision: 78, scale: 0 }).notNull().default("0"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.currency] }),
+    knownCurrency: check("balances_currency", sql`${t.currency} in ('USDC', 'SERV')`),
+    availableNotNegative: check("balances_available_not_negative", sql`${t.available} >= 0`),
+    heldNotNegative: check("balances_held_not_negative", sql`${t.held} >= 0`),
+  }),
 );
 
 export type User = typeof users.$inferSelect;
