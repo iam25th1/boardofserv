@@ -94,6 +94,7 @@ import * as adminAudit from "@/app/api/admin/audit/route";
 import { fakeNet, fakeSheetUrl } from "./fakeNet";
 import { queueJobEval } from "@/lib/reppo/redact";
 import { submitDue } from "@/lib/reppo/evals";
+import { reppoCycle } from "@/lib/reppo/cycle";
 import { keep } from "@/lib/connections/vault";
 
 // A published helper's system prompt and canary never leave the server. This
@@ -220,6 +221,7 @@ const SAM_PRIVATE = "SamPrivateStockSheet";
 const REPPO_KEY = "secrecy-reppo-key-5c1e9a";
 const reppoSent: { url: string; auth: string | null; body: string | null }[] = [];
 const keyElsewhere: string[] = [];
+const reppoInputs = new Map<string, string>();
 
 // An agent's code, and its plan's prompts: only its maker's builder may show
 // them.
@@ -352,8 +354,16 @@ beforeAll(async () => {
     if (JSON.stringify(init.headers ?? {}).includes(REPPO_KEY) && !url.startsWith("https://eval.reppo.xyz/")) keyElsewhere.push(url);
     if (url.startsWith("https://eval.reppo.xyz/")) {
       reppoSent.push({ url, auth: new Headers(init.headers).get("authorization"), body: init.body ? String(init.body) : null });
-      const id = `ev_secrecy_${reppoSent.length}`;
-      return Response.json({ id, taskType: "action", source: "API", input: "", status: "QUEUED", score: null, route: null, creditsCharged: 0, result: null, error: null }, { status: 201 });
+      if (init.method === "POST") {
+        const id = `ev_secrecy_${reppoSent.length}`;
+        reppoInputs.set(id, (JSON.parse(String(init.body)) as { input: string }).input);
+        return Response.json({ id, taskType: "action", source: "API", input: "", status: "QUEUED", score: null, route: null, creditsCharged: 0, result: null, error: null }, { status: 201 });
+      }
+      // Scored, blocking, with a reason that quotes everything it was sent
+      // (as a careless evaluator might): what it quotes is all redacted.
+      const id = url.split("/").pop()!;
+      const echo = `Advised against. It saw: ${reppoInputs.get(id) ?? ""}`;
+      return Response.json({ id, taskType: "action", source: "API", input: "", status: "COMPLETED", score: 20, route: "block", creditsCharged: 440, result: { score: 20, decision: "reject", confidence: "high", route: "block", reason: echo, rubric_scores: { safety: 20 } }, error: null });
     }
     // Google: the sheets and the token endpoint (their bodies aren't JSON).
     if (url.startsWith("https://sheets.googleapis.com/") || url === "https://oauth2.googleapis.com/token") return google.fetch(url, init);
@@ -824,6 +834,10 @@ describe("a helper's instructions stay on the server", () => {
       // Reppo scores both owners' finished jobs from a redacted summary.
       for (const j of await db.select({ id: schema.agentJobs.id }).from(schema.agentJobs).where(inArray(schema.agentJobs.status, ["done", "failed", "waiting_for_owner"]))) await queueJobEval(rt, j.id);
       await submitDue(rt, { limit: 50 });
+      // Their scores come back (blocks, quoting what was sent), and Reppo's
+      // blocks reach the maker's dashboard and the admin queue.
+      await db.update(schema.reppoEvals).set({ nextAt: new Date(0) });
+      await reppoCycle(rt);
       state.user = sam;
       await hit("agent: sam's own job", jobRoute.GET(req(`/api/jobs/${samsJob.id}`), sj));
       await hit("agent: sam sees maya's job", jobRoute.GET(req(`/api/jobs/${jp.params.id}`), jp));
@@ -1051,7 +1065,7 @@ describe("a helper's instructions stay on the server", () => {
       expect(r.url.startsWith("https://eval.reppo.xyz/api/v1/agents/evals")).toBe(true);
       expect(r.auth).toBe(`Bearer ${REPPO_KEY}`);
       for (const bad of [SAM_PRIVATE, SAM_SHEET, MAYA_SHEET, CODE_MARKER, PROMPT_MARKER, String(VAULT_CHAT), VAULT_REFRESH, VAULT_ACCESS, maya.id, sam.id, maya.handle!, sam.handle!, "docs.google.com", "@sam", "@maya"]) {
-        expect(r.body?.includes(bad), `a Reppo payload carries ${bad}`).toBe(false);
+        expect((r.body ?? "").includes(bad), `a Reppo payload carries ${bad}`).toBe(false);
       }
       expect(emailIn(r.body ?? "", [maya, sam])).toBeNull();
     }
@@ -1135,6 +1149,9 @@ describe("a helper's instructions stay on the server", () => {
     // Maya's dashboard knows Sam by his handle, and nothing of his own.
     expect(said("market: maya's dashboard")).toContain('"handle":"maker_1234"');
     for (const secret of [SAM_PRIVATE, SAM_SHEET, sam.email]) expect(said("market: maya's dashboard")).not.toContain(secret);
+    // Reppo's scores of both owners' jobs are on it, reasons and all, with nothing of Sam's.
+    expect(said("market: maya's dashboard")).toContain('"route":"block"');
+    expect(said("market: maya's dashboard")).toContain("Advised against. It saw: An automated agent ran one job");
     expect(said("market: signed out rentals")).toBe('{"error":"Not signed in"}');
     // Sam's list has his own copy only, never Maya's.
     const mayas = JSON.parse(bodies.find((b) => b.label === "agent: installation")!.body).installation.id as string;
