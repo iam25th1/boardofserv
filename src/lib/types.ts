@@ -148,6 +148,56 @@ export interface InstallationDTO {
   memory: { key: string; description: string; value: unknown }[];
 }
 
+// A job, in a list: how it started and ended, its time and cost. reason
+// (which can quote the owner's data) is the owner's alone.
+export interface JobSummaryDTO {
+  id: string;
+  installationId: string;
+  agentName: string;
+  status: "queued" | "running" | "waiting_for_owner" | "done" | "failed" | "cancelled";
+  reason: string | null;
+  // In words: "on its schedule", "by your message".
+  started: string;
+  createdAt: string;
+  finishedAt: string | null;
+  costUsd: number;
+  ms: number;
+  stepCount: number;
+  // The viewer's own installation's job.
+  mine: boolean;
+}
+
+// One step a job ran. The owner gets everything; the maker of someone
+// else's installation only which step, how it went, its time, model, cost
+// and which tools it called.
+export interface JobStepDTO {
+  seq: number;
+  stepId: string;
+  title: string;
+  kind: "code" | "decision" | "action";
+  status: "running" | "ok" | "failed" | "waiting";
+  ms: number;
+  model: string | null;
+  costUsd: number;
+  tools: { tool: string; failed: boolean }[];
+  input?: unknown;
+  output?: unknown;
+  outcome?: string | null;
+  note?: string | null;
+  calls?: { tool: string; args: unknown; result: unknown; error: string | null }[];
+}
+
+export interface JobDTO extends JobSummaryDTO {
+  viewer: "owner" | "maker";
+  version: number;
+  // Which values came from web pages (the owner's view).
+  untrusted: string[];
+  steps: JobStepDTO[];
+  // The agent's steps, for the timeline's names.
+  plan: { id: string; title: string; kind: "code" | "decision" | "action" }[];
+  approvals: ApprovalDTO[];
+}
+
 // A question a job waits on, as its owner sees it: what it asks, the
 // answers they can give and what happens on each, and with none.
 export interface ApprovalDTO {

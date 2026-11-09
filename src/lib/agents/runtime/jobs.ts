@@ -6,6 +6,7 @@ import { askServ, readDecision, runSteps, startState, typedRules, type Decided, 
 import { pauseForOwner } from "./approvals";
 import type { Runtime } from "./context";
 import { JobTools } from "./tools";
+import { spendToday } from "./views";
 
 // Jobs: one run each of an installation, started by a trigger. A job is a
 // row, so it survives a restart: a worker claims a due one (atomically, so
@@ -144,7 +145,15 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
         const [j] = await rt.db.select({ stop: agentJobs.stopAsked }).from(agentJobs).where(eq(agentJobs.id, job.id));
         return j?.stop ? "Stopped by its owner." : null;
       },
-      canSpend: async () => (serv && !rt.decide ? rt.siteRefusal(owner, serv.ownKey) : null),
+      // Before each model call: the installation's daily cap, then the
+      // site's (this spend counts towards it like any other).
+      canSpend: async () => {
+        if (rt.decide) return null;
+        await log.flush();
+        const cap = Number(installation.dailySpendUsd);
+        if ((await spendToday(rt, installation.id)) >= cap) return `It reached its daily spend limit of $${cap >= 0.01 ? cap.toFixed(2) : Number(cap.toFixed(6))} for today.`;
+        return serv ? rt.siteRefusal(owner, serv.ownKey) : null;
+      },
       retryInfra: true,
     });
   } catch (err) {
