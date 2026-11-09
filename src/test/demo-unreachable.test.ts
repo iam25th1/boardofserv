@@ -4,6 +4,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NO_MODEL_ERROR, streamReply, type ReplyEvent } from "@/lib/model";
 import { DEMO_TEXT } from "@/lib/demoModel";
+import restock from "@/lib/agents/examples/restock.json";
 
 // The demo model answers only in development with no model set up. Anywhere
 // else, no model means a plain error and never a fake reply.
@@ -49,6 +50,23 @@ describe("the demo model", () => {
         if (!d.isFile() || !/\.(js|mjs|cjs|json|html|rsc|body)$/.test(d.name)) continue;
         const file = join(d.parentPath ?? (d as unknown as { path: string }).path, d.name);
         if (readFileSync(file, "utf8").includes(marker)) offenders.push(file);
+      }
+    }
+    expect(offenders, offenders.join("\n")).toEqual([]);
+  });
+
+  // The example agent's code is only for the development demo.
+  it.runIf(process.env.CHECK_BUILD === "1")("leaves the example agent's code out of the production build", () => {
+    const root = join(__dirname, "..", "..", ".next");
+    const markers = Object.values(restock.code).flatMap((c) => (c.source && c.source.length > 60 ? [c.source.slice(0, 60)] : []));
+    expect(markers.length).toBeGreaterThan(0);
+    const offenders: string[] = [];
+    for (const dir of ["server", "static"]) {
+      for (const d of readdirSync(join(root, dir), { recursive: true, withFileTypes: true })) {
+        if (!d.isFile() || !/\.(js|mjs|cjs|json|html|rsc|body)$/.test(d.name)) continue;
+        const file = join(d.parentPath ?? (d as unknown as { path: string }).path, d.name);
+        const text = readFileSync(file, "utf8");
+        if (markers.some((m) => text.includes(m))) offenders.push(file);
       }
     }
     expect(offenders, offenders.join("\n")).toEqual([]);

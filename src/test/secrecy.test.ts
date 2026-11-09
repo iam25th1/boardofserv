@@ -45,6 +45,7 @@ import * as agentRun from "@/app/api/agents/[id]/run/route";
 import * as agentFix from "@/app/api/agents/[id]/fix/route";
 import * as agentBench from "@/app/api/agents/[id]/bench/route";
 import * as agentPublish from "@/app/api/agents/[id]/publish/route";
+import * as demoAgent from "@/app/api/demo/agent/route";
 
 // A published helper's system prompt and canary never leave the server. This
 // drives every API route (and fails if a route is added without being driven
@@ -104,6 +105,7 @@ const ROUTES: Record<string, object> = {
   "agents/[id]/fix": agentFix,
   "agents/[id]/bench": agentBench,
   "agents/[id]/publish": agentPublish,
+  "demo/agent": demoAgent,
 };
 
 // What the compile call writes: the private part of the helper's prompt.
@@ -276,6 +278,7 @@ describe("a helper's instructions stay on the server", () => {
     await hit("save an agent that isn't there", agentBench.PUT(req(`/api/agents/${cid}/bench`, "PUT", {}), { params: { id: cid } }));
     await hit("publish an agent that isn't there", agentPublish.POST(req(`/api/agents/${cid}/publish`, "POST"), { params: { id: cid } }));
     await hit("my agents", agentsRoute.GET(req("/api/agents")));
+    await hit("demo agent outside development", demoAgent.POST(req("/api/demo/agent", "POST", { bench: {} })));
     await hit("handle check", handle.GET(req("/api/account/handle?handle=shopkeeper")));
     await hit("handle set", handle.PATCH(req("/api/account/handle", "PATCH", { handle: "shopkeeper" })));
     await hit("wallet", wallet.GET(req("/api/wallet")));

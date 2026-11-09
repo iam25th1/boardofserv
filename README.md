@@ -607,6 +607,35 @@ published version shows as "in testing" on the maker's own agents page,
 on the board for renting yet. Changing the plan or saving the bench after
 publishing starts a new draft copied from it.
 
+### The example agent
+
+`src/lib/agents/examples/restock.json` is a fabric shop's restock agent,
+built through the real pipeline by `scripts/seed-restock.ts` with live calls
+(SERV planning, Dolphin writing, SERV reviewing and deciding):
+
+```sh
+npx vite-node --config vitest.config.ts scripts/seed-restock.ts
+```
+
+It reads the Stock sheet and three suppliers' prices and delivery times,
+picks the cheapest supplier within the longest delivery the owner allows,
+asks the owner on Telegram when the order is over the approval limit (and
+stops if they say no), records the order in the Orders sheet and remembers
+it. The script needs `SERV_API_KEY` and `DOLPHIN_API_KEY`, touches no
+database, refuses any call past its budget (`SEED_SERV_BUDGET`,
+`SEED_DOLPHIN_BUDGET`) and lists every call with its status, tokens and
+time. `SEED_RESUME=1` keeps the saved plan and approved code and writes only
+what is missing; with `SEED_FIX="what went wrong"` SERV first changes the
+saved plan, as fixing by chatting does. The decisions of one live run are
+recorded on its bench, so dry runs replay them with no model call.
+
+`/demo?agent=restock` (development only, no sign-in) shows its builder and
+test bench: a run is a dry run on the server (`POST /api/demo/agent`, a 404
+outside development), every tool a mock and every decision recorded, so it
+never calls a model. Save draft and Publish only change that page. A
+production build has neither the example nor its code
+(`src/test/demo-unreachable.test.ts` checks the build).
+
 ## Payments
 
 Users top up a balance in USDC or $SERV, pay for helper uses from it, and

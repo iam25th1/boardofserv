@@ -55,10 +55,19 @@ describe("development-only routes in production", () => {
   it("/demo is a 404 in production, whatever it is asked for", async () => {
     vi.stubEnv("NODE_ENV", "production");
     const { default: DemoPage } = await import("@/app/demo/page");
-    for (const searchParams of [{}, { pay: "wallet" }, { pay: "admin" }, { sketch: "demo" }, { left: "paused" }]) {
+    for (const searchParams of [{}, { pay: "wallet" }, { pay: "admin" }, { sketch: "demo" }, { left: "paused" }, { agent: "restock" }]) {
       expect(() => DemoPage({ searchParams })).toThrow(expect.objectContaining({ digest: "NEXT_NOT_FOUND" }));
     }
   }, 30_000);
+});
+
+describe("the example agent", () => {
+  it("runs on the demo's bench only in development: a 404 anywhere else", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const { POST } = await import("@/app/api/demo/agent/route");
+    const res = await POST(new Request("http://localhost/api/demo/agent", { method: "POST", body: "{}" }));
+    expect(res.status).toBe(404);
+  });
 });
 
 describe("GET /api/health", () => {
