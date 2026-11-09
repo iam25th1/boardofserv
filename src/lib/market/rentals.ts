@@ -1,10 +1,10 @@
 import "server-only";
-import { and, desc, eq, inArray, lte, ne } from "drizzle-orm";
-import { agentInstallations, agentListings, agents, agentVersions, rentalCharges, rentals, users, type Rental } from "../db/schema";
-import type { RentalDTO } from "../types";
+import { and, desc, eq, inArray, lte, ne, sql } from "drizzle-orm";
+import { agentApprovals, agentInstallations, agentJobs, agentListings, agents, agentTriggers, agentVersions, holds, rentalCharges, rentals, users, type Rental } from "../db/schema";
+import type { RentalDetailDTO, RentalDTO } from "../types";
 import { setupShapeOf, type SetupShape } from "../agents/definition";
 import type { Exec } from "../payments/ledger";
-import { control, install, loadInstallation } from "../agents/runtime/installations";
+import { control, install, installationDTO, loadInstallation } from "../agents/runtime/installations";
 import type { Runtime } from "../agents/runtime/context";
 import type { InstallAnswers } from "../agents/settingsForm";
 import { capture, holdFor, usdc, USDC_DECIMALS } from "./charges";
@@ -34,17 +34,17 @@ export class RentRefused extends Error {
 
 // One week of a rental, charged once: "paid" (free counts), or "short"
 // when the balance doesn't cover it (and nothing changes).
-async function chargeWeek(tx: Exec, r: Rental, week: number): Promise<"paid" | "short"> {
+async function chargeWeek(tx: Exec, r: Rental, week: number, at: Date): Promise<"paid" | "short"> {
   const [done] = await tx.select().from(rentalCharges).where(and(eq(rentalCharges.rentalId, r.id), eq(rentalCharges.week, week)));
   if (done) return "paid";
   const amount = BigInt(r.weeklyPrice);
   let holdId: string | null = null;
   if (amount > 0n) {
-    holdId = await holdFor(tx, { renterUserId: r.renterUserId, makerUserId: r.makerUserId, amount, kind: "rent" });
+    holdId = await holdFor(tx, { renterUserId: r.renterUserId, makerUserId: r.makerUserId, amount, kind: "rent", at });
     if (!holdId) return "short";
-    await capture(tx, holdId);
+    await capture(tx, holdId, at);
   }
-  await tx.insert(rentalCharges).values({ rentalId: r.id, week, amount: amount.toString(), holdId });
+  await tx.insert(rentalCharges).values({ rentalId: r.id, week, amount: amount.toString(), holdId, createdAt: at });
   return "paid";
 }
 
@@ -88,7 +88,7 @@ export async function rent(rt: Runtime, o: { renterUserId: string; agentId: stri
         updatedAt: now,
       })
       .returning();
-    if ((await chargeWeek(tx, r!, 1)) === "short") {
+    if ((await chargeWeek(tx, r!, 1, now)) === "short") {
       throw new RentRefused(`The first week is ${usdc(terms.weeklyPrice)}, and your balance doesn't cover it. Top up your wallet, then rent it.`, 402);
     }
     return r!;
@@ -156,7 +156,7 @@ export async function renewDue(rt: Runtime, limit = 50): Promise<number> {
       const [fresh] = await tx.select().from(rentals).where(and(eq(rentals.id, r.id), eq(rentals.status, "active"), eq(rentals.weeksPaid, r.weeksPaid)));
       if (!fresh) return null;
       const week = fresh.weeksPaid + 1;
-      const charged = await chargeWeek(tx, fresh, week);
+      const charged = await chargeWeek(tx, fresh, week, now);
       if (charged === "paid") await tx.update(rentals).set({ weeksPaid: week, paidUntil: new Date(fresh.paidUntil.getTime() + WEEK_MS), updatedAt: now }).where(eq(rentals.id, r.id));
       else await tx.update(rentals).set({ status: "unpaid", updatedAt: now }).where(eq(rentals.id, r.id));
       return charged;
@@ -209,7 +209,7 @@ export async function rentalControl(rt: Runtime, r: Rental, action: RentalAction
       const [fresh] = await tx.select().from(rentals).where(and(eq(rentals.id, r.id), eq(rentals.status, "unpaid")));
       if (!fresh) return "paid" as const;
       const week = fresh.weeksPaid + 1;
-      const charged = await chargeWeek(tx, fresh, week);
+      const charged = await chargeWeek(tx, fresh, week, now);
       if (charged === "paid") await tx.update(rentals).set({ status: "active", weeksPaid: week, paidUntil: new Date(now.getTime() + WEEK_MS), updatedAt: now }).where(eq(rentals.id, r.id));
       return charged;
     });
@@ -240,10 +240,25 @@ export async function rentalDTOs(rt: Runtime, rows: Rental[]): Promise<RentalDTO
         .from(agentInstallations)
         .where(inArray(agentInstallations.id, installIds))
     : [];
+  const next = installIds.length
+    ? await rt.db
+        .select({ id: agentTriggers.installationId, at: sql<string>`min(${agentTriggers.nextAt})` })
+        .from(agentTriggers)
+        .where(and(inArray(agentTriggers.installationId, installIds), inArray(agentTriggers.kind, ["schedule", "check"])))
+        .groupBy(agentTriggers.installationId)
+    : [];
+  const waiting = installIds.length
+    ? await rt.db
+        .select({ id: agentApprovals.installationId, n: sql<number>`count(*)::int` })
+        .from(agentApprovals)
+        .where(and(inArray(agentApprovals.installationId, installIds), eq(agentApprovals.status, "pending")))
+        .groupBy(agentApprovals.installationId)
+    : [];
   return rows.map((r) => {
     const a = about.find((x) => x.versionId === r.versionId);
     const i = installs.find((x) => x.id === r.installationId);
     const set = i && i.status !== "stopped";
+    const nextAt = next.find((x) => x.id === r.installationId)?.at;
     const status: RentalDTO["status"] =
       r.status === "ended"
         ? "ended"
@@ -275,8 +290,41 @@ export async function rentalDTOs(rt: Runtime, rows: Rental[]): Promise<RentalDTO
       weeksPaid: r.weeksPaid,
       installationId: set ? r.installationId : null,
       createdAt: r.createdAt.toISOString(),
+      nextRunAt: status === "active" && nextAt ? new Date(nextAt).toISOString() : null,
+      waiting: set ? (waiting.find((x) => x.id === r.installationId)?.n ?? 0) : 0,
     };
   });
+}
+
+// A rental on its own page, for its renter: what it has cost, this week's
+// cost, and its installation as its owner sees it.
+export async function rentalDetail(rt: Runtime, r: Rental): Promise<RentalDetailDTO> {
+  const [base] = await rentalDTOs(rt, [r]);
+  const [weeks] = await rt.db
+    .select({ total: sql<string>`coalesce(sum(${rentalCharges.amount}), 0)::text` })
+    .from(rentalCharges)
+    .where(eq(rentalCharges.rentalId, r.id));
+  const weekStart = new Date(r.paidUntil.getTime() - WEEK_MS);
+  const fees = await rt.db
+    .select({ amount: holds.amount, status: holds.status, settledAt: holds.settledAt })
+    .from(holds)
+    .innerJoin(agentJobs, eq(agentJobs.id, holds.jobId))
+    .innerJoin(rentals, eq(rentals.installationId, agentJobs.installationId))
+    .where(and(eq(rentals.id, r.id), eq(holds.kind, "job_fee"), inArray(holds.status, ["held", "captured"])));
+  const sum = (xs: { amount: string }[]) => xs.reduce((t, x) => t + BigInt(x.amount), 0n);
+  const taken = fees.filter((f) => f.status === "captured");
+  const takenThisWeek = taken.filter((f) => f.settledAt && f.settledAt >= weekStart);
+  const thisWeek = r.status === "unpaid" ? 0n : BigInt(r.weeklyPrice) + sum(takenThisWeek);
+  const l = base!.installationId ? await loadInstallation(rt, base!.installationId) : null;
+  return {
+    ...base!,
+    money: {
+      spentSoFar: (BigInt(weeks?.total ?? "0") + sum(taken)).toString(),
+      thisWeek: thisWeek.toString(),
+      feesHeld: sum(fees.filter((f) => f.status === "held")).toString(),
+    },
+    installation: l ? await installationDTO(rt, l) : null,
+  };
 }
 
 // What setting a rental up needs of its agent, and no more.

@@ -10,7 +10,7 @@ import { balancesOf, ledgerTotal, post } from "@/lib/payments/ledger";
 import { claimJob, enqueue, runJob } from "@/lib/agents/runtime/jobs";
 import { control, ControlRefused, loadInstallation } from "@/lib/agents/runtime/installations";
 import { FEE_SHORT, holdJobFee, settleJobFees } from "./charges";
-import { installRental, RENT_SHORT, rent, rentalControl, rentalDTOs, rentalOf, renewDue, RentRefused, rentalSetup, WEEK_MS } from "./rentals";
+import { installRental, RENT_SHORT, rent, rentalControl, rentalDetail, rentalDTOs, rentalOf, rentalsOf, renewDue, RentRefused, rentalSetup, WEEK_MS } from "./rentals";
 
 // Renting through the ledger on the real migrations: the first week paid
 // at once (90% to the maker, 10% to the platform), renewed each week while
@@ -252,5 +252,41 @@ describe("a fee per job", () => {
     expect(FEE_SHORT(usdc(2).toString())).toBe("Its fee per job (2.00 USDC) couldn't be set aside: your balance is too low. Top up your wallet, and it runs the next time.");
     expect(await db.select().from(schema.agentJobSteps).where(eq(schema.agentJobSteps.jobId, job.id))).toEqual([]);
     expect(await available(eve)).toEqual({ available: usdc(1), held: 0n });
+  });
+});
+
+describe("the renter's dashboard", () => {
+  it("adds up what it cost so far and this week, shows fees set aside, and when it runs next", async () => {
+    const p = await listed(4, 0.5);
+    const fay = await renter("renter.fay", 20);
+    const r = await rent(rt, { renterUserId: fay.id, agentId: p.agent.id });
+    let d = await rentalDetail(rt, r);
+    expect(d).toMatchObject({ status: "setup", installation: null, nextRunAt: null, waiting: 0, money: { spentSoFar: usdc(4).toString(), thisWeek: usdc(4).toString(), feesHeld: "0" } });
+    const id = await setUp(r, fay);
+    const inst = await installation(id);
+    // One job finished (its fee taken), one running (its fee set aside).
+    const done = await enqueue(rt, inst, { kind: "manual" });
+    await runJob(rt, (await claimJob(rt, "w"))!, "w");
+    await settleJobFees(rt);
+    expect((await db.select().from(schema.agentJobs).where(eq(schema.agentJobs.id, done.id)))[0]!.status).toBe("done");
+    const running = await enqueue(rt, inst, { kind: "manual" });
+    await holdJobFee(rt, running);
+    d = await rentalDetail(rt, await fresh(r));
+    expect(d.money).toEqual({ spentSoFar: usdc(4.5).toString(), thisWeek: usdc(4.5).toString(), feesHeld: usdc(0.5).toString() });
+    expect(d.status).toBe("active");
+    expect(d.installation).toMatchObject({ id, status: "active" });
+    expect(d.installation!.recentJobs.map((j) => j.id)).toContain(done.id);
+    // Restock runs on a schedule: its next run shows.
+    expect(d.nextRunAt).not.toBeNull();
+    // A new week: last week's fee is in what it cost so far, not this week.
+    await db.update(schema.agentJobs).set({ status: "cancelled" }).where(eq(schema.agentJobs.id, running.id));
+    await settleJobFees(rt);
+    rt.clock.move(WEEK_MS);
+    await renewDue(rt);
+    d = await rentalDetail(rt, await fresh(r));
+    expect(d.money).toEqual({ spentSoFar: usdc(8.5).toString(), thisWeek: usdc(4).toString(), feesHeld: "0" });
+    // The list has it, with ended ones last.
+    const list = await rentalsOf(rt, fay.id);
+    expect(list.map((x) => x.id)).toEqual([r.id]);
   });
 });

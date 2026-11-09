@@ -17,21 +17,21 @@ export const usdc = (minor: string | bigint) => `${formatAmount(BigInt(minor), U
 
 // Holds `amount` of the renter's USDC for the maker, in the caller's
 // transaction. Null when the balance doesn't cover it.
-export async function holdFor(tx: Exec, o: { renterUserId: string; makerUserId: string; amount: bigint; kind: "rent" | "job_fee"; jobId?: string }): Promise<string | null> {
+export async function holdFor(tx: Exec, o: { renterUserId: string; makerUserId: string; amount: bigint; kind: "rent" | "job_fee"; jobId?: string; at?: Date }): Promise<string | null> {
   if (!(await holdFunds(tx, o.renterUserId, "USDC", o.amount))) return null;
   const [h] = await tx
     .insert(holds)
-    .values({ userId: o.renterUserId, currency: "USDC", amount: o.amount.toString(), makerUserId: o.makerUserId, kind: o.kind, jobId: o.jobId ?? null })
+    .values({ userId: o.renterUserId, currency: "USDC", amount: o.amount.toString(), makerUserId: o.makerUserId, kind: o.kind, jobId: o.jobId ?? null, createdAt: o.at ?? new Date() })
     .returning({ id: holds.id });
   return h!.id;
 }
 
 // A hold captured, once: the charge out of what was held, the maker's
 // share and the platform's.
-export async function capture(tx: Exec, holdId: string): Promise<boolean> {
+export async function capture(tx: Exec, holdId: string, at: Date = new Date()): Promise<boolean> {
   const [h] = await tx
     .update(holds)
-    .set({ status: "captured", settledAt: new Date() })
+    .set({ status: "captured", settledAt: at })
     .where(and(eq(holds.id, holdId), eq(holds.status, "held")))
     .returning();
   if (!h) return false;
@@ -44,10 +44,10 @@ export async function capture(tx: Exec, holdId: string): Promise<boolean> {
 }
 
 // A hold given back, once.
-export async function release(tx: Exec, holdId: string): Promise<boolean> {
+export async function release(tx: Exec, holdId: string, at: Date = new Date()): Promise<boolean> {
   const [h] = await tx
     .update(holds)
-    .set({ status: "released", settledAt: new Date() })
+    .set({ status: "released", settledAt: at })
     .where(and(eq(holds.id, holdId), eq(holds.status, "held")))
     .returning();
   if (!h) return false;
@@ -68,7 +68,7 @@ export async function holdJobFee(rt: Runtime, job: AgentJob): Promise<{ how: "no
     .where(and(eq(rentals.installationId, job.installationId), ne(rentals.status, "ended")));
   if (!r || BigInt(r.jobFee) === 0n) return { how: "none" };
   return rt.db.transaction(async (tx) => {
-    const holdId = await holdFor(tx, { renterUserId: r.renterUserId, makerUserId: r.makerUserId, amount: BigInt(r.jobFee), kind: "job_fee", jobId: job.id });
+    const holdId = await holdFor(tx, { renterUserId: r.renterUserId, makerUserId: r.makerUserId, amount: BigInt(r.jobFee), kind: "job_fee", jobId: job.id, at: rt.now() });
     if (!holdId) return { how: "short" as const, fee: r.jobFee };
     await tx.update(agentJobs).set({ feeHoldId: holdId }).where(eq(agentJobs.id, job.id));
     return { how: "held" as const, fee: r.jobFee };
@@ -85,7 +85,7 @@ export async function settleJobFees(rt: Runtime, limit = 100): Promise<number> {
     .limit(limit);
   let settled = 0;
   for (const o of open) {
-    if (await rt.db.transaction((tx) => (o.status === "done" ? capture(tx, o.holdId) : release(tx, o.holdId)))) settled += 1;
+    if (await rt.db.transaction((tx) => (o.status === "done" ? capture(tx, o.holdId, rt.now()) : release(tx, o.holdId, rt.now())))) settled += 1;
   }
   return settled;
 }

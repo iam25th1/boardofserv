@@ -1,0 +1,277 @@
+/* What a renter rents: where it stands, the week paid for, its jobs, and
+   beside it the money. */
+.top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-3);
+}
+.status {
+  padding: 4px 12px;
+  border-radius: var(--r-full);
+  border: 1px dashed var(--chalk-3);
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+  white-space: nowrap;
+}
+.status[data-status="active"] {
+  border-style: solid;
+  border-color: var(--chalk);
+  color: var(--chalk);
+}
+.status[data-status="unpaid"] {
+  border: var(--stroke) solid var(--chalk);
+  color: var(--chalk);
+  font-weight: var(--w-semibold);
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+.said {
+  flex-basis: 100%;
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+}
+.again {
+  font-weight: var(--w-medium);
+}
+.explain {
+  color: var(--chalk-2);
+  max-width: 64ch;
+}
+.reason {
+  padding: var(--s-3) var(--s-4);
+  border: var(--stroke) dashed var(--chalk);
+  border-radius: var(--r-md);
+  max-width: 64ch;
+  overflow-wrap: anywhere;
+}
+.quiet {
+  font-size: var(--t-sm);
+  color: var(--chalk-3);
+}
+
+/* The week: seven days of chalk, the days gone drawn over. */
+.week {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.weekHead {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-3);
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk-2);
+}
+.strip {
+  width: 100%;
+  height: 40px;
+  overflow: visible;
+}
+.rail,
+.tick {
+  fill: none;
+  stroke: var(--chalk-3);
+  stroke-width: var(--stroke);
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.gone {
+  fill: none;
+  stroke: var(--chalk);
+  stroke-width: 6px;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.today {
+  fill: var(--slate);
+  stroke: var(--chalk);
+  stroke-width: var(--stroke);
+  vector-effect: non-scaling-stroke;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--s-3) var(--s-4);
+  margin: 0;
+  padding: var(--s-4) 0;
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+}
+.facts dt {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.facts dd {
+  margin: 0;
+  font-size: var(--t-sm);
+}
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.block h2 {
+  font-size: var(--t-lg);
+  font-weight: var(--w-semibold);
+  letter-spacing: -0.01em;
+}
+.more {
+  font-size: var(--t-sm);
+  align-self: flex-start;
+}
+
+.jobs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.job {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--s-2) var(--s-3);
+}
+.job[data-status="failed"] {
+  border-style: dashed;
+  border-color: var(--chalk-3);
+}
+.jobHead {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-1) var(--s-3);
+  padding: var(--s-2) 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: 44px;
+}
+.jobWord {
+  font-weight: var(--w-semibold);
+}
+
+/* Beside it: the money, a receipt in chalk. */
+.money {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding: var(--s-5);
+  border: var(--stroke) solid var(--chalk);
+  border-radius: var(--r-xl);
+}
+.thisWeek {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.thisWeek span {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}
+.thisWeek strong {
+  font-size: var(--t-xl);
+  font-weight: var(--w-semibold);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.sums {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding-top: var(--s-3);
+  border-top: 1px dashed var(--line);
+}
+.sums dt {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.sums dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.wallet {
+  font-size: var(--t-sm);
+}
+
+/* The list of everything rented. */
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+  gap: var(--s-4);
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  height: 100%;
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--slate-2);
+  color: inherit;
+  text-decoration: none;
+}
+.card:hover {
+  border-color: var(--chalk-3);
+}
+.card[data-status="ended"] {
+  background: none;
+  border-style: dashed;
+}
+.cardHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--s-3);
+}
+.cardHead strong {
+  font-size: var(--t-md);
+}
+.card p {
+  color: var(--chalk-2);
+  font-size: var(--t-sm);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cardFacts {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-5);
+  margin-top: auto;
+}
+.cardFacts dt {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.cardFacts dd {
+  margin: 0;
+  font-size: var(--t-sm);
+}
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  align-items: flex-start;
+  color: var(--chalk-2);
+}

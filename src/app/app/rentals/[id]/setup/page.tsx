@@ -78,7 +78,7 @@ function Setup({ id }: { id: string }) {
       <Page title={r.name} note={note}>
         <p>
           {r.status === "ended" ? "This rental has ended." : "It's set up."}{" "}
-          {r.installationId ? <Link href={`/app/installations/${r.installationId}`}>Open it</Link> : <Link href="/app/board">Back to the board</Link>}
+          <Link href={`/app/rentals/${r.id}`}>Open it</Link>
         </p>
       </Page>
     );
@@ -91,7 +91,7 @@ function Setup({ id }: { id: string }) {
         defaults={{}}
         api={setupApi}
         returnTo={`/app/rentals/${r.id}/setup`}
-        onDone={(installationId) => router.push(`/app/installations/${installationId}`)}
+        onDone={() => router.push(`/app/rentals/${r.id}`)}
       />
     </Page>
   );

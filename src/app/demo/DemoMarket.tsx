@@ -3,9 +3,14 @@ import { useMemo } from "react";
 import { AppShell } from "@/components/shell/AppShell";
 import { BoardView } from "@/components/market/BoardView";
 import { AgentPageView } from "@/components/market/AgentPageView";
+import { RentalView, type RentalApi } from "@/components/market/RentalView";
+import { RentalsView } from "@/components/market/RentalsView";
+import { Page } from "@/components/shell/Page";
+import { YourAgentsNav } from "@/components/shell/SubNav";
+import { demoJob, DEMO_NOW, DEMO_RENTAL, DEMO_RENTALS } from "./demoRentals";
 import type { AgentListingDTO, AgentPageDTO, PublicHelperDTO } from "@/lib/types";
 
-// /demo?market=board and ?market=agent (development only): the market's
+// /demo?market=board, agent, rentals or rental (development only): the market's
 // screens with sample data, to look at and screenshot without a database
 // or a sign-in. Neutral, made-up agents and makers.
 
@@ -114,5 +119,31 @@ export function DemoMarket({ view }: { view: string }) {
     [],
   );
   const pageApi = useMemo(() => ({ load: async () => DEMO_PAGE }), []);
-  return <AppShell>{view === "agent" ? <AgentPageView id={DEMO_PAGE.id} api={pageApi} /> : <BoardView load={load} />}</AppShell>;
+  const rentalApi = useMemo<RentalApi>(
+    () => ({
+      load: async () => DEMO_RENTAL,
+      control: async () => DEMO_RENTAL,
+      run: async () => undefined,
+      job: async (id) => demoJob(id),
+      answer: async () => undefined,
+      now: () => DEMO_NOW,
+    }),
+    [],
+  );
+  const rentals = useMemo(() => async () => DEMO_RENTALS, []);
+  return (
+    <AppShell>
+      {view === "agent" ? (
+        <AgentPageView id={DEMO_PAGE.id} api={pageApi} />
+      ) : view === "rental" ? (
+        <RentalView id={DEMO_RENTAL.id} api={rentalApi} />
+      ) : view === "rentals" ? (
+        <Page title="Rented" note="agents you rent by the week" width="wide" above={<YourAgentsNav />}>
+          <RentalsView load={rentals} />
+        </Page>
+      ) : (
+        <BoardView load={load} />
+      )}
+    </AppShell>
+  );
 }

@@ -33,6 +33,7 @@ export function SubNav({ items, label }: { items: SubNavItem[]; label: string })
 // waits for your answer, and what they may reach.
 export const YOUR_AGENTS: SubNavItem[] = [
   { href: "/app/installations", label: "Running for you", match: ["/app/installations", "/app/jobs"] },
+  { href: "/app/rentals", label: "Rented" },
   { href: "/app/agents", label: "You make" },
   { href: "/app/approvals", label: "Waiting for you" },
   { href: "/app/connections", label: "Connections" },

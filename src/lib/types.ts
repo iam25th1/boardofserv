@@ -232,6 +232,24 @@ export interface RentalDTO {
   weeksPaid: number;
   installationId: string | null;
   createdAt: string;
+  // When it runs next (live and not paused), and how many of its questions
+  // wait for the renter's answer.
+  nextRunAt: string | null;
+  waiting: number;
+}
+
+// One rental on its own page: the rental, its money (USDC minor units) and
+// how its installation is doing (null until it is set up).
+export interface RentalDetailDTO extends RentalDTO {
+  money: {
+    // Every week charged and every fee per job taken, since it started.
+    spentSoFar: string;
+    // This week's rent and the fees taken since it began.
+    thisWeek: string;
+    // Fees set aside for jobs running now.
+    feesHeld: string;
+  };
+  installation: InstallationDTO | null;
 }
 
 // One of the owner's connections, as only they see it: the service, the

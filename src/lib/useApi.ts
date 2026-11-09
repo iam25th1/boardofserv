@@ -3,7 +3,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent } from "./agents/types";
 import type { InstallAnswers } from "./agents/settingsForm";
-import type { AccountDTO, AdminDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, QuotaDTO, RentalDTO, SketchDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, QuotaDTO, RentalDetailDTO, RentalDTO, SketchDTO, WalletDTO } from "./types";
 import type { SetupShape } from "./agents/definition";
 
 // When the server sends no sentence of its own: never a status code.
@@ -79,16 +79,16 @@ export function useApi() {
         throw Object.assign(new Error(data.error ?? SOMETHING_WRONG), { status: res.status });
       },
       listRentals: () => json<{ rentals: RentalDTO[] }>("/api/rentals").then((d) => d.rentals),
-      getRental: (id: string) => json<{ rental: RentalDTO; setup: SetupShape | null }>(`/api/rentals/${encodeURIComponent(id)}`),
+      getRental: (id: string) => json<{ rental: RentalDetailDTO; setup: SetupShape | null }>(`/api/rentals/${encodeURIComponent(id)}`),
       installRental: async (id: string, answers: InstallAnswers): Promise<InstallationDTO> => {
         const res = await authed(`/api/rentals/${encodeURIComponent(id)}/install`, { method: "POST", body: JSON.stringify(answers) });
         const data = (await res.json().catch(() => ({}))) as { installation?: InstallationDTO; error?: string; errors?: Record<string, string> };
         if (res.ok && data.installation) return data.installation;
         throw Object.assign(new Error(data.error ?? SOMETHING_WRONG), { errors: data.errors });
       },
-      controlRental: async (id: string, action: "pause" | "resume" | "cancel" | "renew"): Promise<RentalDTO> => {
+      controlRental: async (id: string, action: "pause" | "resume" | "cancel" | "renew"): Promise<RentalDetailDTO> => {
         const res = await authed(`/api/rentals/${encodeURIComponent(id)}/control`, { method: "POST", body: JSON.stringify({ action }) });
-        const data = (await res.json().catch(() => ({}))) as { rental?: RentalDTO; error?: string };
+        const data = (await res.json().catch(() => ({}))) as { rental?: RentalDetailDTO; error?: string };
         if (res.ok && data.rental) return data.rental;
         throw Object.assign(new Error(data.error ?? SOMETHING_WRONG), { status: res.status });
       },

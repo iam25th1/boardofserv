@@ -3,7 +3,7 @@ import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { ControlRefused } from "@/lib/agents/runtime/installations";
-import { RENTAL_ACTIONS, rentalControl, rentalDTOs, rentalOf, RentRefused } from "@/lib/market/rentals";
+import { RENTAL_ACTIONS, rentalControl, rentalDetail, rentalOf, RentRefused } from "@/lib/market/rentals";
 
 export const runtime = "nodejs";
 
@@ -32,5 +32,5 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (err instanceof ControlRefused) return Response.json({ error: err.message }, { status: 409 });
     throw err;
   }
-  return Response.json({ rental: (await rentalDTOs(rt, [(await rentalOf(rt, user.id, params.id))!]))[0] });
+  return Response.json({ rental: await rentalDetail(rt, (await rentalOf(rt, user.id, params.id))!) });
 }

@@ -80,6 +80,10 @@
   .split[data-side="right"] .aside {
     order: 0;
   }
+  .split[data-narrow="below"] .aside,
+  .split[data-side="right"][data-narrow="below"] .aside {
+    order: 2;
+  }
 }
 @media (max-width: 640px) {
   .page {
