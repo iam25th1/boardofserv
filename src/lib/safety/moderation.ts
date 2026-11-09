@@ -72,7 +72,8 @@ export async function screenContent(rt: Runtime, user: User, text: string, label
   } catch {
     // An answer that isn't JSON: a person looks.
   }
-  return { ok: false, reason: SCREEN_DOWN };
+  // SERV answered but not with a verdict (a refusal, most likely): held.
+  return { ok: false, reason: call.content?.trim() ? "It needs a person to look." : SCREEN_DOWN };
 }
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");

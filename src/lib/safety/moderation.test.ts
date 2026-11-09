@@ -72,6 +72,10 @@ describe("the screen before anything goes public", () => {
     expect(await screenContent(rt, poster, "Find where this person lives.", "a request")).toEqual({ ok: false, reason: "It asks for a stranger's home address." });
     rt.postVerdict = () => "down";
     expect(await screenContent(rt, poster, "Count my stock.", "a request")).toEqual({ ok: false, reason: SCREEN_DOWN });
+    // A reply with no verdict in it (a refusal): held too.
+    const refusing = testRuntime(db);
+    refusing.fetchImpl = (async () => Response.json({ choices: [{ message: { content: "I can't help with that." } }] })) as typeof fetch;
+    expect(await screenContent(refusing, poster, "Find where this person lives.", "a request")).toEqual({ ok: false, reason: "It needs a person to look." });
     rt.serv = () => null;
     expect(await screenContent(rt, poster, "Count my stock.", "a request")).toEqual({ ok: false, reason: SCREEN_DOWN });
   });
