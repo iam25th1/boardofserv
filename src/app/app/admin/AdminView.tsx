@@ -88,6 +88,25 @@ export function AdminBody({ api }: { api: AdminApi }) {
         {spent && <p className={styles.alert}>The limit is reached: chat, publishing and helper uses are paused until midnight UTC, except for people using their own SERV key.</p>}
       </section>
 
+      <section className={styles.section} aria-labelledby="support-h">
+        <h2 id="support-h">Support messages</h2>
+        <p className={styles.quiet}>What people sent @boardofservbot with /support, newest first. Answer them on Telegram or by email.</p>
+        {data.support.length === 0 ? (
+          <p className={styles.quiet}>None yet.</p>
+        ) : (
+          <ul className={styles.support}>
+            {data.support.map((m) => (
+              <li key={m.id}>
+                <span className={styles.quiet}>
+                  {m.from}, {new Date(m.at).toLocaleString()}
+                </span>
+                <p>{m.text}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <section className={styles.section} aria-labelledby="fallback-h">
         <h2 id="fallback-h">Code written by SERV</h2>
         <p className={styles.spend}>

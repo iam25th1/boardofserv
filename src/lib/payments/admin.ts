@@ -2,7 +2,7 @@ import "server-only";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { base, baseSepolia } from "viem/chains";
 import { db } from "../db";
-import { balances, deposits, ledgerEntries, users, withdrawals, type User } from "../db/schema";
+import { balances, deposits, ledgerEntries, supportMessages, users, withdrawals, type User } from "../db/schema";
 import type { Currency } from "../money";
 import { dailySpendLimitUsd, nextReset, spendToday } from "../spend";
 import { inviteOnly, waitingAccounts } from "../access";
@@ -109,6 +109,14 @@ export async function adminDTO(chain: ChainClient, config: PaymentsConfig = paym
     access: { inviteOnly: inviteOnly(), waiting: await waitingAccounts() },
     spend: { today: await spendToday(now), limit: dailySpendLimitUsd(), resetsAt: nextReset(now).toISOString() },
     codeFallbacks: await codeFallbacks(now),
+    support: (
+      await db
+        .select({ id: supportMessages.id, handle: users.handle, name: supportMessages.telegramName, text: supportMessages.text, at: supportMessages.createdAt })
+        .from(supportMessages)
+        .leftJoin(users, eq(users.id, supportMessages.userId))
+        .orderBy(desc(supportMessages.createdAt))
+        .limit(50)
+    ).map((m) => ({ id: m.id, from: m.handle ? `@${m.handle}` : `${m.name ?? "someone"} on Telegram (not linked)`, text: m.text, at: m.at.toISOString() })),
     network: config.network,
     networkLabel: config.networkLabel,
     chainId: config.chainId,

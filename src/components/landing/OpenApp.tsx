@@ -7,16 +7,16 @@ import styles from "./Landing.module.css";
 // The landing page's way in: signed in, a plain "Open the app"; signed out,
 // sign in, or look around the board first. Nobody is sent anywhere on
 // their own.
-export function OpenApp({ quiet = false }: { quiet?: boolean }) {
-  if (!privyAppId()) return <Fallback quiet={quiet} />;
-  return <WithPrivy quiet={quiet} />;
+export function OpenApp({ quiet = false, small = false }: { quiet?: boolean; small?: boolean }) {
+  if (!privyAppId()) return <Fallback quiet={quiet} small={small} />;
+  return <WithPrivy quiet={quiet} small={small} />;
 }
 
-function WithPrivy({ quiet }: { quiet: boolean }) {
+function WithPrivy({ quiet, small }: { quiet: boolean; small: boolean }) {
   const { ready, authenticated } = usePrivy();
   if (ready && authenticated) {
     return (
-      <div className={styles.ways}>
+      <div className={styles.ways} data-small={small ? "true" : undefined}>
         <Link href="/app/chat" className={styles.primary}>
           Open the app
         </Link>
@@ -28,12 +28,12 @@ function WithPrivy({ quiet }: { quiet: boolean }) {
       </div>
     );
   }
-  return <Fallback quiet={quiet} />;
+  return <Fallback quiet={quiet} small={small} />;
 }
 
-function Fallback({ quiet }: { quiet: boolean }) {
+function Fallback({ quiet, small }: { quiet: boolean; small: boolean }) {
   return (
-    <div className={styles.ways}>
+    <div className={styles.ways} data-small={small ? "true" : undefined}>
       <Link href="/login" className={styles.primary}>
         Sign in
       </Link>

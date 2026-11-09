@@ -218,6 +218,13 @@
       "when": 1794242986237,
       "tag": "0030_installation_live",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794247446937,
+      "tag": "0031_support_messages",
+      "breakpoints": true
     }
   ]
 }

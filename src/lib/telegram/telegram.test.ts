@@ -104,6 +104,23 @@ describe("linking a chat", () => {
   });
 });
 
+describe("support", () => {
+  it("keeps a /support message for the admins, from a linked chat or not", async () => {
+    await handleUpdate(rt, text(7001, "/support My agent paused and I don't know why"));
+    await handleUpdate(rt, text(7555, "/support@testbosbot Can't link my chat"));
+    await handleUpdate(rt, text(7556, "/support"));
+    const kept = await db.select().from(schema.supportMessages).orderBy(schema.supportMessages.createdAt);
+    expect(kept.map((m) => [m.userId, m.telegramName, m.text])).toEqual([
+      [owner.id, "@user7001", "My agent paused and I don't know why"],
+      [null, "@user7555", "Can't link my chat"],
+    ]);
+    expect(replies(7001).at(-1)).toBe("Thanks: your message is with the people who run boardofserv.");
+    expect(replies(7556).at(-1)).toMatch(/^Write \/support and then what happened/);
+    // A support message starts no job.
+    expect(await db.select().from(schema.agentJobs).where(eq(schema.agentJobs.ownerUserId, owner.id))).toHaveLength(0);
+  });
+});
+
 describe("the webhook's secret", () => {
   it("takes only the secret set last, and the one before it for a few minutes", async () => {
     expect(await webhookSecretOk(rt, "anything")).toBe(false);

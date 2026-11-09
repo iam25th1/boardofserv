@@ -913,6 +913,20 @@ export const googleOAuthStates = pgTable("google_oauth_states", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// What people send the bot with /support: kept for the admin page. The
+// account when the chat is linked, else the Telegram name they go by.
+export const supportMessages = pgTable(
+  "support_messages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    telegramName: text("telegram_name"),
+    text: text("text").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ byCreated: index("support_messages_created_idx").on(t.createdAt) }),
+);
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;

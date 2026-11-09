@@ -357,6 +357,9 @@ export interface AdminDTO {
   // How often SERV wrote a code step because Dolphin failed twice on it:
   // in the last 30 days, and in all.
   codeFallbacks: { last30Days: number; total: number };
+  // What people sent the bot with /support, newest first: who (a handle,
+  // or the Telegram name of an unlinked chat) and what.
+  support: { id: string; from: string; text: string; at: string }[];
   network: "base-sepolia" | "base";
   networkLabel: string;
   chainId: number;

@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { accessOf } from "../access";
-import { agentApprovals, agentJobs, agentMessages, agentVersions, telegramPending, telegramUpdates, users } from "../db/schema";
+import { agentApprovals, agentJobs, agentMessages, agentVersions, supportMessages, telegramPending, telegramUpdates, users } from "../db/schema";
 import { answer, AnswerRefused } from "../agents/runtime/approvals";
 import type { Runtime } from "../agents/runtime/context";
 import { installationsOf, loadInstallation } from "../agents/runtime/installations";
@@ -59,6 +59,15 @@ async function onMessage(rt: Runtime, m: TgMessage): Promise<void> {
   const chatId = m.chat.id;
   const text = (m.text ?? "").trim();
   const owner = await ownerOfChat(rt, chatId);
+  // /support: a message for the people who run boardofserv, kept for the
+  // admin page, whether or not the chat is linked.
+  const support = /^\/support(?:@\w+)?(?:\s+([\s\S]+))?$/.exec(text);
+  if (support) {
+    const said = support[1]?.trim();
+    if (!said) return void (await reply(rt, chatId, "Write /support and then what happened, in the same message: which agent, and roughly when."));
+    await rt.db.insert(supportMessages).values({ userId: owner, telegramName: m.from.username ? `@${m.from.username}` : (m.from.first_name ?? null), text: said.slice(0, 2000), createdAt: rt.now() });
+    return void (await reply(rt, chatId, "Thanks: your message is with the people who run boardofserv."));
+  }
   const start = /^\/start(?:@\w+)?(?:\s+(\S+))?$/.exec(text);
   if (start) {
     const code = start[1];

@@ -1,13 +1,62 @@
-/* The public landing page (filled in by the landing page commit). */
+/* The front page and the public pages: chalk on slate (marker on a
+   whiteboard in light), Onest to read, Caveat only for the notes in the
+   drawings. Text sits in one left-aligned column; drawings sit beside it on
+   a wide screen and under it on a phone. */
+
 .page {
   min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  --measure: 38rem;
+  --edge: max(var(--gutter), env(safe-area-inset-left, 0px));
+  --edge-r: max(var(--gutter), env(safe-area-inset-right, 0px));
 }
-.col {
+.page > main {
+  flex: 1;
+}
+
+/* Top */
+.top {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
   width: 100%;
-  max-width: 1120px;
+  max-width: var(--wide);
   margin: 0 auto;
-  padding: var(--s-6) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-10) max(var(--gutter), env(safe-area-inset-left, 0px));
+  min-height: 68px;
+  padding: env(safe-area-inset-top, 0px) var(--edge-r) 0 var(--edge);
 }
+.home {
+  display: inline-flex;
+  color: var(--chalk);
+  text-decoration: none;
+  border-radius: var(--r-md);
+}
+.topNav {
+  display: flex;
+  gap: var(--s-4);
+}
+.topNav a {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  text-decoration: none;
+}
+.topNav a:hover {
+  color: var(--chalk);
+}
+.topEnd {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.home:focus-visible,
+.topNav a:focus-visible {
+  outline: var(--focus);
+  outline-offset: 3px;
+}
+
+/* The ways in */
 .ways {
   display: flex;
   flex-wrap: wrap;
@@ -17,22 +66,412 @@
 .secondary {
   display: inline-flex;
   align-items: center;
-  min-height: 44px;
+  min-height: 48px;
   padding: 0 var(--s-5);
   border-radius: var(--r-full);
   font-weight: var(--w-medium);
   text-decoration: none;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
 }
 .primary {
   background: var(--chalk);
   color: var(--slate);
 }
+.primary:hover {
+  background: var(--chalk-2);
+}
 .secondary {
   border: var(--stroke) solid var(--line);
   color: var(--chalk);
+}
+.secondary:hover {
+  border-color: var(--chalk-3);
+}
+.ways[data-small="true"] .primary {
+  min-height: 38px;
+  padding: 0 var(--s-4);
+  font-size: var(--t-sm);
 }
 .primary:focus-visible,
 .secondary:focus-visible {
   outline: var(--focus);
   outline-offset: 3px;
+}
+
+/* Hero */
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  align-items: center;
+  gap: var(--s-8);
+  width: 100%;
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: var(--s-10) var(--edge-r) var(--s-10) var(--edge);
+}
+.heroText {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  max-width: var(--measure);
+}
+.heroText h1 {
+  font-size: clamp(2.5rem, 5.4vw, 4.25rem);
+  font-weight: var(--w-semibold);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+.lede {
+  font-size: var(--t-md);
+  line-height: var(--lh-body);
+  color: var(--chalk-2);
+  max-width: 34rem;
+}
+.heroArt {
+  min-width: 0;
+}
+/* Chalk strokes, shared by the machine and the drawings. */
+.machine,
+.drawing {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  fill: none;
+  stroke: var(--chalk);
+  stroke-width: var(--stroke);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* One machine at a time: the wide one, or on a phone the tall one. */
+.machineTall {
+  display: none;
+}
+.stroke {
+  stroke: var(--chalk);
+}
+.thin {
+  stroke: var(--chalk-2);
+  stroke-width: 1.4px;
+}
+.bold {
+  stroke-width: var(--stroke-bold);
+}
+.dashed {
+  stroke: var(--chalk-2);
+  stroke-dasharray: 5 6;
+}
+.route {
+  stroke: none;
+}
+.tick {
+  stroke-width: var(--stroke-bold);
+}
+.dot {
+  fill: var(--chalk);
+  stroke: none;
+  opacity: 0;
+}
+.hand,
+.handSm {
+  fill: var(--chalk-2);
+  stroke: none;
+  font-family: var(--font-hand);
+  font-weight: var(--w-medium);
+}
+.hand {
+  font-size: 21px;
+}
+.handSm {
+  font-size: 18px;
+}
+
+/* The spine: a dashed line down the page, a mark for each part. */
+.spine {
+  position: relative;
+  width: 100%;
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: 0 var(--edge-r) var(--s-8) var(--edge);
+}
+.spine::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  bottom: var(--s-8);
+  left: calc(var(--edge) + 13px);
+  border-left: 1.5px dashed var(--line);
+}
+.part {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, var(--measure)) minmax(0, 1fr);
+  column-gap: var(--s-6);
+  align-items: start;
+  padding: var(--s-8) 0;
+}
+.markCol {
+  position: relative;
+  z-index: 1;
+  padding-top: 6px;
+  background: var(--slate);
+}
+.mark {
+  width: 28px;
+  height: 28px;
+}
+.partText {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.partText h2 {
+  font-size: clamp(1.6rem, 2.6vw, 2.2rem);
+  font-weight: var(--w-semibold);
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+.partArt {
+  justify-self: end;
+  width: 100%;
+  max-width: 360px;
+  padding-top: var(--s-2);
+}
+.points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  color: var(--chalk-2);
+}
+.points strong,
+.steps strong {
+  color: var(--chalk);
+  font-weight: var(--w-semibold);
+}
+.para {
+  color: var(--chalk-2);
+}
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-4);
+}
+.steps li {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: var(--s-3);
+  align-items: start;
+}
+.steps p {
+  color: var(--chalk-2);
+  margin-top: 2px;
+}
+.stepNo {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: var(--stroke) solid var(--chalk);
+  border-radius: 50%;
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  line-height: 1;
+}
+
+/* Powered by: names as words. */
+.powered {
+  width: 100%;
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: var(--s-6) var(--edge-r) var(--s-8) var(--edge);
+  border-top: 1px solid var(--line);
+}
+.powered h2 {
+  font-family: var(--font-hand);
+  font-weight: var(--w-medium);
+  font-size: var(--t-hand-lg);
+  color: var(--chalk-2);
+  margin-bottom: var(--s-4);
+}
+.powered ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--s-3) var(--s-6);
+  color: var(--chalk-2);
+}
+.powered strong {
+  color: var(--chalk);
+  font-weight: var(--w-semibold);
+}
+
+.last {
+  width: 100%;
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: var(--s-8) var(--edge-r) var(--s-10) var(--edge);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+}
+.last h2 {
+  font-size: clamp(1.8rem, 3.4vw, 2.75rem);
+  font-weight: var(--w-semibold);
+  letter-spacing: -0.03em;
+}
+
+/* Footer */
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--s-5);
+  width: 100%;
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: var(--s-6) var(--edge-r) calc(var(--s-6) + env(safe-area-inset-bottom, 0px)) var(--edge);
+  border-top: 1px solid var(--line);
+}
+.footerMark {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  max-width: 22rem;
+}
+.footerMark p {
+  font-size: var(--t-sm);
+  color: var(--chalk-3);
+}
+.footerNav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, auto));
+  gap: var(--s-2) var(--s-6);
+}
+.footerNav a {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  text-decoration: none;
+}
+.footerNav a:hover {
+  color: var(--chalk);
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+}
+.footerNav a:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+
+/* A public page of words: about, terms, privacy, support. */
+.prose {
+  width: 100%;
+  max-width: calc(var(--measure) + var(--edge) + var(--edge-r));
+  margin: 0 auto;
+  padding: var(--s-8) var(--edge-r) var(--s-10) var(--edge);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.prose h1 {
+  font-size: clamp(2rem, 4vw, 2.75rem);
+  font-weight: var(--w-semibold);
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+}
+.prose h2 {
+  margin-top: var(--s-5);
+  font-size: var(--t-lg);
+  font-weight: var(--w-semibold);
+}
+.prose p,
+.prose li {
+  color: var(--chalk-2);
+  line-height: var(--lh-body);
+}
+.prose ul {
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.prose a {
+  color: var(--chalk);
+}
+.updated {
+  font-size: var(--t-sm);
+  color: var(--chalk-3);
+}
+/* A draft for the owner to review: said plainly at the top, dashed. */
+.draft {
+  padding: var(--s-3) var(--s-4);
+  border: var(--stroke) dashed var(--chalk);
+  border-radius: var(--r-md);
+  font-size: var(--t-sm);
+  color: var(--chalk);
+}
+.fill {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk);
+}
+
+/* Tablets and phones: one column, drawings under the words. */
+@media (max-width: 900px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s-6);
+    padding-top: var(--s-6);
+    padding-bottom: var(--s-6);
+  }
+  .heroArt {
+    max-width: 560px;
+  }
+  .part {
+    grid-template-columns: 28px minmax(0, 1fr);
+    padding: var(--s-6) 0;
+  }
+  .partArt {
+    grid-column: 2;
+    justify-self: start;
+    margin-top: var(--s-5);
+    max-width: 320px;
+  }
+}
+@media (max-width: 640px) {
+  .machineWide {
+    display: none;
+  }
+  .machineTall {
+    display: block;
+    max-width: 340px;
+  }
+  .topNav {
+    display: none;
+  }
+  .top {
+    min-height: 60px;
+  }
+  .part {
+    column-gap: var(--s-4);
+  }
+  .last {
+    padding-top: var(--s-6);
+  }
 }
