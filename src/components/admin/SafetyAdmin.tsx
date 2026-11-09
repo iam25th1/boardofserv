@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { SkeletonPanel } from "@/components/ui";
 import { ReviewPanel } from "@/components/agents/ReviewPanel";
+import { formatAmount } from "@/lib/money";
 import type { AdminSafetyDTO } from "@/lib/types";
 import styles from "./SafetyAdmin.module.css";
 
@@ -22,6 +23,37 @@ export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
   if (data === null) return <p className={styles.quiet}>This page could not load. Try again in a moment.</p>;
   return (
     <div className={styles.page}>
+      <section className={styles.section} aria-labelledby="costs-h">
+        <h2 id="costs-h">Model cost this week</h2>
+        {data.costs.length ? (
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th scope="col">Agent</th>
+                <th scope="col">Runs for</th>
+                <th scope="col">Calls</th>
+                <th scope="col">Cost</th>
+                <th scope="col">Site paid</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.costs.map((c) => (
+                <tr key={c.installationId}>
+                  <td>
+                    {c.name} <span className={styles.quiet}>by @{c.maker}</span>
+                  </td>
+                  <td>@{c.owner}</td>
+                  <td>{c.calls}</td>
+                  <td>{formatAmount(BigInt(c.week), c.decimals)} USDC</td>
+                  <td>{formatAmount(BigInt(c.sitePaid), c.decimals)} USDC</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className={styles.quiet}>No agent has made a model call this week.</p>
+        )}
+      </section>
       <section className={styles.section} aria-labelledby="reviews-h">
         <h2 id="reviews-h">Code reviews</h2>
         {data.reviews.length ? (

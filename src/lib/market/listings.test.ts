@@ -107,7 +107,9 @@ describe("its maker's listing", () => {
     const [draftOnly] = await db.insert(schema.agents).values({ ownerUserId: maker.id, name: "Unpublished" }).returning();
     expect(await setListing(rt, draftOnly!, { weeklyPrice: 1n, jobFee: 0n, listed: true })).toBeNull();
     const p = await publishedAgent(db, maker);
-    expect(await setListing(rt, p.agent, { weeklyPrice: BigInt(usdc(5)), jobFee: 0n, listed: true })).toEqual({ weeklyPrice: usdc(5), jobFee: "0", decimals: 6, listed: true, version: 1 });
+    expect(await setListing(rt, p.agent, { weeklyPrice: BigInt(usdc(5)), jobFee: 0n, listed: true })).toEqual({ weeklyPrice: usdc(5), jobFee: "0", decimals: 6, listed: true, version: 1, modelBudget: usdc(1), modelBudgetCeiling: usdc(5), modelShare: false });
+    // A maker's model budget is kept within the platform's ceiling.
+    expect(await setListing(rt, p.agent, { weeklyPrice: BigInt(usdc(5)), jobFee: 0n, listed: true, modelBudget: BigInt(usdc(50)), modelShare: true })).toMatchObject({ modelBudget: usdc(5), modelShare: true });
     expect((await agentPage(rt, p.agent.id))!.weeklyPrice).toBe(usdc(5));
     expect(await setListing(rt, p.agent, { weeklyPrice: BigInt(usdc(6)), jobFee: BigInt(usdc(0.1)), listed: false })).toMatchObject({ weeklyPrice: usdc(6), jobFee: usdc(0.1), listed: false });
     expect(await agentPage(rt, p.agent.id)).toBeNull();

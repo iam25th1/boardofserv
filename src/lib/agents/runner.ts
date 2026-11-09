@@ -4,7 +4,7 @@ import { RUN_VALUES, type ActionStepDef, type AgentDefinition, type AgentStep, t
 import { runInSandbox, DEFAULT_TIME_MS } from "./sandbox";
 import { DATA_RULE, wrapData } from "./untrusted";
 import { MockTools, ToolError, TOOL_ARGS, TOOLS } from "./toolbox";
-import { SCREEN, type BenchData, type RunEvent, type RunState, type StepCode } from "./types";
+import { BUDGET, SCREEN, type BenchData, type RunEvent, type RunState, type StepCode } from "./types";
 
 export type { JournalEntry, RunEvent, RunState } from "./types";
 
@@ -138,6 +138,9 @@ export interface EngineOptions {
   // prompt guard): a question for the renter when something looks like an
   // attempt to give the agent instructions, else null.
   screen?: (step: AgentStep, input: Record<string, unknown>, untrusted: string[], sources: string[]) => Promise<{ question: string; reason: string } | null>;
+  // Before a decision's model call: whether the week's model budget allows
+  // it (a question for the renter when it would go over, or why it stops).
+  budget?: () => Promise<{ ask: { question: string; reason: string } } | { stop: string } | null>;
   // Hand failures outside the agent back to be tried again (jobs), rather
   // than ending the run (the bench).
   retryInfra?: boolean;
@@ -449,6 +452,30 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       if (no) {
         done("failed", null, null, no);
         return end("stopped", "limit", no);
+      }
+      // The week's model budget: over it, the renter is asked once a job;
+      // a free agent out of its allowance stops here (and pauses).
+      if (o.budget && !state.budgetOk) {
+        const slot = cursor;
+        const prior = state.journal[slot];
+        if (prior?.tool === BUDGET) {
+          if (!prior.approval || !isYesAnswer(prior.approval.answer)) {
+            done("failed", null, null, "Not over the weekly model budget.");
+            return end("stopped", "declined", `${prior.approval?.answer === null ? "No answer came in time" : "You said no"} to going over the weekly model budget, so the job stopped at "${step.title}".`);
+          }
+          state.budgetOk = true;
+        } else {
+          const b = await o.budget();
+          if (b && "stop" in b) {
+            done("failed", null, null, b.stop);
+            return end("stopped", "limit", b.stop);
+          }
+          if (b && "ask" in b) {
+            state.journal[slot] = { tool: BUDGET, args: { step: step.id }, waiting: true };
+            await o.save?.(state);
+            return pause({ kind: "safety", question: b.ask.question, choices: ["Yes", "No"], reason: b.ask.reason }, slot);
+          }
+        }
       }
       const r = await o.decide(step, input, step.inputs.filter((k) => untrusted.has(k)));
       state.costUsd += r.costUsd;

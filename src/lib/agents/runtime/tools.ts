@@ -8,6 +8,7 @@ import { braveSearch, SearchRefused, SearchUnavailable } from "../../search/brav
 import type { AgentDefinition, AgentStep, ToolName } from "../definition";
 import { Blocked, Declined, Halted, InfraError, Paused, type CallContext, type ToolHost } from "../runner";
 import { askGuard, GUARD_DOWN, guardKey, type GuardInput, type GuardResult } from "../guard";
+import { budgetGate, meter } from "../metering";
 import type { Risk } from "../toolbox";
 import { unknownContacts } from "../untrusted";
 import { MAX_MEMORY_BYTES, memoryProblem, MockTools, TOOL_ARGS, ToolError } from "../toolbox";
@@ -31,6 +32,8 @@ import { fetchPage, WebUnreachable } from "./webFetch";
 // Memory is real: what the agent remembers for this owner, on their
 // installation alone. So is web.fetch (webFetch.ts), within a number of
 // pages a day for each installation.
+
+export const GUARD_OVER_BUDGET = "This agent's model budget for the week is used up, so the safety check asks you instead.";
 
 // The whole site's daily counts are kept under the nil id.
 const SITE = "00000000-0000-0000-0000-000000000000";
@@ -88,10 +91,13 @@ export class JobTools implements ToolHost {
     } else {
       const serv = this.rt.serv(owner);
       const refused = serv ? await this.rt.siteRefusal(owner, serv.ownKey) : null;
+      const gate = serv && !refused ? await budgetGate(this.rt, this.installation, serv.ownKey) : null;
       if (!serv || refused) result = { verdict: "ask", reason: GUARD_DOWN, fallback: true, call: null };
+      else if (gate && gate.kind !== "ok") result = { verdict: "ask", reason: GUARD_OVER_BUDGET, fallback: true, call: null };
       else {
         result = await askGuard(input, serv.config, { fetchImpl: this.rt.fetchImpl });
         await this.rt.record(owner, result.call!, serv.ownKey, "agent_guard");
+        await meter(this.rt, { installationId: this.installation.id, jobId: this.job?.id ?? null, agentId: this.installation.agentId, ownerUserId: this.installation.ownerUserId }, "guard", result.call!, serv.ownKey);
       }
     }
     this.checked.set(key, result);

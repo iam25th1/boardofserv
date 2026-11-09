@@ -60,3 +60,18 @@ describe("raising what asks first", () => {
     expect(await stored()).toEqual({ askFor: ["sheets.write"], autoSpendUsdc: 25 });
   });
 });
+
+describe("the weekly model budget", () => {
+  it("lets its owner set it within the ceiling, or go back to the maker's default, and nobody else", async () => {
+    state.user = owner;
+    let res = await patch({ modelBudget: "3000000" });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { installation: { budget: { budget: string } } }).installation.budget.budget).toBe("3000000");
+    expect((await patch({ modelBudget: "900000000" })).status).toBe(400);
+    expect((await patch({ modelBudget: "-1" })).status).toBe(400);
+    res = await patch({ modelBudget: null });
+    expect(((await res.json()) as { installation: { budget: { budget: string } } }).installation.budget.budget).toBe("1000000");
+    state.user = other;
+    expect((await patch({ modelBudget: "5000000" })).status).toBe(404);
+  });
+});

@@ -582,6 +582,9 @@ export const agentInstallations = pgTable(
     // always ask first, and how much it may spend per call without asking.
     // Raising only: the platform's floor applies whatever this says.
     policy: jsonb("policy").$type<{ askFor?: string[]; autoSpendUsdc?: number }>().notNull().default({}),
+    // The renter's weekly model budget (USDC minor units), within the
+    // platform's ceiling; none takes the maker's default.
+    modelBudget: numeric("model_budget", { precision: 78, scale: 0 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     stoppedAt: timestamp("stopped_at", { withTimezone: true }),
@@ -622,6 +625,9 @@ export const agentJobs = pgTable(
     status: text("status", { enum: JOB_STATUSES }).notNull().default("queued"),
     // The hold for a rented agent's fee per job, while it runs.
     feeHoldId: uuid("fee_hold_id"),
+    // When its model cost was charged to its renter (agents whose renters
+    // pay their jobs' model cost); none until then, or never.
+    modelSettledAt: timestamp("model_settled_at", { withTimezone: true }),
     // What started it: { kind: "schedule" | "check" | "message" | "manual" | "test", ... }.
     trigger: jsonb("trigger").$type<Record<string, unknown>>().notNull(),
     // json, not jsonb: kept exactly as written, keys in their order, so a
@@ -965,6 +971,11 @@ export const agentListings = pgTable(
     weeklyPrice: numeric("weekly_price", { precision: 78, scale: 0 }).notNull().default("0"),
     jobFee: numeric("job_fee", { precision: 78, scale: 0 }).notNull().default("0"),
     listed: boolean("listed").notNull().default(true),
+    // The maker's default weekly model budget for each renter (USDC minor
+    // units; none takes the platform's default), and whether renters pay
+    // their jobs' model cost on top of the fee per job.
+    modelBudget: numeric("model_budget", { precision: 78, scale: 0 }),
+    modelShare: boolean("model_share").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -1001,6 +1012,8 @@ export const rentals = pgTable(
     installationId: uuid("installation_id").references(() => agentInstallations.id, { onDelete: "set null" }),
     weeklyPrice: numeric("weekly_price", { precision: 78, scale: 0 }).notNull(),
     jobFee: numeric("job_fee", { precision: 78, scale: 0 }).notNull().default("0"),
+    // Each job's model cost is charged to the renter on top of its fee.
+    modelShare: boolean("model_share").notNull().default(false),
     status: text("status", { enum: RENTAL_STATUSES }).notNull().default("active"),
     renews: boolean("renews").notNull().default(true),
     paidUntil: timestamp("paid_until", { withTimezone: true }).notNull(),
@@ -1123,6 +1136,38 @@ export const inputScreens = pgTable("input_screens", {
   reason: text("reason").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// Every model call inside an agent run (a decision, the guard's check, the
+// input screen), metered per installation, per job and per day, in tokens
+// and in USDC minor units at the configured rates. Calls on the renter's
+// own SERV key are kept too (own_key) but cost the site nothing.
+export const agentModelUsage = pgTable(
+  "agent_model_usage",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => agentInstallations.id, { onDelete: "cascade" }),
+    jobId: uuid("job_id").references(() => agentJobs.id, { onDelete: "set null" }),
+    agentId: uuid("agent_id").notNull(),
+    ownerUserId: uuid("owner_user_id").notNull(),
+    purpose: text("purpose", { enum: ["decision", "guard", "screen"] }).notNull(),
+    provider: text("provider"),
+    model: text("model"),
+    promptTokens: integer("prompt_tokens").notNull().default(0),
+    completionTokens: integer("completion_tokens").notNull().default(0),
+    cost: numeric("cost", { precision: 78, scale: 0 }).notNull().default("0"),
+    ownKey: boolean("own_key").notNull().default(false),
+    // The UTC day, for daily totals.
+    day: text("day").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byInstallation: index("agent_model_usage_installation_idx").on(t.installationId, t.createdAt),
+    byJob: index("agent_model_usage_job_idx").on(t.jobId),
+    byDay: index("agent_model_usage_day_idx").on(t.day),
+  }),
+);
 
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;

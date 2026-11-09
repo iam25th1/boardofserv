@@ -6,6 +6,7 @@ import type { AgentMessageDTO, InstallationDTO } from "@/lib/types";
 import { ApprovalCard } from "./ApprovalCard";
 import { Controls, Glance, type ControlAction } from "./InstallationControls";
 import { SafetyPanel, type PolicyBody } from "./SafetyPanel";
+import { BudgetPanel } from "./BudgetPanel";
 import styles from "./InstallationView.module.css";
 
 // One agent running for its owner: when it runs and when next, the owner's
@@ -23,6 +24,8 @@ export interface InstallationApi {
   jobHref?: (jobId: string) => string;
   // What asks first, and the auto spend limit.
   setPolicy?: (body: PolicyBody) => Promise<InstallationDTO>;
+  // The weekly model budget (USDC minor units; null for the maker's default).
+  setBudget?: (modelBudget: string | null) => Promise<InstallationDTO>;
 }
 
 const POLL_MS = 5_000;
@@ -81,6 +84,7 @@ export function InstallationView({ initial, api, children }: { initial: Installa
       ))}
       {children}
       {api.setPolicy && data.safety && <SafetyPanel safety={data.safety} disabled={data.status === "stopped"} save={async (body) => setData(await api.setPolicy!(body))} />}
+      {api.setBudget && data.budget && <BudgetPanel budget={data.budget} disabled={data.status === "stopped"} save={async (b) => setData(await api.setBudget!(b))} />}
       {data.takesMessages && <MessageBox messages={messages} send={api.send} onSent={() => void refresh()} disabled={data.status === "stopped"} />}
       {data.memory.length > 0 && (
         <section className={styles.section} aria-label="What it remembers">

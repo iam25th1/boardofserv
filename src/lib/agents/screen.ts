@@ -1,7 +1,8 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { inputScreens, type User } from "../db/schema";
+import { inputScreens, type AgentInstallation, type User } from "../db/schema";
+import { budgetGate, meter, type Scope } from "./metering";
 import { completeJson, SERV_PROMPT_GUARD, type ChatMessage, type JsonResult } from "../model";
 import type { Runtime } from "./runtime/context";
 import { wrapData } from "./untrusted";
@@ -84,7 +85,9 @@ export function readScreen(call: JsonResult): { flagged: boolean; excerpt: strin
 
 // One screen of untrusted text for an owner's run. `label` says where it
 // came from.
-export async function screenText(rt: Runtime, owner: User, text: string, label: string): Promise<ScreenResult> {
+// scope: the run it is for, to meter the call and keep it within the
+// installation's weekly model budget (over it, the quick look stands).
+export async function screenText(rt: Runtime, owner: User, text: string, label: string, run?: { scope: Scope; installation: Pick<AgentInstallation, "id" | "agentId" | "modelBudget"> }): Promise<ScreenResult> {
   const quick = localFlag(text);
   if (quick) return { flagged: true, excerpt: quick, reason: "It reads like instructions to the agent.", by: "local", call: null };
   const hash = hashText(text);
@@ -92,6 +95,7 @@ export async function screenText(rt: Runtime, owner: User, text: string, label: 
   if (kept) return { flagged: kept.verdict === "flagged", excerpt: kept.excerpt, reason: kept.reason, by: "kept", call: null };
   const serv = rt.serv(owner);
   if (!serv || (await rt.siteRefusal(owner, serv.ownKey))) return { flagged: false, excerpt: "", reason: "", by: "local", call: null };
+  if (run && (await budgetGate(rt, run.installation, serv.ownKey)).kind !== "ok") return { flagged: false, excerpt: "", reason: "", by: "local", call: null };
   const messages: ChatMessage[] = [
     { role: "system", content: SCREEN_PROMPT },
     { role: "user", content: wrapData(label, text, 12000) },
@@ -99,6 +103,7 @@ export async function screenText(rt: Runtime, owner: User, text: string, label: 
   const config = { ...serv.config, firstTokenTimeoutMs: Math.max(serv.config.firstTokenTimeoutMs, 30_000) };
   const call = await completeJson(messages, { config, schema: SCREEN_SCHEMA, maxTokens: 200, signal: new AbortController().signal, fetchImpl: rt.fetchImpl, servTools: SERV_PROMPT_GUARD });
   await rt.record(owner, call, serv.ownKey, "agent_screen");
+  if (run) await meter(rt, run.scope, "screen", call, serv.ownKey);
   const read = readScreen(call);
   if (!read) return { flagged: false, excerpt: "", reason: "", by: "local", call };
   await rt.db

@@ -6,7 +6,8 @@ import { beat, claimJob, HEARTBEAT_MS, requeueStale, runJob } from "./jobs";
 import { expireDue } from "./approvals";
 import { fireDue } from "./triggers";
 import { deliverTelegram, tidyTelegram } from "../../telegram/deliver";
-import { settleJobFees } from "../../market/charges";
+import { chargeModelShares, settleJobFees } from "../../market/charges";
+import { resumeAllowances } from "./allowances";
 import { renewDue } from "../../market/rentals";
 
 // The agents' job worker: one cycle every few seconds, in the server
@@ -57,6 +58,10 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
       // cancelled), and the fees of jobs that ended settled.
       await renewDue(rt).catch((err: unknown) => rt.log(`rentals: renewal broke off: ${err instanceof Error ? err.name : "unknown error"}`));
       await settleJobFees(rt).catch((err: unknown) => rt.log(`rentals: settling fees broke off: ${err instanceof Error ? err.name : "unknown error"}`));
+      // Model cost: renters who pay their jobs' model cost are charged it,
+      // and free agents paused for their allowance start again each week.
+      await chargeModelShares(rt).catch((err: unknown) => rt.log(`rentals: charging model cost broke off: ${err instanceof Error ? err.name : "unknown error"}`));
+      await resumeAllowances(rt).catch((err: unknown) => rt.log(`jobs: resuming allowances broke off: ${err instanceof Error ? err.name : "unknown error"}`));
       // Questions and messages out to owners' Telegram chats, and answered
       // questions' messages settled there.
       await deliverTelegram(rt).catch((err: unknown) => rt.log(`telegram: delivery broke off: ${err instanceof Error ? err.name : "unknown error"}`));

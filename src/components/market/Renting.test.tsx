@@ -57,12 +57,12 @@ describe("the maker's listing", () => {
     render(<ListingPanel agentId="a1" version={2} listing={null} save={save} />);
     fireEvent.change(screen.getByLabelText("A week, in USDC"), { target: { value: "4.5" } });
     fireEvent.click(screen.getByRole("button", { name: "Put it on the board" }));
-    await waitFor(() => expect(save).toHaveBeenCalledWith({ weeklyPrice: "4500000", jobFee: "0", listed: true }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ weeklyPrice: "4500000", jobFee: "0", listed: true, modelBudget: "1000000", modelShare: false }));
     expect(await screen.findByRole("status")).toHaveTextContent("It's on the board.");
   });
 
   it("refuses a price it can't read, and takes a listed agent off the board", async () => {
-    const listing: MakerListingDTO = { weeklyPrice: "3000000", jobFee: "100000", decimals: 6, listed: true, version: 1 };
+    const listing: MakerListingDTO = { weeklyPrice: "3000000", jobFee: "100000", decimals: 6, listed: true, version: 1, modelBudget: "1000000", modelBudgetCeiling: "5000000", modelShare: false };
     const save = vi.fn().mockResolvedValue(undefined);
     render(<ListingPanel agentId="a1" version={1} listing={listing} save={save} />);
     expect(screen.getByLabelText("A week, in USDC")).toHaveValue("3");
@@ -74,6 +74,6 @@ describe("the maker's listing", () => {
     expect(save).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText("A week, in USDC"), { target: { value: "3" } });
     fireEvent.click(screen.getByRole("button", { name: "Take it off the board" }));
-    await waitFor(() => expect(save).toHaveBeenCalledWith({ weeklyPrice: "3000000", jobFee: "100000", listed: false }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ weeklyPrice: "3000000", jobFee: "100000", listed: false, modelBudget: "1000000", modelShare: false }));
   });
 });

@@ -36,6 +36,7 @@ export const DEMO_AGENTS: AgentListingDTO[] = [
     quality: null,
     trust: null,
     createdAt: "2026-11-02T09:00:00.000Z",
+    modelEstimate: usdc(0.12),
   },
   {
     id: "00000000-0000-4000-8000-000000000002",
@@ -51,6 +52,7 @@ export const DEMO_AGENTS: AgentListingDTO[] = [
     quality: null,
     trust: null,
     createdAt: "2026-11-05T09:00:00.000Z",
+    modelEstimate: usdc(0.08),
   },
   {
     id: "00000000-0000-4000-8000-000000000003",
@@ -66,6 +68,7 @@ export const DEMO_AGENTS: AgentListingDTO[] = [
     quality: null,
     trust: null,
     createdAt: "2026-11-06T09:00:00.000Z",
+    modelEstimate: usdc(0.85),
   },
   {
     id: "00000000-0000-4000-8000-000000000004",
@@ -81,6 +84,7 @@ export const DEMO_AGENTS: AgentListingDTO[] = [
     quality: null,
     trust: null,
     createdAt: "2026-11-08T09:00:00.000Z",
+    modelEstimate: usdc(0.34),
   },
 ];
 

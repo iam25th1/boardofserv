@@ -58,6 +58,7 @@ export function AgentPageView({ id, api }: { id: string; api: AgentPageApi }) {
           <div className={styles.priceBox}>
             <p className={styles.price}>{free ? "Free to rent" : `${price(page.weeklyPrice, page.decimals)} a week`}</p>
             {BigInt(page.jobFee) > 0n && <p className={styles.fee}>plus {price(page.jobFee, page.decimals)} for each job it finishes</p>}
+            <p className={styles.fee}>Its model calls cost about {price(page.modelEstimate, page.decimals)} a week</p>
             {api.rent?.(page)}
           </div>
           <dl className={styles.facts}>

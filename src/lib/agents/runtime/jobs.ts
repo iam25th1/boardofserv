@@ -6,6 +6,7 @@ import { askServ, readDecision, runSteps, startState, typedRules, type Decided, 
 import { FEE_SHORT, holdJobFee } from "../../market/charges";
 import { pauseForOwner } from "./approvals";
 import { screenText } from "../screen";
+import { budgetGate, meter, type Scope } from "../metering";
 import type { Runtime } from "./context";
 import { JobTools } from "./tools";
 import { spendToday } from "./views";
@@ -152,8 +153,10 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
     if (!serv) return { ok: false, note: "SERV isn't set up here.", reason: "SERV isn't set up, so its decisions can't be made.", costUsd: 0, infra: true };
     const call = await askServ(step, input, serv.config, { fetchImpl: rt.fetchImpl, untrusted });
     await rt.record(owner, call, serv.ownKey, "agent_decision");
+    await meter(rt, scope, "decision", call, serv.ownKey);
     return readDecision(step, call);
   };
+  const scope: Scope = { installationId: installation.id, jobId: job.id, agentId: installation.agentId, ownerUserId: installation.ownerUserId };
 
   let result: EngineResult;
   try {
@@ -178,10 +181,23 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
         if ((await spendToday(rt, installation.id)) >= cap) return `It reached its daily spend limit of $${cap >= 0.01 ? cap.toFixed(2) : Number(cap.toFixed(6))} for today.`;
         return serv ? rt.siteRefusal(owner, serv.ownKey) : null;
       },
+      // The week's model budget before each decision: over it, the renter
+      // is asked; a free agent out of its allowance pauses until Monday.
+      budget: async () => {
+        if (rt.decide || !serv) return null;
+        const gate = await budgetGate(rt, installation, serv.ownKey);
+        if (gate.kind === "ok") return null;
+        if (gate.kind === "ask") return { ask: { question: gate.question, reason: gate.reason } };
+        await rt.db
+          .update(agentInstallations)
+          .set({ status: "paused", pausedReason: gate.reason, updatedAt: rt.now() })
+          .where(and(eq(agentInstallations.id, installation.id), eq(agentInstallations.status, "active")));
+        return { stop: gate.reason };
+      },
       // The prompt guard on what a decision or code step reads from outside.
       screen: async (step, input, tainted, from) => {
         const text = JSON.stringify(Object.fromEntries(tainted.map((k) => [k, input[k]])));
-        const r = await screenText(rt, owner, text, `from ${from.join(", ") || "outside"}`);
+        const r = await screenText(rt, owner, text, `from ${from.join(", ") || "outside"}`, { scope, installation });
         if (!r.flagged) return null;
         return {
           question: `Something "${step.title}" is about to read, from ${from.join(" and ") || "outside"}, looks like an attempt to give the agent instructions${r.excerpt ? `: "${r.excerpt}"` : ""}. Let it go on?`,

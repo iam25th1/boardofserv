@@ -15,6 +15,10 @@ const Body = z.object({
   weeklyPrice: z.string().regex(/^\d{1,78}$/),
   jobFee: z.string().regex(/^\d{1,78}$/),
   listed: z.boolean(),
+  // The default weekly model budget for each renter (USDC minor units),
+  // and whether renters pay their jobs' model cost on top of the fee.
+  modelBudget: z.string().regex(/^\d{1,78}$/).optional(),
+  modelShare: z.boolean().optional(),
 });
 
 // The maker puts their agent's newest published version on the board for
@@ -35,7 +39,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (problem) return Response.json({ error: problem }, { status: 400 });
   }
   const rt = serverRuntime();
-  const listing = await setListing(rt, who.agent, { weeklyPrice, jobFee, listed: parsed.data.listed });
+  const listing = await setListing(rt, who.agent, { weeklyPrice, jobFee, listed: parsed.data.listed, modelBudget: parsed.data.modelBudget ? BigInt(parsed.data.modelBudget) : undefined, modelShare: parsed.data.modelShare });
   if (!listing) return Response.json({ error: "Publish a version first: renters get a published version, which never changes." }, { status: 409 });
   return Response.json({ builder: await builderOf(who.agent, (await currentVersion(who.agent.id))!) });
 }

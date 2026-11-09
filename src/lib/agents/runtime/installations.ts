@@ -11,6 +11,7 @@ import { describeTriggers } from "../schedule";
 import { checkAnswers, type InstallAnswers } from "../settingsForm";
 import { emptyBench } from "../types";
 import { readPolicy, safetyOf, type SafetyPolicy } from "../risk";
+import { budgetConfig, budgetDTO } from "../metering";
 import type { Runtime } from "./context";
 import { approvalsOf } from "./approvals";
 import { enqueue } from "./jobs";
@@ -201,7 +202,16 @@ export async function installationDTO(rt: Runtime, l: Loaded): Promise<Installat
     recentJobs: await jobsOfInstallation(rt, i.id, 5),
     approvals: await approvalsOf(rt, i.ownerUserId, { installationId: i.id, pendingOnly: true }),
     safety: safetyOf(d, readPolicy(i.policy)),
+    budget: await budgetDTO(rt, i),
   };
+}
+
+// The renter's weekly model budget, within the platform's ceiling (none
+// goes back to the maker's default).
+export async function setModelBudget(rt: Runtime, l: Loaded, budget: bigint | null): Promise<void> {
+  const ceiling = budgetConfig().ceiling;
+  const value = budget === null ? null : (budget > ceiling ? ceiling : budget < 0n ? 0n : budget).toString();
+  await rt.db.update(agentInstallations).set({ modelBudget: value, updatedAt: rt.now() }).where(eq(agentInstallations.id, l.installation.id));
 }
 
 // The renter raises what asks first (never below the platform's floor:

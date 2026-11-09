@@ -1,0 +1,98 @@
+/* A week's model cost: a chalk bar against its budget. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--slate-2);
+}
+.panel h2 {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+}
+.meter {
+  position: relative;
+  height: 12px;
+}
+.track {
+  position: absolute;
+  inset: 0;
+  border: 1.5px solid var(--chalk-3);
+  border-radius: var(--r-full);
+}
+.fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--r-full);
+  background: var(--chalk);
+  transform-origin: 0 50%;
+}
+.facts {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-5);
+}
+.facts dt {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.quiet {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  max-width: 64ch;
+}
+.set {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-3);
+}
+.set label {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  flex-basis: 100%;
+}
+.money {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+}
+.money input {
+  width: 9rem;
+  font-family: var(--font-body);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+}
+.said {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.said[data-bad] {
+  color: var(--chalk);
+  text-decoration: underline wavy var(--chalk-3);
+  text-underline-offset: 4px;
+}
+@media (max-width: 640px) {
+  .panel {
+    padding: var(--s-4);
+  }
+  .money,
+  .money input {
+    width: 100%;
+  }
+}

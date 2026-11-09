@@ -59,7 +59,7 @@ export interface RentTerms {
 // (listed or not).
 export async function rent(rt: Runtime, o: { renterUserId: string; agentId: string; offer?: RentTerms }): Promise<Rental> {
   if (!/^[0-9a-f-]{36}$/i.test(o.agentId)) throw new RentRefused("It isn't on the board to rent.", 404);
-  let row: { versionId: string; makerId: string; terms: RentTerms } | null = null;
+  let row: { versionId: string; makerId: string; terms: RentTerms; modelShare?: boolean } | null = null;
   if (o.offer) {
     const [v] = await rt.db
       .select({ versionId: agentVersions.id, makerId: agents.ownerUserId })
@@ -76,7 +76,7 @@ export async function rent(rt: Runtime, o: { renterUserId: string; agentId: stri
       .innerJoin(agents, eq(agents.id, agentListings.agentId))
       .innerJoin(agentVersions, eq(agentVersions.id, agentListings.versionId))
       .where(eq(agentListings.agentId, o.agentId));
-    if (l?.listing.listed && l.state === "published") row = { versionId: l.listing.versionId, makerId: l.makerId, terms: { weeklyPrice: l.listing.weeklyPrice, jobFee: l.listing.jobFee } };
+    if (l?.listing.listed && l.state === "published") row = { versionId: l.listing.versionId, makerId: l.makerId, terms: { weeklyPrice: l.listing.weeklyPrice, jobFee: l.listing.jobFee }, modelShare: l.listing.modelShare };
   }
   if (!row) throw new RentRefused("It isn't on the board to rent.", 404);
   if (row.makerId === o.renterUserId) throw new RentRefused("It's yours: run it from its builder, with Run it for real.", 409);
@@ -97,6 +97,7 @@ export async function rent(rt: Runtime, o: { renterUserId: string; agentId: stri
         makerUserId: makerId,
         weeklyPrice: terms.weeklyPrice,
         jobFee: terms.jobFee,
+        modelShare: row.modelShare ?? false,
         paidUntil: new Date(now.getTime() + WEEK_MS),
         weeksPaid: 1,
         createdAt: now,

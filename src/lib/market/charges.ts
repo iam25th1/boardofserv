@@ -1,6 +1,7 @@
 import "server-only";
-import { and, eq, inArray, ne } from "drizzle-orm";
-import { agentJobs, holds, rentals, type AgentJob } from "../db/schema";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
+import { agentInstallations, agentJobs, holds, rentals, type AgentJob } from "../db/schema";
+import { jobSiteCost } from "../agents/metering";
 import { holdFunds, post, releaseFunds, type Exec } from "../payments/ledger";
 import { formatAmount, splitCharge } from "../money";
 import type { Runtime } from "../agents/runtime/context";
@@ -17,7 +18,7 @@ export const usdc = (minor: string | bigint) => `${formatAmount(BigInt(minor), U
 
 // Holds `amount` of the renter's USDC for the maker, in the caller's
 // transaction. Null when the balance doesn't cover it.
-export async function holdFor(tx: Exec, o: { renterUserId: string; makerUserId: string; amount: bigint; kind: "rent" | "job_fee"; jobId?: string; at?: Date }): Promise<string | null> {
+export async function holdFor(tx: Exec, o: { renterUserId: string; makerUserId: string; amount: bigint; kind: "rent" | "job_fee" | "model"; jobId?: string; at?: Date }): Promise<string | null> {
   if (!(await holdFunds(tx, o.renterUserId, "USDC", o.amount))) return null;
   const [h] = await tx
     .insert(holds)
@@ -88,4 +89,55 @@ export async function settleJobFees(rt: Runtime, limit = 100): Promise<number> {
     if (await rt.db.transaction((tx) => (o.status === "done" ? capture(tx, o.holdId, rt.now()) : release(tx, o.holdId, rt.now())))) settled += 1;
   }
   return settled;
+}
+
+// A hold for a job's model cost, captured for the platform alone: the
+// platform paid the model, so none of it is the maker's.
+export async function capturePlatform(tx: Exec, holdId: string, at: Date = new Date()): Promise<boolean> {
+  const [h] = await tx
+    .update(holds)
+    .set({ status: "captured", settledAt: at })
+    .where(and(eq(holds.id, holdId), eq(holds.status, "held")))
+    .returning();
+  if (!h) return false;
+  const amount = BigInt(h.amount);
+  await post(tx, { userId: h.userId, currency: h.currency, kind: "use_charge", amount: -amount, referenceId: h.id, key: `hold:${h.id}:charge` });
+  await post(tx, { userId: null, currency: h.currency, kind: "platform_fee", amount, referenceId: h.id, key: `hold:${h.id}:platform` });
+  return true;
+}
+
+export const MODEL_SHORT = (cost: bigint) => `A job's model cost of ${usdc(cost)} couldn't be paid: your balance is too low. Top up your wallet, then resume it.`;
+
+// From the worker's cycle: for agents whose renters pay their jobs' model
+// cost, each ended job's cost (what the site paid, not calls on the
+// renter's own key) is charged once. A balance that can't cover it pauses
+// the installation with a plain message.
+export async function chargeModelShares(rt: Runtime, limit = 100): Promise<number> {
+  const ended = await rt.db
+    .select({ jobId: agentJobs.id, installationId: agentJobs.installationId, renterUserId: rentals.renterUserId, makerUserId: rentals.makerUserId })
+    .from(agentJobs)
+    .innerJoin(rentals, eq(rentals.installationId, agentJobs.installationId))
+    .where(and(eq(rentals.modelShare, true), isNull(agentJobs.modelSettledAt), inArray(agentJobs.status, ["done", "failed", "cancelled"])))
+    .limit(limit);
+  let charged = 0;
+  for (const e of ended) {
+    const now = rt.now();
+    const cost = await jobSiteCost(rt, e.jobId);
+    if (cost > 0n) {
+      const paid = await rt.db.transaction(async (tx) => {
+        const holdId = await holdFor(tx, { renterUserId: e.renterUserId, makerUserId: e.makerUserId, amount: cost, kind: "model", jobId: e.jobId, at: now });
+        if (!holdId) return false;
+        return capturePlatform(tx, holdId, now);
+      });
+      if (paid) charged += 1;
+      else {
+        await rt.db
+          .update(agentInstallations)
+          .set({ status: "paused", pausedReason: MODEL_SHORT(cost), updatedAt: now })
+          .where(and(eq(agentInstallations.id, e.installationId), eq(agentInstallations.status, "active")));
+      }
+    }
+    await rt.db.update(agentJobs).set({ modelSettledAt: now }).where(eq(agentJobs.id, e.jobId));
+  }
+  return charged;
 }

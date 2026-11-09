@@ -174,6 +174,22 @@ export interface InstallationDTO {
   approvals: ApprovalDTO[];
   // What it may do on its own, and what asks first.
   safety: SafetyDTO;
+  // Its model cost this week against its budget (USDC minor units).
+  budget: BudgetDTO;
+}
+
+export interface BudgetDTO {
+  spentThisWeek: string;
+  spentToday: string;
+  budget: string;
+  makerDefault: string;
+  ceiling: string;
+  // A free agent runs on the platform's weekly allowance.
+  free: boolean;
+  allowance: string;
+  // Its renter pays each job's model cost on top of the fee.
+  modelShare: boolean;
+  decimals: number;
 }
 
 // An installation's tools by risk level (read, write, outbound, money), and
@@ -213,6 +229,9 @@ export interface AgentListingDTO {
   quality: number | null;
   trust: number | null;
   createdAt: string;
+  // A rough weekly model cost (USDC minor units), from how often it runs
+  // and the model calls a run makes.
+  modelEstimate: string;
 }
 
 // An agent's own page: the listing, and the plan in plain words. Steps are
@@ -241,6 +260,12 @@ export interface MakerListingDTO {
   decimals: number;
   listed: boolean;
   version: number;
+  // The maker's default weekly model budget for each renter (USDC minor
+  // units, within the platform's ceiling), and whether renters pay their
+  // jobs' model cost on top of the fee.
+  modelBudget: string;
+  modelBudgetCeiling: string;
+  modelShare: boolean;
 }
 
 // One of the renter's rentals, as only they see it. status: "setup" until
@@ -613,5 +638,8 @@ export interface RequestPageDTO {
 
 // The admin's safety page.
 export interface AdminSafetyDTO {
+  // The installations whose model calls cost the most this week (USDC
+  // minor units), and what of that the site paid.
+  costs: { installationId: string; name: string; owner: string; maker: string; week: string; sitePaid: string; calls: number; decimals: number }[];
   reviews: { versionId: string; agentId: string; name: string; maker: string; version: number; state: "draft" | "published"; review: VersionReviewDTO }[];
 }

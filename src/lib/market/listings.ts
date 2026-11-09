@@ -7,6 +7,7 @@ import { describeTriggers } from "../agents/schedule";
 import { typedRules } from "../agents/runner";
 import type { Runtime } from "../agents/runtime/context";
 import { USDC_DECIMALS } from "./charges";
+import { budgetConfig, estimateWeekly } from "../agents/metering";
 
 // Agents on the board. Each listed agent shows what it does, what it
 // connects to, its weekly price (and fee per job), how many people rent
@@ -69,6 +70,7 @@ function listingDTO(r: Row, renters: number): AgentListingDTO {
     quality: null,
     trust: null,
     createdAt: r.listing.createdAt.toISOString(),
+    modelEstimate: estimateWeekly(d).toString(),
   };
 }
 
@@ -159,14 +161,26 @@ export async function makerListing(rt: Runtime, agentId: string): Promise<MakerL
     .from(agentListings)
     .innerJoin(agentVersions, eq(agentVersions.id, agentListings.versionId))
     .where(eq(agentListings.agentId, agentId));
-  return row ? { weeklyPrice: row.listing.weeklyPrice, jobFee: row.listing.jobFee, decimals: USDC_DECIMALS, listed: row.listing.listed, version: row.version } : null;
+  if (!row) return null;
+  const cfg = budgetConfig();
+  const budget = row.listing.modelBudget ? BigInt(row.listing.modelBudget) : cfg.byDefault;
+  return {
+    weeklyPrice: row.listing.weeklyPrice,
+    jobFee: row.listing.jobFee,
+    decimals: USDC_DECIMALS,
+    listed: row.listing.listed,
+    version: row.version,
+    modelBudget: (budget > cfg.ceiling ? cfg.ceiling : budget).toString(),
+    modelBudgetCeiling: cfg.ceiling.toString(),
+    modelShare: row.listing.modelShare,
+  };
 }
 
 // Its maker puts an agent on the board for rent (or changes its price, or
 // takes it off): the newest published version, at a weekly price and an
 // optional fee per job, in USDC minor units. A new price is for new
 // renters; those renting now keep the price they rented at.
-export async function setListing(rt: Runtime, agent: Agent, o: { weeklyPrice: bigint; jobFee: bigint; listed: boolean }): Promise<MakerListingDTO | null> {
+export async function setListing(rt: Runtime, agent: Agent, o: { weeklyPrice: bigint; jobFee: bigint; listed: boolean; modelBudget?: bigint | null; modelShare?: boolean }): Promise<MakerListingDTO | null> {
   const [version] = await rt.db
     .select({ id: agentVersions.id })
     .from(agentVersions)
@@ -175,7 +189,16 @@ export async function setListing(rt: Runtime, agent: Agent, o: { weeklyPrice: bi
     .limit(1);
   if (!version) return null;
   const now = rt.now();
-  const values = { versionId: version.id, weeklyPrice: o.weeklyPrice.toString(), jobFee: o.jobFee.toString(), listed: o.listed, updatedAt: now };
+  const ceiling = budgetConfig().ceiling;
+  const values = {
+    versionId: version.id,
+    weeklyPrice: o.weeklyPrice.toString(),
+    jobFee: o.jobFee.toString(),
+    listed: o.listed,
+    updatedAt: now,
+    ...(o.modelBudget !== undefined ? { modelBudget: o.modelBudget === null ? null : (o.modelBudget > ceiling ? ceiling : o.modelBudget).toString() } : {}),
+    ...(o.modelShare !== undefined ? { modelShare: o.modelShare } : {}),
+  };
   await rt.db
     .insert(agentListings)
     .values({ agentId: agent.id, ...values, createdAt: now })

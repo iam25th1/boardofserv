@@ -77,14 +77,18 @@ export interface RunState {
   untrusted?: string[];
   // Where each untrusted value came from, in words ("a web page").
   sources?: Record<string, string[]>;
+  // The renter let this job go over the weekly model budget.
+  budgetOk?: boolean;
 }
 
 // The screen of a step's untrusted inputs takes the step's first journal
 // place when it runs, so its pause and answer replay like a tool call's.
 export const SCREEN = "screen" as const;
+// So does the renter's answer about going over the weekly model budget.
+export const BUDGET = "budget" as const;
 
 export interface JournalEntry {
-  tool: ToolName | typeof SCREEN;
+  tool: ToolName | typeof SCREEN | typeof BUDGET;
   args: unknown;
   // What it answered, or the error it gave (absent while it waits).
   result?: unknown;

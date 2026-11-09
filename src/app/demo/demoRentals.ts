@@ -83,6 +83,7 @@ const INSTALLATION: InstallationDTO = {
     autoSpendUsdc: 0,
     maxAutoSpendUsdc: 1000,
   },
+  budget: { spentThisWeek: usdc(0.62), spentToday: usdc(0.09), budget: usdc(1), makerDefault: usdc(1), ceiling: usdc(5), free: false, allowance: usdc(0.25), modelShare: true, decimals: 6 },
 };
 
 const base = (patch: Partial<RentalDTO> & Pick<RentalDTO, "id" | "name" | "does" | "status">): RentalDTO => ({
@@ -156,7 +157,7 @@ const monday = (weeksAgo: number) => new Date(Date.UTC(2026, 10, 9) - weeksAgo *
 export const DEMO_DASHBOARD: MakerDashboardDTO = {
   agentId: "00000000-0000-4000-8000-000000000003",
   name: "Enquiry follow-up",
-  listing: { weeklyPrice: usdc(9), jobFee: usdc(0.25), decimals: 6, listed: true, version: 2 },
+  listing: { weeklyPrice: usdc(9), jobFee: usdc(0.25), decimals: 6, listed: true, version: 2, modelBudget: "1000000", modelBudgetCeiling: "5000000", modelShare: false },
   decimals: 6,
   renters: [
     { handle: "jordan_lee", since: at(-10), status: "active", version: 2, weeksPaid: 2 },

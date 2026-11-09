@@ -60,7 +60,7 @@ export function useApi() {
       saveAgentBench: (id: string, bench: BenchData) =>
         json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}/bench`, { method: "PUT", body: JSON.stringify({ bench }) }).then((d) => d.builder),
       // Put the agent on the board for rent (USDC minor units), or change it.
-      setListing: (id: string, body: { weeklyPrice: string; jobFee: string; listed: boolean }) =>
+      setListing: (id: string, body: { weeklyPrice: string; jobFee: string; listed: boolean; modelBudget?: string; modelShare?: boolean }) =>
         json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}/listing`, { method: "POST", body: JSON.stringify(body) }).then((d) => d.builder),
       // An agent's page on the board, as the signed-in viewer sees it (theirs,
       // or rented by them). Null when it isn't on the board.
@@ -136,6 +136,8 @@ export function useApi() {
         json<{ approval: ApprovalDTO }>(`/api/approvals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ answer }) }).then((d) => d.approval),
       setPolicy: (id: string, body: { askFor: string[]; autoSpendUsdc: number }) =>
         json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }).then((d) => d.installation),
+      setModelBudget: (id: string, modelBudget: string | null) =>
+        json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ modelBudget }) }).then((d) => d.installation),
       controlInstallation: (id: string, action: "pause" | "resume" | "stop" | "run" | "test" | "golive") =>
         json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}/control`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.installation),
       listAgentMessages: (id: string) => json<{ messages: AgentMessageDTO[] }>(`/api/installations/${encodeURIComponent(id)}/messages`).then((d) => d.messages),
