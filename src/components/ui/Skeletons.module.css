@@ -1,0 +1,42 @@
+/* Loading shapes: dashed chalk outlines with breathing bars inside. */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--s-4);
+}
+.card,
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-xl);
+}
+.card {
+  min-height: 150px;
+}
+.foot {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+}
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-lg);
+}
+.lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}

@@ -1,4 +1,6 @@
 "use client";
+import { useStaggerIn } from "@/lib/useStaggerIn";
+import { SkeletonRows } from "@/components/ui";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
@@ -38,6 +40,7 @@ function List() {
   const api = useApi();
   const [list, setList] = useState<ApprovalDTO[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const listRef = useStaggerIn<HTMLUListElement>(Boolean(list?.length));
   const load = useCallback(() => api.listApprovals().then(setList, () => setFailed(true)), [api]);
   useEffect(() => {
     void load();
@@ -50,12 +53,12 @@ function List() {
     return () => clearInterval(t);
   }, [api, waiting]);
   if (failed) return <p className={styles.quiet}>These could not load. Try again in a moment.</p>;
-  if (!list) return <p className={styles.loading}>getting your questions</p>;
+  if (!list) return <SkeletonRows label="Getting your questions" count={3} />;
   if (!list.length) return <p className={styles.quiet}>Nothing waits for you.</p>;
   return (
-    <ul className={styles.list}>
+    <ul className={styles.list} ref={listRef}>
       {list.map((a) => (
-        <li key={a.id}>
+        <li key={a.id} data-enter>
           <ApprovalCard
             approval={a}
             jobHref={`/app/jobs/${a.jobId}`}

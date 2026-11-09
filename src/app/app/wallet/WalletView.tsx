@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useLinkAccount, usePrivy } from "@privy-io/react-auth";
 import { Page } from "@/components/shell/Page";
-import { Button, IconButton } from "@/components/ui";
+import { Button, IconButton, SkeletonPanel } from "@/components/ui";
 import { CheckIcon, CopyIcon } from "@/components/icons";
 import { animateEnter, animateStateChange } from "@/lib/motion";
 import { formatAmount, parseAmount } from "@/lib/money";
@@ -140,7 +140,7 @@ export function WalletBody({
       </div>
     );
   }
-  if (!wallet) return <p className={styles.loading}>getting your wallet</p>;
+  if (!wallet) return <SkeletonPanel label="Getting your wallet" lines={5} />;
 
   return (
     <>

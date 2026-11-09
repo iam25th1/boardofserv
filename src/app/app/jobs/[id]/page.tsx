@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonPanel } from "@/components/ui";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
@@ -46,7 +47,7 @@ function Job({ id }: { id: string }) {
     jobApi.load().then(setJob, () => setMissing(true));
   }, [jobApi]);
   if (missing) return <p className={styles.quiet}>Nothing here.</p>;
-  if (!job) return <p className={styles.loading}>getting the job</p>;
+  if (!job) return <SkeletonPanel label="Getting the job" lines={8} />;
   return (
     <>
       <JobTimeline initial={job} api={jobApi} />

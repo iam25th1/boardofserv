@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { Button } from "@/components/ui";
+import { Button, SkeletonPanel } from "@/components/ui";
 import { formatAmount } from "@/lib/money";
 import type { AdminDTO, AdminWithdrawalDTO } from "@/lib/types";
 import type { useApi } from "@/lib/useApi";
@@ -61,7 +61,7 @@ export function AdminBody({ api }: { api: AdminApi }) {
   };
 
   if (missing) return <p className={styles.quiet}>Nothing here.</p>;
-  if (!data) return <p className={styles.loading}>getting the books</p>;
+  if (!data) return <SkeletonPanel label="Getting the books" lines={8} />;
 
   const fmt = (units: string, code: string) => {
     const c = data.currencies.find((x) => x.code === code);

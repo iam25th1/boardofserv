@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonPanel } from "@/components/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -63,7 +64,7 @@ function Builder({ id }: { id: string }) {
     builderApi.load().then(setData, () => setMissing(true));
   }, [builderApi]);
   if (missing) return <p className={styles.quiet}>Nothing here.</p>;
-  if (!data) return <p className={styles.loading}>getting the agent</p>;
+  if (!data) return <SkeletonPanel label="Getting the agent" lines={7} />;
   return (
     <>
       <AgentBuilder initial={data} api={builderApi} />

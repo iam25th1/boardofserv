@@ -1,4 +1,6 @@
 "use client";
+import { useStaggerIn } from "@/lib/useStaggerIn";
+import { SkeletonRows } from "@/components/ui";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
@@ -36,11 +38,12 @@ function List() {
   const api = useApi();
   const [list, setList] = useState<InstallationDTO[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const listRef = useStaggerIn<HTMLUListElement>(Boolean(list?.length));
   useEffect(() => {
     api.listInstallations().then(setList, () => setFailed(true));
   }, [api]);
   if (failed) return <p className={styles.quiet}>These could not load. Try again in a moment.</p>;
-  if (!list) return <p className={styles.loading}>getting what runs for you</p>;
+  if (!list) return <SkeletonRows label="Getting what runs for you" count={3} />;
   if (!list.length) {
     return (
       <p className={styles.quiet}>
@@ -49,9 +52,9 @@ function List() {
     );
   }
   return (
-    <ul className={styles.list}>
+    <ul className={styles.list} ref={listRef}>
       {list.map((i) => (
-        <li key={i.id} className={styles.panel}>
+        <li key={i.id} className={styles.panel} data-enter>
           <div className={styles.panelHead}>
             <Link href={`/app/installations/${i.id}`}>
               <strong>{i.name}</strong>

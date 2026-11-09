@@ -1,6 +1,7 @@
 "use client";
 import * as React from "react";
-import { animatePop } from "@/lib/motion";
+import { animateOpenFrom } from "@/lib/motion";
+import { usePresence } from "@/lib/usePresence";
 import styles from "./Menu.module.css";
 
 export interface MenuItem {
@@ -20,14 +21,15 @@ export function Menu({ button, items, align = "end" }: MenuProps) {
   const [open, setOpen] = React.useState(false);
   const rootRef = React.useRef<HTMLDivElement>(null);
   const triggerRef = React.useRef<HTMLButtonElement>(null);
-  const popoverRef = React.useRef<HTMLDivElement>(null);
+  const { shown, ref: popoverRef } = usePresence<HTMLDivElement>(open);
   const itemRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
 
+  // It opens from its button and fades away when it closes.
   React.useEffect(() => {
     if (!open) return;
-    if (popoverRef.current) animatePop(popoverRef.current);
+    if (popoverRef.current) animateOpenFrom(popoverRef.current, triggerRef.current);
     itemRefs.current[0]?.focus();
-  }, [open]);
+  }, [open, popoverRef]);
 
   React.useEffect(() => {
     if (!open) return;
@@ -89,8 +91,8 @@ export function Menu({ button, items, align = "end" }: MenuProps) {
       >
         {button}
       </button>
-      {open ? (
-        <div ref={popoverRef} role="menu" className={popoverClasses} onKeyDown={onMenuKeyDown}>
+      {shown ? (
+        <div ref={popoverRef} role="menu" className={popoverClasses} onKeyDown={onMenuKeyDown} aria-hidden={open ? undefined : true} style={open ? undefined : { pointerEvents: "none" }}>
           {items.map((item, i) => {
             const itemClasses = [styles.item, item.danger ? styles.danger : ""]
               .filter(Boolean)

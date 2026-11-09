@@ -1,4 +1,5 @@
 "use client";
+import { SkeletonPanel } from "@/components/ui";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
@@ -50,6 +51,6 @@ function Detail({ id }: { id: string }) {
     view.load().then(setData, () => setMissing(true));
   }, [view]);
   if (missing) return <p className={styles.quiet}>Nothing here.</p>;
-  if (!data) return <p className={styles.loading}>getting it</p>;
+  if (!data) return <SkeletonPanel label="Getting it" lines={7} />;
   return <InstallationView initial={data} api={view} />;
 }

@@ -1,8 +1,9 @@
 "use client";
+import { useStaggerIn } from "@/lib/useStaggerIn";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createTimeline, svg, utils } from "animejs";
-import { Button, Dialog } from "@/components/ui";
+import { Button, Dialog, SkeletonRows } from "@/components/ui";
 import { dustIn, ease, prefersReducedMotion } from "@/lib/motion";
 import type { ConnectionDTO } from "@/lib/types";
 import styles from "./ConnectionsView.module.css";
@@ -34,17 +35,18 @@ export type Connector = (refresh: () => Promise<void>) => React.ReactNode;
 export function ConnectionsView({ api, connect }: { api: ConnectionsApi; connect?: Partial<Record<Provider, Connector>> }) {
   const [data, setData] = useState<Awaited<ReturnType<ConnectionsApi["load"]>> | null>(null);
   const [failed, setFailed] = useState(false);
+  const listRef = useStaggerIn<HTMLUListElement>(Boolean(data));
   const load = useCallback(() => api.load().then(setData, () => setFailed(true)), [api]);
   const refresh = useCallback(() => api.load().then(setData, () => undefined), [api]);
   useEffect(() => {
     void load();
   }, [load]);
   if (failed) return <p className={styles.quiet}>Your connections could not load. Try again in a moment.</p>;
-  if (!data) return <p className={styles.loading}>getting your connections</p>;
+  if (!data) return <SkeletonRows label="Getting your connections" count={2} />;
   return (
-    <ul className={styles.list}>
+    <ul className={styles.list} ref={listRef}>
       {(["telegram", "google"] as const).map((p) => (
-        <li key={p}>
+        <li key={p} data-enter>
           <ServiceCard
             provider={p}
             connection={data.connections.find((c) => c.provider === p) ?? null}

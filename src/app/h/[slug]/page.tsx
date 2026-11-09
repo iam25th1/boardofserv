@@ -5,7 +5,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { Page } from "@/components/shell/Page";
 import { Message } from "@/components/chat/Message";
 import { Thinking } from "@/components/chat/Thinking";
-import { Button, Textarea } from "@/components/ui";
+import { Button, Textarea, SkeletonPanel } from "@/components/ui";
 import { privyAppId } from "@/lib/privy-config";
 import { formatAmount } from "@/lib/money";
 import { fetchHelper, type HelperPage } from "@/lib/publicApi";
@@ -46,7 +46,7 @@ export default function HelperPageView({ params }: { params: { slug: string } })
             </Button>
           </div>
         ) : page === null ? (
-          <p className={styles.loading}>getting the helper</p>
+          <SkeletonPanel label="Getting the helper" lines={4} />
         ) : "missing" in page ? (
           <div className={styles.gone}>
             <h1>Nothing on this board</h1>

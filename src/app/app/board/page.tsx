@@ -4,7 +4,7 @@ import Link from "next/link";
 import { createScope, createTimeline, stagger, svg, utils } from "animejs";
 import { Page } from "@/components/shell/Page";
 import { SearchIcon } from "@/components/icons";
-import { Button } from "@/components/ui";
+import { Button, SkeletonCards } from "@/components/ui";
 import { formatAmount } from "@/lib/money";
 import { REDUCED_MOTION, ease } from "@/lib/motion";
 import { fetchBoard } from "@/lib/publicApi";
@@ -85,7 +85,7 @@ export default function BoardPage() {
             </Button>
           </div>
         ) : helpers === null ? (
-          <p className={styles.loading}>getting the board</p>
+          <SkeletonCards label="Getting the board" />
         ) : helpers.length === 0 ? (
           <div className={styles.empty}>
             {query.trim() ? (

@@ -180,3 +180,12 @@ button {
     scroll-behavior: auto !important;
   }
 }
+
+/* The app's page wrapper (app/app/template.tsx): it fills the shell's main
+   area, so the chat can still fill the window. */
+.page-in {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}

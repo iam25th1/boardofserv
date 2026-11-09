@@ -1,4 +1,6 @@
 "use client";
+import { useStaggerIn } from "@/lib/useStaggerIn";
+import { SkeletonRows } from "@/components/ui";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
@@ -36,11 +38,12 @@ function List() {
   const api = useApi();
   const [agents, setAgents] = useState<AgentListItemDTO[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const listRef = useStaggerIn<HTMLUListElement>(Boolean(agents?.length));
   useEffect(() => {
     api.listAgents().then(setAgents, () => setFailed(true));
   }, [api]);
   if (failed) return <p className={styles.quiet}>Your agents could not load. Try again in a moment.</p>;
-  if (!agents) return <p className={styles.loading}>getting your agents</p>;
+  if (!agents) return <SkeletonRows label="Getting your agents" />;
   if (!agents.length) {
     return (
       <p className={styles.quiet}>
@@ -49,9 +52,9 @@ function List() {
     );
   }
   return (
-    <ul className={styles.list}>
+    <ul className={styles.list} ref={listRef}>
       {agents.map((a) => (
-        <li key={a.id}>
+        <li key={a.id} data-enter>
           <Link href={`/app/agents/${a.id}`} className={styles.card}>
             <strong>{a.name}</strong>
             <span className={styles.meta}>
