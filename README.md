@@ -55,8 +55,18 @@ in the `boardofserv_boardofserv_pgdata` volume either way.
   `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
 - `DATABASE_URL`: defaults to the Docker Postgres above.
 - `SERV_API_KEY`: SERV Reasoning, which answers the chat. Server only.
+- `DOLPHIN_API_KEY`, and optionally `DOLPHIN_BASE_URL` and `DOLPHIN_MODEL`
+  (defaults: `https://lighthouse.dphn.ai/run/text-v/v1` and
+  `deepseek-ai/DeepSeek-V4.1-Flash`, from Dolphin's docs): the chat's second
+  model, tried when SERV fails before its first token. Server only.
 - `FALLBACK_BASE_URL`, `FALLBACK_API_KEY`, `FALLBACK_MODEL`, `FALLBACK_LABEL`:
-  an OpenAI-compatible backup, tried when SERV fails before its first token.
+  an OpenAI-compatible backup, tried last, and only with all three of the
+  first set.
+- `SERV_PRICE_INPUT_PER_M`, `SERV_PRICE_OUTPUT_PER_M` (defaults 1.25 and
+  6.5), `DOLPHIN_PRICE_INPUT_PER_M`, `DOLPHIN_PRICE_OUTPUT_PER_M` (0.01 and
+  0.07) and `FALLBACK_PRICE_INPUT_PER_M`, `FALLBACK_PRICE_OUTPUT_PER_M`
+  (SERV's): what each model costs in US dollars per million tokens, for the
+  daily spend estimate.
 - `MODEL_FIRST_TOKEN_TIMEOUT_MS` (optional, default 20000): how long a model
   may stay silent before the reply moves on to the backup or is cut off.
 - `CHAT_HISTORY_MESSAGES` (optional, default 12) and `CHAT_MAX_TOKENS`
@@ -144,8 +154,15 @@ What is locked down, and what isn't yet:
 
 `src/lib/model.ts` holds an ordered list of OpenAI-compatible providers: SERV
 Reasoning (`https://inference-api.openserv.ai/v1`, model `claude-haiku-4.5`,
-`SERV_API_KEY` as a bearer token) first, then the backup from `FALLBACK_*`.
-Replies stream from whichever answers first.
+`SERV_API_KEY` as a bearer token) first, then Dolphin (`DOLPHIN_API_KEY`,
+model `deepseek-ai/DeepSeek-V4.1-Flash` by default), then the backup from
+`FALLBACK_*`. Replies stream from whichever answers first. A published
+helper's uses go to SERV only, since only SERV knows its Prompt Guard.
+
+Dolphin's model reasons before it answers, and its reasoning counts against
+the token cap: with a small cap, as on the plan call, it can spend all of it
+reasoning and send back no text, which counts as an empty reply. Dolphin
+reports usage when asked (`stream_options.include_usage`).
 
 - Before the first token, a network error, a timeout, a 5xx, a 429, a 402 or an
   empty reply moves on to the next provider. Each provider is tried once per

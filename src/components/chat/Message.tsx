@@ -56,6 +56,7 @@ function useDustInWords(body: React.RefObject<HTMLDivElement>, content: string, 
 // What the model label's tooltip says, by who answered.
 const SOURCE_TIP: Record<string, (label: string) => string> = {
   serv: () => "Answered by SERV Reasoning",
+  dolphin: () => "Answered by Dolphin, the second model",
   fallback: (label) => `Answered by ${label}, the backup model`,
   demo: () => "A demo reply from the development build",
 };
@@ -136,6 +137,7 @@ export function Message({ message, streaming, canEdit, canRegenerate, onRegenera
         <Markdown content={message.content} words={Boolean(streaming || message.settled)} />
         {streaming && <span className={styles.caret} aria-hidden="true" />}
       </div>
+      {message.source === "dolphin" && <p className={styles.note}>Answered by Dolphin, the second model.</p>}
       {message.source === "fallback" && <p className={styles.note}>Answered by the backup model.</p>}
       {message.source === "demo" && <p className={styles.note}>A demo reply. No model is set up.</p>}
       <div className={styles.foot}>

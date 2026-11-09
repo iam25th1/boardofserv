@@ -1,8 +1,9 @@
 import "server-only";
 
 // The model behind the chat: an ordered list of OpenAI-compatible providers.
-// SERV Reasoning comes first, the backup named by FALLBACK_* second. A reply
-// streams from the first provider that answers.
+// SERV Reasoning comes first, Dolphin second (with DOLPHIN_API_KEY set), the
+// backup named by FALLBACK_* last. A reply streams from the first provider
+// that answers.
 //
 // Before the first token, a network error, a timeout, a 5xx, a 429, a 402 or
 // an empty reply moves on to the next provider. Each provider is tried once
@@ -30,6 +31,10 @@ export interface ChatMessage {
 export const SERV_BASE_URL = "https://inference-api.openserv.ai/v1";
 export const SERV_MODEL = "claude-haiku-4.5";
 export const SERV_LABEL = "SERV Reasoning";
+// Dolphin's OpenAI-compatible API, as https://dphn.ai/docs/dphn-api lists it.
+export const DOLPHIN_BASE_URL = "https://lighthouse.dphn.ai/run/text-v/v1";
+export const DOLPHIN_MODEL = "deepseek-ai/DeepSeek-V4.1-Flash";
+export const DOLPHIN_LABEL = "Dolphin";
 const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 20_000;
 // Usage limits: the system prompt plus the last 12 messages go out (older
 // history is dropped, not summarised), and a reply is capped at 700 tokens.
@@ -49,10 +54,10 @@ export const SERV_PROMPT_GUARD = [{ type: "function", function: { name: "serv_pr
 export const NO_MODEL_ERROR =
   "No model is set up for this chat, so there is no reply. Add SERV_API_KEY to the server environment and restart.";
 
-export type ProviderId = "serv" | "fallback" | "demo";
+export type ProviderId = Provider["id"] | "demo";
 
 export interface Provider {
-  id: "serv" | "fallback";
+  id: "serv" | "dolphin" | "fallback";
   label: string;
   baseUrl: string;
   apiKey: string;
@@ -81,6 +86,16 @@ export function modelConfig(env: Record<string, string | undefined> = process.en
   if (env.SERV_API_KEY) {
     providers.push({ id: "serv", label: SERV_LABEL, baseUrl: SERV_BASE_URL, apiKey: env.SERV_API_KEY, model: SERV_MODEL, askForUsage: false });
   }
+  if (env.DOLPHIN_API_KEY) {
+    providers.push({
+      id: "dolphin",
+      label: DOLPHIN_LABEL,
+      baseUrl: (env.DOLPHIN_BASE_URL || DOLPHIN_BASE_URL).replace(/\/+$/, ""),
+      apiKey: env.DOLPHIN_API_KEY,
+      model: env.DOLPHIN_MODEL || DOLPHIN_MODEL,
+      askForUsage: true,
+    });
+  }
   if (env.FALLBACK_BASE_URL && env.FALLBACK_API_KEY && env.FALLBACK_MODEL) {
     providers.push({
       id: "fallback",
@@ -98,6 +113,34 @@ export function modelConfig(env: Record<string, string | undefined> = process.en
     maxTokens: positiveInt(env.CHAT_MAX_TOKENS, DEFAULT_MAX_TOKENS),
     planMaxTokens: positiveInt(env.SKETCH_MAX_TOKENS, DEFAULT_PLAN_MAX_TOKENS),
   };
+}
+
+// What each provider's model costs, in US dollars per million tokens, for the
+// spend estimate (see spend.ts). SERV's figure is the one servpit found;
+// Dolphin's is from its docs. The backup's model is whatever FALLBACK_MODEL
+// names, so it is priced like SERV until FALLBACK_PRICE_* says otherwise.
+export interface Price {
+  input: number;
+  output: number;
+}
+
+const DEFAULT_PRICES: Record<Provider["id"], Price> = {
+  serv: { input: 1.25, output: 6.5 },
+  dolphin: { input: 0.01, output: 0.07 },
+  fallback: { input: 1.25, output: 6.5 },
+};
+
+function dollars(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return raw?.trim() && Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+export function modelPrices(env: Record<string, string | undefined> = process.env): Record<Provider["id"], Price> {
+  const of = (id: Provider["id"], prefix: string): Price => ({
+    input: dollars(env[`${prefix}_PRICE_INPUT_PER_M`], DEFAULT_PRICES[id].input),
+    output: dollars(env[`${prefix}_PRICE_OUTPUT_PER_M`], DEFAULT_PRICES[id].output),
+  });
+  return { serv: of("serv", "SERV"), dolphin: of("dolphin", "DOLPHIN"), fallback: of("fallback", "FALLBACK") };
 }
 
 // SERV rejects a request with no system message. Guarantee exactly one, first.
@@ -283,6 +326,7 @@ async function* attempt(
 
 function providerName(id: Provider["id"], first: boolean): string {
   if (id === "serv") return SERV_LABEL;
+  if (id === "dolphin") return DOLPHIN_LABEL;
   return first ? "The backup model" : "the backup model";
 }
 

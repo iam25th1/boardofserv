@@ -61,7 +61,8 @@ export const messages = pgTable(
 );
 
 // One row per reply, to keep model usage visible. Never any message text.
-// provider is "serv", "fallback" or "demo", or null when nothing answered.
+// provider is "serv", "dolphin", "fallback" or "demo", or null when nothing
+// answered.
 // outcome: "ok" (the first provider answered), "fell_back" (a later one did)
 // or "failed" (nothing answered, or the reply was cut off mid-stream). Token
 // counts are whatever the provider reported, null when it reported none.
