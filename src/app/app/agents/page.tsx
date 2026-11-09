@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
-import { TopBar, TopLink } from "@/components/chat/TopBar";
+import { Page } from "@/components/shell/Page";
+import { YourAgentsNav } from "@/components/shell/SubNav";
 import { privyAppId } from "@/lib/privy-config";
 import type { AgentListItemDTO } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
@@ -12,16 +13,9 @@ import styles from "./agents.module.css";
 // version is published. Not the board: agents aren't for renting yet.
 export default function AgentsPage() {
   return (
-    <div className={styles.page}>
-      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} />
-      <main className={styles.col}>
-        <header className={styles.head}>
-          <h1>Agents you&apos;re building</h1>
-          <p className={styles.note}>only you see these</p>
-        </header>
-        {privyAppId() ? <SignedIn /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}
-      </main>
-    </div>
+    <Page title="Agents you make" note="only you see these" width="wide" above={<YourAgentsNav />}>
+      {privyAppId() ? <SignedIn /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}
+    </Page>
   );
 }
 

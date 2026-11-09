@@ -88,6 +88,7 @@
   /* Layout */
   --col: 720px;
   --top-col: 768px;
+  --wide: 1200px;
   --gutter: 24px;
   --focus: 2px dashed var(--chalk);
 }

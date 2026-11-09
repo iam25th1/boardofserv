@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
-import { TopBar, TopLink } from "@/components/chat/TopBar";
+import { Page } from "@/components/shell/Page";
+import { YourAgentsNav } from "@/components/shell/SubNav";
 import { Controls, Glance } from "@/components/agents/InstallationControls";
 import { privyAppId } from "@/lib/privy-config";
 import type { InstallationDTO } from "@/lib/types";
@@ -12,16 +13,9 @@ import styles from "../agents/agents.module.css";
 // The agents running for the signed-in owner.
 export default function InstallationsPage() {
   return (
-    <div className={styles.page}>
-      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} />
-      <main className={styles.col}>
-        <header className={styles.head}>
-          <h1>Running for you</h1>
-          <p className={styles.note}>only you see these</p>
-        </header>
-        {privyAppId() ? <SignedIn /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}
-      </main>
-    </div>
+    <Page title="Running for you" note="only you see these" width="wide" above={<YourAgentsNav />}>
+      {privyAppId() ? <SignedIn /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}
+    </Page>
   );
 }
 

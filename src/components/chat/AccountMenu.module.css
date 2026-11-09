@@ -2,32 +2,60 @@
   position: relative;
 }
 
+/* The account button: the initial in a ring, then the @handle. */
 .trigger {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: 1.5px solid var(--chalk-3);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  max-width: 200px;
+  min-height: 36px;
+  padding: 2px 12px 2px 2px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--line);
+  color: var(--chalk);
   transition:
     border-color var(--dur) var(--ease),
     background-color var(--dur) var(--ease);
 }
 .trigger:hover,
 .trigger[aria-expanded="true"] {
-  border-color: var(--chalk);
+  border-color: var(--chalk-3);
   background: var(--dust);
 }
-/* Something is waiting on you: the same dashed ring as a waiting node. */
-.trigger[data-needs-you="true"] {
-  border-style: dashed;
-  border-color: var(--chalk);
+.trigger:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
 }
 
 .avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--chalk-3);
   font-size: var(--t-sm);
   font-weight: var(--w-semibold);
   line-height: 1;
+}
+/* Something is waiting on you: the same dashed ring as a waiting node. */
+.trigger[data-needs-you="true"] .avatar {
+  border-style: dashed;
+  border-color: var(--chalk);
+}
+.handle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-sm);
+  font-weight: var(--w-medium);
+}
+@media (max-width: 420px) {
+  .trigger {
+    max-width: 140px;
+  }
 }
 
 .panel {

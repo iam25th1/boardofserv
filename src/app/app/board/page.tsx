@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createScope, createTimeline, stagger, svg, utils } from "animejs";
-import { TopBar, TopLink } from "@/components/chat/TopBar";
+import { Page } from "@/components/shell/Page";
 import { SearchIcon } from "@/components/icons";
 import { Button } from "@/components/ui";
 import { formatAmount } from "@/lib/money";
@@ -70,13 +70,7 @@ export default function BoardPage() {
   }, [entrance]);
 
   return (
-    <div className={styles.page}>
-      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} here="board" />
-      <main className={styles.col}>
-        <header className={styles.head}>
-          <h1>The board</h1>
-          <p className={styles.note}>helpers people made, free to try</p>
-        </header>
+    <Page title="The board" note="helpers people made, free to try" width="wide">
 
         <label className={styles.search}>
           <SearchIcon size={16} />
@@ -124,7 +118,6 @@ export default function BoardPage() {
             ))}
           </ul>
         )}
-      </main>
-    </div>
+    </Page>
   );
 }

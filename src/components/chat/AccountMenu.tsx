@@ -30,9 +30,10 @@ const CREDIT_TEXT: Record<CreditState, string> = {
   unknown: "Credit unknown",
 };
 
-// The account menu at the right of the top bar. The avatar ring follows the
-// agents popover's language: a solid ring when all is well, a dashed one when
-// something is waiting on you (a linked OpenServ account low on credit).
+// The account menu at the right of the top bar: the account's initial in a
+// ring and its @handle beside it. The ring follows the agents popover's
+// language: solid when all is well, dashed when something is waiting on you
+// (a linked OpenServ account low on credit).
 export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, onSaveHandle, onSaveServKey, onRemoveServKey, startOpen }: Props) {
   const [open, setOpen] = useState(Boolean(startOpen));
   const panel = useRef<HTMLDivElement>(null);
@@ -75,7 +76,8 @@ export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, 
   }, [open]);
 
   const email = account?.email ?? "Signed in";
-  const initial = (account?.email ?? "b").charAt(0).toUpperCase();
+  const handle = account?.handle ?? null;
+  const initial = (handle ?? account?.email ?? "b").charAt(0).toUpperCase();
 
   return (
     <div className={styles.wrap} ref={wrap}>
@@ -86,12 +88,17 @@ export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, 
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-controls={panelId}
-        aria-label={`Account, ${email}${credit ? `. ${CREDIT_TEXT[credit]}` : ""}`}
+        aria-label={`Account${handle ? `, @${handle}` : ""}, ${email}${credit ? `. ${CREDIT_TEXT[credit]}` : ""}`}
         data-needs-you={needsYou ? "true" : "false"}
       >
         <span className={styles.avatar} aria-hidden="true">
           {initial}
         </span>
+        {handle && (
+          <span className={styles.handle} aria-hidden="true">
+            @{handle}
+          </span>
+        )}
       </button>
 
       {open && (

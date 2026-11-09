@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
-import { TopBar, TopLink } from "@/components/chat/TopBar";
+import { Page } from "@/components/shell/Page";
+import { YourAgentsNav } from "@/components/shell/SubNav";
 import { ApprovalCard } from "@/components/agents/ApprovalCard";
 import { privyAppId } from "@/lib/privy-config";
 import type { ApprovalDTO } from "@/lib/types";
@@ -14,16 +15,9 @@ import styles from "../agents/agents.module.css";
 const POLL_MS = 5_000;
 export default function ApprovalsPage() {
   return (
-    <div className={styles.page}>
-      <TopBar agents={<TopLink href="/app/installations">Running for you</TopLink>} />
-      <main className={styles.col}>
-        <header className={styles.head}>
-          <h1>Waiting for your answer</h1>
-          <p className={styles.note}>a job waits on each until you answer</p>
-        </header>
-        {privyAppId() ? <SignedIn /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}
-      </main>
-    </div>
+    <Page title="Waiting for your answer" note="a job waits on each until you answer" width="narrow" above={<YourAgentsNav />}>
+      {privyAppId() ? <SignedIn /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}
+    </Page>
   );
 }
 

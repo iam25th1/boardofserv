@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
-import { TopBar, TopLink } from "@/components/chat/TopBar";
+import { Page } from "@/components/shell/Page";
 import { Message } from "@/components/chat/Message";
 import { Thinking } from "@/components/chat/Thinking";
 import { Button, Textarea } from "@/components/ui";
@@ -37,9 +37,7 @@ export default function HelperPageView({ params }: { params: { slug: string } })
   }, [load]);
 
   return (
-    <div className={styles.page}>
-      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} />
-      <main className={styles.col}>
+    <Page>
         {failed ? (
           <div className={styles.gone}>
             <p>This helper could not load.</p>
@@ -79,8 +77,7 @@ export default function HelperPageView({ params }: { params: { slug: string } })
             )}
           </>
         )}
-      </main>
-    </div>
+    </Page>
   );
 }
 

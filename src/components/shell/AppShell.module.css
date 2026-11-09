@@ -1,0 +1,149 @@
+/* The app's shell: one top bar over every page, the page under it. The bar
+   spans the window; its contents keep to the widest page's measure. */
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+.shell[data-fit="true"] {
+  height: 100dvh;
+  overflow: hidden;
+}
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  flex: none;
+  background: var(--slate);
+  border-bottom: 1px solid var(--line);
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+  width: 100%;
+  max-width: var(--wide);
+  margin: 0 auto;
+  min-height: 60px;
+  padding: 0 max(var(--gutter), env(safe-area-inset-right, 0px)) 0 max(var(--gutter), env(safe-area-inset-left, 0px));
+}
+.home {
+  display: inline-flex;
+  color: var(--chalk);
+  text-decoration: none;
+  border-radius: var(--r-md);
+}
+.home:focus-visible {
+  outline: var(--focus);
+  outline-offset: 3px;
+}
+.places {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.place {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: var(--r-full);
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+.place:hover {
+  color: var(--chalk);
+  background: var(--dust);
+}
+.place[aria-current="page"] {
+  color: var(--chalk);
+  font-weight: var(--w-medium);
+}
+/* Where you are: a short chalk stroke under the place. */
+.place[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 3px;
+  height: var(--stroke);
+  border-radius: var(--r-full);
+  background: var(--chalk);
+}
+.place:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.signIn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 var(--s-4);
+  border-radius: var(--r-full);
+  border: var(--stroke) solid var(--chalk);
+  color: var(--chalk);
+  font-size: var(--t-sm);
+  font-weight: var(--w-medium);
+  text-decoration: none;
+}
+.signIn:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.placeholder {
+  width: 120px;
+  height: 36px;
+}
+.navPhone {
+  display: none;
+}
+.main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Phones: the mark and the account on the first row, the places below. */
+@media (max-width: 760px) {
+  .row {
+    gap: var(--s-3);
+    min-height: 52px;
+  }
+  .nav {
+    display: none;
+  }
+  .navPhone {
+    display: block;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding: 0 max(var(--s-3), env(safe-area-inset-right, 0px)) 6px max(var(--s-3), env(safe-area-inset-left, 0px));
+  }
+  .navPhone::-webkit-scrollbar {
+    display: none;
+  }
+  .placeholder {
+    width: 44px;
+  }
+}
+@media (max-width: 420px) {
+  .row :global(.wordmark-name) {
+    display: none;
+  }
+}

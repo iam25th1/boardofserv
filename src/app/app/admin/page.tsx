@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
-import { TopBar, TopLink } from "@/components/chat/TopBar";
+import { Page } from "@/components/shell/Page";
 import { privyAppId } from "@/lib/privy-config";
 import { useApi } from "@/lib/useApi";
 import { AdminBody } from "./AdminView";
@@ -14,15 +14,9 @@ import styles from "./admin.module.css";
 
 export default function AdminPage() {
   return (
-    <div className={styles.page}>
-      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} />
-      <main className={styles.col}>
-        <header className={styles.head}>
-          <h1>Admin</h1>
-        </header>
-        {privyAppId() ? <SignedIn /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}
-      </main>
-    </div>
+    <Page title="Admin" width="wide">
+      {privyAppId() ? <SignedIn /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}
+    </Page>
   );
 }
 

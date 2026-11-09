@@ -4,13 +4,13 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useApi } from "@/lib/useApi";
 import type { AccountDTO, AgentSummaryDTO, ConversationDTO } from "@/lib/types";
 import { Button, Dialog, TextInput, useToast } from "@/components/ui";
+import { SHORTCUTS_EVENT } from "@/components/shell/AppShell";
+import { useShellAccount } from "@/components/shell/AccountContext";
 import { AgentsPill, type AgentsPillHandle } from "./AgentsPill";
-import { AccountMenu } from "./AccountMenu";
 import { MessageList, type StreamingView } from "./MessageList";
 import { Composer } from "./Composer";
 import { EmptyState } from "./EmptyState";
 import { ShortcutsDialog } from "./ShortcutsDialog";
-import { TopBar } from "./TopBar";
 import { SketchDock } from "./SketchDock";
 import { AgentDock } from "./AgentDock";
 import { Chips } from "./Chips";
@@ -25,7 +25,6 @@ import styles from "./ChatShell.module.css";
 
 export function ChatShell({ initialAccount = null }: { initialAccount?: AccountDTO | null } = {}) {
   const api = useApi();
-  const { logout } = usePrivy();
   const toast = useToast();
 
   const [conversations, setConversations] = useState<ConversationDTO[]>([]);
@@ -97,6 +96,22 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
       setAccount(null);
     }
   }, [api]);
+
+  // The shell's account menu asks for the shortcuts; the shell's account
+  // follows what the chat learns about it, and the other way round.
+  const shell = useShellAccount();
+  useEffect(() => {
+    const open = () => setShortcuts(true);
+    window.addEventListener(SHORTCUTS_EVENT, open);
+    return () => window.removeEventListener(SHORTCUTS_EVENT, open);
+  }, []);
+  useEffect(() => {
+    if (shell.account) setAccount(shell.account);
+  }, [shell.account]);
+  useEffect(() => {
+    if (account) shell.setAccount(account);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account]);
 
   useEffect(() => {
     void refreshConversations();
@@ -521,37 +536,26 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
 
   return (
     <div className={styles.app}>
-      <TopBar
-        agents={
-          <AgentsPill
-            ref={agentsRef}
-            conversations={conversations}
-            activeId={activeId}
-            replyingId={busy ? activeId : null}
-            onNew={startNew}
-            onSelect={openConversation}
-            onRename={(id) => {
-              setRenameId(id);
-              const c = conversations.find((x) => x.id === id);
-              setRenameValue(c?.sketchName ?? c?.title ?? "");
-            }}
-            onDelete={(id) => setDeleteId(id)}
-            onUnpublish={(id) => setUnpublishId(id)}
-            onPrice={currencies.length ? (id) => void openPrice(id) : undefined}
-          />
-        }
-        account={
-          <AccountMenu
-            account={account}
-            onSignOut={() => void logout()}
-            onOpenShortcuts={() => setShortcuts(true)}
-            checkHandle={api.checkHandle}
-            onSaveHandle={saveHandle}
-            onSaveServKey={saveServKey}
-            onRemoveServKey={removeServKey}
-          />
-        }
-      />
+      {/* The app shell has the top bar; the chat's own row holds its
+          conversations. */}
+      <div className={styles.row}>
+        <AgentsPill
+          ref={agentsRef}
+          conversations={conversations}
+          activeId={activeId}
+          replyingId={busy ? activeId : null}
+          onNew={startNew}
+          onSelect={openConversation}
+          onRename={(id) => {
+            setRenameId(id);
+            const c = conversations.find((x) => x.id === id);
+            setRenameValue(c?.sketchName ?? c?.title ?? "");
+          }}
+          onDelete={(id) => setDeleteId(id)}
+          onUnpublish={(id) => setUnpublishId(id)}
+          onPrice={currencies.length ? (id) => void openPrice(id) : undefined}
+        />
+      </div>
 
       {messages.length === 0 && !streaming ? (
         <EmptyState onPick={send} disabled={busy || Boolean(blocked)} />

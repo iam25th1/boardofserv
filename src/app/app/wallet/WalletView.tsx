@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useLinkAccount, usePrivy } from "@privy-io/react-auth";
-import { TopBar, TopLink } from "@/components/chat/TopBar";
+import { Page } from "@/components/shell/Page";
 import { Button, IconButton } from "@/components/ui";
 import { CheckIcon, CopyIcon } from "@/components/icons";
 import { animateEnter, animateStateChange } from "@/lib/motion";
@@ -25,13 +25,7 @@ export interface QrPath {
 
 export function WalletView({ payments, qr }: { payments: PaymentsDTO; qr: QrPath | null }) {
   return (
-    <div className={styles.page}>
-      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} />
-      <main className={styles.col}>
-        <header className={styles.head}>
-          <h1>Your wallet</h1>
-          <p className={styles.note}>top up, pay for helpers, withdraw what you earn</p>
-        </header>
+    <Page title="Your wallet" note="top up, pay for helpers and rent, withdraw what you earn">
         {!privyAppId() ? (
           <p className={styles.quiet}>Sign-in isn&apos;t set up here, so there is no wallet yet.</p>
         ) : !payments.enabled ? (
@@ -39,8 +33,7 @@ export function WalletView({ payments, qr }: { payments: PaymentsDTO; qr: QrPath
         ) : (
           <SignedIn payments={payments} qr={qr} />
         )}
-      </main>
-    </div>
+    </Page>
   );
 }
 

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
-import { TopBar, TopLink } from "@/components/chat/TopBar";
+import { Page } from "@/components/shell/Page";
 import { AgentBuilder, type BuilderApi } from "@/components/agents/AgentBuilder";
 import { AgentRuns } from "@/components/agents/AgentRuns";
 import { privyAppId } from "@/lib/privy-config";
@@ -14,10 +14,7 @@ import styles from "../agents.module.css";
 // An agent's builder and test bench, for its maker only.
 export default function AgentPage({ params }: { params: { id: string } }) {
   return (
-    <div className={styles.page}>
-      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} />
-      <main className={styles.col}>{privyAppId() ? <SignedIn id={params.id} /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}</main>
-    </div>
+    <Page width="wide">{privyAppId() ? <SignedIn id={params.id} /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}</Page>
   );
 }
 

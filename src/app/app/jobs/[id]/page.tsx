@@ -2,7 +2,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
-import { TopBar, TopLink } from "@/components/chat/TopBar";
+import { Page } from "@/components/shell/Page";
+import { YourAgentsNav } from "@/components/shell/SubNav";
 import { JobTimeline, type JobApi } from "@/components/agents/JobTimeline";
 import { privyAppId } from "@/lib/privy-config";
 import type { JobDTO } from "@/lib/types";
@@ -13,10 +14,7 @@ import styles from "../../agents/agents.module.css";
 // without the owner's data.
 export default function JobPage({ params }: { params: { id: string } }) {
   return (
-    <div className={styles.page}>
-      <TopBar agents={<TopLink href="/app/installations">Running for you</TopLink>} />
-      <main className={styles.col}>{privyAppId() ? <SignedIn id={params.id} /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}</main>
-    </div>
+    <Page above={<YourAgentsNav />}>{privyAppId() ? <SignedIn id={params.id} /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}</Page>
   );
 }
 
