@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
 import { TopBar, TopLink } from "@/components/chat/TopBar";
+import { Controls, Glance } from "@/components/agents/InstallationControls";
 import { privyAppId } from "@/lib/privy-config";
 import type { InstallationDTO } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
@@ -56,14 +57,26 @@ function List() {
   return (
     <ul className={styles.list}>
       {list.map((i) => (
-        <li key={i.id}>
-          <Link href={`/installations/${i.id}`} className={styles.card}>
-            <strong>{i.name}</strong>
-            <span className={styles.meta}>version {i.version}</span>
+        <li key={i.id} className={styles.panel}>
+          <div className={styles.panelHead}>
+            <Link href={`/installations/${i.id}`}>
+              <strong>{i.name}</strong>
+            </Link>
+            <span className={styles.meta}>
+              version {i.version}, {i.runs.join("; ").toLowerCase()}
+            </span>
             <span className={styles.chip} data-testing={i.status === "active" ? "true" : "false"}>
               {i.status}
             </span>
-          </Link>
+          </div>
+          <Glance data={i} />
+          <Controls
+            data={i}
+            onControl={async (action) => {
+              const next = await api.controlInstallation(i.id, action);
+              setList((all) => all?.map((x) => (x.id === next.id ? next : x)) ?? null);
+            }}
+          />
         </li>
       ))}
     </ul>

@@ -1,0 +1,32 @@
+.glance {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: var(--s-3) var(--s-4);
+  margin: 0;
+}
+.glance dt {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.glance dd {
+  margin: 0;
+  font-size: var(--t-sm);
+}
+.jobs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--s-2);
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+.said {
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+}

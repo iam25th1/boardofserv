@@ -57,6 +57,7 @@ import * as approvalRoute from "@/app/api/approvals/[id]/route";
 import * as jobRoute from "@/app/api/jobs/[id]/route";
 import * as installationJobs from "@/app/api/installations/[id]/jobs/route";
 import * as agentJobs from "@/app/api/agents/[id]/jobs/route";
+import * as installationControl from "@/app/api/installations/[id]/control/route";
 import * as demoAgent from "@/app/api/demo/agent/route";
 
 // A published helper's system prompt and canary never leave the server. This
@@ -126,6 +127,7 @@ const ROUTES: Record<string, object> = {
   "jobs/[id]": jobRoute,
   "installations/[id]/jobs": installationJobs,
   "agents/[id]/jobs": agentJobs,
+  "installations/[id]/control": installationControl,
   "demo/agent": demoAgent,
 };
 
@@ -619,6 +621,8 @@ describe("a helper's instructions stay on the server", () => {
       await hit("agent: answer nothing", approvalRoute.POST(req(`/api/approvals/${cid}`, "POST", { answer: "Yes" }), { params: { id: cid } }));
       await hit("agent: installation jobs", installationJobs.GET(req(`/api/installations/${ip.params.id}/jobs`), ip));
       await hit("agent: maker's jobs", agentJobs.GET(req(`/api/agents/${id}/jobs`), p));
+      await hit("agent: pause", installationControl.POST(req(`/api/installations/${ip.params.id}/control`, "POST", { action: "pause" }), ip));
+      await hit("agent: resume", installationControl.POST(req(`/api/installations/${ip.params.id}/control`, "POST", { action: "resume" }), ip));
       await hit("agent: job that isn't there", jobRoute.GET(req(`/api/jobs/${cid}`), { params: { id: cid } }));
       await hit("agent: fix", agentFix.POST(req(`/api/agents/${id}/fix`, "POST", { message: "it ignored delivery time" }), p));
       await jobFor((await draftOf(id))!.id);
@@ -643,6 +647,7 @@ describe("a helper's instructions stay on the server", () => {
         await hit(`agent: ${tag} approvals`, approvalsRoute.GET(req("/api/approvals")));
         await hit(`agent: ${tag} installation jobs`, installationJobs.GET(req(`/api/installations/${ip.params.id}/jobs`), ip));
         await hit(`agent: ${tag} maker's jobs`, agentJobs.GET(req(`/api/agents/${id}/jobs`), p));
+        await hit(`agent: ${tag} stop`, installationControl.POST(req(`/api/installations/${ip.params.id}/control`, "POST", { action: "stop" }), ip));
       }
     } finally {
       vi.stubEnv("DOLPHIN_API_KEY", "");

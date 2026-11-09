@@ -41,6 +41,8 @@ function Detail({ id }: { id: string }) {
       load: () => api.getInstallation(id),
       messages: () => api.listAgentMessages(id),
       send: (text) => api.messageAgent(id, text),
+      control: (action) => api.controlInstallation(id, action),
+      answer: async (approvalId, answer) => void (await api.answerApproval(approvalId, answer)),
     }),
     [api, id],
   );

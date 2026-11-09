@@ -146,6 +146,10 @@ export interface InstallationDTO {
   checkNote: string | null;
   // What the agent remembers for this owner (theirs alone).
   memory: { key: string; description: string; value: unknown }[];
+  spendTodayUsd: number;
+  recentJobs: JobSummaryDTO[];
+  // The questions its jobs wait on.
+  approvals: ApprovalDTO[];
 }
 
 // A job, in a list: how it started and ended, its time and cost. reason

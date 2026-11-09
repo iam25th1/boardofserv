@@ -3,27 +3,26 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Button, Textarea } from "@/components/ui";
 import { animateEnter } from "@/lib/motion";
 import type { AgentMessageDTO, InstallationDTO } from "@/lib/types";
+import { ApprovalCard } from "./ApprovalCard";
+import { Controls, Glance, type ControlAction } from "./InstallationControls";
 import styles from "./InstallationView.module.css";
 
-// One agent running for its owner: when it runs and when next, its settings
-// and rules, and its in-app message box. The page polls while it is open.
+// One agent running for its owner: when it runs and when next, the owner's
+// controls, the questions it waits on, its recent jobs and today's spend,
+// its in-app message box, what it remembers, and its settings and rules.
+// The page polls while it is open.
 
 export interface InstallationApi {
   load: () => Promise<InstallationDTO>;
   messages: () => Promise<AgentMessageDTO[]>;
   send: (text: string) => Promise<AgentMessageDTO>;
+  control: (action: ControlAction) => Promise<InstallationDTO>;
+  answer: (approvalId: string, answer: string) => Promise<void>;
+  // Where a job's page is (the demo has its own).
+  jobHref?: (jobId: string) => string;
 }
 
 const POLL_MS = 5_000;
-
-export function when(iso: string | null, timezone: string): string {
-  if (!iso) return "not scheduled";
-  try {
-    return new Intl.DateTimeFormat(undefined, { timeZone: timezone, weekday: "short", hour: "numeric", minute: "2-digit", day: "numeric", month: "short" }).format(new Date(iso));
-  } catch {
-    return new Date(iso).toLocaleString();
-  }
-}
 
 const shown = (v: unknown) => (Array.isArray(v) ? v.join(", ") : v === null || v === undefined || v === "" ? "not set" : String(v));
 
@@ -62,11 +61,21 @@ export function InstallationView({ initial, api, children }: { initial: Installa
             <li key={r}>{r}</li>
           ))}
         </ul>
-        <p className={styles.next}>
-          {data.status === "active" ? (data.nextRunAt ? `Next: ${when(data.nextRunAt, data.timezone)}` : "Waits for your messages") : data.status === "paused" ? "Paused: nothing new runs" : "Stopped"}
-        </p>
+        <Glance data={data} />
+        <Controls data={data} onControl={async (action) => setData(await api.control(action))} />
         {data.checkNote && <p className={styles.note}>{data.checkNote}</p>}
       </section>
+      {data.approvals.map((a) => (
+        <ApprovalCard
+          key={a.id}
+          approval={a}
+          jobHref={api.jobHref ? api.jobHref(a.jobId) : `/jobs/${a.jobId}`}
+          onAnswer={async (answer) => {
+            await api.answer(a.id, answer);
+            await refresh();
+          }}
+        />
+      ))}
       {children}
       {data.takesMessages && <MessageBox messages={messages} send={api.send} onSent={() => void refresh()} disabled={data.status === "stopped"} />}
       {data.memory.length > 0 && (
