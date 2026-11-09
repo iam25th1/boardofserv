@@ -86,6 +86,8 @@ import * as adminSafetyRoute from "@/app/api/admin/safety/route";
 import * as agentKill from "@/app/api/agents/[id]/kill/route";
 import * as adminFreezes from "@/app/api/admin/freezes/route";
 import * as adminFreeze from "@/app/api/admin/freezes/[id]/route";
+import * as reportsRoute from "@/app/api/reports/route";
+import * as adminModerate from "@/app/api/admin/moderate/route";
 import { fakeNet, fakeSheetUrl } from "./fakeNet";
 import { keep } from "@/lib/connections/vault";
 
@@ -182,6 +184,8 @@ const ROUTES: Record<string, object> = {
   "agents/[id]/kill": agentKill,
   "admin/freezes": adminFreezes,
   "admin/freezes/[id]": adminFreeze,
+  "reports": reportsRoute,
+  "admin/moderate": adminModerate,
 };
 
 // Google, for this test: Maya's and Sam's own spreadsheets, and the token
@@ -345,6 +349,8 @@ beforeAll(async () => {
     }
     if (body.response_format?.json_schema?.name === "agent_plan") return Response.json({ choices: [{ message: { content: JSON.stringify(AGENT_PLAN) } }] });
     if (body.response_format?.json_schema?.name === "code_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "approve", reason: "Fine." }) } }] });
+    // The content screen passes posts (its holds are tested elsewhere).
+    if (body.response_format?.json_schema?.name === "content_screen") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "ok", reason: "Fine." }) } }] });
     // The guard lets Maya's agent through (its own checks are tested elsewhere).
     // The version review passes; its findings never carry code anyway.
     if (body.response_format?.json_schema?.name === "version_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ findings: [{ step: "Find low stock", severity: "warning", finding: "It reads the whole stock tab every time." }] }) } }] });
@@ -851,6 +857,13 @@ describe("a helper's instructions stay on the server", () => {
       await hit("requests: maya withdraws", offerRoute.POST(req(`/api/offers/${op.params.id}`, "POST", { action: "withdraw" }), op));
       state.user = sam;
       await hit("requests: sam closes", requestRoute.POST(req(`/api/requests/${asked.id}`, "POST", { action: "close" }), qp));
+      // Reports go to the admin queue, once per thing; only admins work it.
+      await hit("safety: sam reports maya's agent", reportsRoute.POST(req("/api/reports", "POST", { kind: "agent", targetId: id, reason: "misleading", note: "It said it would reorder fabric." })));
+      await hit("safety: sam reports maya", reportsRoute.POST(req("/api/reports", "POST", { kind: "maker", targetId: id, reason: "spam", note: "" })));
+      await hit("safety: sam reports again", reportsRoute.POST(req("/api/reports", "POST", { kind: "agent", targetId: id, reason: "misleading", note: "Again." })));
+      await hit("safety: sam reports nothing", reportsRoute.POST(req("/api/reports", "POST", { kind: "offer", targetId: "nope", reason: "scam", note: "" })));
+      await hit("safety: sam reports badly", reportsRoute.POST(req("/api/reports", "POST", { kind: "planet", targetId: id, reason: "scam" })));
+      await hit("safety: sam moderates", adminModerate.POST(req("/api/admin/moderate", "POST", { type: "listing", id, action: "approve", reason: "Mine now." })));
       // The kill switch is its maker's alone; freezes are admins' alone.
       await hit("safety: sam stops maya's agent", agentKill.POST(req(`/api/agents/${id}/kill`, "POST", { action: "stop" }), p));
       await hit("safety: sam freezes", adminFreezes.POST(req("/api/admin/freezes", "POST", { kind: "maker", target: "@shopkeeper", reason: "Testing a refusal." })));
@@ -863,11 +876,19 @@ describe("a helper's instructions stay on the server", () => {
       const fp = { params: { id: frozen.safety.freezes[0]!.id } };
       await hit("safety: admin lifts it", adminFreeze.POST(req(`/api/admin/freezes/${fp.params.id}`, "POST", { reason: "Checked: not spam." }), fp));
       await hit("safety: admin lifts it again", adminFreeze.POST(req(`/api/admin/freezes/${fp.params.id}`, "POST", { reason: "Again." }), fp));
+      const queue = JSON.parse(await (await hit("safety: admin's queue", adminSafetyRoute.GET(req("/api/admin/safety")))).clone().text()) as { safety: { queue: { reports: { id: string }[] } } };
+      const open = queue.safety.queue.reports;
+      expect(open.length).toBe(2);
+      for (const r of open) await hit("safety: admin approves a report", adminModerate.POST(req("/api/admin/moderate", "POST", { type: "report", id: r.id, action: "approve", reason: "Checked: it does what it says." })));
+      await hit("safety: admin approves it again", adminModerate.POST(req("/api/admin/moderate", "POST", { type: "report", id: open[0]!.id, action: "approve", reason: "Again." })));
+      await hit("safety: admin moderates badly", adminModerate.POST(req("/api/admin/moderate", "POST", { type: "report", id: "x", action: "explode", reason: "" })));
       vi.stubEnv("ADMIN_USER_IDS", "");
       resetPaymentsConfig();
       await hit("safety: not an admin lifts", adminFreeze.POST(req(`/api/admin/freezes/${fp.params.id}`, "POST", { reason: "Mine." }), fp));
       state.user = null;
       await hit("safety: signed out stops", agentKill.POST(req(`/api/agents/${id}/kill`, "POST", { action: "stop" }), p));
+      await hit("safety: signed out reports", reportsRoute.POST(req("/api/reports", "POST", { kind: "agent", targetId: id, reason: "scam" })));
+      await hit("safety: signed out moderates", adminModerate.POST(req("/api/admin/moderate", "POST", { type: "listing", id, action: "hide", reason: "Not mine." })));
       for (const who of [maya, null]) {
         state.user = who;
         const tag = who ? "maya" : "signed out";

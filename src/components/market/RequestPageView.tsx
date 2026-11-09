@@ -7,6 +7,7 @@ import { parseAmount } from "@/lib/money";
 import type { OfferDTO, RentalDTO, RequestPageDTO } from "@/lib/types";
 import { price } from "./BoardView";
 import { CONNECT_WORDS, MeToo } from "./RequestsView";
+import { ReportButton, type ReportSend } from "./ReportButton";
 import styles from "./Requests.module.css";
 
 // One request and the agents makers offered for it. The one who asked can
@@ -26,6 +27,7 @@ export interface RequestPageApi {
   accept?: (offerId: string) => Promise<RentalDTO>;
   withdraw?: (offerId: string) => Promise<void>;
   onRented?: (r: RentalDTO) => void;
+  report?: ReportSend;
 }
 
 const STATUS_WORD = { open: "open", accepted: "answered", closed: "closed" } as const;
@@ -54,6 +56,11 @@ export function RequestPageView({ id, api }: { id: string; api: RequestPageApi }
   const myOffer = page.offers.find((o) => o.mine);
   return (
     <Page title={r.need} note={`asked by @${r.by}${r.mine ? " (you)" : ""}`} width="wide" asideSide="right" asideNarrow="below" aside={<Facts page={page} api={api} onChange={setPage} />}>
+      {r.held && (
+        <p className={styles.held} role="status">
+          Only you can see this until an admin looks: {r.held}
+        </p>
+      )}
       {r.detail && <p className={styles.lede}>{r.detail}</p>}
       <MeToo r={r} onToggle={api.meToo ? (on) => api.meToo!(on).then(setPage) : undefined} signIn={api.signIn} />
 
@@ -119,6 +126,7 @@ function Facts({ page, api, onChange }: { page: RequestPageDTO; api: RequestPage
           Close the request
         </Button>
       )}
+      {!r.mine && <ReportButton kind="request" targetId={r.id} send={api.report} signIn={api.signIn} />}
       <Link href="/app/requests" className={styles.small}>
         All requests
       </Link>
@@ -150,6 +158,11 @@ function OfferCard({ o, page, api, onChange }: { o: OfferDTO; page: RequestPageD
         <span className={styles.offerPrice}>{free ? "free" : `${price(o.weeklyPrice, o.decimals)} a week`}</span>
       </div>
       <p className={styles.detail}>{o.agent.does}</p>
+      {o.held && o.mine && (
+        <p className={styles.held} role="status">
+          Only you can see this offer until an admin looks: {o.held}
+        </p>
+      )}
       {o.note && <blockquote className={styles.note}>{o.note}</blockquote>}
       <div className={styles.meta}>
         <span>
@@ -166,6 +179,7 @@ function OfferCard({ o, page, api, onChange }: { o: OfferDTO; page: RequestPageD
             Accept and rent it
           </Button>
         )}
+        {!o.mine && <ReportButton kind="offer" targetId={o.id} send={api.report} signIn={api.signIn} />}
         {o.mine && o.status === "open" && api.withdraw && (
           <Button size="sm" variant="quiet" onClick={() => void api.withdraw!(o.id).then(onChange)}>
             Withdraw the offer

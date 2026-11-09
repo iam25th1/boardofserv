@@ -4,6 +4,7 @@ import { serverRuntime } from "@/lib/agents/runtime/context";
 import { parseAmount } from "@/lib/money";
 import { USDC_DECIMALS } from "@/lib/market/charges";
 import { marketRefusal } from "@/lib/market/limits";
+import { screenRequest } from "@/lib/safety/moderation";
 import { DETAIL_MAX, NEED_MAX, postRequest, requestBoard, RequestRefused, requestsOf } from "@/lib/market/requests";
 
 export const runtime = "nodejs";
@@ -44,7 +45,9 @@ export async function POST(req: Request) {
   if (budgetText && budget === null) return Response.json({ error: "Write the weekly budget like 5 or 7.50, in USDC, or leave it empty." }, { status: 400 });
   try {
     const row = await postRequest(rt, user.id, { need: parsed.data.need, detail: parsed.data.detail, connects: parsed.data.connects, budget });
-    return Response.json({ id: row.id }, { status: 201 });
+    // SERV screens it before it goes public; what it holds waits for an admin.
+    const screen = await screenRequest(rt, user, row.id, row.need, row.detail);
+    return Response.json({ id: row.id, screen }, { status: 201 });
   } catch (err) {
     if (err instanceof RequestRefused) return Response.json({ error: err.message }, { status: err.status });
     throw err;

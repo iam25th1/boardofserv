@@ -96,6 +96,7 @@ export async function boardAgents(rt: Runtime, f: BoardFilters = {}): Promise<Ag
         eq(agentListings.listed, true),
         eq(agentVersions.state, "published"),
         isNull(agents.stoppedAt),
+        eq(agentListings.screen, "ok"),
         notFrozen(),
         q ? or(ilike(agents.name, `%${q}%`), sql`${agentVersions.definition} -> 'job' ->> 'does' ilike ${`%${q}%`}`) : undefined,
         f.min !== undefined && f.min !== null ? gte(agentListings.weeklyPrice, f.min.toString()) : undefined,
@@ -116,7 +117,7 @@ export async function boardAgents(rt: Runtime, f: BoardFilters = {}): Promise<Ag
 // An agent's own page, for anyone, or null when it isn't on the board.
 export async function agentPage(rt: Runtime, agentId: string, viewerId: string | null = null): Promise<AgentPageDTO | null> {
   if (!/^[0-9a-f-]{36}$/i.test(agentId)) return null;
-  const [row] = (await select(rt).where(and(eq(agentListings.agentId, agentId), eq(agentListings.listed, true), eq(agentVersions.state, "published"), isNull(agents.stoppedAt), notFrozen()))) as Row[];
+  const [row] = (await select(rt).where(and(eq(agentListings.agentId, agentId), eq(agentListings.listed, true), eq(agentVersions.state, "published"), isNull(agents.stoppedAt), eq(agentListings.screen, "ok"), notFrozen()))) as Row[];
   if (!row?.definition) return null;
   const d = row.definition;
   const renters = (await renterCounts(rt, [row])).get(agentId) ?? 0;
@@ -180,6 +181,8 @@ export async function makerListing(rt: Runtime, agentId: string): Promise<MakerL
     modelBudget: (budget > cfg.ceiling ? cfg.ceiling : budget).toString(),
     modelBudgetCeiling: cfg.ceiling.toString(),
     modelShare: row.listing.modelShare,
+    screen: row.listing.screen,
+    screenReason: row.listing.screenReason,
   };
 }
 

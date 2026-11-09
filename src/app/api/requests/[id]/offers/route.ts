@@ -2,6 +2,9 @@ import { z } from "zod";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { marketRefusal } from "@/lib/market/limits";
+import { screenOffer } from "@/lib/safety/moderation";
+import { eq } from "drizzle-orm";
+import { agentListings, agents, agentVersions } from "@/lib/db/schema";
 import { makeOffer, NOTE_MAX, requestPage, RequestRefused } from "@/lib/market/requests";
 import { paymentsConfig } from "@/lib/payments/config";
 import { priceProblem } from "@/lib/payments/uses";
@@ -34,7 +37,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (problem) return Response.json({ error: problem }, { status: 400 });
   }
   try {
-    await makeOffer(rt, user.id, params.id, { agentId: parsed.data.agentId, note: parsed.data.note, weeklyPrice, jobFee });
+    const offer = await makeOffer(rt, user.id, params.id, { agentId: parsed.data.agentId, note: parsed.data.note, weeklyPrice, jobFee });
+    // SERV screens it before it goes public; what it holds waits for an admin.
+    const [a] = await rt.db
+      .select({ name: agents.name, definition: agentVersions.definition })
+      .from(agents)
+      .leftJoin(agentListings, eq(agentListings.agentId, agents.id))
+      .leftJoin(agentVersions, eq(agentVersions.id, agentListings.versionId))
+      .where(eq(agents.id, offer.agentId));
+    await screenOffer(rt, user, offer.id, offer.note, { name: a?.name ?? "", does: a?.definition?.job.does ?? "" });
   } catch (err) {
     if (err instanceof RequestRefused) return Response.json({ error: err.message }, { status: err.status });
     throw err;

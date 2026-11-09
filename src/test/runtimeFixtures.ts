@@ -38,6 +38,10 @@ export interface TestRuntime extends Runtime {
   // every text it was asked about.
   screenVerdict: (text: string) => { verdict: "clean" | "flagged"; excerpt: string; reason: string } | "down";
   screened: string[];
+  // SERV's screen of posts (listings, requests, offers) before they go
+  // public: its answer to each, and every post it was shown.
+  postVerdict: (text: string) => { verdict: "ok" | "hold"; reason: string } | "down";
+  posts: string[];
 }
 
 export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date("2026-11-09T06:00:00Z")): TestRuntime {
@@ -74,6 +78,8 @@ export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date(
     guarded: [],
     screenVerdict: () => ({ verdict: "clean", excerpt: "", reason: "Ordinary data." }),
     screened: [],
+    postVerdict: () => ({ verdict: "ok", reason: "An ordinary small business job." }),
+    posts: [],
     fetchImpl: (async (_url: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body)) as { messages: { content: string }[]; response_format: { json_schema: { name: string; schema: { properties: { outcome: { enum: string[] } } } } } };
       if (body.response_format.json_schema.name === "action_guard") {
@@ -87,6 +93,12 @@ export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date(
         const v = rt.screenVerdict(body.messages[1]!.content);
         if (v === "down") return new Response("{}", { status: 503 });
         return Response.json({ choices: [{ message: { content: JSON.stringify(v) } }], usage: { prompt_tokens: 650, completion_tokens: 40 } });
+      }
+      if (body.response_format.json_schema.name === "content_screen") {
+        rt.posts.push(body.messages[1]!.content);
+        const v = rt.postVerdict(body.messages[1]!.content);
+        if (v === "down") return new Response("{}", { status: 503 });
+        return Response.json({ choices: [{ message: { content: JSON.stringify(v) } }], usage: { prompt_tokens: 500, completion_tokens: 20 } });
       }
       const ids = body.response_format.json_schema.schema.properties.outcome.enum;
       rt.asked.push(body.messages[1]!.content);

@@ -982,6 +982,12 @@ export const agentListings = pgTable(
     // their jobs' model cost on top of the fee per job.
     modelBudget: numeric("model_budget", { precision: 78, scale: 0 }),
     modelShare: boolean("model_share").notNull().default(false),
+    // SERV's screen before it goes public: ok, held for an admin (with why),
+    // or hidden by one. The hash of what was screened, to screen it again
+    // only when it changes.
+    screen: text("screen", { enum: ["ok", "held", "hidden"] }).notNull().default("ok"),
+    screenReason: text("screen_reason"),
+    screenHash: text("screen_hash"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -1073,6 +1079,9 @@ export const requests = pgTable(
     // What they'd pay a week, USDC minor units; null when they didn't say.
     budget: numeric("budget", { precision: 78, scale: 0 }),
     status: text("status", { enum: REQUEST_STATUSES }).notNull().default("open"),
+    // SERV's screen before it goes public (see agent_listings.screen).
+    screen: text("screen", { enum: ["ok", "held", "hidden"] }).notNull().default("ok"),
+    screenReason: text("screen_reason"),
     closedAt: timestamp("closed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -1117,6 +1126,8 @@ export const requestOffers = pgTable(
     weeklyPrice: numeric("weekly_price", { precision: 78, scale: 0 }).notNull(),
     jobFee: numeric("job_fee", { precision: 78, scale: 0 }).notNull().default("0"),
     status: text("status", { enum: OFFER_STATUSES }).notNull().default("open"),
+    screen: text("screen", { enum: ["ok", "held", "hidden"] }).notNull().default("ok"),
+    screenReason: text("screen_reason"),
     rentalId: uuid("rental_id").references(() => rentals.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -1200,6 +1211,38 @@ export const freezes = pgTable(
   }),
 );
 export type Freeze = typeof freezes.$inferSelect;
+
+// Reports from people: an agent, a maker, a request or an offer, with a
+// reason from the list and a note. One open report per person per thing.
+export const REPORT_KINDS = ["agent", "maker", "request", "offer"] as const;
+export const REPORT_REASONS = ["scam", "harmful", "personal_data", "spam", "misleading", "other"] as const;
+export const reports = pgTable(
+  "reports",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    kind: text("kind", { enum: REPORT_KINDS }).notNull(),
+    targetId: uuid("target_id").notNull(),
+    reporterUserId: uuid("reporter_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    reason: text("reason", { enum: REPORT_REASONS }).notNull(),
+    note: text("note").notNull().default(""),
+    status: text("status", { enum: ["open", "resolved"] }).notNull().default("open"),
+    // What an admin did: approved (nothing wrong), hid it, or froze it.
+    resolution: text("resolution"),
+    resolvedBy: uuid("resolved_by").references(() => users.id),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byStatus: index("reports_status_idx").on(t.status, t.createdAt),
+    once: uniqueIndex("reports_once").on(t.kind, t.targetId, t.reporterUserId),
+    knownKind: check("reports_kind", sql`${t.kind} in ('agent', 'maker', 'request', 'offer')`),
+    knownReason: check("reports_reason", sql`${t.reason} in ('scam', 'harmful', 'personal_data', 'spam', 'misleading', 'other')`),
+    knownStatus: check("reports_status", sql`${t.status} in ('open', 'resolved')`),
+  }),
+);
+export type Report = typeof reports.$inferSelect;
 
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;

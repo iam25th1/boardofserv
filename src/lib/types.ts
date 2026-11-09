@@ -266,6 +266,10 @@ export interface MakerListingDTO {
   modelBudget: string;
   modelBudgetCeiling: string;
   modelShare: boolean;
+  // SERV's screen: public (ok), waiting for an admin (held, with why), or
+  // hidden by one.
+  screen: "ok" | "held" | "hidden";
+  screenReason: string | null;
 }
 
 // One of the renter's rentals, as only they see it. status: "setup" until
@@ -617,6 +621,8 @@ export interface RequestDTO {
   // The viewer's own request, and whether they said "me too".
   mine: boolean;
   votedByMe: boolean;
+  // Waiting for an admin after SERV's screen (shown to its poster only).
+  held: string | null;
 }
 
 // A maker's offer on a request: one of their published agents, as the
@@ -633,6 +639,8 @@ export interface OfferDTO {
   createdAt: string;
   // The viewer made this offer.
   mine: boolean;
+  // Waiting for an admin after SERV's screen (shown to its maker only).
+  held: string | null;
 }
 
 // A request on its own page, with its offers (withdrawn ones left out).
@@ -653,7 +661,14 @@ export interface FreezeDTO {
   lifted: { at: string; by: string; reason: string } | null;
 }
 
+// The moderation queue: open reports, and what the screen held back.
+export interface ModerationQueueDTO {
+  reports: { id: string; kind: "agent" | "maker" | "request" | "offer"; target: string; targetId: string; reason: string; reasonWords: string; note: string; by: string; createdAt: string }[];
+  held: { type: "listing" | "request" | "offer"; id: string; title: string; by: string; reason: string }[];
+}
+
 export interface AdminSafetyDTO {
+  queue: ModerationQueueDTO;
   // Every freeze, newest first: the admin log.
   freezes: FreezeDTO[];
   // The installations whose model calls cost the most this week (USDC

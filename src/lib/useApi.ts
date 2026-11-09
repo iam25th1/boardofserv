@@ -199,6 +199,10 @@ export function useApi() {
       checkDeposits: () => json<{ wallet: WalletDTO }>("/api/deposits/check", { method: "POST" }).then((d) => d.wallet),
       getAdmin: () => json<{ admin: AdminDTO }>("/api/admin").then((d) => d.admin),
       getAdminSafety: () => json<{ safety: AdminSafetyDTO }>("/api/admin/safety").then((d) => d.safety),
+      adminModerate: (body: { type: "report" | "listing" | "request" | "offer"; id: string; action: "approve" | "hide" | "freeze"; reason: string }) =>
+        json<{ safety: AdminSafetyDTO }>("/api/admin/moderate", { method: "POST", body: JSON.stringify(body) }).then((d) => d.safety),
+      report: (body: { kind: "agent" | "maker" | "request" | "offer"; targetId: string; reason: string; note: string }) =>
+        json<{ ok: boolean }>("/api/reports", { method: "POST", body: JSON.stringify(body) }).then(() => undefined),
       adminFreeze: (body: { kind: "agent" | "version" | "maker" | "renter"; target: string; reason: string }) =>
         json<{ safety: AdminSafetyDTO }>("/api/admin/freezes", { method: "POST", body: JSON.stringify(body) }).then((d) => d.safety),
       adminLift: (id: string, reason: string) =>

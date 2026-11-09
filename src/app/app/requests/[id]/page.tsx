@@ -35,6 +35,7 @@ function WithSignIn({ id }: { id: string }) {
             accept: (offerId) => api.acceptOffer(offerId),
             withdraw: (offerId) => api.withdrawOffer(offerId),
             onRented: (r) => router.push(`/app/rentals/${r.id}/setup`),
+            report: api.report,
           }
         : { load: () => fetchRequest(id), signIn: `/login?next=${encodeURIComponent(`/app/requests/${id}`)}` },
     [api, id, signedIn, router],

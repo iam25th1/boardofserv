@@ -77,7 +77,7 @@ export async function rent(rt: Runtime, o: { renterUserId: string; agentId: stri
       .innerJoin(agents, eq(agents.id, agentListings.agentId))
       .innerJoin(agentVersions, eq(agentVersions.id, agentListings.versionId))
       .where(eq(agentListings.agentId, o.agentId));
-    if (l?.listing.listed && l.state === "published") row = { versionId: l.listing.versionId, makerId: l.makerId, terms: { weeklyPrice: l.listing.weeklyPrice, jobFee: l.listing.jobFee }, modelShare: l.listing.modelShare };
+    if (l?.listing.listed && l.listing.screen === "ok" && l.state === "published") row = { versionId: l.listing.versionId, makerId: l.makerId, terms: { weeklyPrice: l.listing.weeklyPrice, jobFee: l.listing.jobFee }, modelShare: l.listing.modelShare };
   }
   if (!row) throw new RentRefused("It isn't on the board to rent.", 404);
   if (row.makerId === o.renterUserId) throw new RentRefused("It's yours: run it from its builder, with Run it for real.", 409);

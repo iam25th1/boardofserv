@@ -7,12 +7,14 @@ import { formatAmount } from "@/lib/money";
 import type { AdminSafetyDTO, FreezeDTO } from "@/lib/types";
 import styles from "./SafetyAdmin.module.css";
 
-// The admin's safety page: every version's code review, newest first.
+// The admin's safety page: the queue (what the screen held and what people
+// reported), freezes, model cost, and every version's code review.
 
 export interface SafetyAdminApi {
   load: () => Promise<AdminSafetyDTO>;
   freeze?: (body: { kind: FreezeDTO["kind"]; target: string; reason: string }) => Promise<AdminSafetyDTO>;
   lift?: (id: string, reason: string) => Promise<AdminSafetyDTO>;
+  moderate?: (body: { type: "report" | "listing" | "request" | "offer"; id: string; action: "approve" | "hide" | "freeze"; reason: string }) => Promise<AdminSafetyDTO>;
 }
 
 export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
@@ -25,6 +27,40 @@ export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
   if (data === null) return <p className={styles.quiet}>This page could not load. Try again in a moment.</p>;
   return (
     <div className={styles.page}>
+      <section className={styles.section} aria-labelledby="queue-h">
+        <h2 id="queue-h">Queue</h2>
+        {data.queue.reports.length + data.queue.held.length === 0 ? (
+          <p className={styles.quiet}>Nothing waiting: no open reports, and the screen held nothing back.</p>
+        ) : (
+          <ul className={styles.queue}>
+            {data.queue.held.map((h) => (
+              <li key={`${h.type}-${h.id}`}>
+                <div className={styles.logHead}>
+                  <span className={styles.chip}>held {h.type}</span>
+                  <strong>{h.title}</strong>
+                  <span className={styles.quiet}>by {h.by}</span>
+                </div>
+                <p>The screen held it: {h.reason}</p>
+                {api.moderate && <Decide type={h.type} id={h.id} moderate={api.moderate} onDone={setData} />}
+              </li>
+            ))}
+            {data.queue.reports.map((r) => (
+              <li key={r.id}>
+                <div className={styles.logHead}>
+                  <span className={styles.chip}>reported {r.kind}</span>
+                  <strong>{r.target}</strong>
+                  <span className={styles.quiet}>by {r.by}</span>
+                </div>
+                <p>
+                  {r.reasonWords}
+                  {r.note ? `: "${r.note}"` : ""}
+                </p>
+                {api.moderate && <Decide type="report" id={r.id} moderate={api.moderate} onDone={setData} canHide={r.kind !== "maker"} />}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
       {api.freeze && <FreezeForm freeze={api.freeze} onDone={setData} />}
       <section className={styles.section} aria-labelledby="freezes-h">
         <h2 id="freezes-h">Freezes</h2>
@@ -203,6 +239,49 @@ function LiftButton({ id, lift, onDone }: { id: string; lift: NonNullable<Safety
       >
         {busy ? "Lifting..." : "Lift the freeze"}
       </Button>
+    </div>
+  );
+}
+
+function Decide({ type, id, moderate, onDone, canHide = true }: { type: "report" | "listing" | "request" | "offer"; id: string; moderate: NonNullable<SafetyAdminApi["moderate"]>; onDone: (d: AdminSafetyDTO) => void; canHide?: boolean }) {
+  const [why, setWhy] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  const whyId = useId();
+  const act = async (action: "approve" | "hide" | "freeze") => {
+    setBusy(action);
+    setSaid(null);
+    try {
+      onDone(await moderate({ type, id, action, reason: why.trim() }));
+    } catch (err) {
+      setSaid(err instanceof Error ? err.message : "That didn't work. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const ready = why.trim().length >= 3 && busy === null;
+  return (
+    <div className={styles.decide}>
+      <label htmlFor={whyId}>Why</label>
+      <TextInput id={whyId} value={why} onChange={(e) => setWhy(e.target.value)} placeholder="A few words for the log" />
+      <div className={styles.actions}>
+        <Button size="sm" onClick={() => void act("approve")} disabled={!ready}>
+          {busy === "approve" ? "Approving..." : "Approve"}
+        </Button>
+        {canHide && (
+          <Button size="sm" variant="ghost" onClick={() => void act("hide")} disabled={!ready}>
+            {busy === "hide" ? "Hiding..." : "Hide"}
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" onClick={() => void act("freeze")} disabled={!ready}>
+          {busy === "freeze" ? "Freezing..." : "Freeze"}
+        </Button>
+      </div>
+      {said && (
+        <p className={styles.quiet} role="alert">
+          {said}
+        </p>
+      )}
     </div>
   );
 }

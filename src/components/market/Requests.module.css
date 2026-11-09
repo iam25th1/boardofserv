@@ -352,3 +352,10 @@
     width: 100%;
   }
 }
+.held {
+  padding: var(--s-2) var(--s-3);
+  border: 1px dashed var(--chalk);
+  border-radius: var(--r-md);
+  font-size: var(--t-sm);
+  max-width: 64ch;
+}

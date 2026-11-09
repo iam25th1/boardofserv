@@ -6,6 +6,7 @@ import { serverRuntime } from "@/lib/agents/runtime/context";
 import { currentVersion } from "@/lib/agents/store";
 import { setListing } from "@/lib/market/listings";
 import { activeFreeze } from "@/lib/safety/freeze";
+import { screenListing } from "@/lib/safety/moderation";
 import { paymentsConfig } from "@/lib/payments/config";
 import { priceProblem } from "@/lib/payments/uses";
 
@@ -44,5 +45,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (frozen && parsed.data.listed) return Response.json({ error: `It can't go on the board now: boardofserv froze it. ${frozen.reason}` }, { status: 409 });
   const listing = await setListing(rt, who.agent, { weeklyPrice, jobFee, listed: parsed.data.listed, modelBudget: parsed.data.modelBudget ? BigInt(parsed.data.modelBudget) : undefined, modelShare: parsed.data.modelShare });
   if (!listing) return Response.json({ error: "Publish a version first: renters get a published version, which never changes." }, { status: 409 });
+  // Before it goes public, SERV screens it; anything it holds waits for an admin.
+  if (parsed.data.listed) await screenListing(rt, who.user, who.agent.id);
   return Response.json({ builder: await builderOf(who.agent, (await currentVersion(who.agent.id))!) });
 }

@@ -159,7 +159,7 @@ export const DEMO_DASHBOARD: MakerDashboardDTO = {
   frozen: null,
   agentId: "00000000-0000-4000-8000-000000000003",
   name: "Enquiry follow-up",
-  listing: { weeklyPrice: usdc(9), jobFee: usdc(0.25), decimals: 6, listed: true, version: 2, modelBudget: "1000000", modelBudgetCeiling: "5000000", modelShare: false },
+  listing: { weeklyPrice: usdc(9), jobFee: usdc(0.25), decimals: 6, listed: true, version: 2, modelBudget: "1000000", modelBudgetCeiling: "5000000", modelShare: false, screen: "ok", screenReason: null },
   decimals: 6,
   renters: [
     { handle: "jordan_lee", since: at(-10), status: "active", version: 2, weeksPaid: 2 },

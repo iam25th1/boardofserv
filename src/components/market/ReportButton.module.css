@@ -1,0 +1,55 @@
+/* A report link: quiet, always there, never a red button. */
+.link {
+  align-self: flex-start;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.link:hover {
+  color: var(--chalk-2);
+}
+.link:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.reasons {
+  border: 0;
+  margin: 0 0 var(--s-3);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.reasons legend {
+  margin-bottom: var(--s-2);
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.reasons label {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 36px;
+  cursor: pointer;
+}
+.reasons input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--chalk);
+}
+.label {
+  display: block;
+  margin-bottom: var(--s-1);
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.said {
+  margin-top: var(--s-2);
+  font-size: var(--t-sm);
+}

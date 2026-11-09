@@ -62,7 +62,7 @@ describe("the maker's listing", () => {
   });
 
   it("refuses a price it can't read, and takes a listed agent off the board", async () => {
-    const listing: MakerListingDTO = { weeklyPrice: "3000000", jobFee: "100000", decimals: 6, listed: true, version: 1, modelBudget: "1000000", modelBudgetCeiling: "5000000", modelShare: false };
+    const listing: MakerListingDTO = { weeklyPrice: "3000000", jobFee: "100000", decimals: 6, listed: true, version: 1, modelBudget: "1000000", modelBudgetCeiling: "5000000", modelShare: false, screen: "ok", screenReason: null };
     const save = vi.fn().mockResolvedValue(undefined);
     render(<ListingPanel agentId="a1" version={1} listing={listing} save={save} />);
     expect(screen.getByLabelText("A week, in USDC")).toHaveValue("3");

@@ -3,6 +3,7 @@ import { desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { agentInstallations, agentModelUsage, agents, agentVersions, freezes, users } from "../db/schema";
 import { targetWords } from "./freeze";
+import { moderationQueue } from "./moderation";
 import { weekStart } from "../agents/metering";
 import type { Runtime } from "../agents/runtime/context";
 import type { AdminSafetyDTO } from "../types";
@@ -58,6 +59,7 @@ export async function adminSafety(rt: Runtime): Promise<AdminSafetyDTO> {
     })),
   );
   return {
+    queue: await moderationQueue(rt),
     freezes: freezeList,
     costs: top.map((t) => ({ installationId: t.installationId, name: t.name, owner: t.owner, maker: t.maker, week: t.week, sitePaid: t.site, calls: t.calls, decimals: 6 })),
     reviews: rows.map((r) => ({

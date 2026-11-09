@@ -80,6 +80,16 @@ export function ListingPanel({ agentId, version, listing, save }: { agentId: str
           </span>
         )}
       </div>
+      {listing?.screen === "held" && (
+        <p className={styles.said} data-bad="true" role="status">
+          It isn&apos;t on the board yet: it waits for an admin to look. {listing.screenReason}
+        </p>
+      )}
+      {listing?.screen === "hidden" && (
+        <p className={styles.said} data-bad="true" role="status">
+          An admin took it off the board. {listing.screenReason}
+        </p>
+      )}
       <p className={styles.quiet}>
         Renters get version {listing?.version ?? version} and set it up with their own sheets and Telegram. They pay a week up front from their wallet; you get 90% of
         each week and each fee, and boardofserv keeps 10%.
