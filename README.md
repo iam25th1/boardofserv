@@ -439,6 +439,25 @@ that never changes again: every write to a version is guarded by
 `state = 'draft'` (`src/lib/agents/store.ts`), and editing after that starts
 a new draft copied from the newest published version.
 
+### The toolbox
+
+`src/lib/agents/toolbox.ts`: the only things a code step can reach, through
+the sandbox's host bridge, and only the ones its step lists.
+
+- `sheets.read({ sheet })` and `sheets.write({ sheet, rows, mode })`
+- `web.fetch({ url })` and `web.search({ query })`
+- `telegram.send({ text })` and `telegram.ask({ question, choices })`, which
+  asks the owner and waits for the answer
+- `memory.get({ key })` and `memory.set({ key, value })`
+- `wallet.pay({ to, amountUsdc, memo })`
+
+Each has typed arguments, checked whatever the code sends, and a result
+shape, written out as declarations for Dolphin. Real implementations come in
+later phases. For now each is a mock that answers from the test bench's
+sample data (sheets and their rows, pages, search results, the owner's
+answers, memory, a wallet balance in USDC), on a copy per run, and logs
+every call.
+
 ## Payments
 
 Users top up a balance in USDC or $SERV, pay for helper uses from it, and
