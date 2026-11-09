@@ -3,6 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { agentFetchDays, agentInstallations, agentMessages, agentToolDays, type AgentInstallation, type AgentJob, type SheetGrant } from "../../db/schema";
 import { GoogleRevoked, GoogleUnavailable, REVOKED_REASON } from "../../google/oauth";
 import { readTab, SheetRefused, writeTab, type SheetRow } from "../../google/sheets";
+import { braveSearch, SearchRefused, SearchUnavailable } from "../../search/brave";
 import type { AgentDefinition, AgentStep, ToolName } from "../definition";
 import { Declined, Halted, InfraError, Paused, typedRules, type ToolHost } from "../runner";
 import { MAX_MEMORY_BYTES, memoryProblem, MockTools, TOOL_ARGS, ToolError } from "../toolbox";
@@ -12,15 +13,20 @@ import { fetchPage, WebUnreachable } from "./webFetch";
 
 // A job's tools (and a value check's, with no job). Sheets are real: the
 // owner's own Google Sheets, only the tabs they gave this installation,
-// within a number of calls a day. The ones that are still stand-ins
-// (search, the wallet) answer like the test bench's mocks, from the
-// installation's own copy of the bench's data, and what they change is
-// kept on the installation for its next job. A message to
+// within a number of calls a day. So is web search (Brave), within a number
+// of searches a day for each installation and for the whole site; what it
+// finds is untrusted, like a fetched page. The one still a stand-in (the
+// wallet) answers like the test bench's mock, from the installation's own
+// copy of the bench's data, and what it changes is kept on the
+// installation for its next job. A message to
 // the owner (telegram.send) goes to the installation's in-app message box
 // and to the owner's linked Telegram chat, and nowhere else.
 // Memory is real: what the agent remembers for this owner, on their
 // installation alone. So is web.fetch (webFetch.ts), within a number of
 // pages a day for each installation.
+
+// The whole site's daily counts are kept under the nil id.
+const SITE = "00000000-0000-0000-0000-000000000000";
 
 export const isYes = (answer: string | null) => answer !== null && /^\s*(yes|y|ok|okay|approve|approved|go ahead)\b/i.test(answer);
 
@@ -72,6 +78,7 @@ export class JobTools implements ToolHost {
     if (tool === "sheets.read" || tool === "sheets.write") return this.sheet(tool, args);
     if (tool === "memory.get" || tool === "memory.set") return this.memory(tool, args);
     if (tool === "web.fetch") return this.fetch(args);
+    if (tool === "web.search") return this.search(args);
     if (tool === "telegram.send") {
       const parsed = TOOL_ARGS["telegram.send"].safeParse(args);
       if (!parsed.success) throw new ToolError(tool, "telegram.send was called wrongly: it takes { text }.");
@@ -130,6 +137,27 @@ export class JobTools implements ToolHost {
       if (err instanceof GoogleRevoked) throw new Halted(REVOKED_REASON);
       if (err instanceof GoogleUnavailable) throw new InfraError(err.message);
       if (err instanceof SheetRefused) throw new ToolError(tool, err.message);
+      throw err;
+    }
+  }
+
+  // A real web search, within the installation's searches a day and the
+  // site's. Brave being busy is worth another try; refusing isn't.
+  private async search(args: unknown): Promise<unknown> {
+    const parsed = TOOL_ARGS["web.search"].safeParse(args);
+    if (!parsed.success) throw new ToolError("web.search", "web.search was called wrongly: it takes { query }.");
+    if (!this.rt.services.braveKey) throw new ToolError("web.search", "Web search isn't set up here.");
+    const { searches, siteSearches } = this.rt.services.caps;
+    if (!(await this.take("search", searches))) throw new ToolError("web.search", `It reached its limit of ${searches} searches today.`);
+    if (!(await this.take("search", siteSearches, SITE))) throw new ToolError("web.search", "boardofserv's web searches for today are used up. It can search again tomorrow.");
+    try {
+      return { results: await braveSearch(this.rt.services, parsed.data.query) };
+    } catch (err) {
+      if (err instanceof SearchUnavailable) throw new InfraError(err.message);
+      if (err instanceof SearchRefused) {
+        this.rt.log(`search: refused: ${err.message}`);
+        throw new ToolError("web.search", err.message);
+      }
       throw err;
     }
   }

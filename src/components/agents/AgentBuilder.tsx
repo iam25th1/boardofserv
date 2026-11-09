@@ -244,8 +244,8 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
         <section className={styles.section} aria-label="Run it for real">
           <h2>Run version {data.runnable.version} for real</h2>
           <p className={styles.quiet}>
-            It runs on its own from now on: on its schedule, when its value check turns true, or when you message it. Your Google Sheets, Telegram, web pages and
-            what it remembers are real; search and the wallet are still stand-ins.
+            It runs on its own from now on: on its schedule, when its value check turns true, or when you message it. Your Google Sheets, Telegram, web pages, web
+            search and what it remembers are real; the wallet is still a stand-in.
           </p>
           <InstallForm definition={data.runnable.definition} defaults={data.runnable.defaults} onInstall={api.install} onCancel={() => setInstalling(false)} inspectSheet={api.inspectSheet} />
         </section>
