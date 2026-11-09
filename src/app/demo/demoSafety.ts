@@ -21,15 +21,15 @@ export const DEMO_SAFETY: AdminSafetyDTO = {
     { id: "f-2", kind: "renter", target: "@noisy_shop", targetId: "u-noisy", reason: "Sent the same message to 400 people.", by: "@site_admin", createdAt: at(50), lifted: { at: at(26), by: "@site_admin", reason: "Talked it through; one group only now." } },
   ],
   costs: [
-    { installationId: "i-1", name: "Lead follow-up", owner: "@harbor_tea", maker: "@lena_prints", week: "1820000", sitePaid: "1820000", calls: 412, decimals: 6 },
-    { installationId: "i-2", name: "Restock helper", owner: "@lena_prints", maker: "@lena_prints", week: "640000", sitePaid: "0", calls: 151, decimals: 6 },
+    { installationId: "i-1", name: "Lead follow-up", owner: "harbor_tea", maker: "lena_prints", week: "1820000", sitePaid: "1820000", calls: 412, decimals: 6 },
+    { installationId: "i-2", name: "Restock helper", owner: "lena_prints", maker: "lena_prints", week: "640000", sitePaid: "0", calls: 151, decimals: 6 },
   ],
   reviews: [
     {
       versionId: "v-yield",
       agentId: "a-yield",
       name: "Instant yield helper",
-      maker: "@fast_builds",
+      maker: "fast_builds",
       version: 2,
       state: "draft",
       review: {
@@ -43,7 +43,7 @@ export const DEMO_SAFETY: AdminSafetyDTO = {
         ],
       },
     },
-    { versionId: "v-restock", agentId: "a-restock", name: "Restock helper", maker: "@lena_prints", version: 3, state: "published", review: { status: "passed", by: "serv", reviewedAt: at(30), findings: [] } },
+    { versionId: "v-restock", agentId: "a-restock", name: "Restock helper", maker: "lena_prints", version: 3, state: "published", review: { status: "passed", by: "serv", reviewedAt: at(30), findings: [] } },
   ],
 };
 

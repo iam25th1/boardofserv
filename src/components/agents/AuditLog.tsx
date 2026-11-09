@@ -106,6 +106,8 @@ export function AuditLog({ load, view, title = "Audit log" }: { load: (before?: 
 
 function Entry({ e, view }: { e: AuditEntryDTO; view: AuditView }) {
   const by = approved(e, view);
+  // Why it asked, less what SERV's check already said.
+  const why = e.reason && e.guardReason ? e.reason.replace(`Safety check: ${e.guardReason}`, "").replace(e.guardReason, "").trim() : e.reason;
   const cost = BigInt(e.cost) > 0n ? `Its check cost ${usdc(e.cost, e.decimals)}` : null;
   return (
     <li data-outcome={e.outcome}>
@@ -130,7 +132,7 @@ function Entry({ e, view }: { e: AuditEntryDTO; view: AuditView }) {
           {e.guardReason && e.guard !== "unavailable" ? `: ${e.guardReason}` : "."}
         </p>
       )}
-      {e.reason && e.outcome !== "blocked" && <p className={styles.reason}>{e.reason}</p>}
+      {why && <p className={styles.reason}>{why}</p>}
       {(by || cost || e.spent) && (
         <ul className={styles.facts}>
           {by && <li>{by}</li>}
