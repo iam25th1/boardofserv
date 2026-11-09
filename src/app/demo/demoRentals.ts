@@ -37,6 +37,7 @@ const APPROVAL: ApprovalDTO = {
   agentName: "Enquiry follow-up",
   stepTitle: "Ask before sending the reply",
   kind: "ask",
+  reason: null,
   question: "Send this reply to Jordan Lee about the spring workshop? \"Thanks for asking. There are four places left on 14 March; the fee is 40 USDC and covers materials.\"",
   options: [
     { label: "Send it", effect: "The reply goes to Jordan Lee." },
@@ -72,6 +73,16 @@ const INSTALLATION: InstallationDTO = {
   spendTodayUsd: 0.0094,
   recentJobs: JOBS,
   approvals: [APPROVAL],
+  safety: {
+    tools: [
+      { tool: "sheets.read", risk: "read", does: "Read every row of a sheet.", floor: null, asks: false, canRaise: false },
+      { tool: "sheets.write", risk: "write", does: "Add rows to a sheet, or replace all of its rows.", floor: null, asks: true, canRaise: true },
+      { tool: "telegram.ask", risk: "outbound", does: "Ask the owner a question and wait for the answer (null when none comes).", floor: "Always waits for your answer.", asks: false, canRaise: false },
+      { tool: "telegram.send", risk: "outbound", does: "Send the owner a message.", floor: null, asks: false, canRaise: true },
+    ],
+    autoSpendUsdc: 0,
+    maxAutoSpendUsdc: 1000,
+  },
 };
 
 const base = (patch: Partial<RentalDTO> & Pick<RentalDTO, "id" | "name" | "does" | "status">): RentalDTO => ({

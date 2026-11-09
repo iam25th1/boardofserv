@@ -42,11 +42,15 @@ export type { JournalEntry, RunEvent, RunState } from "./types";
 // What a paused run waits for: a question to its owner, with the answers
 // they can give.
 export interface Ask {
-  kind: "ask" | "over_limit";
+  // ask: the agent's own question; over_limit: spending over a rule's
+  // limit; safety: the platform's own checks.
+  kind: "ask" | "over_limit" | "safety";
   question: string;
   choices: string[];
-  // Over a limit: the tool that would spend.
+  // Over a limit or a safety check: the tool that would act.
   tool?: ToolName;
+  // Why the platform asks, in plain words.
+  reason?: string | null;
 }
 
 // A tool call that must wait for the owner.

@@ -198,10 +198,10 @@ export function connectionsNeeded(d: AgentDefinition): { telegram: boolean; goog
 // questions it asks, its rules, its schedule and the connections it needs.
 // A renter's setup gets this, never the definition (its steps hold the
 // code steps' descriptions and the decisions' prompts).
-export type SetupShape = Pick<AgentDefinition, "name" | "settings" | "rules" | "triggers"> & { needs: { telegram: boolean; google: boolean } };
+export type SetupShape = Pick<AgentDefinition, "name" | "settings" | "rules" | "triggers"> & { needs: { telegram: boolean; google: boolean }; spends?: boolean };
 
 export function setupShapeOf(d: AgentDefinition): SetupShape {
-  return { name: d.name, settings: d.settings, rules: d.rules, triggers: d.triggers.filter((t) => t.kind === "schedule"), needs: connectionsNeeded(d) };
+  return { name: d.name, settings: d.settings, rules: d.rules, triggers: d.triggers.filter((t) => t.kind === "schedule"), needs: connectionsNeeded(d), spends: d.actions.some(spends) };
 }
 
 // Why moving an installation from one version of an agent to another

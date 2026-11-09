@@ -29,14 +29,14 @@ export function effects(d: AgentDefinition, step: AgentStep, ask: Ask): { option
   const h = hours(d);
   const after = `After ${h} ${h === 1 ? "hour" : "hours"} with no answer`;
   // Over a limit: a payment pays; anything else that spends goes ahead.
-  const pays = !ask.tool || ask.tool === "wallet.pay";
+  const pays = ask.kind === "over_limit" ? !ask.tool || ask.tool === "wallet.pay" : ask.tool === "wallet.pay";
   const does = pays ? "pays" : "goes ahead";
   const doesnt = pays ? "doesn't pay" : "doesn't go ahead";
   if (step.kind === "action") {
     const next = title(step.next);
     const away = title(step.otherwise);
     const without = away ? `goes to "${away}"` : "the job stops";
-    if (ask.kind === "over_limit") {
+    if (ask.kind === "over_limit" || ask.kind === "safety") {
       return {
         options: [
           { label: "Yes", effect: next ? `It ${does}, then goes on to "${next}".` : `It ${does}, and the job is done.` },
@@ -50,7 +50,7 @@ export function effects(d: AgentDefinition, step: AgentStep, ask: Ask): { option
       noAnswer: `${after}, ${away ? `it goes to "${away}"` : "the job stops"}.`,
     };
   }
-  if (ask.kind === "over_limit") {
+  if (ask.kind === "over_limit" || ask.kind === "safety") {
     return {
       options: [
         { label: "Yes", effect: `It ${does}, and "${step.title}" goes on.` },
@@ -85,6 +85,7 @@ export async function pauseForOwner(rt: Runtime, job: AgentJob, worker: string, 
       callIndex: wait.index,
       kind: wait.ask.kind,
       question: wait.ask.question,
+      reason: wait.ask.reason ?? null,
       options,
       noAnswer,
       expiresAt: new Date(now.getTime() + hours(d) * 3_600_000),
@@ -183,6 +184,7 @@ export function approvalDTO(a: AgentApproval, d: AgentDefinition | null): Approv
     stepTitle: d?.steps.find((s) => s.id === a.stepId)?.title ?? a.stepId,
     kind: a.kind,
     question: a.question,
+    reason: a.reason,
     options: a.options,
     noAnswer: a.noAnswer,
     status: a.status,

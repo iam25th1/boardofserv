@@ -137,6 +137,9 @@ export async function installed(
     ownerUserId: owner.id,
     agent: p.agent,
     version: p.version,
+    // A renter who lets it spend up to 1000 USDC a call on its own, so the
+    // maker's own rules are what ask (the floor has tests of its own).
+    policy: { autoSpendUsdc: 1000 },
     answers: {
       settings: { stock_sheet: sheet.answer("Stock"), orders_sheet: sheet.answer("Orders"), suppliers_sheet: sheet.answer("Suppliers") },
       rules: {},

@@ -134,6 +134,8 @@ export function useApi() {
       countApprovals: () => json<{ pending: number }>("/api/approvals?count=1").then((d) => d.pending),
       answerApproval: (id: string, answer: string) =>
         json<{ approval: ApprovalDTO }>(`/api/approvals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ answer }) }).then((d) => d.approval),
+      setPolicy: (id: string, body: { askFor: string[]; autoSpendUsdc: number }) =>
+        json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }).then((d) => d.installation),
       controlInstallation: (id: string, action: "pause" | "resume" | "stop" | "run" | "test" | "golive") =>
         json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}/control`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.installation),
       listAgentMessages: (id: string) => json<{ messages: AgentMessageDTO[] }>(`/api/installations/${encodeURIComponent(id)}/messages`).then((d) => d.messages),

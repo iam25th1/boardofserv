@@ -575,6 +575,10 @@ export const agentInstallations = pgTable(
     schedule: jsonb("schedule").$type<{ at: string | null; day: number | null }>(),
     minGapMinutes: integer("min_gap_minutes").notNull().default(5),
     dailySpendUsd: numeric("daily_spend_usd", { precision: 10, scale: 4 }).notNull().default("0.5"),
+    // What the renter lets it do on its own (agents/risk.ts): tools that
+    // always ask first, and how much it may spend per call without asking.
+    // Raising only: the platform's floor applies whatever this says.
+    policy: jsonb("policy").$type<{ askFor?: string[]; autoSpendUsdc?: number }>().notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     stoppedAt: timestamp("stopped_at", { withTimezone: true }),
@@ -744,8 +748,14 @@ export const agentApprovals = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     stepId: text("step_id").notNull(),
     callIndex: integer("call_index").notNull(),
-    kind: text("kind", { enum: ["ask", "over_limit"] }).notNull(),
+    // ask: the agent's own question; over_limit: spending over a rule's
+    // limit; safety: the platform's checks (risk levels, the guard, untrusted
+    // input, budgets). Not a checked column, so new kinds need no change a
+    // deploy's schema push would skip.
+    kind: text("kind", { enum: ["ask", "over_limit", "safety"] }).notNull(),
     question: text("question").notNull(),
+    // Why the platform asks, in plain words, when it does.
+    reason: text("reason"),
     options: jsonb("options").$type<{ label: string; effect: string }[]>().notNull(),
     noAnswer: text("no_answer").notNull(),
     status: text("status", { enum: ["pending", "answered", "expired", "cancelled"] }).notNull().default("pending"),

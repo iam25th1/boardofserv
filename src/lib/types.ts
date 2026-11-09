@@ -162,6 +162,27 @@ export interface InstallationDTO {
   recentJobs: JobSummaryDTO[];
   // The questions its jobs wait on.
   approvals: ApprovalDTO[];
+  // What it may do on its own, and what asks first.
+  safety: SafetyDTO;
+}
+
+// An installation's tools by risk level (read, write, outbound, money), and
+// what its renter lets it do without asking.
+export interface SafetyDTO {
+  tools: {
+    tool: string;
+    risk: "read" | "write" | "outbound" | "money";
+    // What it does, in plain words.
+    does: string;
+    // What the platform always does about it, whatever the renter says.
+    floor: string | null;
+    // The renter asked to approve it every time.
+    asks: boolean;
+    // The renter can raise it to "ask me first".
+    canRaise: boolean;
+  }[];
+  autoSpendUsdc: number;
+  maxAutoSpendUsdc: number;
 }
 
 // An agent on the board, for anyone: what it does, what it connects to,
@@ -328,8 +349,10 @@ export interface ApprovalDTO {
   installationId: string;
   agentName: string;
   stepTitle: string;
-  kind: "ask" | "over_limit";
+  kind: "ask" | "over_limit" | "safety";
   question: string;
+  // Why the platform asks (a safety check), shown beside the question.
+  reason: string | null;
   options: { label: string; effect: string }[];
   noAnswer: string;
   status: "pending" | "answered" | "expired" | "cancelled";

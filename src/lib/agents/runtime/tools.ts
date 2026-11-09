@@ -11,6 +11,8 @@ import { MAX_MEMORY_BYTES, memoryProblem, MockTools, TOOL_ARGS, ToolError } from
 import { emptyBench } from "../types";
 import type { Runtime } from "./context";
 import { overLimit, recordSpend, spendOf } from "./spend";
+import { policyAsks, readPolicy, riskOf, TO_OWNER_ONLY } from "../risk";
+import { describeCall } from "../calls";
 import { fetchPage, WebUnreachable } from "./webFetch";
 
 // A job's tools (and a value check's, with no job). Sheets are real: the
@@ -59,13 +61,21 @@ export class JobTools implements ToolHost {
       if (approval.answer === null) throw new Declined(null);
       return { answer: approval.answer };
     }
-    // Spending waits for the owner's yes when it would take the job's or
-    // the day's total over a limit (spend.ts), and counts once it is done.
+    const risk = riskOf(this.definition, step, tool);
+    if (risk === "read") return this.use(step, tool, args);
+    // Anything that changes, says or spends something waits for the
+    // renter's yes when the platform's floor or their own settings say so,
+    // or when spending would take the job's or the day's total over a
+    // rule's limit (spend.ts). One answer covers them all; a no stops it.
     const spend = spendOf(this.definition, step, tool, args);
-    if (spend) {
-      const over = await overLimit(this.rt, this.installation, this.definition, this.job?.id ?? null, spend);
-      if (over && !approval) throw new Paused({ kind: "over_limit", question: over, choices: ["Yes", "No"], tool });
-      if (over && !isYes(approval!.answer)) throw new Declined(approval!.answer);
+    if (approval) {
+      if (!isYes(approval.answer)) throw new Declined(approval.answer);
+    } else {
+      const over = spend ? await overLimit(this.rt, this.installation, this.definition, this.job?.id ?? null, spend) : null;
+      const why = policyAsks(readPolicy(this.installation.policy), { tool, risk, amount: spend?.amount ?? 0, toOwner: TO_OWNER_ONLY.includes(tool) });
+      if (over || why.length) {
+        throw new Paused({ kind: why.length ? "safety" : "over_limit", question: over ?? spend?.what ?? describeCall(tool, args), choices: ["Yes", "No"], tool, reason: why.join(" ") || null });
+      }
     }
     const result = await this.use(step, tool, args);
     if (spend) await recordSpend(this.rt, this.installation, this.job?.id ?? null, spend);

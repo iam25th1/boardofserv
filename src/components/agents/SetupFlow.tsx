@@ -115,6 +115,7 @@ export function SetupFlow({
     schedule: schedule?.kind === "schedule" ? { at: schedule.at ?? null, day: schedule.every === "week" ? 1 : null } : null,
     minGapMinutes: DEFAULT_MIN_GAP_MINUTES,
     dailySpendUsd: DEFAULT_DAILY_SPEND_USD,
+    autoSpendUsdc: 0,
   });
   const [state, setState] = useState<Saved>(() => ({ answers: fresh(), at: steps[0]!, installationId: null }));
   const [restored, setRestored] = useState(false);
@@ -328,6 +329,13 @@ export function SetupFlow({
               </div>
             )}
             {err("schedule")}
+            {d.spends && (
+              <label className={styles.field}>
+                <span className={styles.label}>Spend without asking you, per payment or order (USDC)</span>
+                <TextInput type="number" min={0} max={1000} step={1} value={String(state.answers.autoSpendUsdc ?? 0)} onChange={(e) => set({ autoSpendUsdc: Math.max(0, Number(e.target.value) || 0) })} />
+                <span className={styles.quiet}>Anything over it waits for your yes. 0 means it asks before every spend.</span>
+              </label>
+            )}
             <div className={styles.row}>
               <label className={styles.field}>
                 <span className={styles.label}>Model spend a day, at most (US dollars)</span>

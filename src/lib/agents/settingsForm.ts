@@ -24,6 +24,8 @@ export interface InstallAnswers {
   schedule?: { at: string | null; day: number | null } | null;
   minGapMinutes?: number;
   dailySpendUsd?: number;
+  // How much it may spend per call without asking (USDC); none is 0.
+  autoSpendUsdc?: number;
 }
 
 export type CheckedAnswers =

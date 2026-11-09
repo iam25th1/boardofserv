@@ -14,6 +14,8 @@ const Body = z.object({
   schedule: z.object({ at: z.string().max(5).nullable(), day: z.number().int().nullable() }).nullable().optional(),
   minGapMinutes: z.number().optional(),
   dailySpendUsd: z.number().optional(),
+  // How much it may spend per call without asking, in USDC.
+  autoSpendUsdc: z.number().finite().min(0).max(1000).optional(),
   // false: set it up for a test run first; it goes live when its owner says.
   live: z.boolean().optional(),
 });
