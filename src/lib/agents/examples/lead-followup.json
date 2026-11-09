@@ -1,0 +1,315 @@
+{
+  "note": "Built by scripts/seed-examples.ts: planned by SERV, code written by Dolphin and reviewed by SERV.",
+  "builtAt": "2026-11-09T19:14:15.816Z",
+  "interview": {
+    "watches": null,
+    "when": null,
+    "how": null,
+    "tells": null,
+    "takes": null,
+    "does": null,
+    "gives": null,
+    "asking": null,
+    "live": false,
+    "name": "Enquiry follow-up",
+    "kind": "agent",
+    "wakes": "on a schedule, every hour",
+    "looks": "the Enquiries sheet (columns name, contact, interest, message) and the Replies sheet; an enquiry is new when its contact isn't in the Replies sheet yet",
+    "handles": "take the oldest new enquiry, if there is one, and draft a short friendly reply from the owner's reply template, filling in the person's name and what they asked about; then ask the owner on Telegram, showing the draft, whether to use it",
+    "finish": "the oldest new enquiry has a row in the Replies sheet (name, contact, reply, status): status ready to send when the owner said yes, skipped when they said no; with no new enquiry, nothing happens",
+    "asks": "never record a reply as ready to send without asking the owner on Telegram first and showing them the draft",
+    "setup": "the Enquiries sheet and the Replies sheet (each picked as a Google Sheet tab), the business name and the reply template",
+    "remembers": "nothing"
+  },
+  "definition": {
+    "format": 1,
+    "name": "Enquiry follow-up",
+    "job": {
+      "does": "Monitors a Google Sheet of enquiries, drafts friendly replies from a template, and asks the owner for approval before marking them ready to send.",
+      "done": "The oldest new enquiry has a row in the Replies sheet with status ready to send or skipped, or no new enquiry exists."
+    },
+    "triggers": [
+      {
+        "kind": "schedule",
+        "every": "hour",
+        "at": null,
+        "description": "Every hour, check for new enquiries"
+      }
+    ],
+    "settings": [
+      {
+        "key": "enquiries_sheet",
+        "label": "Which sheet tab contains enquiries?",
+        "type": "sheet",
+        "help": "The sheet with columns name, contact, interest, and message.",
+        "choices": []
+      },
+      {
+        "key": "replies_sheet",
+        "label": "Which sheet tab contains replies?",
+        "type": "sheet",
+        "help": "The sheet where approved replies are recorded with columns name, contact, reply, and status.",
+        "choices": []
+      },
+      {
+        "key": "business_name",
+        "label": "What is your business name?",
+        "type": "text",
+        "help": "Used in the reply template to personalize responses.",
+        "choices": []
+      },
+      {
+        "key": "reply_template",
+        "label": "What is your reply template?",
+        "type": "text",
+        "help": "A template with placeholders {name} and {interest} for the person's name and what they asked about.",
+        "choices": []
+      }
+    ],
+    "rules": [],
+    "memory": [],
+    "steps": [
+      {
+        "id": "read_enquiries_and_replies",
+        "title": "Read enquiries and replies",
+        "inputs": [
+          "settings"
+        ],
+        "outputs": [
+          "oldest_new_enquiry"
+        ],
+        "kind": "code",
+        "description": "Read all rows from the enquiries_sheet (columns name, contact, interest, message) and replies_sheet (column contact). Find the oldest enquiry whose contact is not in the replies_sheet. Return the enquiry row or null if none exist.",
+        "tools": [
+          "sheets.read"
+        ],
+        "next": "check_for_new_enquiry"
+      },
+      {
+        "id": "check_for_new_enquiry",
+        "title": "Check for new enquiry",
+        "inputs": [
+          "oldest_new_enquiry"
+        ],
+        "outputs": [],
+        "kind": "decision",
+        "prompt": "Is there an oldest new enquiry found?",
+        "outcomes": [
+          {
+            "id": "enquiry_found",
+            "label": "Enquiry found",
+            "next": "draft_reply"
+          },
+          {
+            "id": "no_enquiry",
+            "label": "No new enquiry",
+            "next": null
+          }
+        ]
+      },
+      {
+        "id": "draft_reply",
+        "title": "Draft reply",
+        "inputs": [
+          "oldest_new_enquiry",
+          "settings"
+        ],
+        "outputs": [
+          "drafted_reply"
+        ],
+        "kind": "code",
+        "description": "Use the reply_template and fill in {name} with the enquiry's name and {interest} with the enquiry's interest field. Return the complete drafted reply.",
+        "tools": [],
+        "next": "ask_owner_approval"
+      },
+      {
+        "id": "ask_owner_approval",
+        "title": "Ask owner approval",
+        "inputs": [
+          "drafted_reply",
+          "oldest_new_enquiry"
+        ],
+        "outputs": [],
+        "kind": "action",
+        "action": "ask_owner_approval",
+        "next": "owner_decision",
+        "otherwise": "owner_decision"
+      },
+      {
+        "id": "owner_decision",
+        "title": "Owner decision",
+        "inputs": [],
+        "outputs": [],
+        "kind": "decision",
+        "prompt": "Did the owner approve the reply?",
+        "outcomes": [
+          {
+            "id": "approved",
+            "label": "Approved",
+            "next": "prepare_approved_row"
+          },
+          {
+            "id": "rejected",
+            "label": "Rejected",
+            "next": "prepare_skipped_row"
+          }
+        ]
+      },
+      {
+        "id": "prepare_approved_row",
+        "title": "Prepare approved row",
+        "inputs": [
+          "oldest_new_enquiry",
+          "drafted_reply"
+        ],
+        "outputs": [
+          "approved_row"
+        ],
+        "kind": "code",
+        "description": "Construct a row for the Replies sheet with columns name, contact, reply, and status. Use oldest_new_enquiry's name and contact, drafted_reply for the reply field, and set status to ready to send.",
+        "tools": [],
+        "next": "record_approved"
+      },
+      {
+        "id": "record_approved",
+        "title": "Record approved reply",
+        "inputs": [
+          "approved_row",
+          "settings"
+        ],
+        "outputs": [],
+        "kind": "action",
+        "action": "record_reply_approved",
+        "next": null
+      },
+      {
+        "id": "prepare_skipped_row",
+        "title": "Prepare skipped row",
+        "inputs": [
+          "oldest_new_enquiry"
+        ],
+        "outputs": [
+          "skipped_row"
+        ],
+        "kind": "code",
+        "description": "Construct a row for the Replies sheet with columns name, contact, reply, and status. Use oldest_new_enquiry's name and contact, leave reply empty, and set status to skipped.",
+        "tools": [],
+        "next": "record_skipped"
+      },
+      {
+        "id": "record_skipped",
+        "title": "Record skipped reply",
+        "inputs": [
+          "skipped_row",
+          "settings"
+        ],
+        "outputs": [],
+        "kind": "action",
+        "action": "record_reply_skipped",
+        "next": null
+      }
+    ],
+    "actions": [
+      {
+        "id": "ask_owner_approval",
+        "tool": "telegram.ask",
+        "description": "Send the drafted reply to the owner and ask for approval."
+      },
+      {
+        "id": "record_reply_approved",
+        "tool": "sheets.write",
+        "description": "Record the approved reply in the Replies sheet with status ready to send."
+      },
+      {
+        "id": "record_reply_skipped",
+        "tool": "sheets.write",
+        "description": "Record the skipped reply in the Replies sheet with status skipped."
+      }
+    ],
+    "limits": {
+      "maxSteps": 9,
+      "maxRunSeconds": 30,
+      "maxSpendUsd": 0
+    },
+    "approvalHours": 24
+  },
+  "code": {
+    "read_enquiries_and_replies": {
+      "status": "approved",
+      "source": "async function run(input, tools) {\n  const settings = (input && input.settings) || {};\n  const enquiriesSheet = settings.enquiries_sheet;\n  const repliesSheet = settings.replies_sheet;\n  if (!enquiriesSheet) return { oldest_new_enquiry: null };\n\n  const enquiriesRes = await tools.sheets.read({ sheet: enquiriesSheet });\n  const enquiries = (enquiriesRes && enquiriesRes.rows) || [];\n\n  let replies = [];\n  if (repliesSheet) {\n    const repliesRes = await tools.sheets.read({ sheet: repliesSheet });\n    replies = (repliesRes && repliesRes.rows) || [];\n  }\n\n  const norm = (v) => (v === null || v === undefined ? \"\" : String(v).trim().toLowerCase());\n  const repliedContacts = new Set(replies.map((r) => norm(r && r.contact)).filter(Boolean));\n\n  const candidates = enquiries.filter((row) => row && !repliedContacts.has(norm(row.contact)));\n  if (candidates.length === 0) return { oldest_new_enquiry: null };\n\n  const oldest = candidates[0];\n  return {\n    oldest_new_enquiry: {\n      name: oldest.name ?? null,\n      contact: oldest.contact ?? null,\n      interest: oldest.interest ?? null,\n      message: oldest.message ?? null\n    }\n  };\n}",
+      "rounds": 1,
+      "note": "The code correctly reads both sheets, identifies enquiries without replies by normalizing contact values, returns the oldest unanswered enquiry with the required fields or null, uses only the listed tool, and avoids unsafe operations."
+    },
+    "draft_reply": {
+      "status": "approved",
+      "source": "async function run(input, tools) {\n  const enquiry = input && input.oldest_new_enquiry;\n  const settings = (input && input.settings) || {};\n  if (!enquiry || typeof enquiry !== \"object\") {\n    return { drafted_reply: \"\" };\n  }\n  const template = typeof settings.reply_template === \"string\" ? settings.reply_template : \"\";\n  const name = enquiry.name == null ? \"\" : String(enquiry.name);\n  const interest = enquiry.interest == null ? \"\" : String(enquiry.interest);\n  const drafted = template\n    .split(\"{name}\").join(name)\n    .split(\"{interest}\").join(interest);\n  return { drafted_reply: drafted };\n}",
+      "rounds": 1,
+      "note": "The code correctly drafts a reply by filling template placeholders with enquiry data, reads only from its inputs, returns only the specified output, calls no tools, and avoids unsafe operations."
+    },
+    "prepare_approved_row": {
+      "status": "approved",
+      "source": "async function run(input, tools) {\n  const enquiry = input && input.oldest_new_enquiry;\n  const reply = input && input.drafted_reply;\n  if (!enquiry || typeof enquiry !== \"object\") return { approved_row: null };\n  const row = {\n    name: enquiry.name == null ? \"\" : String(enquiry.name),\n    contact: enquiry.contact == null ? \"\" : String(enquiry.contact),\n    reply: reply == null ? \"\" : String(reply),\n    status: \"ready to send\"\n  };\n  return { approved_row: { sheet: \"Replies\", rows: [row], mode: \"append\" } };\n}",
+      "rounds": 1,
+      "note": "The code correctly constructs a row with the required columns from the specified inputs, sets status to 'ready to send', calls no tools, and avoids unsafe operations."
+    },
+    "prepare_skipped_row": {
+      "status": "approved",
+      "source": "async function run(input, tools) {\n  const e = input && input.oldest_new_enquiry;\n  const name = e && e.name != null ? String(e.name) : \"\";\n  const contact = e && e.contact != null ? String(e.contact) : \"\";\n  const skipped_row = { name, contact, reply: \"\", status: \"skipped\" };\n  return { skipped_row };\n}",
+      "rounds": 2,
+      "note": "The code correctly constructs a row object with the required columns using only the input, safely handles null/undefined values, and returns exactly the specified output without calling any tools or performing risky operations."
+    }
+  },
+  "bench": {
+    "settings": {
+      "enquiries_sheet": "Enquiries",
+      "replies_sheet": "Replies",
+      "business_name": "Northside Craft Studio",
+      "reply_template": "Hi {name}, thanks for asking about {interest}. Here is what we can offer: "
+    },
+    "rules": {},
+    "trigger": null,
+    "sheets": {
+      "Enquiries": [
+        {
+          "name": "Jordan Lee",
+          "contact": "jordan@example.com",
+          "interest": "spring workshop",
+          "message": "Are there places left for the March workshop?"
+        },
+        {
+          "name": "Alex Moreno",
+          "contact": "alex@example.com",
+          "interest": "gift vouchers",
+          "message": "Do you sell gift vouchers, and for how much?"
+        },
+        {
+          "name": "Sam Patel",
+          "contact": "sam@example.com",
+          "interest": "group booking",
+          "message": "Could six of us book an evening class?"
+        }
+      ],
+      "Replies": [
+        {
+          "name": "Jordan Lee",
+          "contact": "jordan@example.com",
+          "reply": "Hi Jordan, thanks for asking about the spring workshop. There are four places left.",
+          "status": "ready to send"
+        }
+      ]
+    },
+    "pages": {},
+    "search": {},
+    "telegram": {
+      "answers": [
+        "Yes"
+      ]
+    },
+    "memory": {},
+    "wallet": {
+      "balanceUsdc": 0
+    },
+    "decisions": {}
+  },
+  "planTries": 3
+}
