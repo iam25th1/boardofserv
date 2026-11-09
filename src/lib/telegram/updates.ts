@@ -75,7 +75,7 @@ async function onMessage(rt: Runtime, m: TgMessage): Promise<void> {
   if (!text) return void (await reply(rt, chatId, "I only pass on text messages."));
   const [user] = await rt.db.select().from(users).where(eq(users.id, owner));
   if (!user || accessOf(user) !== "approved") return void (await reply(rt, chatId, "Your boardofserv account isn't let in yet, so your agents can't take messages."));
-  const takers = (await installationsOf(rt, owner)).filter((l) => l.installation.status === "active" && l.definition.triggers.some((t) => t.kind === "message")).slice(0, MAX_MENU);
+  const takers = (await installationsOf(rt, owner)).filter((l) => l.installation.status === "active" && l.installation.live && l.definition.triggers.some((t) => t.kind === "message")).slice(0, MAX_MENU);
   if (!takers.length) return void (await reply(rt, chatId, "None of your running agents take messages."));
   const body = text.slice(0, MAX_TEXT);
   if (takers.length === 1) return void (await pass(rt, chatId, takers[0]!.installation.id, owner, body));

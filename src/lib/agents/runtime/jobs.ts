@@ -8,7 +8,8 @@ import type { Runtime } from "./context";
 import { JobTools } from "./tools";
 import { spendToday } from "./views";
 
-// Jobs: one run each of an installation, started by a trigger. A job is a
+// Jobs: one run each of an installation, started by a trigger (or by hand,
+// as a test run before it goes live). A job is a
 // row, so it survives a restart: a worker claims a due one (atomically, so
 // no two workers ever take the same job), runs it on the version it was
 // started on, saves where it is after every step and tool call, and marks
@@ -26,7 +27,7 @@ export const BACKOFF_MS = [30_000, 120_000, 600_000];
 export const HEARTBEAT_MS = 20_000;
 export const STALE_MS = 120_000;
 
-export type JobTrigger = { kind: "schedule" | "check" | "message" | "manual"; [k: string]: unknown };
+export type JobTrigger = { kind: "schedule" | "check" | "message" | "manual" | "test"; [k: string]: unknown };
 
 // Another worker owns the job now: stop at once, write nothing more.
 export class Fenced extends Error {

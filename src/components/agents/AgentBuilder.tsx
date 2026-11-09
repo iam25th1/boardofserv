@@ -7,8 +7,7 @@ import { nextOf, type AgentDefinition, type AgentStep } from "@/lib/agents/defin
 import type { BenchData, RunEvent } from "@/lib/agents/types";
 import { TOOLS } from "@/lib/agents/toolbox";
 import type { AgentBuilderDTO, AgentSummaryDTO } from "@/lib/types";
-import { InstallForm } from "./InstallForm";
-import type { InstallAnswers } from "@/lib/agents/settingsForm";
+import { SetupFlow, type SetupApi } from "./SetupFlow";
 import { StepDiagram, type NodeState } from "./StepDiagram";
 import styles from "./AgentBuilder.module.css";
 
@@ -27,11 +26,9 @@ export interface BuilderApi {
   // version that never changes, in testing.
   saveBench?: (bench: BenchData) => Promise<AgentBuilderDTO>;
   publish?: () => Promise<AgentBuilderDTO>;
-  // Run the newest published version for real, for the maker; resolves once
-  // it is installed (and the page has moved on).
-  install?: (answers: InstallAnswers) => Promise<void>;
-  // A Google Sheet's tabs, for a sheet setting.
-  inspectSheet?: (url: string) => Promise<{ title: string; tabs: { id: number; title: string }[] }>;
+  // Set the newest published version up to run for real, for the maker:
+  // the guided setup, a test run, then live (and the page moves on).
+  setup?: SetupApi & { done: (installationId: string) => void };
 }
 
 const SECTIONS = [
@@ -101,6 +98,10 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
   const [busy, setBusy] = useState<"save" | "publish" | null>(null);
   const [headSaid, setHeadSaid] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  // Back from Google in the middle of setting up: carry on.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("setup") === "1") setInstalling(true);
+  }, []);
 
   const d = data.definition;
   const building = ["planning", "writing", "fixing"].includes(data.agent.buildState);
@@ -219,7 +220,7 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
           <span className={styles.badge} data-state={data.agent.state}>
             {data.agent.state === "published" ? `In testing, version ${data.agent.version}` : `Draft, version ${data.agent.version}`}
           </span>
-          {(api.saveBench || api.publish || api.install) && (
+          {(api.saveBench || api.publish || api.setup) && (
             <div className={styles.runRow}>
               {api.saveBench && (
                 <Button size="sm" variant="ghost" onClick={() => void save()} disabled={busy !== null}>
@@ -231,7 +232,7 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
                   {busy === "publish" ? "Publishing..." : "Publish version"}
                 </Button>
               )}
-              {api.install && data.runnable && (
+              {api.setup && data.runnable && (
                 <Button size="sm" variant={installing ? "ghost" : "primary"} onClick={() => setInstalling(!installing)} aria-expanded={installing}>
                   Run it for real
                 </Button>
@@ -240,14 +241,22 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
           )}
         </div>
       </header>
-      {installing && api.install && api.inspectSheet && data.runnable && (
+      {installing && api.setup && data.runnable && (
         <section className={styles.section} aria-label="Run it for real">
           <h2>Run version {data.runnable.version} for real</h2>
           <p className={styles.quiet}>
-            It runs on its own from now on: on its schedule, when its value check turns true, or when you message it. Your Google Sheets, Telegram, web pages, web
-            search and what it remembers are real; the wallet is still a stand-in.
+            A few steps, then a test run. Once live it runs on its own: on its schedule, when its value check turns true, or when you message it. Your Google
+            Sheets, Telegram, web pages, web search and what it remembers are real; the wallet is still a stand-in.
           </p>
-          <InstallForm definition={data.runnable.definition} defaults={data.runnable.defaults} onInstall={api.install} onCancel={() => setInstalling(false)} inspectSheet={api.inspectSheet} />
+          <SetupFlow
+            agentId={data.agent.id}
+            definition={data.runnable.definition}
+            defaults={data.runnable.defaults}
+            api={api.setup}
+            returnTo={`/agents/${data.agent.id}?setup=1`}
+            onDone={api.setup.done}
+            onCancel={() => setInstalling(false)}
+          />
         </section>
       )}
       {headSaid && (

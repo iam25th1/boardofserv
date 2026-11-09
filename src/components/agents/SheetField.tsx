@@ -4,7 +4,7 @@ import { animate } from "animejs";
 import { Button, TextInput } from "@/components/ui";
 import { parseSheetLink, type SheetAnswer } from "@/lib/google/sheetLink";
 import { dustIn, prefersReducedMotion } from "@/lib/motion";
-import styles from "./InstallForm.module.css";
+import styles from "./SheetField.module.css";
 
 // A sheet setting, for real: the owner pastes a Google Sheet's link,
 // boardofserv opens it on their own Google access (so it is one they may

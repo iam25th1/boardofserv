@@ -1,0 +1,48 @@
+/* A sheet setting: the link, a button to open it, then its tabs. */
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+  align-items: center;
+}
+.row > :first-child {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+}
+.help {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.select {
+  width: 100%;
+  font: inherit;
+  font-size: var(--t-base);
+  color: var(--chalk);
+  background-color: var(--slate-2);
+  border: thin solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--s-2) var(--s-3);
+}
+.select:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.error {
+  font-size: var(--t-xs);
+  color: var(--chalk);
+}
+.error::before {
+  content: "x ";
+  font-weight: var(--w-bold);
+}

@@ -1,0 +1,167 @@
+/* Setting an agent up: steps along the top on a chalk line, one panel at a time. */
+.flow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.steps {
+  position: relative;
+  padding-top: 2px;
+}
+.track {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 13px;
+  width: calc(100% - 24px);
+  height: 4px;
+  overflow: visible;
+  fill: none;
+  stroke-linecap: round;
+}
+.trackBase {
+  stroke: var(--line);
+  stroke-width: 1.5px;
+  stroke-dasharray: 3 4;
+  vector-effect: non-scaling-stroke;
+}
+.trackDone {
+  stroke: var(--chalk);
+  stroke-width: var(--stroke);
+  vector-effect: non-scaling-stroke;
+}
+.steps ol {
+  position: relative;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s-2);
+}
+.steps li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 0;
+  text-align: center;
+}
+.steps li:first-child {
+  align-items: flex-start;
+  text-align: left;
+}
+.steps li:last-child {
+  align-items: flex-end;
+  text-align: right;
+}
+.dot {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: var(--stroke) dashed var(--chalk-3);
+  border-radius: var(--r-full);
+  background: var(--slate);
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.steps li[data-state="done"] .dot {
+  border-style: solid;
+  border-color: var(--chalk);
+  color: var(--chalk);
+}
+.steps li[data-state="here"] .dot {
+  border-style: solid;
+  border-color: var(--chalk);
+  background: var(--chalk);
+  color: var(--slate);
+}
+.stepName {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+  overflow-wrap: anywhere;
+}
+.steps li[data-state="here"] .stepName {
+  color: var(--chalk);
+}
+.panel {
+  padding: var(--s-4);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-lg);
+}
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  min-width: 0;
+  flex: 1 1 12rem;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+}
+.label {
+  font-size: var(--t-sm);
+  font-weight: var(--w-medium);
+}
+.help,
+.quiet {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.quiet {
+  font-size: var(--t-sm);
+}
+.select {
+  width: 100%;
+  font: inherit;
+  font-size: var(--t-base);
+  color: var(--chalk);
+  background-color: var(--slate-2);
+  border: thin solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--s-2) var(--s-3);
+}
+.select:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.error,
+.said {
+  font-size: var(--t-xs);
+  color: var(--chalk);
+}
+.said {
+  font-size: var(--t-sm);
+}
+.error::before {
+  content: "x ";
+  font-weight: var(--w-bold);
+}
+.done {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s-2);
+}
+@media (max-width: 520px) {
+  .stepName {
+    display: none;
+  }
+  .steps li[data-state="here"] .stepName {
+    display: block;
+  }
+}

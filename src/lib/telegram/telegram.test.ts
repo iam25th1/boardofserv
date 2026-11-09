@@ -165,7 +165,9 @@ describe("what agents send", () => {
 
   it("stays in the app when the owner has no Telegram linked", async () => {
     const u = await addUser(db, "tg.unlinked");
-    const inst = await installed(rt, u, await notifierAgent(u, "Quiet"), {}, { telegram: false });
+    const inst = await installed(rt, u, await notifierAgent(u, "Quiet"));
+    // Unlinked since (without the pause a disconnect brings, to see the send).
+    await db.delete(schema.connections).where(eq(schema.connections.ownerUserId, u.id));
     await enqueue(rt, inst, { kind: "message", text: "hi" });
     await runOnce();
     await deliverTelegram(rt);

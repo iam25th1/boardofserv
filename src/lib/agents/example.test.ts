@@ -25,7 +25,12 @@ describe("the example agent", () => {
     const codeSteps = definition.steps.filter((s) => s.kind === "code").map((s) => s.id);
     expect(codeSteps.length).toBeGreaterThan(0);
     for (const id of codeSteps) expect(restock.code[id as keyof typeof restock.code], id).toMatchObject({ status: "approved" });
-    expect(definition.actions.map((a) => a.tool).sort()).toEqual(["memory.set", "sheets.write", "telegram.ask"]);
+    expect(definition.actions.map((a) => a.tool).sort()).toEqual(["memory.set", "sheets.write", "telegram.send"]);
+    // Writing the orders is spending: the runtime's guard asks over the
+    // owner's limit, on the order's total, so the plan has no approval
+    // steps of its own.
+    expect(definition.actions.find((a) => a.tool === "sheets.write")).toMatchObject({ amountColumn: "total_cost_usdc", askOver: "approval_limit" });
+    expect(definition.settings.filter((s) => s.type === "sheet").map((s) => s.key)).toEqual(["stock_sheet", "orders_sheet"]);
   });
 
   it("records the order when it is within the limit, using the recorded decision and no model", async () => {
@@ -39,19 +44,12 @@ describe("the example agent", () => {
     expect(orders.find((o) => o.fabric === "Linen, natural")?.supplier).toBe("Weftworks");
   });
 
-  it("asks the owner over the limit, and records only on a yes", async () => {
-    const over = definition.steps.find((s): s is DecisionStepDef => s.kind === "decision" && s.outcomes.some((o) => o.next === "ask_approval"))!;
-    const answer = definition.steps.find((s): s is DecisionStepDef => s.kind === "decision" && s.inputs.includes("approval_response"))!;
-    const toAsk = over.outcomes.find((o) => o.next === "ask_approval")!.id;
-    const yes = answer.outcomes.find((o) => o.next !== null)!.id;
-    const no = answer.outcomes.find((o) => o.next === null)!.id;
-
-    const approved = await dry({ [over.id]: toAsk, [answer.id]: yes });
-    expect(approved.path).toContain("ask_approval");
-    expect((approved.end.sheets.Orders as unknown[]).length).toBeGreaterThan(0);
-
-    const declined = await dry({ [over.id]: toAsk, [answer.id]: no });
-    expect(declined.path.at(-1)).toBe(answer.id);
-    expect(declined.end.sheets.Orders).toEqual([]);
+  it("tells the owner stock is fine when there is nothing to order", async () => {
+    const check = definition.steps.find((s): s is DecisionStepDef => s.kind === "decision")!;
+    const nothing = check.outcomes.find((o) => definition.steps.find((s) => s.id === o.next)?.kind === "action")!;
+    const { end, path } = await dry({ [check.id]: nothing.id });
+    expect(end.status).toBe("done");
+    expect(path.at(-1)).toBe(nothing.next);
+    expect(end.sheets.Orders).toEqual([]);
   });
 });

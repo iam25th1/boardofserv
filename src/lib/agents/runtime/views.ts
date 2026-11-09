@@ -25,7 +25,7 @@ export async function spendToday(rt: Runtime, installationId: string): Promise<n
   return Number(row?.usd ?? 0);
 }
 
-const TRIGGER_WORDS: Record<string, string> = { schedule: "on its schedule", check: "when its check turned true", message: "by your message", manual: "by hand" };
+const TRIGGER_WORDS: Record<string, string> = { schedule: "on its schedule", check: "when its check turned true", message: "by your message", manual: "by hand", test: "as a test run" };
 
 function summary(job: AgentJob, d: AgentDefinition | null, viewer: Viewer, mine: boolean): JobSummaryDTO {
   const kind = String((job.trigger as { kind?: string }).kind ?? "manual");
@@ -37,6 +37,7 @@ function summary(job: AgentJob, d: AgentDefinition | null, viewer: Viewer, mine:
     // A failure's reason can quote the owner's data: theirs alone.
     reason: viewer === "owner" ? job.reason : null,
     started: TRIGGER_WORDS[kind] ?? "by hand",
+    trigger: kind,
     createdAt: job.createdAt.toISOString(),
     finishedAt: job.finishedAt?.toISOString() ?? null,
     costUsd: Number(job.costUsd),

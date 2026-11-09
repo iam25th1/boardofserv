@@ -673,15 +673,6 @@ describe("a helper's instructions stay on the server", () => {
       expect(back.headers.get("location")).toContain("google=connected");
       await hit("sheets: maya opens her sheet", sheetsInspect.POST(req("/api/sheets/inspect", "POST", { url: fakeSheetUrl(MAYA_SHEET) })));
       await hit("sheets: a link that isn't a sheet", sheetsInspect.POST(req("/api/sheets/inspect", "POST", { url: "https://example.com/x" })));
-      const tab = (t: string) => ({ url: fakeSheetUrl(MAYA_SHEET), tab: t });
-      const installed = JSON.parse(
-        await (
-          await hit("agent: install", agentInstall.POST(req(`/api/agents/${id}/installations`, "POST", { settings: { stock_sheet: tab("Stock"), orders_sheet: tab("Orders"), suppliers_sheet: tab("Suppliers") }, rules: {}, timezone: "UTC" }), p))
-        )
-          .clone()
-          .text(),
-      );
-      const ip = { params: { id: installed.installation.id as string } };
       // Maya links Telegram (a code, sent to the bot from her chat): the
       // vault holds it with her Google tokens.
       vi.stubEnv("TELEGRAM_BOT_TOKEN", "123:secrecy-bot-token");
@@ -695,6 +686,15 @@ describe("a helper's instructions stay on the server", () => {
       await hit("telegram: webhook without its secret", hook(null, fromMaya(1, `/start ${linkCode.code}`)));
       await hit("telegram: webhook with a wrong secret", hook("not-it", fromMaya(2, `/start ${linkCode.code}`)));
       await hit("telegram: maya links her chat", hook("secrecy-dev-secret", fromMaya(3, `/start ${linkCode.code}`)));
+      const tab = (t: string) => ({ url: fakeSheetUrl(MAYA_SHEET), tab: t });
+      const installed = JSON.parse(
+        await (
+          await hit("agent: install", agentInstall.POST(req(`/api/agents/${id}/installations`, "POST", { settings: { stock_sheet: tab("Stock"), orders_sheet: tab("Orders"), suppliers_sheet: tab("Suppliers") }, rules: {}, timezone: "UTC" }), p))
+        )
+          .clone()
+          .text(),
+      );
+      const ip = { params: { id: installed.installation.id as string } };
       await hit("connections: list", connectionsRoute.GET(req("/api/connections")));
       await hit("agent: installations", installationsRoute.GET(req("/api/installations")));
       await hit("agent: installation", installationRoute.GET(req(`/api/installations/${ip.params.id}`), ip));
@@ -725,6 +725,7 @@ describe("a helper's instructions stay on the server", () => {
       const agentRow = (await db.query.agents.findFirst({ where: eq(schema.agents.id, id) }))!;
       const published = (await db.query.agentVersions.findFirst({ where: eq(schema.agentVersions.state, "published") }))!;
       await keep(rt, sam.id, "google", "sam@sheets.test", { refreshToken: "sam-refresh", accessToken: "sam-access", expiresAt: Date.now() + 3_600_000, scope: "spreadsheets" });
+      await keep(rt, sam.id, "telegram", "@sam", { chatId: 5551212, userId: 5551212 });
       google.addSheet(SAM_SHEET, "Sam's shop", { [SAM_PRIVATE]: restockBench().sheets.Stock!, Orders: [], Suppliers: restockBench().sheets.Suppliers! });
       const samTab = (t: string) => ({ url: fakeSheetUrl(SAM_SHEET), tab: t });
       const samsCopy = await install(rt, { ownerUserId: sam.id, agent: agentRow, version: published, answers: { settings: { stock_sheet: samTab(SAM_PRIVATE), orders_sheet: samTab("Orders"), suppliers_sheet: samTab("Suppliers") }, rules: {}, timezone: "UTC" } });

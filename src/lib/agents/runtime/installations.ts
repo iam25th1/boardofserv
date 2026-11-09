@@ -41,10 +41,14 @@ export function notRunnable(version: AgentVersion): string | null {
   return null;
 }
 
-export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agent; version: AgentVersion; answers: InstallAnswers }): Promise<AgentInstallation> {
+// live: false sets it up for a test run first (not live): nothing starts
+// it but its owner's test runs, until they make it live.
+export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agent; version: AgentVersion; answers: InstallAnswers; live?: boolean }): Promise<AgentInstallation> {
   const why = notRunnable(o.version);
   if (why) throw new InstallRefused(why);
   const d = o.version.definition!;
+  const missing = await missingConnections(rt, o.ownerUserId, d);
+  if (missing.length) throw new InstallRefused(`${missing.map((p) => (p === "telegram" ? "Link Telegram" : "Connect Google")).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
   const checked = checkAnswers(d, o.answers);
   if (!checked.ok) throw new InstallRefused("Some answers need another look.", checked.errors);
   const { settings, sheets } = await grantSheets(rt, o.ownerUserId, d, checked.settings);
@@ -56,6 +60,7 @@ export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agen
       agentId: o.agent.id,
       versionId: o.version.id,
       ownerUserId: o.ownerUserId,
+      live: o.live !== false,
       settings,
       sheets,
       rules: checked.rules,
@@ -68,7 +73,7 @@ export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agen
       updatedAt: now,
     })
     .returning();
-  await setUpTriggers(rt, row!, d);
+  if (row!.live) await setUpTriggers(rt, row!, d);
   return row!;
 }
 
@@ -169,7 +174,8 @@ export async function installationDTO(rt: Runtime, l: Loaded): Promise<Installat
     agentId: l.agent.id,
     name: d.name,
     version: l.version.number,
-    status: i.status,
+    // Set up but not live yet reads as testing.
+    status: i.status === "active" && !i.live ? "testing" : i.status,
     pausedReason: i.status === "paused" ? i.pausedReason : null,
     needs: connectionsNeeded(d),
     missing: await missingConnections(rt, i.ownerUserId, d),
@@ -183,7 +189,7 @@ export async function installationDTO(rt: Runtime, l: Loaded): Promise<Installat
     dailySpendUsd: Number(i.dailySpendUsd),
     createdAt: i.createdAt.toISOString(),
     runs: describeTriggers(d, i.schedule),
-    nextRunAt: i.status === "active" && next.length ? new Date(Math.min(...next)).toISOString() : null,
+    nextRunAt: i.status === "active" && i.live && next.length ? new Date(Math.min(...next)).toISOString() : null,
     takesMessages: d.triggers.some((t) => t.kind === "message"),
     checkNote: failing?.note ?? null,
     memory: d.memory.map((m) => ({ key: m.key, description: m.description, value: i.memory[m.key] ?? null })),
@@ -201,7 +207,7 @@ export async function missingConnections(rt: Runtime, ownerUserId: string, d: Ag
   return missing;
 }
 
-export type Control = "pause" | "resume" | "stop" | "run";
+export type Control = "pause" | "resume" | "stop" | "run" | "test" | "golive";
 
 export class ControlRefused extends Error {
   constructor(message: string) {
@@ -218,11 +224,32 @@ export class ControlRefused extends Error {
 //   is cancelled with its question, and a running job finishes the step
 //   it is on and stops there.
 // - run: one job now, by hand (it still keeps the minimum gap).
+// - test: while it is being set up, one job now, by hand: everything for
+//   real, once, before it goes live.
+// - golive: from being set up to running on its own (its triggers start).
 export async function control(rt: Runtime, l: Loaded, action: Control): Promise<void> {
   const { installation: i, definition: d } = l;
   const now = rt.now();
   const here = eq(agentInstallations.id, i.id);
   if (i.status === "stopped") throw new ControlRefused("It's stopped for good. Start it again from its agent's page.");
+  if (!i.live && !["test", "golive", "stop", "resume"].includes(action)) throw new ControlRefused("It isn't live yet: run a test, then make it live.");
+  if (action === "test" || action === "golive") {
+    if (i.live) throw new ControlRefused(action === "test" ? "It's live already: use Run now." : "It's live already.");
+    if (i.status !== "active") throw new ControlRefused("Resume it first.");
+  }
+  if (action === "test") {
+    const missing = await missingConnections(rt, i.ownerUserId, d);
+    if (missing.length) throw new ControlRefused(`Connect ${missing.map((p) => SERVICE_NAME[p]).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
+    await enqueue(rt, i, { kind: "test" });
+    return;
+  }
+  if (action === "golive") {
+    const missing = await missingConnections(rt, i.ownerUserId, d);
+    if (missing.length) throw new ControlRefused(`Connect ${missing.map((p) => SERVICE_NAME[p]).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
+    const [row] = await rt.db.update(agentInstallations).set({ live: true, updatedAt: now }).where(and(here, eq(agentInstallations.live, false))).returning();
+    if (row) await setUpTriggers(rt, row, d);
+    return;
+  }
   if (action === "pause") {
     if (i.status !== "active") throw new ControlRefused("It's paused already.");
     await rt.db.update(agentInstallations).set({ status: "paused", pausedReason: null, updatedAt: now }).where(here);
@@ -233,7 +260,7 @@ export async function control(rt: Runtime, l: Loaded, action: Control): Promise<
     const missing = await missingConnections(rt, i.ownerUserId, d);
     if (missing.length) throw new ControlRefused(`Connect ${missing.map((p) => SERVICE_NAME[p]).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
     const [row] = await rt.db.update(agentInstallations).set({ status: "active", pausedReason: null, updatedAt: now }).where(here).returning();
-    await setUpTriggers(rt, row!, d);
+    if (row!.live) await setUpTriggers(rt, row!, d);
     return;
   }
   if (action === "run") {

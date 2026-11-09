@@ -14,6 +14,8 @@ const Body = z.object({
   schedule: z.object({ at: z.string().max(5).nullable(), day: z.number().int().nullable() }).nullable().optional(),
   minGapMinutes: z.number().optional(),
   dailySpendUsd: z.number().optional(),
+  // false: set it up for a test run first; it goes live when its owner says.
+  live: z.boolean().optional(),
 });
 
 // Run it for real: the maker installs the newest published version of their
@@ -30,7 +32,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!version) return Response.json({ error: "Publish a version first: an installation runs a published version, which never changes." }, { status: 409 });
   const rt = serverRuntime();
   try {
-    const row = await install(rt, { ownerUserId: who.user.id, agent: who.agent, version, answers: parsed.data });
+    const { live, ...answers } = parsed.data;
+    const row = await install(rt, { ownerUserId: who.user.id, agent: who.agent, version, answers, live });
     const loaded = await loadInstallation(rt, row.id);
     return Response.json({ installation: await installationDTO(rt, loaded!) }, { status: 201 });
   } catch (err) {

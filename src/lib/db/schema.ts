@@ -548,6 +548,11 @@ export const agentInstallations = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     status: text("status", { enum: ["active", "paused", "stopped"] }).notNull().default("active"),
+    // Live: its triggers start its jobs. One set up for a test run first
+    // isn't live until its owner says: only test runs by hand start it.
+    // (A column of its own rather than a status: the deploy's schema push
+    // adds columns but doesn't change an existing check constraint.)
+    live: boolean("live").notNull().default(true),
     // Why it was paused, when the runtime paused it (a connection it needs
     // went away), in plain words for its owner; null when they paused it.
     pausedReason: text("paused_reason"),
@@ -601,7 +606,7 @@ export const agentJobs = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     status: text("status", { enum: JOB_STATUSES }).notNull().default("queued"),
-    // What started it: { kind: "schedule" | "check" | "message" | "manual", ... }.
+    // What started it: { kind: "schedule" | "check" | "message" | "manual" | "test", ... }.
     trigger: jsonb("trigger").$type<Record<string, unknown>>().notNull(),
     // json, not jsonb: kept exactly as written, keys in their order, so a
     // step that runs again sees the very same values.

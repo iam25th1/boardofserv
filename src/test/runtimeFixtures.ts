@@ -129,10 +129,9 @@ export async function installed(
   owner: schema.User,
   p: { agent: schema.Agent; version: schema.AgentVersion },
   answers: Partial<InstallAnswers> = {},
-  o: { telegram?: boolean } = {},
 ): Promise<schema.AgentInstallation> {
   if (!(await hasConnection(rt, owner.id, "google"))) await keep(rt, owner.id, "google", "owner@example.com", { refreshToken: `refresh-${owner.id}`, accessToken: `access-${owner.id}`, expiresAt: rt.now().getTime() + 3_600_000, scope: "spreadsheets" });
-  if (o.telegram !== false && !(await hasConnection(rt, owner.id, "telegram"))) await keep(rt, owner.id, "telegram", "@owner", { chatId: chatOf(owner), userId: chatOf(owner) });
+  if (!(await hasConnection(rt, owner.id, "telegram"))) await keep(rt, owner.id, "telegram", "@owner", { chatId: chatOf(owner), userId: chatOf(owner) });
   const sheet = ownSheet(rt as TestRuntime);
   return install(rt, {
     ownerUserId: owner.id,

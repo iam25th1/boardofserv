@@ -30,3 +30,12 @@
   font-size: var(--t-xs);
   color: var(--chalk-2);
 }
+/* Why the runtime paused it: dashed, in the owner's words. */
+.reason {
+  flex-basis: 100%;
+  padding: var(--s-2) var(--s-3);
+  border: var(--stroke) dashed var(--chalk);
+  border-radius: var(--r-md);
+  font-size: var(--t-sm);
+  overflow-wrap: anywhere;
+}

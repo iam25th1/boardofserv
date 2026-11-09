@@ -1,6 +1,6 @@
 {
-  "note": "Built by scripts/seed-restock.ts: planned by SERV, code written by Dolphin and reviewed by SERV, decisions recorded from one live run. Its two sheet settings became Google Sheet tabs (type sheet) by hand in phase 3; their values, the tab names, are what the code reads, as before.",
-  "builtAt": "2026-11-09T13:24:24.054Z",
+  "note": "Built by scripts/seed-restock.ts: planned by SERV, code written by Dolphin and reviewed by SERV, decisions recorded from one live run. In phase 3 SERV changed the plan twice (SEED_FIX): approval moved to the runtime's spending guard (write_orders spends total_cost_usdc, asking over approval_limit, and a no stops the job), one decision remains (anything to reorder?), and the two sheets are Google Sheet tabs.",
+  "builtAt": "2026-11-09T16:34:56.209Z",
   "interview": {
     "name": "Fabric restock",
     "kind": "agent",
@@ -113,66 +113,38 @@
           "web.fetch",
           "sheets.read"
         ],
-        "next": "check_approval"
+        "next": "check_orders_exist"
       },
       {
-        "id": "check_approval",
-        "title": "Check if approval needed",
-        "inputs": [
-          "orders_to_place",
-          "rules"
-        ],
-        "outputs": [],
-        "kind": "decision",
-        "prompt": "Do any orders exceed the approval limit?",
-        "outcomes": [
-          {
-            "id": "needs_approval",
-            "label": "Some orders exceed limit",
-            "next": "ask_approval"
-          },
-          {
-            "id": "no_approval_needed",
-            "label": "All orders within limit or no orders",
-            "next": "prepare_write_orders"
-          }
-        ]
-      },
-      {
-        "id": "ask_approval",
-        "title": "Request Telegram approval for high orders",
+        "id": "check_orders_exist",
+        "title": "Check if there are orders to place",
         "inputs": [
           "orders_to_place"
         ],
-        "outputs": [
-          "approval_response"
-        ],
-        "kind": "action",
-        "action": "ask_approval",
-        "next": "approval_decision",
-        "otherwise": "approval_decision"
-      },
-      {
-        "id": "approval_decision",
-        "title": "Check owner approval response",
-        "inputs": [
-          "approval_response"
-        ],
         "outputs": [],
         "kind": "decision",
-        "prompt": "Did the owner approve the orders?",
+        "prompt": "Are there any fabrics to reorder today?",
         "outcomes": [
           {
-            "id": "approved",
-            "label": "Owner approved",
+            "id": "orders_found",
+            "label": "Fabrics need reordering",
             "next": "prepare_write_orders"
           },
           {
-            "id": "declined",
-            "label": "Owner declined",
-            "next": null
+            "id": "no_orders",
+            "label": "Stock levels are fine",
+            "next": "send_stock_ok_message"
           }
         ]
+      },
+      {
+        "id": "send_stock_ok_message",
+        "title": "Notify owner stock is fine",
+        "inputs": [],
+        "outputs": [],
+        "kind": "action",
+        "action": "stock_ok_message",
+        "next": null
       },
       {
         "id": "prepare_write_orders",
@@ -233,14 +205,16 @@
     ],
     "actions": [
       {
-        "id": "ask_approval",
-        "tool": "telegram.ask",
-        "description": "Ask owner to approve orders over the approval limit"
+        "id": "stock_ok_message",
+        "tool": "telegram.send",
+        "description": "Notify owner that stock levels are fine today"
       },
       {
         "id": "write_orders",
         "tool": "sheets.write",
-        "description": "Write new order rows to the Orders sheet"
+        "description": "Write new order rows to the Orders sheet",
+        "askOver": "approval_limit",
+        "amountColumn": "total_cost_usdc"
       },
       {
         "id": "save_order_memory",
@@ -278,7 +252,7 @@
   "bench": {
     "settings": {
       "stock_sheet": "Stock",
-      "suppliers_page": "https://suppliers.example/prices",
+      "suppliers_page": "https://boardofserv.25th.dev/examples/suppliers",
       "orders_sheet": "Orders",
       "approval_limit": 250,
       "max_delivery_days": 7
@@ -311,7 +285,7 @@
       "Orders": []
     },
     "pages": {
-      "https://suppliers.example/prices": "Supplier prices\n\nSupplier prices\n\nPrices per metre in USDC, and how many days delivery takes.\n\nsupplier | fabric | price_usdc | delivery_days\nNorthmill Textiles | Linen, natural | 6.50 | 3\nHarbor Cloth Co. | Linen, natural | 5.90 | 9\nWeftworks | Linen, natural | 6.10 | 5\nNorthmill Textiles | Wool felt | 11.00 | 4\nHarbor Cloth Co. | Wool felt | 9.80 | 12\nWeftworks | Wool felt | 10.50 | 6\nNorthmill Textiles | Canvas, heavy | 7.20 | 2\nHarbor Cloth Co. | Canvas, heavy | 6.80 | 5\nWeftworks | Canvas, heavy | 7.50 | 3"
+      "https://boardofserv.25th.dev/examples/suppliers": "Supplier prices\n\nSupplier prices\n\nPrices per metre in USDC, and how many days delivery takes.\n\nsupplier | fabric | price_usdc | delivery_days\nNorthmill Textiles | Linen, natural | 6.50 | 3\nHarbor Cloth Co. | Linen, natural | 5.90 | 9\nWeftworks | Linen, natural | 6.10 | 5\nNorthmill Textiles | Wool felt | 11.00 | 4\nHarbor Cloth Co. | Wool felt | 9.80 | 12\nWeftworks | Wool felt | 10.50 | 6\nNorthmill Textiles | Canvas, heavy | 7.20 | 2\nHarbor Cloth Co. | Canvas, heavy | 6.80 | 5\nWeftworks | Canvas, heavy | 7.50 | 3"
     },
     "search": {},
     "telegram": {
@@ -324,8 +298,8 @@
       "balanceUsdc": 1000
     },
     "decisions": {
-      "check_approval": "no_approval_needed"
+      "check_orders_exist": "orders_found"
     }
   },
-  "planTries": 7
+  "planTries": 9
 }

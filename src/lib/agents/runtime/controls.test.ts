@@ -8,9 +8,9 @@ import { asc, eq, inArray } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import type { AgentDefinition, CodeStepDef } from "@/lib/agents/definition";
 import { addUser, testDb } from "@/test/helperDb";
-import { installed, linkConnections, publishedAgent, RESTOCK_CODE, restockDefinition, testRuntime, type TestRuntime } from "@/test/runtimeFixtures";
+import { installed, linkConnections, ownSheet, publishedAgent, RESTOCK_CODE, restockDefinition, testRuntime, type TestRuntime } from "@/test/runtimeFixtures";
 import { approvalsOf } from "./approvals";
-import { control, ControlRefused, installationDTO, loadInstallation } from "./installations";
+import { control, ControlRefused, install, installationDTO, loadInstallation } from "./installations";
 import { claimJob, enqueue, runJob } from "./jobs";
 import { fireDue } from "./triggers";
 
@@ -107,5 +107,46 @@ describe("stop", () => {
     expect(row).toMatchObject({ status: "cancelled", reason: "Stopped by its owner." });
     const steps = await db.select().from(schema.agentJobSteps).where(eq(schema.agentJobSteps.jobId, job.id));
     expect(steps.map((s) => `${s.stepId}:${s.status}`)).toEqual(["find_low:ok"]);
+  });
+});
+
+describe("setting up, then going live", () => {
+  it("is set up for a test first: nothing starts it but a test run, until it is made live", async () => {
+    rt.serve = (ids) => (ids.includes("within") ? "within" : ids[0]!);
+    const p = await publishedAgent(db, owner);
+    const sheet = ownSheet(rt);
+    const inst = await install(rt, {
+      ownerUserId: owner.id,
+      agent: p.agent,
+      version: p.version,
+      answers: { settings: { stock_sheet: sheet.answer("Stock"), orders_sheet: sheet.answer("Orders"), suppliers_sheet: sheet.answer("Suppliers") }, rules: {}, timezone: "UTC", minGapMinutes: 0 },
+      live: false,
+    });
+    expect(inst).toMatchObject({ status: "active", live: false });
+    expect((await installationDTO(rt, await loaded(inst.id))).status).toBe("testing");
+    expect(await db.select().from(schema.agentTriggers).where(eq(schema.agentTriggers.installationId, inst.id))).toEqual([]);
+    expect((await installationDTO(rt, await loaded(inst.id))).nextRunAt).toBeNull();
+    // Only a test, by hand.
+    for (const action of ["run", "pause"] as const) await expect(control(rt, await loaded(inst.id), action)).rejects.toThrow("It isn't live yet: run a test, then make it live.");
+    await control(rt, await loaded(inst.id), "test");
+    const [job] = await jobsOf(inst.id);
+    expect(job!.trigger).toEqual({ kind: "test" });
+    await runJob(rt, (await claimJob(rt, "w"))!, "w");
+    expect((await jobsOf(inst.id))[0]!.status).toBe("done");
+    expect((await installationDTO(rt, await loaded(inst.id))).recentJobs[0]).toMatchObject({ trigger: "test", started: "as a test run" });
+    // Live: its schedule starts.
+    await control(rt, await loaded(inst.id), "golive");
+    expect((await loaded(inst.id)).installation).toMatchObject({ status: "active", live: true });
+    expect(await db.select().from(schema.agentTriggers).where(eq(schema.agentTriggers.installationId, inst.id))).toHaveLength(1);
+    await expect(control(rt, await loaded(inst.id), "test")).rejects.toThrow("It's live already: use Run now.");
+    await expect(control(rt, await loaded(inst.id), "golive")).rejects.toThrow("It's live already.");
+  });
+
+  it("needs the connections the agent uses before it is set up", async () => {
+    const u = await addUser(db, "unlinked.owner");
+    const p = await publishedAgent(db, u);
+    await expect(install(rt, { ownerUserId: u.id, agent: p.agent, version: p.version, answers: { settings: {}, rules: {}, timezone: "UTC" } })).rejects.toThrow(
+      "Link Telegram and Connect Google first, on Connections: this agent needs them.",
+    );
   });
 });

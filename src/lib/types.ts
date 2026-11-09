@@ -131,7 +131,8 @@ export interface InstallationDTO {
   agentId: string;
   name: string;
   version: number;
-  status: "active" | "paused" | "stopped";
+  // testing: set up, not live yet (test runs only, by hand).
+  status: "testing" | "active" | "paused" | "stopped";
   // Why the runtime paused it (a connection it needs went away), or null.
   pausedReason: string | null;
   // The connections it needs, and which of those the owner hasn't made.
@@ -180,6 +181,8 @@ export interface JobSummaryDTO {
   reason: string | null;
   // In words: "on its schedule", "by your message".
   started: string;
+  // What started it: schedule, check, message, manual or test.
+  trigger: string;
   createdAt: string;
   finishedAt: string | null;
   costUsd: number;
