@@ -6,6 +6,7 @@ import { balances, deposits, ledgerEntries, users, withdrawals, type User } from
 import type { Currency } from "../money";
 import { dailySpendLimitUsd, nextReset, spendToday } from "../spend";
 import { inviteOnly, waitingAccounts } from "../access";
+import { codeFallbacks } from "../agents/build";
 import type { AdminDTO, AdminWithdrawalDTO } from "../types";
 import { chainError, type ChainClient } from "./chain";
 import { enabledCurrencies, paymentsConfig, type PaymentsConfig } from "./config";
@@ -107,6 +108,7 @@ export async function adminDTO(chain: ChainClient, config: PaymentsConfig = paym
   return {
     access: { inviteOnly: inviteOnly(), waiting: await waitingAccounts() },
     spend: { today: await spendToday(now), limit: dailySpendLimitUsd(), resetsAt: nextReset(now).toISOString() },
+    codeFallbacks: await codeFallbacks(now),
     network: config.network,
     networkLabel: config.networkLabel,
     chainId: config.chainId,

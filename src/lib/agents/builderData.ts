@@ -14,7 +14,7 @@ export async function builderOf(agent: Agent, version: AgentVersion): Promise<Ag
     name: version.definition?.name ?? agent.name,
     conversationId: agent.sourceConversationId,
     definition: version.definition,
-    code: Object.fromEntries(Object.entries(version.code).map(([id, c]) => [id, { status: c.status, source: c.source, rounds: c.rounds, note: c.note }])),
+    code: Object.fromEntries(Object.entries(version.code).map(([id, c]) => [id, { status: c.status, source: c.source, rounds: c.rounds, note: c.note, writer: c.writer ?? "dolphin" }])),
     bench: version.bench ?? emptyBench(),
     versions: versions.map((v) => ({ number: v.number, state: v.state, createdAt: v.createdAt.toISOString(), publishedAt: v.publishedAt?.toISOString() ?? null })),
     runnable: published?.definition ? { version: published.number, definition: published.definition, defaults: published.bench?.settings ?? {} } : null,

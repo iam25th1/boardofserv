@@ -422,6 +422,11 @@ function StepItem({ step, d, code }: { step: AgentStep; d: AgentDefinition; code
             Code {CODE_WORD[code?.status ?? "queued"]}
             {code?.status === "needs_attention" && code.note ? `: ${code.note}` : ""}
           </p>
+          {code?.writer === "serv" && (
+            <p className={styles.writer} title="Dolphin failed twice on this step, so SERV wrote it. SERV still reviewed it, in a call of its own.">
+              written by SERV
+            </p>
+          )}
           {code?.source && (
             <>
               <button type="button" className={styles.toggle} onClick={() => setOpen((v) => !v)} aria-expanded={open}>

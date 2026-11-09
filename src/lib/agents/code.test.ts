@@ -21,12 +21,13 @@ const dolphin = modelConfig({ DOLPHIN_API_KEY: "test-dolphin" }).providers[0] as
 const serv = servOnly(modelConfig({ SERV_API_KEY: "test-serv", DOLPHIN_API_KEY: "test-dolphin" }));
 
 interface Call {
-  to: "dolphin" | "serv";
-  body: { messages: { role: string; content: string }[]; chat_template_kwargs?: { thinking: boolean }; max_tokens: number };
+  to: "dolphin" | "serv" | "serv_code";
+  body: { messages: { role: string; content: string }[]; chat_template_kwargs?: { thinking: boolean }; max_tokens: number; response_format?: unknown };
 }
 
-// Dolphin answers from `code` in turn; SERV's reviews from `reviews`.
-function models(code: (string | number)[], reviews: (object | number)[]) {
+// Dolphin answers from `code` in turn; SERV's reviews from `reviews`, and
+// the code SERV writes (when Dolphin fails twice) from `servCode`.
+function models(code: (string | number)[], reviews: (object | number)[], servCode: (string | number)[] = []) {
   const calls: Call[] = [];
   const fetchImpl = (async (url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body)) as Call["body"];
@@ -35,6 +36,12 @@ function models(code: (string | number)[], reviews: (object | number)[]) {
       const next = code.shift();
       if (typeof next === "number") return new Response("{}", { status: next });
       return Response.json({ choices: [{ message: { content: next } }], usage: { prompt_tokens: 300, completion_tokens: 80 } });
+    }
+    if (!body.response_format) {
+      calls.push({ to: "serv_code", body });
+      const next = servCode.shift();
+      if (typeof next === "number" || next === undefined) return new Response("{}", { status: typeof next === "number" ? next : 503 });
+      return Response.json({ choices: [{ message: { content: next } }], usage: { prompt_tokens: 700, completion_tokens: 120 } });
     }
     calls.push({ to: "serv", body });
     const next = reviews.shift();
@@ -55,7 +62,7 @@ async function write(step: CodeStepDef, fetchImpl: typeof fetch) {
     dolphin,
     serv,
     fetchImpl,
-    hooks: { progress: async (s, r) => void progress.push(`${s}${r}`), record: async (k) => void recorded.push(k) },
+    hooks: { progress: async (s, r) => void progress.push(`${s}${r}`), record: async (k, call) => void recorded.push(`${k}:${call.provider}:${call.outcome}`) },
   });
   return { entry, progress, recorded };
 }
@@ -121,7 +128,7 @@ describe("writing a step", () => {
     const { entry, progress, recorded } = await write(findLow, fetchImpl);
     expect(entry).toMatchObject({ status: "approved", source: FIND_LOW, rounds: 1, note: "Does what the step says." });
     expect(progress).toEqual(["writing1", "reviewing1"]);
-    expect(recorded).toEqual(["agent_code", "agent_review"]);
+    expect(recorded).toEqual(["agent_code:dolphin:ok", "agent_review:serv:ok"]);
     expect(calls.map((c) => c.to)).toEqual(["dolphin", "serv"]);
     expect(calls[0]!.body).toMatchObject({ max_tokens: 4000, chat_template_kwargs: { thinking: false } });
     // SERV sees the step and the code, and nothing of other steps.
@@ -161,6 +168,39 @@ describe("writing a step", () => {
     const { fetchImpl } = models([fenced(FIND_LOW)], [503]);
     const { entry } = await write(findLow, fetchImpl);
     expect(entry).toMatchObject({ status: "needs_attention", note: "SERV couldn't review it just now." });
+  });
+
+  it("hands a step to SERV when Dolphin fails or times out twice on it, and SERV still reviews it apart", async () => {
+    const { fetchImpl, calls } = models([524, 524], [approve], [fenced(FIND_LOW)]);
+    const { entry, recorded } = await write(findLow, fetchImpl);
+    expect(entry).toMatchObject({ status: "approved", source: FIND_LOW, writer: "serv", rounds: 1 });
+    expect(calls.map((c) => c.to)).toEqual(["dolphin", "dolphin", "serv_code", "serv"]);
+    // SERV wrote from the same request Dolphin had.
+    expect(calls[2]!.body.messages).toEqual(calls[0]!.body.messages);
+    expect(calls[2]!.body.chat_template_kwargs).toBeUndefined();
+    expect(recorded).toEqual(["agent_code:dolphin:failed", "agent_code:dolphin:failed", "agent_code:serv:ok", "agent_review:serv:ok"]);
+  });
+
+  it("keeps Dolphin as the writer after one failure", async () => {
+    const { fetchImpl, calls } = models([503, fenced(FIND_LOW)], [approve]);
+    const { entry } = await write(findLow, fetchImpl);
+    expect(entry).toMatchObject({ status: "approved" });
+    expect(entry.writer).toBeUndefined();
+    expect(calls.map((c) => c.to)).toEqual(["dolphin", "dolphin", "serv"]);
+  });
+
+  it("goes on with SERV writing for the rounds after a rejection", async () => {
+    const { fetchImpl, calls } = models([524, 524], [reject("It ignores delivery days."), approve], [fenced(COMPARE), fenced(COMPARE)]);
+    const { entry } = await write(compare, fetchImpl);
+    expect(entry).toMatchObject({ status: "approved", writer: "serv", rounds: 2 });
+    expect(calls.map((c) => c.to)).toEqual(["dolphin", "dolphin", "serv_code", "serv", "serv_code", "serv"]);
+    expect(calls[4]!.body.messages.at(-1)!.content).toContain("It was rejected: It ignores delivery days.");
+  });
+
+  it("needs the maker's attention when SERV can't write it either", async () => {
+    const { fetchImpl } = models([524, 524], [], [503]);
+    const { entry } = await write(findLow, fetchImpl);
+    expect(entry).toMatchObject({ status: "needs_attention", writer: "serv", note: "Dolphin didn't answer twice, and SERV didn't either." });
   });
 
   it("asks Dolphin again without the reasoning switch if Dolphin ever refuses it", async () => {

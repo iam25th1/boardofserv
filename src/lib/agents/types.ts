@@ -18,6 +18,9 @@ export interface StepCode {
   // Writing rounds used, and what the last review said.
   rounds: number;
   note: string | null;
+  // Who wrote it: Dolphin unless it failed twice on this step and SERV
+  // wrote it instead.
+  writer?: "dolphin" | "serv";
   updatedAt: string;
 }
 

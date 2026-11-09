@@ -102,7 +102,8 @@ export interface AgentBuilderDTO {
   name: string;
   conversationId: string | null;
   definition: AgentDefinition | null;
-  code: Record<string, { status: CodeStatus; source: string | null; rounds: number; note: string | null }>;
+  // writer: who wrote it (SERV when Dolphin failed twice on the step).
+  code: Record<string, { status: CodeStatus; source: string | null; rounds: number; note: string | null; writer?: "dolphin" | "serv" }>;
   bench: BenchData;
   versions: { number: number; state: "draft" | "published"; createdAt: string; publishedAt: string | null }[];
   // The newest published version, which "Run it for real" installs: its
@@ -350,6 +351,9 @@ export interface AdminDTO {
   // Today's estimated model spend on the operator's keys against the daily
   // limit, in US dollars, and when the day ends (midnight UTC).
   spend: { today: number; limit: number; resetsAt: string };
+  // How often SERV wrote a code step because Dolphin failed twice on it:
+  // in the last 30 days, and in all.
+  codeFallbacks: { last30Days: number; total: number };
   network: "base-sepolia" | "base";
   networkLabel: string;
   chainId: number;
