@@ -119,3 +119,8 @@
 .send > :first-of-type {
   flex: 1;
 }
+.code {
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  overflow-wrap: anywhere;
+}

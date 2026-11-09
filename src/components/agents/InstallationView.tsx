@@ -69,6 +69,19 @@ export function InstallationView({ initial, api, children }: { initial: Installa
       </section>
       {children}
       {data.takesMessages && <MessageBox messages={messages} send={api.send} onSent={() => void refresh()} disabled={data.status === "stopped"} />}
+      {data.memory.length > 0 && (
+        <section className={styles.section} aria-label="What it remembers">
+          <h2>What it remembers for you</h2>
+          <dl className={styles.pairs}>
+            {data.memory.map((m) => (
+              <div key={m.key}>
+                <dt>{m.description}</dt>
+                <dd>{m.value === null ? "nothing yet" : typeof m.value === "string" ? m.value : <code className={styles.code}>{JSON.stringify(m.value)}</code>}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
       <section className={styles.section} aria-label="Its settings">
         <h2>Its settings</h2>
         <dl className={styles.pairs}>

@@ -144,6 +144,8 @@ export interface InstallationDTO {
   takesMessages: boolean;
   // Why its last value check failed, if it did.
   checkNote: string | null;
+  // What the agent remembers for this owner (theirs alone).
+  memory: { key: string; description: string; value: unknown }[];
 }
 
 // A question a job waits on, as its owner sees it: what it asks, the

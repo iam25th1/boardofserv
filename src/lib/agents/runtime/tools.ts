@@ -1,9 +1,9 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { agentInstallations, agentMessages, type AgentInstallation, type AgentJob } from "../../db/schema";
 import type { AgentDefinition, AgentStep, ToolName } from "../definition";
 import { Declined, Paused, typedRules, type ToolHost } from "../runner";
-import { MockTools, TOOL_ARGS, ToolError } from "../toolbox";
+import { MAX_MEMORY_BYTES, memoryProblem, MockTools, TOOL_ARGS, ToolError } from "../toolbox";
 import { emptyBench } from "../types";
 import type { Runtime } from "./context";
 
@@ -12,6 +12,8 @@ import type { Runtime } from "./context";
 // mocks, from the installation's own copy of the bench's data, and what
 // they change is kept on the installation for its next job. A message to
 // the owner (telegram.send) goes to the installation's in-app message box.
+// Memory is real: what the agent remembers for this owner, on their
+// installation alone.
 
 export const isYes = (answer: string | null) => answer !== null && /^\s*(yes|y|ok|okay|approve|approved|go ahead)\b/i.test(answer);
 
@@ -60,6 +62,7 @@ export class JobTools implements ToolHost {
       if (over && !approval) throw new Paused({ kind: "over_limit", question: over, choices: ["Yes", "No"] });
       if (over && !isYes(approval!.answer)) throw new Declined(approval!.answer);
     }
+    if (tool === "memory.get" || tool === "memory.set") return this.memory(tool, args);
     if (tool === "telegram.send") {
       const parsed = TOOL_ARGS["telegram.send"].safeParse(args);
       if (!parsed.success) throw new ToolError(tool, "telegram.send was called wrongly: it takes { text }.");
@@ -74,9 +77,30 @@ export class JobTools implements ToolHost {
         .set({ mocks: mock.kept, updatedAt: this.rt.now() })
         .where(eq(agentInstallations.id, this.installation.id));
     }
-    if (tool === "memory.set") {
-      await this.rt.db.update(agentInstallations).set({ memory: mock.memory, updatedAt: this.rt.now() }).where(eq(agentInstallations.id, this.installation.id));
-    }
     return result;
+  }
+
+  // What the agent remembers for this owner: on this installation's row
+  // only, never another's, and only the fields the agent declares, each
+  // holding its type. Written at once, one field at a time.
+  private async memory(tool: "memory.get" | "memory.set", args: unknown): Promise<unknown> {
+    const parsed = TOOL_ARGS[tool].safeParse(args);
+    if (!parsed.success) throw new ToolError(tool, `${tool} was called wrongly: it takes ${tool === "memory.get" ? "{ key }" : "{ key, value }"}.`);
+    const { key } = parsed.data;
+    const value = tool === "memory.set" ? ((parsed.data as { value?: unknown }).value ?? null) : null;
+    const why = memoryProblem(this.definition.memory, key, value);
+    if (why) throw new ToolError(tool, why);
+    const here = eq(agentInstallations.id, this.installation.id);
+    if (tool === "memory.get") {
+      const [row] = await this.rt.db.select({ value: sql<unknown>`${agentInstallations.memory} -> ${key}` }).from(agentInstallations).where(here);
+      return { value: row?.value ?? null };
+    }
+    const [row] = await this.rt.db.select({ size: sql<number>`length((${agentInstallations.memory} - ${key})::text)` }).from(agentInstallations).where(here);
+    if ((row?.size ?? 0) + JSON.stringify(value).length > MAX_MEMORY_BYTES) throw new ToolError(tool, `It can't remember more than ${MAX_MEMORY_BYTES / 1000} KB in all.`);
+    await this.rt.db
+      .update(agentInstallations)
+      .set({ memory: sql`${agentInstallations.memory} || jsonb_build_object(${key}::text, ${JSON.stringify(value)}::jsonb)`, updatedAt: this.rt.now() })
+      .where(here);
+    return { ok: true };
   }
 }

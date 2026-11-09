@@ -110,6 +110,30 @@ export interface ToolCall {
   error: string | null;
 }
 
+// What an agent may remember: only the fields it declares, each holding
+// its type (null forgets it), within a size. The same check on the bench
+// and for real.
+export const MAX_MEMORY_VALUE_BYTES = 20_000;
+export const MAX_MEMORY_BYTES = 100_000;
+type MemoryField = { key: string; type: "text" | "number" | "list" | "record" };
+
+export function memoryProblem(fields: readonly MemoryField[], key: string, value: unknown): string | null {
+  const field = fields.find((f) => f.key === key);
+  if (!field) return `"${key}" isn't something this agent remembers${fields.length ? ` (it remembers ${fields.map((f) => f.key).join(", ")})` : ""}.`;
+  if (value === null || value === undefined) return null;
+  const ok =
+    field.type === "text"
+      ? typeof value === "string"
+      : field.type === "number"
+        ? typeof value === "number" && Number.isFinite(value)
+        : field.type === "list"
+          ? Array.isArray(value)
+          : typeof value === "object" && !Array.isArray(value);
+  if (!ok) return `"${key}" holds ${field.type === "text" ? "text" : field.type === "number" ? "a number" : field.type === "list" ? "a list" : "a record (an object)"}.`;
+  if (JSON.stringify(value).length > MAX_MEMORY_VALUE_BYTES) return `"${key}" is too large to remember (over ${MAX_MEMORY_VALUE_BYTES / 1000} KB).`;
+  return null;
+}
+
 // The mocks: one set per run, on a copy of the bench's data, so a run can
 // write sheets, remember values and pay without changing the bench. Every
 // call is logged for the test bench.
@@ -119,7 +143,11 @@ export class MockTools {
   private asked = 0;
   private paid = 0;
 
-  constructor(bench: BenchData) {
+  // With memory fields, memory.get and memory.set keep to them, as for real.
+  constructor(
+    bench: BenchData,
+    private memoryFields?: readonly MemoryField[],
+  ) {
     this.data = structuredClone(bench);
   }
 
@@ -187,10 +215,14 @@ export class MockTools {
       }
       case "memory.get": {
         const a = args as z.infer<(typeof TOOL_ARGS)["memory.get"]>;
+        const why = this.memoryFields ? memoryProblem(this.memoryFields, a.key, null) : null;
+        if (why) throw new ToolError(tool, why);
         return { value: d.memory[a.key] ?? null };
       }
       case "memory.set": {
         const a = args as z.infer<(typeof TOOL_ARGS)["memory.set"]>;
+        const why = this.memoryFields ? memoryProblem(this.memoryFields, a.key, a.value) : null;
+        if (why) throw new ToolError(tool, why);
         d.memory[a.key] = a.value ?? null;
         return { ok: true };
       }

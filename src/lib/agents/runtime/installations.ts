@@ -124,5 +124,6 @@ export async function installationDTO(rt: Runtime, l: Loaded): Promise<Installat
     nextRunAt: i.status === "active" && next.length ? new Date(Math.min(...next)).toISOString() : null,
     takesMessages: d.triggers.some((t) => t.kind === "message"),
     checkNote: failing?.note ?? null,
+    memory: d.memory.map((m) => ({ key: m.key, description: m.description, value: i.memory[m.key] ?? null })),
   };
 }
