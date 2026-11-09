@@ -1,4 +1,5 @@
 import "server-only";
+import { qualityOf, scoredJobs } from "../reppo/quality";
 import { and, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { agentInstallations, agentJobs, agentJobSteps, agentVersions, holds, ledgerEntries, rentalCharges, rentals, users, type Agent } from "../db/schema";
 import type { MakerDashboardDTO } from "../types";
@@ -74,12 +75,18 @@ export async function makerDashboard(rt: Runtime, agent: Agent): Promise<MakerDa
   }
 
   const frozen = await activeFreeze(rt, { agentId: agent.id, makerId: agent.ownerUserId });
+  // Quality: the listed version's, or the newest published one's.
+  const listing = await makerListing(rt, agent.id);
+  const shown = versions.find((v) => v.number === listing?.version) ?? [...versions].sort((a, b) => b.number - a.number)[0];
+  const quality = shown ? ((await qualityOf(rt, [{ agentId: agent.id, versionId: shown.id, version: shown.number }])).get(shown.id) ?? null) : null;
   return {
     stopped: agent.stoppedAt ? { at: agent.stoppedAt.toISOString(), note: agent.stopNote } : null,
     frozen: frozen?.reason ?? null,
     agentId: agent.id,
     name: agent.name,
-    listing: await makerListing(rt, agent.id),
+    listing,
+    quality,
+    scored: await scoredJobs(rt, agent.id),
     decimals: USDC_DECIMALS,
     renters,
     earnings,

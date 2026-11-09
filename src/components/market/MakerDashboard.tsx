@@ -8,6 +8,7 @@ import type { AuditPageDTO, JobSummaryDTO, MakerDashboardDTO } from "@/lib/types
 import { price } from "./BoardView";
 import { EarningsChart } from "./EarningsChart";
 import { KillSwitch } from "./KillSwitch";
+import { QualityPanel, ScoredJobs } from "./Quality";
 import { AuditLog } from "@/components/agents/AuditLog";
 import { day, RENTAL_WORD } from "./RentalView";
 import styles from "./MakerDashboard.module.css";
@@ -117,6 +118,8 @@ export function MakerDashboard({ id, api }: { id: string; api: MakerDashboardApi
         <p className={styles.quiet}>Counted by the step that failed. What a renter&apos;s job read or wrote stays theirs.</p>
       </section>
 
+      {d.quality && <QualityPanel q={d.quality} title="Quality of its listed version" />}
+      <ScoredJobs jobs={d.scored} />
       <AgentRuns load={api.runs} />
       {api.audit && <AuditLog load={api.audit} view="maker" />}
     </Page>

@@ -7,6 +7,7 @@ import { useStaggerIn } from "@/lib/useStaggerIn";
 import type { AgentPageDTO } from "@/lib/types";
 import { price } from "./BoardView";
 import { ReportButton, type ReportSend } from "./ReportButton";
+import { QualityPanel, qualityLine } from "./Quality";
 import styles from "./AgentPage.module.css";
 
 // An agent's page on the board: what it does, the steps it takes in plain
@@ -75,8 +76,8 @@ export function AgentPageView({ id, api }: { id: string; api: AgentPageApi }) {
               <dd>{page.renters}</dd>
             </div>
             <div>
-              <dt>Quality and trust</dt>
-              <dd className={styles.pending}>{page.quality === null ? "not enough reviewed jobs yet" : page.quality}</dd>
+              <dt>Quality</dt>
+              <dd className={page.quality.score === null ? styles.pending : undefined}>{qualityLine(page.quality)}</dd>
             </div>
           </dl>
           {!page.mine && (
@@ -97,6 +98,8 @@ export function AgentPageView({ id, api }: { id: string; api: AgentPageApi }) {
           <li key={r}>{r}</li>
         ))}
       </ul>
+
+      <QualityPanel q={page.quality} />
 
       <section aria-labelledby="steps-h" className={styles.block}>
         <h2 id="steps-h">The steps it takes</h2>

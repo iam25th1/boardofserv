@@ -211,10 +211,37 @@ export interface SafetyDTO {
   maxAutoSpendUsdc: number;
 }
 
+// An agent version's quality, from Reppo's scores of a sample of its
+// finished jobs: the rolling score (null until enough were reviewed), how
+// many were and the share routed ship, review and block (whole percents),
+// and the last earlier version's score as history.
+export interface QualityDTO {
+  score: number | null;
+  reviewed: number;
+  minimum: number;
+  ship: number;
+  review: number;
+  block: number;
+  previous: { version: number; score: number; reviewed: number } | null;
+}
+
+// One of a maker's jobs Reppo scored, with nothing of its renter's.
+export interface ScoredJobDTO {
+  id: string;
+  at: string;
+  version: number;
+  score: number | null;
+  route: "ship" | "review" | "block" | null;
+  confidence: string | null;
+  reason: string | null;
+  rubric: Record<string, number>;
+}
+
 // An agent on the board, for anyone: what it does, what it connects to,
 // its price (USDC minor units, with the decimals) and who made it. Never
-// its code, its prompts or anyone's data. Quality and trust scores come
-// later: null until then ("not enough reviewed jobs yet").
+// its code, its prompts or anyone's data. Its quality is its listed
+// version's, from Reppo (a score once enough jobs were reviewed); trust
+// comes later (null).
 export interface AgentListingDTO {
   id: string;
   name: string;
@@ -226,7 +253,7 @@ export interface AgentListingDTO {
   renters: number;
   maker: string;
   version: number;
-  quality: number | null;
+  quality: QualityDTO;
   trust: number | null;
   createdAt: string;
   // A rough weekly model cost (USDC minor units), from how often it runs
@@ -605,6 +632,9 @@ export interface MakerDashboardDTO {
   stopped: { at: string; note: string | null } | null;
   // An admin's freeze on it or its maker, if any.
   frozen: string | null;
+  // Its listed (or newest) version's quality, and the jobs Reppo scored.
+  quality: QualityDTO | null;
+  scored: ScoredJobDTO[];
 }
 
 // A request on the request board, for anyone: what someone wants an agent

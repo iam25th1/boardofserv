@@ -1,7 +1,8 @@
 import "server-only";
+import { qualityOf, qualitySettings } from "../reppo/quality";
 import { and, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { agentListings, agents, agentVersions, freezes, rentals, users, type Agent, type AgentListing } from "../db/schema";
-import type { AgentListingDTO, AgentPageDTO, MakerListingDTO } from "../types";
+import type { AgentListingDTO, AgentPageDTO, MakerListingDTO, QualityDTO } from "../types";
 import { connectionsNeeded, spends, type AgentDefinition, type ToolName } from "../agents/definition";
 import { describeTriggers } from "../agents/schedule";
 import { typedRules } from "../agents/runner";
@@ -32,6 +33,10 @@ export interface BoardFilters {
   // Weekly price bounds, USDC minor units.
   min?: bigint | null;
   max?: bigint | null;
+  // Most rented first (the default), or highest quality first.
+  sort?: "rented" | "quality";
+  // Only agents with a quality score of at least this.
+  minQuality?: number | null;
 }
 
 interface Row {
@@ -54,7 +59,9 @@ async function renterCounts(rt: Runtime, rows: Row[]): Promise<Map<string, numbe
   return new Map(counted.map((c) => [c.agentId, c.n]));
 }
 
-function listingDTO(r: Row, renters: number): AgentListingDTO {
+const NO_QUALITY = (): QualityDTO => ({ score: null, reviewed: 0, minimum: qualitySettings().minimum, ship: 0, review: 0, block: 0, previous: null });
+
+function listingDTO(r: Row, renters: number, quality: QualityDTO = NO_QUALITY()): AgentListingDTO {
   const d = r.definition!;
   return {
     id: r.listing.agentId,
@@ -67,7 +74,7 @@ function listingDTO(r: Row, renters: number): AgentListingDTO {
     renters,
     maker: r.maker,
     version: r.version,
-    quality: null,
+    quality,
     trust: null,
     createdAt: r.listing.createdAt.toISOString(),
     modelEstimate: estimateWeekly(d).toString(),
@@ -108,9 +115,16 @@ export async function boardAgents(rt: Runtime, f: BoardFilters = {}): Promise<Ag
   const wanted = f.connects ?? [];
   const fit = rows.filter((r) => r.definition && wanted.every((c) => connectsOf(r.definition!).includes(c)));
   const renters = await renterCounts(rt, fit);
+  const quality = await qualityOf(
+    rt,
+    fit.map((r) => ({ agentId: r.listing.agentId, versionId: r.listing.versionId, version: r.version })),
+  );
+  const min = f.minQuality ?? null;
+  const byRenters = (a: AgentListingDTO, b: AgentListingDTO) => b.renters - a.renters || b.createdAt.localeCompare(a.createdAt);
   return fit
-    .map((r) => listingDTO(r, renters.get(r.listing.agentId) ?? 0))
-    .sort((a, b) => b.renters - a.renters || b.createdAt.localeCompare(a.createdAt))
+    .map((r) => listingDTO(r, renters.get(r.listing.agentId) ?? 0, quality.get(r.listing.versionId)))
+    .filter((a) => min === null || (a.quality.score !== null && a.quality.score >= min))
+    .sort(f.sort === "quality" ? (a, b) => (b.quality.score ?? -1) - (a.quality.score ?? -1) || b.quality.reviewed - a.quality.reviewed || byRenters(a, b) : byRenters)
     .slice(0, BOARD_LIMIT);
 }
 
@@ -121,6 +135,7 @@ export async function agentPage(rt: Runtime, agentId: string, viewerId: string |
   if (!row?.definition) return null;
   const d = row.definition;
   const renters = (await renterCounts(rt, [row])).get(agentId) ?? 0;
+  const quality = (await qualityOf(rt, [{ agentId, versionId: row.listing.versionId, version: row.version }])).get(row.listing.versionId);
   const rules = typedRules(d, {});
   const ruleWords = (key: string) => {
     const r = d.rules.find((x) => x.key === key);
@@ -133,7 +148,7 @@ export async function agentPage(rt: Runtime, agentId: string, viewerId: string |
     ...d.actions.filter((a) => a.tool === "telegram.ask").map((a) => `${a.description}: it asks you, and waits for your answer.`),
   ];
   return {
-    ...listingDTO(row, renters),
+    ...listingDTO(row, renters, quality),
     done: d.job.done,
     runs: describeTriggers(d, null),
     steps: d.steps

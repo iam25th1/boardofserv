@@ -9,6 +9,9 @@ export interface BoardQuery {
   // Weekly price bounds, in whole USDC as typed.
   min?: string;
   max?: string;
+  // Most rented first, or highest quality first; and a lowest quality.
+  sort?: "rented" | "quality";
+  minQuality?: "" | "60" | "80";
 }
 
 export async function fetchBoard(query: BoardQuery | string, signal?: AbortSignal): Promise<{ helpers: PublicHelperDTO[]; agents: AgentListingDTO[] }> {
@@ -19,6 +22,8 @@ export async function fetchBoard(query: BoardQuery | string, signal?: AbortSigna
   if (b.connects?.length) p.set("connects", b.connects.join(","));
   if (b.min?.trim()) p.set("min", b.min.trim());
   if (b.max?.trim()) p.set("max", b.max.trim());
+  if (b.sort === "quality") p.set("sort", "quality");
+  if (b.minQuality) p.set("quality", b.minQuality);
   const qs = p.toString();
   const res = await fetch(`/api/board${qs ? `?${qs}` : ""}`, { signal });
   if (!res.ok) throw new Error(`Request failed (${res.status})`);

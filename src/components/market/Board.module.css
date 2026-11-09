@@ -162,6 +162,10 @@
   color: var(--chalk-3);
   opacity: 0.85;
 }
+.card small.trust[data-scored] {
+  color: var(--chalk);
+  opacity: 1;
+}
 
 /* Filters, beside the board on a wide screen, above it on a phone. */
 .filters {

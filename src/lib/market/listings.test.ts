@@ -51,7 +51,7 @@ describe("agents on the board", () => {
       ["Dear restock", 2],
       ["Cheap restock", 0],
     ]);
-    expect(board[0]).toMatchObject({ weeklyPrice: "40000000", jobFee: "500000", decimals: 6, maker: "maya_r", connects: ["telegram", "sheets"], quality: null, trust: null });
+    expect(board[0]).toMatchObject({ weeklyPrice: "40000000", jobFee: "500000", decimals: 6, maker: "maya_r", connects: ["telegram", "sheets"], quality: { score: null, reviewed: 0, previous: null }, trust: null });
   });
 
   it("filters by search, what it connects to and price", async () => {
