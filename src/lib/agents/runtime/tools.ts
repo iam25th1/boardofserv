@@ -2,7 +2,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { agentInstallations, agentMessages, type AgentInstallation, type AgentJob } from "../../db/schema";
 import type { AgentDefinition, AgentStep, ToolName } from "../definition";
-import type { ToolHost } from "../runner";
+import { Declined, Paused, typedRules, type ToolHost } from "../runner";
 import { MockTools, TOOL_ARGS, ToolError } from "../toolbox";
 import { emptyBench } from "../types";
 import type { Runtime } from "./context";
@@ -12,6 +12,8 @@ import type { Runtime } from "./context";
 // mocks, from the installation's own copy of the bench's data, and what
 // they change is kept on the installation for its next job. A message to
 // the owner (telegram.send) goes to the installation's in-app message box.
+
+export const isYes = (answer: string | null) => answer !== null && /^\s*(yes|y|ok|okay|approve|approved|go ahead)\b/i.test(answer);
 
 export class JobTools implements ToolHost {
   private mock: MockTools | null = null;
@@ -23,6 +25,19 @@ export class JobTools implements ToolHost {
     private job: AgentJob | null,
   ) {}
 
+  // The question for a payment over its action's limit, or null when it is
+  // within it. The limit is the owner's value of the action's askOver rule.
+  private overLimit(step: AgentStep, args: unknown): string | null {
+    const d = this.definition;
+    const action = step.kind === "action" ? d.actions.find((a) => a.id === step.action) : d.actions.find((a) => a.tool === "wallet.pay" && a.askOver);
+    const rule = action?.askOver ? d.rules.find((r) => r.key === action.askOver) : undefined;
+    const parsed = TOOL_ARGS["wallet.pay"].safeParse(args);
+    if (!rule || !parsed.success) return null;
+    const limit = typedRules(d, this.installation.rules)[rule.key];
+    if (typeof limit !== "number" || parsed.data.amountUsdc <= limit) return null;
+    return `Pay ${parsed.data.amountUsdc} USDC to ${parsed.data.to}${parsed.data.memo ? ` (${parsed.data.memo})` : ""}? That's over your limit of ${limit} USDC ("${rule.label}").`;
+  }
+
   // The installation's stand-in data, read fresh when a job (re)starts.
   private async mocks(): Promise<MockTools> {
     if (this.mock) return this.mock;
@@ -31,7 +46,20 @@ export class JobTools implements ToolHost {
     return this.mock;
   }
 
-  async call(_step: AgentStep, tool: ToolName, args: unknown): Promise<unknown> {
+  async call(step: AgentStep, tool: ToolName, args: unknown, approval?: { answer: string | null }): Promise<unknown> {
+    if (tool === "telegram.ask") {
+      const parsed = TOOL_ARGS["telegram.ask"].safeParse(args);
+      if (!parsed.success) throw new ToolError(tool, "telegram.ask was called wrongly: it takes { question, choices? }.");
+      // The owner's answer, once it has come; until then the job waits.
+      if (!approval) throw new Paused({ kind: "ask", question: parsed.data.question, choices: parsed.data.choices?.length ? parsed.data.choices : ["Yes", "No"] });
+      if (approval.answer === null) throw new Declined(null);
+      return { answer: approval.answer };
+    }
+    if (tool === "wallet.pay") {
+      const over = this.overLimit(step, args);
+      if (over && !approval) throw new Paused({ kind: "over_limit", question: over, choices: ["Yes", "No"] });
+      if (over && !isYes(approval!.answer)) throw new Declined(approval!.answer);
+    }
     if (tool === "telegram.send") {
       const parsed = TOOL_ARGS["telegram.send"].safeParse(args);
       if (!parsed.success) throw new ToolError(tool, "telegram.send was called wrongly: it takes { text }.");

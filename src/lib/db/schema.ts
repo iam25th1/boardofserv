@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, json, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
 import type { AgentDefinition } from "../agents/definition";
 import type { BenchData, RunState, StepCode } from "../agents/types";
 import { CURRENCIES } from "../money";
@@ -588,7 +588,9 @@ export const agentJobs = pgTable(
     status: text("status", { enum: JOB_STATUSES }).notNull().default("queued"),
     // What started it: { kind: "schedule" | "check" | "message" | "manual", ... }.
     trigger: jsonb("trigger").$type<Record<string, unknown>>().notNull(),
-    state: jsonb("state").$type<RunState>(),
+    // json, not jsonb: kept exactly as written, keys in their order, so a
+    // step that runs again sees the very same values.
+    state: json("state").$type<RunState>(),
     reason: text("reason"),
     attempts: integer("attempts").notNull().default(0),
     runAfter: timestamp("run_after", { withTimezone: true }).defaultNow().notNull(),
@@ -684,6 +686,45 @@ export const agentMessages = pgTable(
   }),
 );
 
+// A question a job waits on: its owner's yes or no to an action over a
+// rule's limit, or an answer to the agent's own question (telegram.ask).
+// options are the answers they can give, each with what happens then;
+// no_answer says what happens if none comes by expires_at (the maker sets
+// how long, 24 hours unless they said otherwise). call_index is the tool
+// call in the paused step's journal that the answer belongs to.
+export const agentApprovals = pgTable(
+  "agent_approvals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => agentJobs.id, { onDelete: "cascade" }),
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => agentInstallations.id, { onDelete: "cascade" }),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    stepId: text("step_id").notNull(),
+    callIndex: integer("call_index").notNull(),
+    kind: text("kind", { enum: ["ask", "over_limit"] }).notNull(),
+    question: text("question").notNull(),
+    options: jsonb("options").$type<{ label: string; effect: string }[]>().notNull(),
+    noAnswer: text("no_answer").notNull(),
+    status: text("status", { enum: ["pending", "answered", "expired", "cancelled"] }).notNull().default("pending"),
+    answer: text("answer"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byOwner: index("agent_approvals_owner_idx").on(t.ownerUserId, t.status),
+    due: index("agent_approvals_due_idx").on(t.status, t.expiresAt),
+    byJob: index("agent_approvals_job_idx").on(t.jobId),
+    knownStatus: check("agent_approvals_status", sql`${t.status} in ('pending', 'answered', 'expired', 'cancelled')`),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
@@ -696,3 +737,4 @@ export type AgentJob = typeof agentJobs.$inferSelect;
 export type AgentJobStep = typeof agentJobSteps.$inferSelect;
 export type AgentTrigger = typeof agentTriggers.$inferSelect;
 export type AgentMessage = typeof agentMessages.$inferSelect;
+export type AgentApproval = typeof agentApprovals.$inferSelect;

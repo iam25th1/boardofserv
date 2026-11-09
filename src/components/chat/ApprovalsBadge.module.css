@@ -1,0 +1,23 @@
+/* A chalk-outlined count in the top bar: plain, no colour of its own. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: var(--stroke) solid var(--chalk);
+  border-radius: var(--r-full);
+  font-size: var(--t-xs);
+  color: var(--chalk);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.badge span {
+  font-weight: var(--w-bold);
+}
+.badge:hover {
+  background: var(--dust);
+}
+.badge:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}

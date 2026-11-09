@@ -52,6 +52,8 @@ import * as agentInstall from "@/app/api/agents/[id]/installations/route";
 import * as installationsRoute from "@/app/api/installations/route";
 import * as installationRoute from "@/app/api/installations/[id]/route";
 import * as installationMessages from "@/app/api/installations/[id]/messages/route";
+import * as approvalsRoute from "@/app/api/approvals/route";
+import * as approvalRoute from "@/app/api/approvals/[id]/route";
 import * as demoAgent from "@/app/api/demo/agent/route";
 
 // A published helper's system prompt and canary never leave the server. This
@@ -116,6 +118,8 @@ const ROUTES: Record<string, object> = {
   "installations": installationsRoute,
   "installations/[id]": installationRoute,
   "installations/[id]/messages": installationMessages,
+  "approvals": approvalsRoute,
+  "approvals/[id]": approvalRoute,
   "demo/agent": demoAgent,
 };
 
@@ -604,6 +608,9 @@ describe("a helper's instructions stay on the server", () => {
       await hit("agent: installation", installationRoute.GET(req(`/api/installations/${ip.params.id}`), ip));
       await hit("agent: message box", installationMessages.GET(req(`/api/installations/${ip.params.id}/messages`), ip));
       await hit("agent: message", installationMessages.POST(req(`/api/installations/${ip.params.id}/messages`, "POST", { text: "Check now please" }), ip));
+      await hit("agent: approvals", approvalsRoute.GET(req("/api/approvals")));
+      await hit("agent: approvals count", approvalsRoute.GET(req("/api/approvals?count=1")));
+      await hit("agent: answer nothing", approvalRoute.POST(req(`/api/approvals/${cid}`, "POST", { answer: "Yes" }), { params: { id: cid } }));
       await hit("agent: fix", agentFix.POST(req(`/api/agents/${id}/fix`, "POST", { message: "it ignored delivery time" }), p));
       await jobFor((await draftOf(id))!.id);
       await hit("agent: board", board.GET(req("/api/board")));
@@ -624,6 +631,7 @@ describe("a helper's instructions stay on the server", () => {
         await hit(`agent: ${tag} installation`, installationRoute.GET(req(`/api/installations/${ip.params.id}`), ip));
         await hit(`agent: ${tag} message box`, installationMessages.GET(req(`/api/installations/${ip.params.id}/messages`), ip));
         await hit(`agent: ${tag} message`, installationMessages.POST(req(`/api/installations/${ip.params.id}/messages`, "POST", { text: "hello" }), ip));
+        await hit(`agent: ${tag} approvals`, approvalsRoute.GET(req("/api/approvals")));
       }
     } finally {
       vi.stubEnv("DOLPHIN_API_KEY", "");

@@ -3,7 +3,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent } from "./agents/types";
 import type { InstallAnswers } from "./agents/settingsForm";
-import type { AccountDTO, AdminDTO, AgentMessageDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, AgentMessageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
 
 // When the server sends no sentence of its own: never a status code.
 const SOMETHING_WRONG = "Something went wrong. Try again in a few minutes.";
@@ -60,6 +60,10 @@ export function useApi() {
       },
       listInstallations: () => json<{ installations: InstallationDTO[] }>("/api/installations").then((d) => d.installations),
       getInstallation: (id: string) => json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}`).then((d) => d.installation),
+      listApprovals: () => json<{ approvals: ApprovalDTO[] }>("/api/approvals").then((d) => d.approvals),
+      countApprovals: () => json<{ pending: number }>("/api/approvals?count=1").then((d) => d.pending),
+      answerApproval: (id: string, answer: string) =>
+        json<{ approval: ApprovalDTO }>(`/api/approvals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ answer }) }).then((d) => d.approval),
       listAgentMessages: (id: string) => json<{ messages: AgentMessageDTO[] }>(`/api/installations/${encodeURIComponent(id)}/messages`).then((d) => d.messages),
       messageAgent: (id: string, text: string) =>
         json<{ message: AgentMessageDTO }>(`/api/installations/${encodeURIComponent(id)}/messages`, { method: "POST", body: JSON.stringify({ text }) }).then((d) => d.message),

@@ -146,6 +146,24 @@ export interface InstallationDTO {
   checkNote: string | null;
 }
 
+// A question a job waits on, as its owner sees it: what it asks, the
+// answers they can give and what happens on each, and with none.
+export interface ApprovalDTO {
+  id: string;
+  jobId: string;
+  installationId: string;
+  agentName: string;
+  stepTitle: string;
+  kind: "ask" | "over_limit";
+  question: string;
+  options: { label: string; effect: string }[];
+  noAnswer: string;
+  status: "pending" | "answered" | "expired" | "cancelled";
+  answer: string | null;
+  expiresAt: string;
+  createdAt: string;
+}
+
 // A message in an installation's in-app message box.
 export interface AgentMessageDTO {
   id: string;

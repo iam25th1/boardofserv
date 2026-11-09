@@ -351,8 +351,14 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       }
       if (r.kind === "declined") {
         const said = r.answer === null ? "No answer came in time" : "You said no";
-        done("failed", null, null, `${said}.`);
-        return end("stopped", "declined", `${said} at "${step.title}", so the job stopped there.`);
+        const away = step.otherwise ? byId.get(step.otherwise) : undefined;
+        if (!away) {
+          done("failed", null, null, `${said}.`);
+          return end("stopped", "declined", `${said} at "${step.title}", so the job stopped there.`);
+        }
+        if (step.outputs[0]) state.bag[step.outputs[0]] = action.tool === "telegram.ask" ? { answer: null } : null;
+        done("ok", null, null, `${said}, so it went to "${away.title}".`);
+        next = away.id;
       } else {
         if (step.outputs[0]) state.bag[step.outputs[0]] = r.result;
         done("ok", r.result, null, null);

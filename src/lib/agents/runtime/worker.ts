@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { hostname } from "node:os";
 import type { Runtime } from "./context";
 import { beat, claimJob, HEARTBEAT_MS, requeueStale, runJob } from "./jobs";
+import { expireDue } from "./approvals";
 import { fireDue } from "./triggers";
 
 // The agents' job worker: one cycle every few seconds, in the server
@@ -11,7 +12,8 @@ import { fireDue } from "./triggers";
 // only one process on a database runs the cycles. A cycle:
 //
 // 1. puts jobs whose worker stopped beating back in the queue,
-// 2. fires the triggers that are due (triggers.ts),
+// 2. fires the triggers that are due (triggers.ts) and expires the
+//    approvals nobody answered in time (approvals.ts),
 // 3. starts claimed jobs up to the worker's capacity, without waiting for
 //    them: they run on, beating, while the next cycles go by.
 //
@@ -43,6 +45,8 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
       const picked = await requeueStale(rt);
       if (picked) rt.log(`jobs: ${picked} ${picked === 1 ? "job" : "jobs"} left running by a stopped server went back in the queue.`);
       await fireDue(rt);
+      const expired = await expireDue(rt);
+      if (expired) rt.log(`jobs: ${expired} ${expired === 1 ? "approval" : "approvals"} expired with no answer.`);
       while (running.size < capacity) {
         const job = await claimJob(rt, id);
         if (!job) break;
