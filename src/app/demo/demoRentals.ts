@@ -37,6 +37,7 @@ const APPROVAL: ApprovalDTO = {
   agentName: "Enquiry follow-up",
   stepTitle: "Ask before sending the reply",
   kind: "ask",
+  reason: null,
   question: "Send this reply to Jordan Lee about the spring workshop? \"Thanks for asking. There are four places left on 14 March; the fee is 40 USDC and covers materials.\"",
   options: [
     { label: "Send it", effect: "The reply goes to Jordan Lee." },
@@ -72,6 +73,17 @@ const INSTALLATION: InstallationDTO = {
   spendTodayUsd: 0.0094,
   recentJobs: JOBS,
   approvals: [APPROVAL],
+  safety: {
+    tools: [
+      { tool: "sheets.read", risk: "read", does: "Read every row of a sheet.", floor: null, asks: false, canRaise: false },
+      { tool: "sheets.write", risk: "write", does: "Add rows to a sheet, or replace all of its rows.", floor: null, asks: true, canRaise: true },
+      { tool: "telegram.ask", risk: "outbound", does: "Ask the owner a question and wait for the answer (null when none comes).", floor: "Always waits for your answer.", asks: false, canRaise: false },
+      { tool: "telegram.send", risk: "outbound", does: "Send the owner a message.", floor: null, asks: false, canRaise: true },
+    ],
+    autoSpendUsdc: 0,
+    maxAutoSpendUsdc: 1000,
+  },
+  budget: { spentThisWeek: usdc(0.62), spentToday: usdc(0.09), budget: usdc(1), makerDefault: usdc(1), ceiling: usdc(5), free: false, allowance: usdc(0.25), modelShare: true, decimals: 6 },
 };
 
 const base = (patch: Partial<RentalDTO> & Pick<RentalDTO, "id" | "name" | "does" | "status">): RentalDTO => ({
@@ -143,9 +155,11 @@ export const demoJob = (id: string): JobDTO =>
 // The maker's side: Enquiry follow-up on the board, eight weeks of it.
 const monday = (weeksAgo: number) => new Date(Date.UTC(2026, 10, 9) - weeksAgo * 7 * 86_400_000).toISOString();
 export const DEMO_DASHBOARD: MakerDashboardDTO = {
+  stopped: null,
+  frozen: null,
   agentId: "00000000-0000-4000-8000-000000000003",
   name: "Enquiry follow-up",
-  listing: { weeklyPrice: usdc(9), jobFee: usdc(0.25), decimals: 6, listed: true, version: 2 },
+  listing: { weeklyPrice: usdc(9), jobFee: usdc(0.25), decimals: 6, listed: true, version: 2, modelBudget: "1000000", modelBudgetCeiling: "5000000", modelShare: false, screen: "ok", screenReason: null },
   decimals: 6,
   renters: [
     { handle: "jordan_lee", since: at(-10), status: "active", version: 2, weeksPaid: 2 },

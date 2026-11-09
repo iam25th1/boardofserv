@@ -30,6 +30,18 @@ export interface TestRuntime extends Runtime {
   serve: (outcomes: string[], content: string) => string;
   // Telegram, Google and Brave, answered by the test.
   net: FakeNet;
+  // SERV's action guard: its answer to each check ("down" for no answer),
+  // and every check it was asked.
+  guardVerdict: (request: string) => { verdict: "allow" | "ask" | "block"; reason: string } | "down";
+  guarded: string[];
+  // SERV's input screen (the prompt guard): its answer to each text, and
+  // every text it was asked about.
+  screenVerdict: (text: string) => { verdict: "clean" | "flagged"; excerpt: string; reason: string } | "down";
+  screened: string[];
+  // SERV's screen of posts (listings, requests, offers) before they go
+  // public: its answer to each, and every post it was shown.
+  postVerdict: (text: string) => { verdict: "ok" | "hold"; reason: string } | "down";
+  posts: string[];
 }
 
 export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date("2026-11-09T06:00:00Z")): TestRuntime {
@@ -62,8 +74,32 @@ export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date(
     web: {},
     fetchesPerDay: 100,
     log: (line) => void rt.logged.push(line),
+    guardVerdict: () => ({ verdict: "allow", reason: "It fits what the agent is for." }),
+    guarded: [],
+    screenVerdict: () => ({ verdict: "clean", excerpt: "", reason: "Ordinary data." }),
+    screened: [],
+    postVerdict: () => ({ verdict: "ok", reason: "An ordinary small business job." }),
+    posts: [],
     fetchImpl: (async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(String(init.body)) as { messages: { content: string }[]; response_format: { json_schema: { schema: { properties: { outcome: { enum: string[] } } } } } };
+      const body = JSON.parse(String(init.body)) as { messages: { content: string }[]; response_format: { json_schema: { name: string; schema: { properties: { outcome: { enum: string[] } } } } } };
+      if (body.response_format.json_schema.name === "action_guard") {
+        rt.guarded.push(body.messages[1]!.content);
+        const v = rt.guardVerdict(body.messages[1]!.content);
+        if (v === "down") return new Response("{}", { status: 503 });
+        return Response.json({ choices: [{ message: { content: JSON.stringify(v) } }], usage: { prompt_tokens: 600, completion_tokens: 25 } });
+      }
+      if (body.response_format.json_schema.name === "input_screen") {
+        rt.screened.push(body.messages[1]!.content);
+        const v = rt.screenVerdict(body.messages[1]!.content);
+        if (v === "down") return new Response("{}", { status: 503 });
+        return Response.json({ choices: [{ message: { content: JSON.stringify(v) } }], usage: { prompt_tokens: 650, completion_tokens: 40 } });
+      }
+      if (body.response_format.json_schema.name === "content_screen") {
+        rt.posts.push(body.messages[1]!.content);
+        const v = rt.postVerdict(body.messages[1]!.content);
+        if (v === "down") return new Response("{}", { status: 503 });
+        return Response.json({ choices: [{ message: { content: JSON.stringify(v) } }], usage: { prompt_tokens: 500, completion_tokens: 20 } });
+      }
       const ids = body.response_format.json_schema.schema.properties.outcome.enum;
       rt.asked.push(body.messages[1]!.content);
       const outcome = rt.serve(ids, body.messages[1]!.content);
@@ -137,6 +173,9 @@ export async function installed(
     ownerUserId: owner.id,
     agent: p.agent,
     version: p.version,
+    // A renter who lets it spend up to 1000 USDC a call on its own, so the
+    // maker's own rules are what ask (the floor has tests of its own).
+    policy: { autoSpendUsdc: 1000 },
     answers: {
       settings: { stock_sheet: sheet.answer("Stock"), orders_sheet: sheet.answer("Orders"), suppliers_sheet: sheet.answer("Suppliers") },
       rules: {},

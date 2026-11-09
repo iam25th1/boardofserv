@@ -112,6 +112,16 @@ export interface AgentBuilderDTO {
   runnable: { version: number; definition: AgentDefinition; defaults: Record<string, unknown> } | null;
   // Its place on the board for rent, once its maker put it there.
   listing: MakerListingDTO | null;
+  // The code review of the version shown (none before its first).
+  review: VersionReviewDTO | null;
+}
+
+// A version's code review, in plain words: never code.
+export interface VersionReviewDTO {
+  status: "passed" | "blocked" | "unreviewed";
+  findings: { step: string; severity: "blocking" | "warning"; finding: string }[];
+  by: "local" | "serv";
+  reviewedAt: string;
 }
 
 // One of the maker's agents on their own agents page.
@@ -162,6 +172,43 @@ export interface InstallationDTO {
   recentJobs: JobSummaryDTO[];
   // The questions its jobs wait on.
   approvals: ApprovalDTO[];
+  // What it may do on its own, and what asks first.
+  safety: SafetyDTO;
+  // Its model cost this week against its budget (USDC minor units).
+  budget: BudgetDTO;
+}
+
+export interface BudgetDTO {
+  spentThisWeek: string;
+  spentToday: string;
+  budget: string;
+  makerDefault: string;
+  ceiling: string;
+  // A free agent runs on the platform's weekly allowance.
+  free: boolean;
+  allowance: string;
+  // Its renter pays each job's model cost on top of the fee.
+  modelShare: boolean;
+  decimals: number;
+}
+
+// An installation's tools by risk level (read, write, outbound, money), and
+// what its renter lets it do without asking.
+export interface SafetyDTO {
+  tools: {
+    tool: string;
+    risk: "read" | "write" | "outbound" | "money";
+    // What it does, in plain words.
+    does: string;
+    // What the platform always does about it, whatever the renter says.
+    floor: string | null;
+    // The renter asked to approve it every time.
+    asks: boolean;
+    // The renter can raise it to "ask me first".
+    canRaise: boolean;
+  }[];
+  autoSpendUsdc: number;
+  maxAutoSpendUsdc: number;
 }
 
 // An agent on the board, for anyone: what it does, what it connects to,
@@ -182,6 +229,9 @@ export interface AgentListingDTO {
   quality: number | null;
   trust: number | null;
   createdAt: string;
+  // A rough weekly model cost (USDC minor units), from how often it runs
+  // and the model calls a run makes.
+  modelEstimate: string;
 }
 
 // An agent's own page: the listing, and the plan in plain words. Steps are
@@ -210,6 +260,16 @@ export interface MakerListingDTO {
   decimals: number;
   listed: boolean;
   version: number;
+  // The maker's default weekly model budget for each renter (USDC minor
+  // units, within the platform's ceiling), and whether renters pay their
+  // jobs' model cost on top of the fee.
+  modelBudget: string;
+  modelBudgetCeiling: string;
+  modelShare: boolean;
+  // SERV's screen: public (ok), waiting for an admin (held, with why), or
+  // hidden by one.
+  screen: "ok" | "held" | "hidden";
+  screenReason: string | null;
 }
 
 // One of the renter's rentals, as only they see it. status: "setup" until
@@ -328,8 +388,10 @@ export interface ApprovalDTO {
   installationId: string;
   agentName: string;
   stepTitle: string;
-  kind: "ask" | "over_limit";
+  kind: "ask" | "over_limit" | "safety";
   question: string;
+  // Why the platform asks (a safety check), shown beside the question.
+  reason: string | null;
   options: { label: string; effect: string }[];
   noAnswer: string;
   status: "pending" | "answered" | "expired" | "cancelled";
@@ -534,6 +596,11 @@ export interface MakerDashboardDTO {
   jobs: { done: number; failed: number };
   failures: { step: string; count: number }[];
   versions: { number: number; publishedAt: string | null; renters: number; offered: number }[];
+  // Stopped everywhere by its maker (the kill switch), since when and what
+  // they told renters.
+  stopped: { at: string; note: string | null } | null;
+  // An admin's freeze on it or its maker, if any.
+  frozen: string | null;
 }
 
 // A request on the request board, for anyone: what someone wants an agent
@@ -554,6 +621,8 @@ export interface RequestDTO {
   // The viewer's own request, and whether they said "me too".
   mine: boolean;
   votedByMe: boolean;
+  // Waiting for an admin after SERV's screen (shown to its poster only).
+  held: string | null;
 }
 
 // A maker's offer on a request: one of their published agents, as the
@@ -570,10 +639,71 @@ export interface OfferDTO {
   createdAt: string;
   // The viewer made this offer.
   mine: boolean;
+  // Waiting for an admin after SERV's screen (shown to its maker only).
+  held: string | null;
 }
 
 // A request on its own page, with its offers (withdrawn ones left out).
 export interface RequestPageDTO {
   request: RequestDTO;
   offers: OfferDTO[];
+}
+
+// The admin's safety page.
+export interface FreezeDTO {
+  id: string;
+  kind: "agent" | "version" | "maker" | "renter";
+  target: string;
+  targetId: string;
+  reason: string;
+  by: string;
+  createdAt: string;
+  lifted: { at: string; by: string; reason: string } | null;
+}
+
+// The moderation queue: open reports, and what the screen held back.
+export interface ModerationQueueDTO {
+  reports: { id: string; kind: "agent" | "maker" | "request" | "offer"; target: string; targetId: string; reason: string; reasonWords: string; note: string; by: string; createdAt: string }[];
+  held: { type: "listing" | "request" | "offer"; id: string; title: string; by: string; reason: string }[];
+}
+
+export interface AdminSafetyDTO {
+  queue: ModerationQueueDTO;
+  // Every freeze, newest first: the admin log.
+  freezes: FreezeDTO[];
+  // The installations whose model calls cost the most this week (USDC
+  // minor units), and what of that the site paid.
+  costs: { installationId: string; name: string; owner: string; maker: string; week: string; sitePaid: string; calls: number; decimals: number }[];
+  reviews: { versionId: string; agentId: string; name: string; maker: string; version: number; state: "draft" | "published"; review: VersionReviewDTO }[];
+}
+
+// One line of the audit log of guarded actions. The maker's view leaves
+// out what the renter's data could show: the call in words, the reasons
+// and amounts (null there), and names renters by number.
+export interface AuditEntryDTO {
+  id: string;
+  at: string;
+  agent: string;
+  // Who runs it: null in the renter's own view; "You" or "Renter 2" for
+  // the maker; a handle for an admin.
+  renter: string | null;
+  step: string;
+  tool: string;
+  risk: "read" | "write" | "outbound" | "money";
+  what: string | null;
+  outcome: "ran" | "failed" | "asked" | "declined" | "blocked" | "stopped";
+  guard: "allow" | "ask" | "block" | "unavailable" | null;
+  guardReason: string | null;
+  reason: string | null;
+  approvedBy: "renter" | "rules" | null;
+  // The model cost of its check (USDC minor units), and USDC it spent.
+  cost: string;
+  spent: string | null;
+  decimals: number;
+}
+
+export interface AuditPageDTO {
+  entries: AuditEntryDTO[];
+  // The cursor for older entries, or null at the start of the log.
+  next: string | null;
 }

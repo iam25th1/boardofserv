@@ -14,6 +14,7 @@ import { checkDefinition } from "@/lib/agents/definition";
 import type { RunEvent, StepCode } from "@/lib/agents/types";
 import { ExampleRefused, exampleOwner, importExample, type SavedExample } from "./examples";
 import { agentPage, boardAgents } from "./listings";
+import { callEstimate } from "@/lib/agents/metering";
 
 // The example agents go on the board from their saved files: published,
 // owned by the admin, free to rent, and only once.
@@ -74,6 +75,17 @@ describe("the example agents", () => {
       expect(JSON.stringify(s).includes(String.fromCharCode(0x2014)), file).toBe(false);
       for (const words of said) expect(words.includes(String.fromCharCode(0x2014)), file).toBe(false);
     }
+  });
+
+  it("include the enquiry follow-up on its 15-minute schedule, with its model cost estimate on its listing", async () => {
+    const board = await boardAgents(rt);
+    const enquiry = board.find((a) => a.name === "Enquiry follow-up")!;
+    const page = (await agentPage(rt, enquiry.id))!;
+    expect(page.runs).toEqual(["Runs every 15 minutes"]);
+    expect(BigInt(page.modelEstimate)).toBeGreaterThan(0n);
+    const lead = saved.find(([f]) => f === "lead-followup.json")![1].definition as { steps: { kind: string }[] };
+    const calls = lead.steps.filter((x) => x.kind === "decision").length * 2 + lead.steps.filter((x) => x.kind === "action").length;
+    expect(BigInt(page.modelEstimate)).toBe(BigInt(672 * calls) * callEstimate());
   });
 
   it("refuse a file without approved code for every code step", async () => {

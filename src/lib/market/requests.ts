@@ -1,11 +1,12 @@
 import "server-only";
-import { and, count, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { agentListings, agents, agentVersions, requestOffers, requests, requestVotes, users, type Request } from "../db/schema";
 import type { OfferDTO, RequestDTO, RequestPageDTO } from "../types";
 import type { Runtime } from "../agents/runtime/context";
 import { USDC_DECIMALS } from "./charges";
 import { connectsOf, type Connects } from "./listings";
 import { rent, RentRefused } from "./rentals";
+import { agentHeld, userHeld } from "../safety/freeze";
 import type { Rental } from "../db/schema";
 
 // The request board. Anyone signed in and let in asks for an agent: what
@@ -55,7 +56,7 @@ async function requestDTOs(rt: Runtime, rows: (Request & { by: string })[], view
   const offers = await rt.db
     .select({ id: requestOffers.requestId, n: count() })
     .from(requestOffers)
-    .where(and(inArray(requestOffers.requestId, ids), ne(requestOffers.status, "withdrawn")))
+    .where(and(inArray(requestOffers.requestId, ids), ne(requestOffers.status, "withdrawn"), eq(requestOffers.screen, "ok")))
     .groupBy(requestOffers.requestId);
   const mine = viewerId ? await rt.db.select({ id: requestVotes.requestId }).from(requestVotes).where(and(inArray(requestVotes.requestId, ids), eq(requestVotes.userId, viewerId))) : [];
   return rows.map((r) => ({
@@ -72,6 +73,7 @@ async function requestDTOs(rt: Runtime, rows: (Request & { by: string })[], view
     createdAt: r.createdAt.toISOString(),
     mine: viewerId === r.userId,
     votedByMe: mine.some((m) => m.id === r.id),
+    held: viewerId === r.userId && r.screen !== "ok" ? (r.screenReason ?? "It is waiting for review.") : null,
   }));
 }
 
@@ -80,7 +82,7 @@ const withHandle = (rt: Runtime) => rt.db.select({ request: requests, by: users.
 // The open requests: most wanted first (most "me too", then newest), or
 // newest first.
 export async function requestBoard(rt: Runtime, o: { sort?: "wanted" | "newest"; viewerId?: string | null } = {}): Promise<RequestDTO[]> {
-  const rows = await withHandle(rt).where(eq(requests.status, "open")).orderBy(desc(requests.createdAt)).limit(BOARD_LIMIT * 2);
+  const rows = await withHandle(rt).where(and(eq(requests.status, "open"), eq(requests.screen, "ok"))).orderBy(desc(requests.createdAt)).limit(BOARD_LIMIT * 2);
   const list = await requestDTOs(
     rt,
     rows.map((r) => ({ ...r.request, by: r.by })),
@@ -110,7 +112,8 @@ async function requestRow(rt: Runtime, id: string): Promise<Request | null> {
 export async function requestPage(rt: Runtime, id: string, viewerId: string | null = null): Promise<RequestPageDTO | null> {
   if (!isId(id)) return null;
   const [row] = await withHandle(rt).where(eq(requests.id, id));
-  if (!row) return null;
+  // Held or hidden by the screen: there for its poster only.
+  if (!row || (row.request.screen !== "ok" && row.request.userId !== viewerId)) return null;
   const [request] = await requestDTOs(rt, [{ ...row.request, by: row.by }], viewerId);
   const offers = await rt.db
     .select({ offer: requestOffers, maker: users.handle, name: agents.name, listed: agentListings.listed })
@@ -118,7 +121,7 @@ export async function requestPage(rt: Runtime, id: string, viewerId: string | nu
     .innerJoin(users, eq(users.id, requestOffers.makerUserId))
     .innerJoin(agents, eq(agents.id, requestOffers.agentId))
     .leftJoin(agentListings, eq(agentListings.agentId, requestOffers.agentId))
-    .where(and(eq(requestOffers.requestId, id), ne(requestOffers.status, "withdrawn")))
+    .where(and(eq(requestOffers.requestId, id), ne(requestOffers.status, "withdrawn"), or(eq(requestOffers.screen, "ok"), viewerId ? eq(requestOffers.makerUserId, viewerId) : undefined)))
     .orderBy(desc(requestOffers.createdAt));
   const newest = await newestPublished(rt, offers.map((o) => o.offer.agentId));
   return {
@@ -138,6 +141,7 @@ export async function requestPage(rt: Runtime, id: string, viewerId: string | nu
           status: o.offer.status,
           createdAt: o.offer.createdAt.toISOString(),
           mine: viewerId === o.offer.makerUserId,
+          held: o.offer.screen !== "ok" ? (o.offer.screenReason ?? "It is waiting for review.") : null,
         },
       ];
     }),
@@ -183,6 +187,11 @@ export async function makeOffer(rt: Runtime, makerUserId: string, id: string, o:
   const [agent] = isId(o.agentId) ? await rt.db.select().from(agents).where(eq(agents.id, o.agentId)) : [];
   if (!agent || agent.ownerUserId !== makerUserId) throw new RequestRefused("Offer one of your own agents.", 404);
   if (!(await newestPublished(rt, [agent.id])).size) throw new RequestRefused("Publish a version of it first: renters get a published version, which never changes.", 409);
+  const held = (await agentHeld(rt, agent.id)) ?? (await userHeld(rt, makerUserId, "maker"));
+  if (held) throw new RequestRefused(`It can't be offered now. ${held}`, 409);
+  // One an admin took down stays down.
+  const [before] = await rt.db.select({ screen: requestOffers.screen }).from(requestOffers).where(and(eq(requestOffers.requestId, id), eq(requestOffers.agentId, agent.id)));
+  if (before?.screen === "hidden") throw new RequestRefused("An admin took your earlier offer of it down, so it can't be offered here again.", 409);
   const now = rt.now();
   const [row] = await rt.db
     .insert(requestOffers)
@@ -212,6 +221,7 @@ export async function acceptOffer(rt: Runtime, userId: string, offerId: string):
   if (!o || !r || r.userId !== userId) throw new RequestRefused("Not found", 404);
   if (r.status !== "open") throw new RequestRefused("This request isn't open any more.", 409);
   if (o.status !== "open") throw new RequestRefused("That offer was withdrawn.", 409);
+  if (o.screen !== "ok") throw new RequestRefused("That offer is waiting for review.", 409);
   let rental: Rental;
   try {
     rental = await rent(rt, { renterUserId: userId, agentId: o.agentId, offer: { weeklyPrice: o.weeklyPrice, jobFee: o.jobFee } });

@@ -17,6 +17,7 @@ const base = (r: Partial<RequestDTO> & Pick<RequestDTO, "id" | "need">): Request
   createdAt: ago(1),
   mine: false,
   votedByMe: false,
+  held: null,
   ...r,
 });
 
@@ -52,6 +53,7 @@ export const DEMO_REQUEST: RequestPageDTO = {
       status: "open",
       createdAt: ago(4),
       mine: false,
+      held: null,
     },
     {
       id: "o-2",
@@ -64,6 +66,7 @@ export const DEMO_REQUEST: RequestPageDTO = {
       status: "open",
       createdAt: ago(2),
       mine: false,
+      held: null,
     },
   ],
 };

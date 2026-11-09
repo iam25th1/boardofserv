@@ -6,6 +6,7 @@ import type { Runtime } from "../agents/runtime/context";
 import { USDC_DECIMALS } from "./charges";
 import { makerListing } from "./listings";
 import { rentalDTOs } from "./rentals";
+import { activeFreeze } from "../safety/freeze";
 
 // The maker's dashboard for one of their agents on the board. Renters'
 // jobs are counted and their failures grouped by the step that failed,
@@ -72,7 +73,10 @@ export async function makerDashboard(rt: Runtime, agent: Agent): Promise<MakerDa
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
 
+  const frozen = await activeFreeze(rt, { agentId: agent.id, makerId: agent.ownerUserId });
   return {
+    stopped: agent.stoppedAt ? { at: agent.stoppedAt.toISOString(), note: agent.stopNote } : null,
+    frozen: frozen?.reason ?? null,
     agentId: agent.id,
     name: agent.name,
     listing: await makerListing(rt, agent.id),

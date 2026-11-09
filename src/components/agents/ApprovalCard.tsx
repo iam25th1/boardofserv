@@ -49,6 +49,12 @@ export function ApprovalCard({ approval, onAnswer, jobHref }: { approval: Approv
         </span>
       </header>
       <p className={styles.question}>{a.question}</p>
+      {a.reason && (
+        <p className={styles.reason} data-kind={a.kind}>
+          <span className={styles.reasonLabel}>{a.kind === "safety" ? "Why it asks" : "Note"}</span>
+          {a.reason}
+        </p>
+      )}
       {pending ? (
         <ul className={styles.options}>
           {a.options.map((o) => (

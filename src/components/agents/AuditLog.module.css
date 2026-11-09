@@ -1,0 +1,94 @@
+/* The audit log: a ledger in chalk, one entry per guarded action. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--slate-2);
+}
+.panel h2 {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+}
+.panel > button {
+  align-self: flex-start;
+}
+.quiet {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  max-width: 64ch;
+}
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.list > li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-3) 0;
+  border-top: 1px dashed var(--line);
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.list > li > p {
+  padding-left: 30px;
+  max-width: calc(64ch + 30px);
+  overflow-wrap: anywhere;
+}
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-2);
+}
+.head strong {
+  color: var(--chalk);
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  font-weight: var(--w-regular);
+}
+.chip {
+  padding: 1px 10px;
+  border: 1px solid var(--chalk-3);
+  border-radius: var(--r-full);
+  font-size: var(--t-xs);
+  color: var(--chalk);
+}
+.list > li[data-outcome="blocked"] .chip,
+.list > li[data-outcome="failed"] .chip,
+.list > li[data-outcome="stopped"] .chip {
+  border-style: dashed;
+  border-color: var(--chalk);
+}
+.when {
+  margin-left: auto;
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+  font-variant-numeric: tabular-nums;
+}
+.who {
+  color: var(--chalk-3);
+  font-size: var(--t-xs);
+}
+.what {
+  color: var(--chalk);
+}
+.reason {
+  font-style: italic;
+}
+.facts {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 30px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-4);
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}

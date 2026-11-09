@@ -1,4 +1,5 @@
 import "server-only";
+import { minIntervalMinutes } from "./interval";
 import { completeJson, contextFor, type ChatMessage, type JsonResult, type ModelConfig } from "../model";
 import { INTERVIEW_FIELDS, INTERVIEW_LABELS } from "../sketchFields";
 import type { SketchDTO } from "../types";
@@ -40,11 +41,11 @@ export const AGENT_PLAN_SCHEMA = {
     triggers: list(
       obj({
         kind: { type: "string", enum: ["schedule", "check", "message"] },
-        every: { type: "string", enum: ["hour", "day", "week", "none"], description: "schedule only" },
+        every: { type: "string", enum: ["minutes", "day", "week", "none"], description: "schedule only" },
         at: str('schedule: a time like "08:00", or ""'),
-        everyMinutes: { type: "number", description: "check: minutes between checks, else 0" },
+        everyMinutes: { type: "number", description: "check, or schedule every minutes: minutes between, else 0" },
         watch: str("check: the value it watches, else empty"),
-        when: str("check: when it acts, else empty"),
+        when: str('check: when it acts; schedule every week: the days it runs, like "monday, thursday"; else empty'),
         step: str("check: the id of its own code step that reads the value and returns { holds }, else empty"),
         description: str("in plain words"),
       }),
@@ -140,7 +141,24 @@ export function wireToDefinition(w: Wire): unknown {
     const t = x as Wire;
     if (t.kind === "check") return { kind: "check", everyMinutes: Math.round(n(t.everyMinutes)), watch: s(t.watch), when: s(t.when), ...(s(t.step) ? { step: s(t.step) } : {}) };
     if (t.kind === "message") return { kind: "message", from: "telegram", description: s(t.description) };
-    return { kind: "schedule", every: t.every === "none" || !t.every ? "day" : t.every, at: s(t.at) || null, description: s(t.description) };
+    const every = t.every === "minutes" || t.every === "hours" || t.every === "week" ? t.every : t.every === "hour" ? "hours" : "day";
+    // Every so many minutes comes as everyMinutes (interval reads the same).
+    const interval = Math.round(n(t.interval) || n(t.everyMinutes));
+    const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    // Days as words, comma separated, in when (days, or an array of words,
+    // read the same).
+    const days = (Array.isArray(t.days) ? arr(t.days).map(s) : (s(t.days) || s(t.when)).split(","))
+      .map((d) => DAY_NAMES.indexOf(d.trim().toLowerCase()))
+      .filter((d) => d >= 0);
+    const minutesPast = /^:\d{2}$/.test(s(t.at)) ? `00${s(t.at)}` : s(t.at);
+    return {
+      kind: "schedule",
+      every,
+      ...(every === "minutes" || every === "hours" ? { interval: Math.max(1, interval || 1) } : {}),
+      at: /^([01]\d|2[0-3]):[0-5]\d$/.test(minutesPast) ? minutesPast : null,
+      ...(every === "week" ? { days: [...new Set(days.length ? days : [1])] } : {}),
+      description: s(t.description),
+    };
   });
   const job = (w.job ?? {}) as Wire;
   const limits = (w.limits ?? {}) as Wire;
@@ -181,7 +199,8 @@ export const PLAN_AGENT_PROMPT = [
   "decision: a judgement made by a model, with 2 to 6 outcomes, each naming the step it leads to.",
   "action: takes one declared action, which only changes things (sheets.write, telegram.send, telegram.ask, wallet.pay, memory.set); never use an action to read. For sheets.write, wallet.pay and memory.set its first input must already be that tool's arguments ({ sheet, rows }, { to, amountUsdc, memo } or { key, value }), a value of its own made by a code step before it for that action alone; telegram.send and telegram.ask make their message from any inputs. The step's first output holds the tool's result (telegram.ask gives { answer }).",
   'A run starts at the first step. next is the next step\'s id, or "" when the run ends there.',
-  'A check trigger names its own code step (step), listed with the steps but outside the run: it reads the watched value with tools that only read, from settings, rules and memory, and returns { holds } (true when the condition is met, and optionally value). The run starts when holds turns true. Its next is "" and no step leads to it.',
+  `A schedule runs every N minutes (every "minutes", everyMinutes N, at least ${minIntervalMinutes()}; every 2 hours is 120), every day at a time (every "day", at "HH:MM") or every week on some days at a time (every "week", the days in when, at "HH:MM"), in the renter's time zone. For anything that runs on a clock, use a schedule: "every 15 minutes" is every minutes with everyMinutes 15, "twice a week" is every week on two days.`,
+  'Use a check trigger only to run when a watched value changes, not to run on a clock. A check trigger names its own code step (step), listed with the steps but outside the run: it reads the watched value with tools that only read, from settings, rules and memory, and returns { holds } (true when the condition is met, and optionally value). The run starts when holds turns true. Its next is "" and no step leads to it.',
   'Inputs name values a step reads: settings, rules, memory, trigger, or an output of an earlier step. Outputs name what it adds. A setting is read as settings.<key>: a step that uses one lists "settings" in its inputs, never the key itself; the same for rules and memory.',
   "In code step descriptions, name the exact sheets, columns and fields the maker gave, and the shape of what the step returns.",
   `Tools: ${TOOL_NAMES.map((t) => `${t} (${TOOLS[t].summary})`).join("; ")}.`,

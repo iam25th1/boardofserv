@@ -246,6 +246,62 @@
       "when": 1794249752621,
       "tag": "0034_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794254448813,
+      "tag": "0035_safety_policy",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794255387055,
+      "tag": "0036_input_screens",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1794255595593,
+      "tag": "0037_version_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1794256045925,
+      "tag": "0038_model_metering",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1794256891139,
+      "tag": "0039_job_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794257077238,
+      "tag": "0040_freezes",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1794257444401,
+      "tag": "0041_reports",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794258406815,
+      "tag": "0042_audit_log",
+      "breakpoints": true
     }
   ]
 }

@@ -115,7 +115,7 @@ describe("renting an agent", () => {
     const lee = await renter("renter.lee", 10);
     const r = await rent(rt, { renterUserId: lee.id, agentId: p.agent.id });
     const setup = (await rentalSetup(rt, r))!;
-    expect(Object.keys(setup).sort()).toEqual(["name", "needs", "rules", "settings", "triggers"]);
+    expect(Object.keys(setup).sort()).toEqual(["name", "needs", "rules", "settings", "spends", "triggers"]);
     const shown = JSON.stringify(setup);
     for (const s of restockDefinition().steps) {
       if (s.kind === "code") expect(shown).not.toContain(s.description);

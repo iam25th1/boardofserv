@@ -1,12 +1,13 @@
 import "server-only";
-import { and, desc, eq, gte, ilike, inArray, lte, ne, or, sql } from "drizzle-orm";
-import { agentListings, agents, agentVersions, rentals, users, type Agent, type AgentListing } from "../db/schema";
+import { and, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { agentListings, agents, agentVersions, freezes, rentals, users, type Agent, type AgentListing } from "../db/schema";
 import type { AgentListingDTO, AgentPageDTO, MakerListingDTO } from "../types";
 import { connectionsNeeded, spends, type AgentDefinition, type ToolName } from "../agents/definition";
 import { describeTriggers } from "../agents/schedule";
 import { typedRules } from "../agents/runner";
 import type { Runtime } from "../agents/runtime/context";
 import { USDC_DECIMALS } from "./charges";
+import { budgetConfig, estimateWeekly } from "../agents/metering";
 
 // Agents on the board. Each listed agent shows what it does, what it
 // connects to, its weekly price (and fee per job), how many people rent
@@ -69,8 +70,14 @@ function listingDTO(r: Row, renters: number): AgentListingDTO {
     quality: null,
     trust: null,
     createdAt: r.listing.createdAt.toISOString(),
+    modelEstimate: estimateWeekly(d).toString(),
   };
 }
+
+// Nothing frozen shows on the board: the agent, its listed version or its
+// maker.
+const notFrozen = () =>
+  sql`not exists (select 1 from ${freezes} f where f.lifted_at is null and ((f.kind = 'agent' and f.target_id = ${agents.id}) or (f.kind = 'version' and f.target_id = ${agentListings.versionId}) or (f.kind = 'maker' and f.target_id = ${agents.ownerUserId})))`;
 
 const select = (rt: Runtime) =>
   rt.db
@@ -88,6 +95,9 @@ export async function boardAgents(rt: Runtime, f: BoardFilters = {}): Promise<Ag
       and(
         eq(agentListings.listed, true),
         eq(agentVersions.state, "published"),
+        isNull(agents.stoppedAt),
+        eq(agentListings.screen, "ok"),
+        notFrozen(),
         q ? or(ilike(agents.name, `%${q}%`), sql`${agentVersions.definition} -> 'job' ->> 'does' ilike ${`%${q}%`}`) : undefined,
         f.min !== undefined && f.min !== null ? gte(agentListings.weeklyPrice, f.min.toString()) : undefined,
         f.max !== undefined && f.max !== null ? lte(agentListings.weeklyPrice, f.max.toString()) : undefined,
@@ -107,7 +117,7 @@ export async function boardAgents(rt: Runtime, f: BoardFilters = {}): Promise<Ag
 // An agent's own page, for anyone, or null when it isn't on the board.
 export async function agentPage(rt: Runtime, agentId: string, viewerId: string | null = null): Promise<AgentPageDTO | null> {
   if (!/^[0-9a-f-]{36}$/i.test(agentId)) return null;
-  const [row] = (await select(rt).where(and(eq(agentListings.agentId, agentId), eq(agentListings.listed, true), eq(agentVersions.state, "published")))) as Row[];
+  const [row] = (await select(rt).where(and(eq(agentListings.agentId, agentId), eq(agentListings.listed, true), eq(agentVersions.state, "published"), isNull(agents.stoppedAt), eq(agentListings.screen, "ok"), notFrozen()))) as Row[];
   if (!row?.definition) return null;
   const d = row.definition;
   const renters = (await renterCounts(rt, [row])).get(agentId) ?? 0;
@@ -159,14 +169,28 @@ export async function makerListing(rt: Runtime, agentId: string): Promise<MakerL
     .from(agentListings)
     .innerJoin(agentVersions, eq(agentVersions.id, agentListings.versionId))
     .where(eq(agentListings.agentId, agentId));
-  return row ? { weeklyPrice: row.listing.weeklyPrice, jobFee: row.listing.jobFee, decimals: USDC_DECIMALS, listed: row.listing.listed, version: row.version } : null;
+  if (!row) return null;
+  const cfg = budgetConfig();
+  const budget = row.listing.modelBudget ? BigInt(row.listing.modelBudget) : cfg.byDefault;
+  return {
+    weeklyPrice: row.listing.weeklyPrice,
+    jobFee: row.listing.jobFee,
+    decimals: USDC_DECIMALS,
+    listed: row.listing.listed,
+    version: row.version,
+    modelBudget: (budget > cfg.ceiling ? cfg.ceiling : budget).toString(),
+    modelBudgetCeiling: cfg.ceiling.toString(),
+    modelShare: row.listing.modelShare,
+    screen: row.listing.screen,
+    screenReason: row.listing.screenReason,
+  };
 }
 
 // Its maker puts an agent on the board for rent (or changes its price, or
 // takes it off): the newest published version, at a weekly price and an
 // optional fee per job, in USDC minor units. A new price is for new
 // renters; those renting now keep the price they rented at.
-export async function setListing(rt: Runtime, agent: Agent, o: { weeklyPrice: bigint; jobFee: bigint; listed: boolean }): Promise<MakerListingDTO | null> {
+export async function setListing(rt: Runtime, agent: Agent, o: { weeklyPrice: bigint; jobFee: bigint; listed: boolean; modelBudget?: bigint | null; modelShare?: boolean }): Promise<MakerListingDTO | null> {
   const [version] = await rt.db
     .select({ id: agentVersions.id })
     .from(agentVersions)
@@ -175,7 +199,16 @@ export async function setListing(rt: Runtime, agent: Agent, o: { weeklyPrice: bi
     .limit(1);
   if (!version) return null;
   const now = rt.now();
-  const values = { versionId: version.id, weeklyPrice: o.weeklyPrice.toString(), jobFee: o.jobFee.toString(), listed: o.listed, updatedAt: now };
+  const ceiling = budgetConfig().ceiling;
+  const values = {
+    versionId: version.id,
+    weeklyPrice: o.weeklyPrice.toString(),
+    jobFee: o.jobFee.toString(),
+    listed: o.listed,
+    updatedAt: now,
+    ...(o.modelBudget !== undefined ? { modelBudget: o.modelBudget === null ? null : (o.modelBudget > ceiling ? ceiling : o.modelBudget).toString() } : {}),
+    ...(o.modelShare !== undefined ? { modelShare: o.modelShare } : {}),
+  };
   await rt.db
     .insert(agentListings)
     .values({ agentId: agent.id, ...values, createdAt: now })

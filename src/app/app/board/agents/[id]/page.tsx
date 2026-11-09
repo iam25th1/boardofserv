@@ -31,6 +31,7 @@ function WithSignIn({ id }: { id: string }) {
     () => ({
       load: (agentId) => (signedIn ? api.getAgentPage(agentId) : fetchAgentPage(agentId)),
       rent: (page) => <RentBox page={page} signedIn={signedIn} here={here} rent={() => api.rentAgent(page.id)} onRented={(r) => router.push(`/app/rentals/${r.id}/setup`)} />,
+      ...(signedIn ? { report: api.report } : { signIn: `/login?next=${encodeURIComponent(here)}` }),
     }),
     [api, signedIn, here, router],
   );

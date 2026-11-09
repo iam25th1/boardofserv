@@ -10,10 +10,14 @@ import { connectionsNeeded, type AgentDefinition } from "../definition";
 import { describeTriggers } from "../schedule";
 import { checkAnswers, type InstallAnswers } from "../settingsForm";
 import { emptyBench } from "../types";
+import { readPolicy, safetyOf, type SafetyPolicy } from "../risk";
+import { budgetConfig, budgetDTO } from "../metering";
 import type { Runtime } from "./context";
 import { approvalsOf } from "./approvals";
 import { enqueue } from "./jobs";
 import { setUpTriggers } from "./triggers";
+import { jobRoom, rateLimits } from "./rates";
+import { holdOn } from "../../safety/freeze";
 import { jobsOfInstallation, spendToday } from "./views";
 
 // Installations: one owner's running copy of a published agent version.
@@ -43,7 +47,9 @@ export function notRunnable(version: AgentVersion): string | null {
 
 // live: false sets it up for a test run first (not live): nothing starts
 // it but its owner's test runs, until they make it live.
-export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agent; version: AgentVersion; answers: InstallAnswers; live?: boolean }): Promise<AgentInstallation> {
+// policy: what the renter lets it do on its own (agents/risk.ts); none
+// means the platform's floor alone.
+export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agent; version: AgentVersion; answers: InstallAnswers; live?: boolean; policy?: Partial<SafetyPolicy> }): Promise<AgentInstallation> {
   const why = notRunnable(o.version);
   if (why) throw new InstallRefused(why);
   const d = o.version.definition!;
@@ -69,6 +75,7 @@ export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agen
       schedule: checked.schedule,
       minGapMinutes: checked.minGapMinutes,
       dailySpendUsd: String(checked.dailySpendUsd),
+      policy: readPolicy({ ...o.policy, autoSpendUsdc: o.policy?.autoSpendUsdc ?? o.answers.autoSpendUsdc }),
       createdAt: now,
       updatedAt: now,
     })
@@ -196,7 +203,28 @@ export async function installationDTO(rt: Runtime, l: Loaded): Promise<Installat
     spendTodayUsd: await spendToday(rt, i.id),
     recentJobs: await jobsOfInstallation(rt, i.id, 5),
     approvals: await approvalsOf(rt, i.ownerUserId, { installationId: i.id, pendingOnly: true }),
+    safety: safetyOf(d, readPolicy(i.policy)),
+    budget: await budgetDTO(rt, i),
   };
+}
+
+// The renter's weekly model budget, within the platform's ceiling (none
+// goes back to the maker's default).
+export async function setModelBudget(rt: Runtime, l: Loaded, budget: bigint | null): Promise<void> {
+  const ceiling = budgetConfig().ceiling;
+  const value = budget === null ? null : (budget > ceiling ? ceiling : budget < 0n ? 0n : budget).toString();
+  await rt.db.update(agentInstallations).set({ modelBudget: value, updatedAt: rt.now() }).where(eq(agentInstallations.id, l.installation.id));
+}
+
+// The renter raises what asks first (never below the platform's floor:
+// readPolicy keeps reads out and the auto limit in bounds).
+export async function setPolicy(rt: Runtime, l: Loaded, policy: SafetyPolicy): Promise<void> {
+  const allowed = new Set(safetyOf(l.definition, policy).tools.filter((t) => t.canRaise).map((t) => t.tool));
+  const askFor = policy.askFor.filter((t) => allowed.has(t));
+  await rt.db
+    .update(agentInstallations)
+    .set({ policy: readPolicy({ askFor, autoSpendUsdc: policy.autoSpendUsdc }), updatedAt: rt.now() })
+    .where(eq(agentInstallations.id, l.installation.id));
 }
 
 // The connections this agent needs that its owner hasn't made.
@@ -257,6 +285,8 @@ export async function control(rt: Runtime, l: Loaded, action: Control): Promise<
   }
   if (action === "resume") {
     if (i.status !== "paused") throw new ControlRefused("It isn't paused.");
+    const held = await holdOn(rt, i);
+    if (held) throw new ControlRefused(held);
     // A rented one whose week went unpaid resumes from Rented, which pays it.
     const [unpaid] = await rt.db.select({ id: rentals.id }).from(rentals).where(and(eq(rentals.installationId, i.id), eq(rentals.status, "unpaid")));
     if (unpaid) throw new ControlRefused("This week's rent isn't paid. Top up your wallet, then resume it from Rented: that pays the week.");
@@ -268,6 +298,8 @@ export async function control(rt: Runtime, l: Loaded, action: Control): Promise<
   }
   if (action === "run") {
     if (i.status !== "active") throw new ControlRefused("Resume it first.");
+    const room = await jobRoom(rt, i.id);
+    if (!room.ok) throw new ControlRefused(`It has started its limit of ${rateLimits().jobsPerHour} jobs this hour. Try again later.`);
     await enqueue(rt, i, { kind: "manual" });
     return;
   }

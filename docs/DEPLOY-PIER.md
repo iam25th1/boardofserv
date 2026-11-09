@@ -131,6 +131,12 @@ Read by the app, not set, so their defaults apply (see `.env.example`):
 `WITHDRAW_MIN_USDC`, `WITHDRAW_MIN_SERV`, `WITHDRAW_AUTO_MAX_USDC`,
 `WITHDRAW_AUTO_MAX_SERV`, `WITHDRAW_DAILY_CAP_USDC`, `WITHDRAW_DAILY_CAP_SERV`.
 
+Safeguards, optional, with defaults: `AGENT_MODEL_BUDGET_USDC` (1),
+`AGENT_MODEL_BUDGET_CEILING_USDC` (5), `AGENT_FREE_MODEL_ALLOWANCE_USDC`
+(0.25), `AGENT_MIN_INTERVAL_MINUTES` (15), `AGENT_JOBS_PER_HOUR` (12),
+`AGENT_OUTBOUND_PER_HOUR` (20), `AGENT_ACTIONS_PER_JOB` (40),
+`AGENT_STEP_VISITS` (12), `AGENT_SAME_FAILURES` (3).
+
 Connections (Telegram, Google Sheets, web search), to add to the store
 before the deploy that brings them: `TELEGRAM_BOT_TOKEN`, `GOOGLE_CLIENT_ID`,
 `GOOGLE_CLIENT_SECRET`, `BRAVE_SEARCH_API_KEY`. Optional, with defaults:
@@ -226,6 +232,38 @@ deploy again, or `pier restart boardofserv`.
    the board or was there already.
 4. Fill in the support email and response time on `/support`, and have the
    draft terms and privacy pages reviewed before taking them out of draft.
+
+### After the deploy that brings the safeguards
+
+1. `pier deploy boardofserv`. The schema push adds the new tables
+   (`input_screens`, `agent_model_usage`, `freezes`, `reports`,
+   `agent_audit`) and columns (`agent_installations.policy` and
+   `model_budget`, `agent_versions.review`, `agent_listings.model_budget`,
+   `model_share` and `screen*`, `rentals.model_share`,
+   `agent_jobs.model_settled_at` and `actions`, `agents.stopped_at` and
+   `stop_note`, `requests.screen*`, `request_offers.screen*`,
+   `agent_approvals.reason`). Nothing existing changes: existing listings,
+   requests and offers count as screened, and existing versions stay
+   published without a review (the next version a maker publishes is
+   reviewed).
+2. Make the audit log append-only in the database too. The schema push
+   makes the table but not its trigger:
+
+   ```sh
+   docker exec -i boardofserv-db psql -U boardofserv boardofserv < ~/.boardofserv/app/scripts/sql/audit-append-only.sql
+   ```
+
+   Safe to run again. Check it: an `UPDATE agent_audit SET step = step`
+   should fail with "agent_audit is append-only".
+3. Existing installations have no safety settings yet, so the floor applies:
+   an agent that pays asks before every payment until its renter sets an
+   auto limit on its page. Tell renters of paying agents, if there are any.
+4. If the market's examples were imported before this deploy, the enquiry
+   follow-up on the board is still the version that wakes on a fixed
+   schedule: `import-examples.ts` leaves an example that is there already,
+   so publish the new one from its builder as the admin, or leave it.
+5. Open `/app/admin/safety` as an admin: the queue, freezes, model cost this
+   week, code reviews and the audit log.
 
 ## Logs
 

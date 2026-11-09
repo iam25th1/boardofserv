@@ -36,6 +36,6 @@ function SignedIn({ id }: { id: string }) {
 function Dashboard({ id }: { id: string }) {
   const api = useApi();
   const runs = useCallback(() => api.listAgentJobs(id), [api, id]);
-  const dashApi = useMemo<MakerDashboardApi>(() => ({ load: () => api.getMakerDashboard(id), runs }), [api, id, runs]);
+  const dashApi = useMemo<MakerDashboardApi>(() => ({ load: () => api.getMakerDashboard(id), runs, kill: (action, note) => api.killAgent(id, action, note), audit: (before) => api.makerAudit(id, before) }), [api, id, runs]);
   return <MakerDashboard id={id} api={dashApi} />;
 }

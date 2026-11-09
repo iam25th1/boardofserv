@@ -3,7 +3,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent } from "./agents/types";
 import type { InstallAnswers } from "./agents/settingsForm";
-import type { AccountDTO, AdminDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, QuotaDTO, RentalDetailDTO, RentalDTO, RequestDTO, RequestPageDTO, SketchDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, AdminSafetyDTO, AuditPageDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, QuotaDTO, RentalDetailDTO, RentalDTO, RequestDTO, RequestPageDTO, SketchDTO, WalletDTO } from "./types";
 import type { SetupShape } from "./agents/definition";
 
 // When the server sends no sentence of its own: never a status code.
@@ -60,7 +60,7 @@ export function useApi() {
       saveAgentBench: (id: string, bench: BenchData) =>
         json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}/bench`, { method: "PUT", body: JSON.stringify({ bench }) }).then((d) => d.builder),
       // Put the agent on the board for rent (USDC minor units), or change it.
-      setListing: (id: string, body: { weeklyPrice: string; jobFee: string; listed: boolean }) =>
+      setListing: (id: string, body: { weeklyPrice: string; jobFee: string; listed: boolean; modelBudget?: string; modelShare?: boolean }) =>
         json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}/listing`, { method: "POST", body: JSON.stringify(body) }).then((d) => d.builder),
       // An agent's page on the board, as the signed-in viewer sees it (theirs,
       // or rented by them). Null when it isn't on the board.
@@ -94,6 +94,8 @@ export function useApi() {
       },
       answerVersion: (id: string, choice: "update" | "stay") =>
         json<{ rental: RentalDetailDTO; setupAgain: boolean }>(`/api/rentals/${encodeURIComponent(id)}/version`, { method: "POST", body: JSON.stringify({ choice }) }),
+      killAgent: (id: string, action: "stop" | "start", note?: string) =>
+        json<{ dashboard: MakerDashboardDTO }>(`/api/agents/${encodeURIComponent(id)}/kill`, { method: "POST", body: JSON.stringify({ action, note }) }).then((d) => d.dashboard),
       getMakerDashboard: (id: string) => json<{ dashboard: MakerDashboardDTO }>(`/api/agents/${encodeURIComponent(id)}/dashboard`).then((d) => d.dashboard),
       // The request board, as the signed-in viewer sees it (their own, and
       // their "me too").
@@ -134,6 +136,10 @@ export function useApi() {
       countApprovals: () => json<{ pending: number }>("/api/approvals?count=1").then((d) => d.pending),
       answerApproval: (id: string, answer: string) =>
         json<{ approval: ApprovalDTO }>(`/api/approvals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ answer }) }).then((d) => d.approval),
+      setPolicy: (id: string, body: { askFor: string[]; autoSpendUsdc: number }) =>
+        json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }).then((d) => d.installation),
+      setModelBudget: (id: string, modelBudget: string | null) =>
+        json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ modelBudget }) }).then((d) => d.installation),
       controlInstallation: (id: string, action: "pause" | "resume" | "stop" | "run" | "test" | "golive") =>
         json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}/control`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.installation),
       listAgentMessages: (id: string) => json<{ messages: AgentMessageDTO[] }>(`/api/installations/${encodeURIComponent(id)}/messages`).then((d) => d.messages),
@@ -192,6 +198,22 @@ export function useApi() {
       getWallet: () => json<{ wallet: WalletDTO }>("/api/wallet").then((d) => d.wallet),
       checkDeposits: () => json<{ wallet: WalletDTO }>("/api/deposits/check", { method: "POST" }).then((d) => d.wallet),
       getAdmin: () => json<{ admin: AdminDTO }>("/api/admin").then((d) => d.admin),
+      getAdminSafety: () => json<{ safety: AdminSafetyDTO }>("/api/admin/safety").then((d) => d.safety),
+      // The audit log of guarded actions: the renter's installation, the
+      // maker's agent (renters' data hidden), or all of it for an admin.
+      installationAudit: (id: string, before?: string | null) =>
+        json<{ audit: AuditPageDTO }>(`/api/installations/${encodeURIComponent(id)}/audit${before ? `?before=${encodeURIComponent(before)}` : ""}`).then((d) => d.audit),
+      makerAudit: (id: string, before?: string | null) =>
+        json<{ audit: AuditPageDTO }>(`/api/agents/${encodeURIComponent(id)}/audit${before ? `?before=${encodeURIComponent(before)}` : ""}`).then((d) => d.audit),
+      adminAudit: (before?: string | null) => json<{ audit: AuditPageDTO }>(`/api/admin/audit${before ? `?before=${encodeURIComponent(before)}` : ""}`).then((d) => d.audit),
+      adminModerate: (body: { type: "report" | "listing" | "request" | "offer"; id: string; action: "approve" | "hide" | "freeze"; reason: string }) =>
+        json<{ safety: AdminSafetyDTO }>("/api/admin/moderate", { method: "POST", body: JSON.stringify(body) }).then((d) => d.safety),
+      report: (body: { kind: "agent" | "maker" | "request" | "offer"; targetId: string; reason: string; note: string }) =>
+        json<{ ok: boolean }>("/api/reports", { method: "POST", body: JSON.stringify(body) }).then(() => undefined),
+      adminFreeze: (body: { kind: "agent" | "version" | "maker" | "renter"; target: string; reason: string }) =>
+        json<{ safety: AdminSafetyDTO }>("/api/admin/freezes", { method: "POST", body: JSON.stringify(body) }).then((d) => d.safety),
+      adminLift: (id: string, reason: string) =>
+        json<{ safety: AdminSafetyDTO }>(`/api/admin/freezes/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ reason }) }).then((d) => d.safety),
       adminPause: (paused: boolean) => json<{ admin: AdminDTO }>("/api/admin/pause", { method: "POST", body: JSON.stringify({ paused }) }).then((d) => d.admin),
       adminDecide: (id: string, action: "approve" | "reject" | "fail") =>
         json<{ admin: AdminDTO }>(`/api/admin/withdrawals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.admin),

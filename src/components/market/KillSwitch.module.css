@@ -1,0 +1,48 @@
+/* The kill switch: quiet until it is used, then plain about what it did. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+  padding: var(--s-4) var(--s-5);
+  border: 1.5px dashed var(--chalk-3);
+  border-radius: var(--r-xl);
+}
+.panel[data-stopped] {
+  border: var(--stroke-bold) solid var(--chalk);
+}
+.panel h2 {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+}
+.panel p {
+  font-size: var(--t-sm);
+  max-width: 52ch;
+}
+.quiet {
+  color: var(--chalk-2);
+}
+.note {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk);
+}
+.label {
+  display: block;
+  margin-top: var(--s-3);
+  margin-bottom: var(--s-1);
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.terms {
+  margin: 0;
+  padding-left: 1.1em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  color: var(--chalk-2);
+  max-width: 52ch;
+}
+.said {
+  color: var(--chalk);
+}

@@ -6,6 +6,7 @@ import { Page } from "@/components/shell/Page";
 import { useStaggerIn } from "@/lib/useStaggerIn";
 import type { AgentPageDTO } from "@/lib/types";
 import { price } from "./BoardView";
+import { ReportButton, type ReportSend } from "./ReportButton";
 import styles from "./AgentPage.module.css";
 
 // An agent's page on the board: what it does, the steps it takes in plain
@@ -19,6 +20,9 @@ export interface AgentPageApi {
   load: (id: string) => Promise<AgentPageDTO | null>;
   // The way to rent it (a button, or why not): given the page.
   rent?: (page: AgentPageDTO) => React.ReactNode;
+  // Reporting it or its maker (signed in), or where to sign in.
+  report?: ReportSend;
+  signIn?: string;
 }
 
 const ASK_KIND: Record<string, string> = { sheet: "a Google Sheet tab", url: "a web address", number: "a number", boolean: "yes or no", choice: "a choice", list: "a list", text: "a few words" };
@@ -58,6 +62,7 @@ export function AgentPageView({ id, api }: { id: string; api: AgentPageApi }) {
           <div className={styles.priceBox}>
             <p className={styles.price}>{free ? "Free to rent" : `${price(page.weeklyPrice, page.decimals)} a week`}</p>
             {BigInt(page.jobFee) > 0n && <p className={styles.fee}>plus {price(page.jobFee, page.decimals)} for each job it finishes</p>}
+            <p className={styles.fee}>Its model calls cost about {price(page.modelEstimate, page.decimals)} a week</p>
             {api.rent?.(page)}
           </div>
           <dl className={styles.facts}>
@@ -74,6 +79,12 @@ export function AgentPageView({ id, api }: { id: string; api: AgentPageApi }) {
               <dd className={styles.pending}>{page.quality === null ? "not enough reviewed jobs yet" : page.quality}</dd>
             </div>
           </dl>
+          {!page.mine && (
+            <div className={styles.reports}>
+              <ReportButton kind="agent" targetId={page.id} send={api.report} signIn={api.signIn} />
+              <ReportButton kind="maker" targetId={page.id} send={api.report} signIn={api.signIn} label={`Report @${page.maker}`} />
+            </div>
+          )}
         </div>
       }
     >

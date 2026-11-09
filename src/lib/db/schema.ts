@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, json, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, bigserial, json, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
 import type { AgentDefinition } from "../agents/definition";
 import type { BenchData, RunState, StepCode } from "../agents/types";
 import { CURRENCIES } from "../money";
@@ -108,7 +108,7 @@ export const replyUsage = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
-    kind: text("kind", { enum: ["reply", "compile", "agent_plan", "agent_code", "agent_review", "agent_decision"] }).notNull().default("reply"),
+    kind: text("kind", { enum: ["reply", "compile", "agent_plan", "agent_code", "agent_review", "agent_decision", "agent_guard", "agent_screen", "agent_vetting"] }).notNull().default("reply"),
     ownKey: boolean("own_key").notNull().default(false),
     provider: text("provider"),
     model: text("model"),
@@ -488,6 +488,10 @@ export const agents = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     sourceConversationId: uuid("source_conversation_id").references(() => conversations.id, { onDelete: "set null" }),
     name: text("name").notNull(),
+    // Its maker stopped it everywhere (the kill switch): every installation
+    // paused, renewals held, nothing new rented, until they start it again.
+    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+    stopNote: text("stop_note"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -518,6 +522,9 @@ export const agentVersions = pgTable(
     definition: jsonb("definition").$type<AgentDefinition>(),
     code: jsonb("code").$type<Record<string, StepCode>>().notNull().default({}),
     bench: jsonb("bench").$type<BenchData>(),
+    // The code review before publishing (agents/vetting.ts): its status and
+    // findings in plain words, never code.
+    review: jsonb("review").$type<{ status: "passed" | "blocked" | "unreviewed"; findings: { step: string; severity: "blocking" | "warning"; finding: string }[]; by: "local" | "serv"; model: string | null; reviewedAt: string }>(),
     buildState: text("build_state", { enum: ["idle", "planning", "writing", "fixing", "failed"] }).notNull().default("idle"),
     buildNote: text("build_note"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -572,9 +579,16 @@ export const agentInstallations = pgTable(
     memory: jsonb("memory").$type<Record<string, unknown>>().notNull().default({}),
     mocks: jsonb("mocks").$type<Pick<BenchData, "sheets" | "search" | "wallet">>().notNull(),
     timezone: text("timezone").notNull().default("UTC"),
-    schedule: jsonb("schedule").$type<{ at: string | null; day: number | null }>(),
+    schedule: jsonb("schedule").$type<{ at: string | null; day: number | null; days?: number[] | null; interval?: number | null }>(),
     minGapMinutes: integer("min_gap_minutes").notNull().default(5),
     dailySpendUsd: numeric("daily_spend_usd", { precision: 10, scale: 4 }).notNull().default("0.5"),
+    // What the renter lets it do on its own (agents/risk.ts): tools that
+    // always ask first, and how much it may spend per call without asking.
+    // Raising only: the platform's floor applies whatever this says.
+    policy: jsonb("policy").$type<{ askFor?: string[]; autoSpendUsdc?: number }>().notNull().default({}),
+    // The renter's weekly model budget (USDC minor units), within the
+    // platform's ceiling; none takes the maker's default.
+    modelBudget: numeric("model_budget", { precision: 78, scale: 0 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     stoppedAt: timestamp("stopped_at", { withTimezone: true }),
@@ -615,6 +629,11 @@ export const agentJobs = pgTable(
     status: text("status", { enum: JOB_STATUSES }).notNull().default("queued"),
     // The hold for a rented agent's fee per job, while it runs.
     feeHoldId: uuid("fee_hold_id"),
+    // When its model cost was charged to its renter (agents whose renters
+    // pay their jobs' model cost); none until then, or never.
+    modelSettledAt: timestamp("model_settled_at", { withTimezone: true }),
+    // Actions it took (anything that writes, sends or spends), for its limit.
+    actions: integer("actions").notNull().default(0),
     // What started it: { kind: "schedule" | "check" | "message" | "manual" | "test", ... }.
     trigger: jsonb("trigger").$type<Record<string, unknown>>().notNull(),
     // json, not jsonb: kept exactly as written, keys in their order, so a
@@ -744,8 +763,14 @@ export const agentApprovals = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     stepId: text("step_id").notNull(),
     callIndex: integer("call_index").notNull(),
-    kind: text("kind", { enum: ["ask", "over_limit"] }).notNull(),
+    // ask: the agent's own question; over_limit: spending over a rule's
+    // limit; safety: the platform's checks (risk levels, the guard, untrusted
+    // input, budgets). Not a checked column, so new kinds need no change a
+    // deploy's schema push would skip.
+    kind: text("kind", { enum: ["ask", "over_limit", "safety"] }).notNull(),
     question: text("question").notNull(),
+    // Why the platform asks, in plain words, when it does.
+    reason: text("reason"),
     options: jsonb("options").$type<{ label: string; effect: string }[]>().notNull(),
     noAnswer: text("no_answer").notNull(),
     status: text("status", { enum: ["pending", "answered", "expired", "cancelled"] }).notNull().default("pending"),
@@ -952,6 +977,17 @@ export const agentListings = pgTable(
     weeklyPrice: numeric("weekly_price", { precision: 78, scale: 0 }).notNull().default("0"),
     jobFee: numeric("job_fee", { precision: 78, scale: 0 }).notNull().default("0"),
     listed: boolean("listed").notNull().default(true),
+    // The maker's default weekly model budget for each renter (USDC minor
+    // units; none takes the platform's default), and whether renters pay
+    // their jobs' model cost on top of the fee per job.
+    modelBudget: numeric("model_budget", { precision: 78, scale: 0 }),
+    modelShare: boolean("model_share").notNull().default(false),
+    // SERV's screen before it goes public: ok, held for an admin (with why),
+    // or hidden by one. The hash of what was screened, to screen it again
+    // only when it changes.
+    screen: text("screen", { enum: ["ok", "held", "hidden"] }).notNull().default("ok"),
+    screenReason: text("screen_reason"),
+    screenHash: text("screen_hash"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -988,6 +1024,8 @@ export const rentals = pgTable(
     installationId: uuid("installation_id").references(() => agentInstallations.id, { onDelete: "set null" }),
     weeklyPrice: numeric("weekly_price", { precision: 78, scale: 0 }).notNull(),
     jobFee: numeric("job_fee", { precision: 78, scale: 0 }).notNull().default("0"),
+    // Each job's model cost is charged to the renter on top of its fee.
+    modelShare: boolean("model_share").notNull().default(false),
     status: text("status", { enum: RENTAL_STATUSES }).notNull().default("active"),
     renews: boolean("renews").notNull().default(true),
     paidUntil: timestamp("paid_until", { withTimezone: true }).notNull(),
@@ -1041,6 +1079,9 @@ export const requests = pgTable(
     // What they'd pay a week, USDC minor units; null when they didn't say.
     budget: numeric("budget", { precision: 78, scale: 0 }),
     status: text("status", { enum: REQUEST_STATUSES }).notNull().default("open"),
+    // SERV's screen before it goes public (see agent_listings.screen).
+    screen: text("screen", { enum: ["ok", "held", "hidden"] }).notNull().default("ok"),
+    screenReason: text("screen_reason"),
     closedAt: timestamp("closed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -1085,6 +1126,8 @@ export const requestOffers = pgTable(
     weeklyPrice: numeric("weekly_price", { precision: 78, scale: 0 }).notNull(),
     jobFee: numeric("job_fee", { precision: 78, scale: 0 }).notNull().default("0"),
     status: text("status", { enum: OFFER_STATUSES }).notNull().default("open"),
+    screen: text("screen", { enum: ["ok", "held", "hidden"] }).notNull().default("ok"),
+    screenReason: text("screen_reason"),
     rentalId: uuid("rental_id").references(() => rentals.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
@@ -1099,6 +1142,153 @@ export const requestOffers = pgTable(
 
 export type Request = typeof requests.$inferSelect;
 export type RequestOffer = typeof requestOffers.$inferSelect;
+
+// The prompt guard's verdicts on untrusted text, by the text's hash, so the
+// same sheet or page isn't screened again every run. No text is kept, only
+// the short excerpt that shows a flag.
+export const inputScreens = pgTable("input_screens", {
+  hash: text("hash").primaryKey(),
+  verdict: text("verdict", { enum: ["clean", "flagged"] }).notNull(),
+  excerpt: text("excerpt").notNull().default(""),
+  reason: text("reason").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// Every model call inside an agent run (a decision, the guard's check, the
+// input screen), metered per installation, per job and per day, in tokens
+// and in USDC minor units at the configured rates. Calls on the renter's
+// own SERV key are kept too (own_key) but cost the site nothing.
+export const agentModelUsage = pgTable(
+  "agent_model_usage",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => agentInstallations.id, { onDelete: "cascade" }),
+    jobId: uuid("job_id").references(() => agentJobs.id, { onDelete: "set null" }),
+    agentId: uuid("agent_id").notNull(),
+    ownerUserId: uuid("owner_user_id").notNull(),
+    purpose: text("purpose", { enum: ["decision", "guard", "screen"] }).notNull(),
+    provider: text("provider"),
+    model: text("model"),
+    promptTokens: integer("prompt_tokens").notNull().default(0),
+    completionTokens: integer("completion_tokens").notNull().default(0),
+    cost: numeric("cost", { precision: 78, scale: 0 }).notNull().default("0"),
+    ownKey: boolean("own_key").notNull().default(false),
+    // The UTC day, for daily totals.
+    day: text("day").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byInstallation: index("agent_model_usage_installation_idx").on(t.installationId, t.createdAt),
+    byJob: index("agent_model_usage_job_idx").on(t.jobId),
+    byDay: index("agent_model_usage_day_idx").on(t.day),
+  }),
+);
+
+// The audit log: every guarded action an installation's agent took or
+// tried (anything that writes, sends or spends), with SERV's check and its
+// reason, who approved it and what it cost. Append-only: rows are added
+// and never changed or removed (agents/audit.ts is the only writer, and a
+// test holds every other file to that). No foreign keys, so the log
+// outlives what it is about.
+export const AUDIT_OUTCOMES = ["ran", "failed", "asked", "declined", "blocked", "stopped"] as const;
+export const agentAudit = pgTable(
+  "agent_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    // The order lines were added in: the log reads newest first by it.
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    installationId: uuid("installation_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    ownerUserId: uuid("owner_user_id").notNull(),
+    jobId: uuid("job_id"),
+    // The step's title, the tool and its risk level.
+    step: text("step").notNull(),
+    tool: text("tool").notNull(),
+    risk: text("risk").notNull(),
+    // The call in words (it can carry the renter's data).
+    what: text("what").notNull(),
+    outcome: text("outcome", { enum: AUDIT_OUTCOMES }).notNull(),
+    // SERV's check: allow, ask, block, or unavailable (it asked instead);
+    // none when the renter's earlier yes let it run.
+    guard: text("guard", { enum: ["allow", "ask", "block", "unavailable"] }),
+    guardReason: text("guard_reason"),
+    // Why it asked, stopped, failed or was declined.
+    reason: text("reason"),
+    // The renter's yes, or their own rules (nothing needed asking).
+    approvedBy: text("approved_by", { enum: ["renter", "rules"] }),
+    // The model cost of its check, USDC minor units; USDC it spent.
+    cost: numeric("cost", { precision: 78, scale: 0 }).notNull().default("0"),
+    spent: numeric("spent", { precision: 20, scale: 6 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    bySeq: uniqueIndex("agent_audit_seq_idx").on(t.seq),
+    byInstallation: index("agent_audit_installation_idx").on(t.installationId, t.seq),
+    byAgent: index("agent_audit_agent_idx").on(t.agentId, t.seq),
+  }),
+);
+export type AgentAudit = typeof agentAudit.$inferSelect;
+export type NewAgentAudit = typeof agentAudit.$inferInsert;
+
+// An admin's freeze of an agent, a version, a maker or a renter, with a
+// reason. A frozen thing can't run, be rented, publish or offer. Lifting
+// one keeps the row (lifted_at and why): together they are the admin log.
+export const FREEZE_KINDS = ["agent", "version", "maker", "renter"] as const;
+export const freezes = pgTable(
+  "freezes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    kind: text("kind", { enum: FREEZE_KINDS }).notNull(),
+    targetId: uuid("target_id").notNull(),
+    reason: text("reason").notNull(),
+    byUserId: uuid("by_user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    liftedAt: timestamp("lifted_at", { withTimezone: true }),
+    liftedBy: uuid("lifted_by").references(() => users.id),
+    liftReason: text("lift_reason"),
+  },
+  (t) => ({
+    active: index("freezes_target_idx").on(t.kind, t.targetId, t.liftedAt),
+    knownKind: check("freezes_kind", sql`${t.kind} in ('agent', 'version', 'maker', 'renter')`),
+  }),
+);
+export type Freeze = typeof freezes.$inferSelect;
+
+// Reports from people: an agent, a maker, a request or an offer, with a
+// reason from the list and a note. One open report per person per thing.
+export const REPORT_KINDS = ["agent", "maker", "request", "offer"] as const;
+export const REPORT_REASONS = ["scam", "harmful", "personal_data", "spam", "misleading", "other"] as const;
+export const reports = pgTable(
+  "reports",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    kind: text("kind", { enum: REPORT_KINDS }).notNull(),
+    targetId: uuid("target_id").notNull(),
+    reporterUserId: uuid("reporter_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    reason: text("reason", { enum: REPORT_REASONS }).notNull(),
+    note: text("note").notNull().default(""),
+    status: text("status", { enum: ["open", "resolved"] }).notNull().default("open"),
+    // What an admin did: approved (nothing wrong), hid it, or froze it.
+    resolution: text("resolution"),
+    resolvedBy: uuid("resolved_by").references(() => users.id),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byStatus: index("reports_status_idx").on(t.status, t.createdAt),
+    once: uniqueIndex("reports_once").on(t.kind, t.targetId, t.reporterUserId),
+    knownKind: check("reports_kind", sql`${t.kind} in ('agent', 'maker', 'request', 'offer')`),
+    knownReason: check("reports_reason", sql`${t.reason} in ('scam', 'harmful', 'personal_data', 'spam', 'misleading', 'other')`),
+    knownStatus: check("reports_status", sql`${t.status} in ('open', 'resolved')`),
+  }),
+);
+export type Report = typeof reports.$inferSelect;
 
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;

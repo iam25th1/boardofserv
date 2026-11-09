@@ -1,16 +1,25 @@
 import "server-only";
 import { fixDashes } from "../../dashes";
 import { eq, sql } from "drizzle-orm";
-import { agentFetchDays, agentInstallations, agentMessages, agentToolDays, type AgentInstallation, type AgentJob, type SheetGrant } from "../../db/schema";
+import { agentFetchDays, agentInstallations, agentMessages, agentToolDays, users, type AgentInstallation, type AgentJob, type SheetGrant, type User } from "../../db/schema";
 import { GoogleRevoked, GoogleUnavailable, REVOKED_REASON } from "../../google/oauth";
 import { readTab, SheetRefused, writeTab, type SheetRow } from "../../google/sheets";
 import { braveSearch, SearchRefused, SearchUnavailable } from "../../search/brave";
 import type { AgentDefinition, AgentStep, ToolName } from "../definition";
-import { Declined, Halted, InfraError, Paused, type ToolHost } from "../runner";
+import { Blocked, Declined, Halted, InfraError, Paused, type CallContext, type ToolHost } from "../runner";
+import { askGuard, GUARD_DOWN, guardKey, type GuardInput, type GuardResult } from "../guard";
+import { budgetGate, costMicros, meter } from "../metering";
+import { audit } from "../audit";
+import type { AgentAudit } from "../../db/schema";
+import type { Risk } from "../toolbox";
+import { unknownContacts } from "../untrusted";
+import { outboundRoom, pauseFor, takeAction } from "./rates";
 import { MAX_MEMORY_BYTES, memoryProblem, MockTools, TOOL_ARGS, ToolError } from "../toolbox";
 import { emptyBench } from "../types";
 import type { Runtime } from "./context";
 import { overLimit, recordSpend, spendOf } from "./spend";
+import { policyAsks, readPolicy, riskOf, TO_OWNER_ONLY } from "../risk";
+import { describeCall } from "../calls";
 import { fetchPage, WebUnreachable } from "./webFetch";
 
 // A job's tools (and a value check's, with no job). Sheets are real: the
@@ -27,6 +36,8 @@ import { fetchPage, WebUnreachable } from "./webFetch";
 // installation alone. So is web.fetch (webFetch.ts), within a number of
 // pages a day for each installation.
 
+export const GUARD_OVER_BUDGET = "This agent's model budget for the week is used up, so the safety check asks you instead.";
+
 // The whole site's daily counts are kept under the nil id.
 const SITE = "00000000-0000-0000-0000-000000000000";
 
@@ -34,13 +45,121 @@ export const isYes = (answer: string | null) => answer !== null && /^\s*(yes|y|o
 
 export class JobTools implements ToolHost {
   private mock: MockTools | null = null;
+  // The guard's answers in this run, by call: the same call is checked once.
+  private checked = new Map<string, GuardResult>();
+  // The checks whose model cost is in the audit log already.
+  private costed = new Set<GuardResult>();
 
   constructor(
     private rt: Runtime,
     private installation: AgentInstallation,
     private definition: AgentDefinition,
     private job: AgentJob | null,
+    private owner: User | null = null,
   ) {}
+
+  // What the renter gave it themselves: their answers, rules and, for a job
+  // they started with a message, that message.
+  private known(): string {
+    const trigger = this.job?.trigger as { kind?: string; text?: string } | undefined;
+    return JSON.stringify([this.installation.settings, this.installation.rules, trigger?.kind === "message" ? trigger.text ?? "" : ""]);
+  }
+
+  // Its limits: actions in a job, messages to its renter in an hour. Past
+  // one, the installation pauses and this job stops here, saying why.
+  private async withinLimits(risk: Risk): Promise<void> {
+    if (risk === "outbound") {
+      const room = await outboundRoom(this.rt, this.installation.id);
+      if (!room.ok) {
+        await pauseFor(this.rt, this.installation.id, room.reason);
+        throw new Halted(room.reason);
+      }
+    }
+    if (this.job) {
+      const took = await takeAction(this.rt, this.job.id, this.installation.id);
+      if (!took.ok) throw new Halted(took.reason);
+    }
+  }
+
+  private async ownerOf(): Promise<User> {
+    if (this.owner) return this.owner;
+    const [u] = await this.rt.db.select().from(users).where(eq(users.id, this.installation.ownerUserId));
+    this.owner = u!;
+    return u!;
+  }
+
+  // SERV's check of a call that writes, sends or spends: once per call in a
+  // run. When SERV can't be reached, can't be paid for today or doesn't
+  // answer, the answer is ask, never allow.
+  private async guard(step: AgentStep, tool: ToolName, risk: Risk, args: unknown, ctx: CallContext | undefined): Promise<GuardResult> {
+    const key = guardKey(tool, args);
+    const seen = this.checked.get(key);
+    if (seen) return seen;
+    const owner = await this.ownerOf();
+    const input: GuardInput = {
+      definition: this.definition,
+      step,
+      tool,
+      risk,
+      args,
+      settings: settingsByLabel(this.definition, this.installation),
+      inputs: ctx?.inputs ?? {},
+      untrusted: ctx?.untrusted ?? [],
+    };
+    let result: GuardResult;
+    if (this.rt.guard) {
+      result = { ...(await this.rt.guard(input)), fallback: false, call: null };
+    } else {
+      const serv = this.rt.serv(owner);
+      const refused = serv ? await this.rt.siteRefusal(owner, serv.ownKey) : null;
+      const gate = serv && !refused ? await budgetGate(this.rt, this.installation, serv.ownKey) : null;
+      if (!serv || refused) result = { verdict: "ask", reason: GUARD_DOWN, fallback: true, call: null };
+      else if (gate && gate.kind !== "ok") result = { verdict: "ask", reason: GUARD_OVER_BUDGET, fallback: true, call: null };
+      else {
+        result = await askGuard(input, serv.config, { fetchImpl: this.rt.fetchImpl });
+        await this.rt.record(owner, result.call!, serv.ownKey, "agent_guard");
+        await meter(this.rt, { installationId: this.installation.id, jobId: this.job?.id ?? null, agentId: this.installation.agentId, ownerUserId: this.installation.ownerUserId }, "guard", result.call!, serv.ownKey);
+      }
+    }
+    this.checked.set(key, result);
+    return result;
+  }
+
+  // The call's line in the audit log (audit.ts): what it was, what SERV's
+  // check said, who approved it, what it cost. The check's cost is logged
+  // once, on the first line about it.
+  private async logged(step: AgentStep, tool: ToolName, risk: Risk, what: string, e: { outcome: AgentAudit["outcome"]; guard?: GuardResult | null; reason?: string | null; approvedBy?: AgentAudit["approvedBy"]; spent?: number | null }): Promise<void> {
+    const g = e.guard ?? null;
+    const cost = g?.call && !this.costed.has(g) ? costMicros(g.call) : 0n;
+    if (g) this.costed.add(g);
+    await audit(this.rt, {
+      installationId: this.installation.id,
+      agentId: this.installation.agentId,
+      ownerUserId: this.installation.ownerUserId,
+      jobId: this.job?.id ?? null,
+      step: step.title,
+      tool,
+      risk,
+      what,
+      outcome: e.outcome,
+      guard: g ? (g.fallback ? "unavailable" : g.verdict) : null,
+      guardReason: g?.reason ?? null,
+      reason: e.reason ?? null,
+      approvedBy: e.approvedBy ?? null,
+      cost: cost.toString(),
+      spent: e.spent !== null && e.spent !== undefined ? e.spent.toFixed(6) : null,
+    });
+  }
+
+  // Its limits, logged when one stops the call.
+  private async limited(step: AgentStep, tool: ToolName, risk: Risk, what: string): Promise<void> {
+    try {
+      await this.withinLimits(risk);
+    } catch (err) {
+      if (err instanceof Halted) await this.logged(step, tool, risk, what, { outcome: "stopped", reason: err.message });
+      throw err;
+    }
+  }
 
   // The installation's stand-in data, read fresh when a job (re)starts.
   private async mocks(): Promise<MockTools> {
@@ -50,25 +169,79 @@ export class JobTools implements ToolHost {
     return this.mock;
   }
 
-  async call(step: AgentStep, tool: ToolName, args: unknown, approval?: { answer: string | null }): Promise<unknown> {
+  async call(step: AgentStep, tool: ToolName, args: unknown, approval?: { answer: string | null }, ctx?: CallContext): Promise<unknown> {
     if (tool === "telegram.ask") {
       const parsed = TOOL_ARGS["telegram.ask"].safeParse(args);
       if (!parsed.success) throw new ToolError(tool, "telegram.ask was called wrongly: it takes { question, choices? }.");
+      // A question goes only to the renter, who answers it: the guard can
+      // stop one that shouldn't be asked, and asking is what it does.
+      const strange = unknownContacts(args, this.known());
+      const what = `Ask you: "${fixDashes(parsed.data.question).slice(0, 300)}"`;
+      if (!approval) {
+        await this.limited(step, tool, "outbound", what);
+        const g = await this.guard(step, tool, "outbound", args, ctx);
+        if (g.verdict === "block") {
+          await this.logged(step, tool, "outbound", what, { outcome: "blocked", guard: g, reason: g.reason });
+          throw new Blocked(g.reason);
+        }
+        await this.logged(step, tool, "outbound", what, { outcome: "asked", guard: g, reason: strange.length ? `It mentions things you didn't give it: ${strange.slice(0, 3).join(", ")}.` : null });
+      }
       // The owner's answer, once it has come; until then the job waits.
-      if (!approval) throw new Paused({ kind: "ask", question: fixDashes(parsed.data.question), choices: parsed.data.choices?.length ? parsed.data.choices : ["Yes", "No"] });
+      if (!approval) {
+        throw new Paused({
+          kind: "ask",
+          question: fixDashes(parsed.data.question),
+          choices: parsed.data.choices?.length ? parsed.data.choices : ["Yes", "No"],
+          reason: strange.length ? `It mentions ${strange.length === 1 ? "something" : "things"} you didn't give it: ${strange.slice(0, 3).join(", ")}. Don't follow ${strange.length === 1 ? "it" : "them"} unless you trust ${strange.length === 1 ? "it" : "them"}.` : null,
+        });
+      }
       if (approval.answer === null) throw new Declined(null);
       return { answer: approval.answer };
     }
-    // Spending waits for the owner's yes when it would take the job's or
-    // the day's total over a limit (spend.ts), and counts once it is done.
+    const risk = riskOf(this.definition, step, tool);
+    if (risk === "read") return this.use(step, tool, args);
+    // Anything that changes, says or spends something waits for the
+    // renter's yes when the platform's floor or their own settings say so,
+    // or when spending would take the job's or the day's total over a
+    // rule's limit (spend.ts). One answer covers them all; a no stops it.
+    // Every such call, whatever happens to it, gets a line in the audit log.
     const spend = spendOf(this.definition, step, tool, args);
-    if (spend) {
-      const over = await overLimit(this.rt, this.installation, this.definition, this.job?.id ?? null, spend);
-      if (over && !approval) throw new Paused({ kind: "over_limit", question: over, choices: ["Yes", "No"], tool });
-      if (over && !isYes(approval!.answer)) throw new Declined(approval!.answer);
+    const what = spend?.what ?? describeCall(tool, args);
+    if (!approval) await this.limited(step, tool, risk, what);
+    let g: GuardResult | null = null;
+    if (approval) {
+      if (!isYes(approval.answer)) {
+        await this.logged(step, tool, risk, what, { outcome: "declined", reason: approval.answer === null ? "No answer came in time." : `You answered: ${approval.answer.slice(0, 200)}` });
+        throw new Declined(approval.answer);
+      }
+    } else {
+      const over = spend ? await overLimit(this.rt, this.installation, this.definition, this.job?.id ?? null, spend) : null;
+      const why = policyAsks(readPolicy(this.installation.policy), { tool, risk, amount: spend?.amount ?? 0, toOwner: TO_OWNER_ONLY.includes(tool) });
+      if (risk === "outbound" || risk === "money") {
+        const strange = unknownContacts(args, this.known());
+        if (strange.length) why.push(`It carries ${strange.length === 1 ? "a link, address or contact detail" : "links, addresses or contact details"} you didn't give it: ${strange.slice(0, 3).join(", ")}.`);
+      }
+      g = await this.guard(step, tool, risk, args, ctx);
+      if (g.verdict === "block") {
+        await this.logged(step, tool, risk, what, { outcome: "blocked", guard: g, reason: g.reason });
+        throw new Blocked(g.reason);
+      }
+      if (g.verdict === "ask") why.push(g.fallback ? g.reason : `Safety check: ${g.reason}`);
+      if (over || why.length) {
+        await this.logged(step, tool, risk, what, { outcome: "asked", guard: g, reason: [over ? "It goes over a spending limit in your rules." : null, ...why].filter(Boolean).join(" ") });
+        throw new Paused({ kind: why.length ? "safety" : "over_limit", question: over ?? what, choices: ["Yes", "No"], tool, reason: why.join(" ") || null });
+      }
     }
-    const result = await this.use(step, tool, args);
+    const approvedBy = approval ? "renter" : "rules";
+    let result: unknown;
+    try {
+      result = await this.use(step, tool, args);
+    } catch (err) {
+      await this.logged(step, tool, risk, what, { outcome: "failed", guard: g, reason: err instanceof Error ? err.message : "It failed.", approvedBy });
+      throw err;
+    }
     if (spend) await recordSpend(this.rt, this.installation, this.job?.id ?? null, spend);
+    await this.logged(step, tool, risk, what, { outcome: "ran", guard: g, approvedBy, spent: spend?.amount ?? null });
     return result;
   }
 
@@ -205,4 +378,12 @@ export class JobTools implements ToolHost {
       .where(here);
     return { ok: true };
   }
+}
+
+// The renter's answers and rules, by their labels, for the guard to read.
+export function settingsByLabel(d: AgentDefinition, i: Pick<AgentInstallation, "settings" | "rules">): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const s of d.settings) out[s.label] = i.settings[s.key] ?? null;
+  for (const r of d.rules) out[r.label] = i.rules[r.key] ?? r.value;
+  return out;
 }

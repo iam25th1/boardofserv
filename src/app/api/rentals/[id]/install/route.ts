@@ -14,6 +14,8 @@ const Body = z.object({
   schedule: z.object({ at: z.string().max(5).nullable(), day: z.number().int().nullable() }).nullable().optional(),
   minGapMinutes: z.number().optional(),
   dailySpendUsd: z.number().optional(),
+  // How much it may spend per call without asking, in USDC.
+  autoSpendUsdc: z.number().finite().min(0).max(1000).optional(),
 });
 
 // The renter sets up the agent they rent, with their answers: it is theirs

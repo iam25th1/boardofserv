@@ -81,3 +81,17 @@
     width: 100%;
   }
 }
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 36px;
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  cursor: pointer;
+}
+.check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--chalk);
+}

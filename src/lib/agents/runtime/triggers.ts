@@ -4,7 +4,8 @@ import { agentInstallations, agentJobs, agentTriggers, agentVersions, type Agent
 import type { AgentDefinition } from "../definition";
 import { typedRules } from "../runner";
 import { runInSandbox } from "../sandbox";
-import { nextRun, scheduleSpec } from "../schedule";
+import { checkInterval, nextRun, scheduleSpec } from "../schedule";
+import { jobRoom, pauseFor } from "./rates";
 import type { Runtime } from "./context";
 import { enqueue } from "./jobs";
 import { JobTools } from "./tools";
@@ -85,7 +86,7 @@ export async function fireDue(rt: Runtime, limit = 20): Promise<number> {
     const d = version.definition;
     const t = d?.triggers[row.index];
     if (!d || !t || t.kind === "message") continue;
-    const next = t.kind === "schedule" ? nextRun(scheduleSpec(t, i.schedule), i.timezone, now) : new Date(now.getTime() + t.everyMinutes * 60_000);
+    const next = t.kind === "schedule" ? nextRun(scheduleSpec(t, i.schedule), i.timezone, now) : new Date(now.getTime() + checkInterval(t.everyMinutes) * 60_000);
     // The claim: only one looker moves it on.
     const won = await rt.db
       .update(agentTriggers)
@@ -99,6 +100,11 @@ export async function fireDue(rt: Runtime, limit = 20): Promise<number> {
         .from(agentJobs)
         .where(and(eq(agentJobs.installationId, i.id), eq(agentJobs.status, "queued"), isNull(agentJobs.startedAt), sql`${agentJobs.trigger}->>'kind' = 'schedule'`));
       if ((waiting?.n ?? 0) > 0) continue;
+      const room = await jobRoom(rt, i.id);
+      if (!room.ok) {
+        await pauseFor(rt, i.id, room.reason);
+        continue;
+      }
       await enqueue(rt, i, { kind: "schedule", at: row.nextAt.toISOString() });
       started += 1;
       continue;
@@ -109,6 +115,11 @@ export async function fireDue(rt: Runtime, limit = 20): Promise<number> {
       .set({ holds: found.error ? row.holds : found.holds, note: found.error })
       .where(and(eq(agentTriggers.installationId, row.installationId), eq(agentTriggers.index, row.index)));
     if (!found.error && found.holds && row.holds !== true) {
+      const room = await jobRoom(rt, i.id);
+      if (!room.ok) {
+        await pauseFor(rt, i.id, room.reason);
+        continue;
+      }
       await enqueue(rt, i, { kind: "check", watch: t.watch, value: found.value });
       started += 1;
     }

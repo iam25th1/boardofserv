@@ -176,6 +176,7 @@ export function AgentCard({ agent: a }: { agent: AgentListingDTO }) {
         <small>@{a.maker}</small>
         <small>{a.renters === 1 ? "1 renting" : `${a.renters} renting`}</small>
         {BigInt(a.jobFee) > 0n && <small>+ {price(a.jobFee, a.decimals)} a job</small>}
+        <small>model calls about {price(a.modelEstimate, a.decimals)} a week</small>
       </div>
       <small className={styles.trust}>{a.quality === null ? "not enough reviewed jobs yet" : null}</small>
     </Link>

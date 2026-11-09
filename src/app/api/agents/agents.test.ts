@@ -30,6 +30,8 @@ let db: PgliteDatabase<typeof schema>;
 let ana: schema.User;
 let ben: schema.User;
 let plans: object[] = [];
+// What SERV's version review finds ("down" for no answer).
+let review: { step: string; severity: string; finding: string }[] | "down" = [];
 const seen: { to: "serv" | "dolphin"; schema?: string; body: { messages: { role: string; content: string }[] } }[] = [];
 
 beforeAll(async () => {
@@ -52,6 +54,10 @@ beforeAll(async () => {
     seen.push({ to: "serv", schema: name, body });
     if (name === "agent_plan") return Response.json({ choices: [{ message: { content: JSON.stringify(plans.shift() ?? RESTOCK_WIRE) } }], usage: { prompt_tokens: 1500, completion_tokens: 1100 } });
     if (name === "code_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "approve", reason: "Does what the step says." }) } }], usage: { prompt_tokens: 500, completion_tokens: 20 } });
+    if (name === "version_review") {
+      if (review === "down") return new Response("{}", { status: 503 });
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ findings: review }) } }], usage: { prompt_tokens: 2200, completion_tokens: 60 } });
+    }
     if (name === "decision") {
       const ids = body.response_format.json_schema.schema.properties.outcome.enum as string[];
       return Response.json({ choices: [{ message: { content: JSON.stringify({ outcome: ids.includes("within") ? "within" : ids[0], reason: "Under the limit." }) } }], usage: { prompt_tokens: 400, completion_tokens: 15 } });
@@ -237,6 +243,28 @@ describe("the builder", () => {
     const after = await builderOf(id);
     expect(after.code.find_low!.status).toBe("approved");
     expect(after.code.compare!.status).toBe("approved");
+  });
+
+  it("publishes nothing the code review blocks or couldn't read, and says what to fix", async () => {
+    const { id } = await built();
+    review = [{ step: "Find low stock", severity: "blocking", finding: "It sends the stock list to an address the purpose doesn't need." }];
+    let res = await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: { id } });
+    expect(res.status).toBe(409);
+    const refused = (await res.json()) as { error: string; review: { status: string; findings: unknown[] }; builder: AgentBuilderDTO };
+    expect(refused.error).toBe("The code review found problems to fix before it can be published.");
+    expect(refused.review).toMatchObject({ status: "blocked", by: "serv", findings: [{ step: "Find low stock", severity: "blocking", finding: "It sends the stock list to an address the purpose doesn't need." }] });
+    expect(refused.builder.review!.status).toBe("blocked");
+    review = "down";
+    res = await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: { id } });
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toBe("The code review couldn't run just now, so it isn't published yet. Try again in a minute.");
+    expect((await builderOf(id)).agent.state).toBe("draft");
+    // A warning alone doesn't stop it.
+    review = [{ step: "Compare suppliers", severity: "warning", finding: "It reads every supplier row even when one would do." }];
+    res = await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: { id } });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { builder: AgentBuilderDTO }).builder.review).toMatchObject({ status: "passed", findings: [{ severity: "warning" }] });
+    review = [];
   });
 
   it("saves the draft, publishes a version that never changes, and starts a new draft after it", async () => {

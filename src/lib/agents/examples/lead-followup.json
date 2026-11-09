@@ -1,6 +1,6 @@
 {
   "note": "Built by scripts/seed-examples.ts: planned by SERV, code written by Dolphin and reviewed by SERV.",
-  "builtAt": "2026-11-09T19:14:15.816Z",
+  "builtAt": "2026-11-09T20:39:45.504Z",
   "interview": {
     "watches": null,
     "when": null,
@@ -13,7 +13,7 @@
     "live": false,
     "name": "Enquiry follow-up",
     "kind": "agent",
-    "wakes": "on a schedule, every hour",
+    "wakes": "every 15 minutes",
     "looks": "the Enquiries sheet (columns name, contact, interest, message) and the Replies sheet; an enquiry is new when its contact isn't in the Replies sheet yet",
     "handles": "take the oldest new enquiry, if there is one, and draft a short friendly reply from the owner's reply template, filling in the person's name and what they asked about; then ask the owner on Telegram, showing the draft, whether to use it",
     "finish": "the oldest new enquiry has a row in the Replies sheet (name, contact, reply, status): status ready to send when the owner said yes, skipped when they said no; with no new enquiry, nothing happens",
@@ -31,9 +31,10 @@
     "triggers": [
       {
         "kind": "schedule",
-        "every": "hour",
+        "every": "minutes",
+        "interval": 15,
         "at": null,
-        "description": "Every hour, check for new enquiries"
+        "description": "Every 15 minutes, check for new enquiries"
       }
     ],
     "settings": [
@@ -311,5 +312,5 @@
     },
     "decisions": {}
   },
-  "planTries": 3
+  "planTries": 4
 }

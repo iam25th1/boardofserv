@@ -25,11 +25,20 @@ export const TOOL_ARGS = {
   "wallet.pay": z.object({ to: z.string().min(1).max(120), amountUsdc: z.number().positive().max(100_000), memo: z.string().max(200).optional() }),
 } satisfies Record<ToolName, z.ZodTypeAny>;
 
+// How much harm a tool's call can do, fixed here for each tool rather than
+// guessed per run: read (looks, changes nothing), write (changes the
+// owner's own data), outbound (says something to a person) and money
+// (spends). A sheet write that records amounts counts as money (see
+// risk.ts). The guard, approvals and the audit log go by it.
+export const RISKS = ["read", "write", "outbound", "money"] as const;
+export type Risk = (typeof RISKS)[number];
+
 export interface ToolInfo {
   summary: string;
   // The declaration Dolphin writes against.
   signature: string;
   sideEffect: boolean;
+  risk: Risk;
 }
 
 export const TOOLS: Record<ToolName, ToolInfo> = {
@@ -37,46 +46,55 @@ export const TOOLS: Record<ToolName, ToolInfo> = {
     summary: "Read every row of a sheet.",
     signature: "tools.sheets.read({ sheet: string }): Promise<{ rows: Array<Record<string, string | number | boolean | null>> }>",
     sideEffect: false,
+    risk: "read",
   },
   "sheets.write": {
     summary: "Add rows to a sheet, or replace all of its rows.",
     signature: 'tools.sheets.write({ sheet: string, rows: Array<Record<string, string | number | boolean | null>>, mode?: "append" | "replace" }): Promise<{ written: number }>',
     sideEffect: true,
+    risk: "write",
   },
   "web.fetch": {
     summary: "Fetch a public web page's readable text (GET, http or https).",
     signature: "tools.web.fetch({ url: string }): Promise<{ status: number, text: string }>",
     sideEffect: false,
+    risk: "read",
   },
   "web.search": {
     summary: "Search the web.",
     signature: "tools.web.search({ query: string }): Promise<{ results: Array<{ title: string, url: string, snippet: string }> }>",
     sideEffect: false,
+    risk: "read",
   },
   "telegram.send": {
     summary: "Send the owner a message.",
     signature: "tools.telegram.send({ text: string }): Promise<{ sent: true }>",
     sideEffect: true,
+    risk: "outbound",
   },
   "telegram.ask": {
     summary: "Ask the owner a question and wait for the answer (null when none comes).",
     signature: "tools.telegram.ask({ question: string, choices?: string[] }): Promise<{ answer: string | null }>",
     sideEffect: true,
+    risk: "outbound",
   },
   "memory.get": {
     summary: "Read a value this agent remembered for this renter.",
     signature: "tools.memory.get({ key: string }): Promise<{ value: unknown }>",
     sideEffect: false,
+    risk: "read",
   },
   "memory.set": {
     summary: "Remember a value for this renter, for the next job.",
     signature: "tools.memory.set({ key: string, value: unknown }): Promise<{ ok: true }>",
     sideEffect: false,
+    risk: "write",
   },
   "wallet.pay": {
     summary: "Pay someone in USDC from the renter's wallet.",
     signature: "tools.wallet.pay({ to: string, amountUsdc: number, memo?: string }): Promise<{ paid: true, txId: string }>",
     sideEffect: true,
+    risk: "money",
   },
 };
 

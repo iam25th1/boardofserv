@@ -5,6 +5,7 @@ import { Button, TextInput } from "@/components/ui";
 import { GoogleConnect } from "@/components/connections/GoogleConnect";
 import { TelegramLink, type LinkCode } from "@/components/connections/TelegramLink";
 import type { SetupShape } from "@/lib/agents/definition";
+import { minIntervalMinutes } from "@/lib/agents/interval";
 import { checkAnswers, DEFAULT_DAILY_SPEND_USD, DEFAULT_MIN_GAP_MINUTES, MAX_DAILY_SPEND_USD, type InstallAnswers } from "@/lib/agents/settingsForm";
 import { isSheetAnswer } from "@/lib/google/sheetLink";
 import { dustIn, ease, prefersReducedMotion } from "@/lib/motion";
@@ -112,9 +113,18 @@ export function SetupFlow({
     settings: Object.fromEntries(d.settings.map((s) => [s.key, s.type === "boolean" ? Boolean(defaults[s.key]) : s.type === "sheet" ? null : asText(defaults[s.key])])),
     rules: Object.fromEntries(d.rules.map((r) => [r.key, r.value])),
     timezone: browserZone(),
-    schedule: schedule?.kind === "schedule" ? { at: schedule.at ?? null, day: schedule.every === "week" ? 1 : null } : null,
+    schedule:
+      schedule?.kind === "schedule"
+        ? {
+            at: schedule.at ?? null,
+            day: schedule.every === "week" ? (schedule.days?.[0] ?? 1) : null,
+            days: schedule.every === "week" ? (schedule.days?.length ? schedule.days : [1]) : null,
+            interval: schedule.every === "minutes" || schedule.every === "hours" ? (schedule.interval ?? null) : null,
+          }
+        : null,
     minGapMinutes: DEFAULT_MIN_GAP_MINUTES,
     dailySpendUsd: DEFAULT_DAILY_SPEND_USD,
+    autoSpendUsdc: 0,
   });
   const [state, setState] = useState<Saved>(() => ({ answers: fresh(), at: steps[0]!, installationId: null }));
   const [restored, setRestored] = useState(false);
@@ -307,27 +317,57 @@ export function SetupFlow({
               <TextInput value={state.answers.timezone} onChange={(e) => set({ timezone: e.target.value })} aria-invalid={Boolean(errors.timezone)} />
               {err("timezone")}
             </label>
-            {schedule?.kind === "schedule" && schedule.every !== "hour" && (
+            {schedule?.kind === "schedule" && (schedule.every === "minutes" || schedule.every === "hours") && (
+              <label className={styles.field}>
+                <span className={styles.label}>Every ({schedule.every === "minutes" ? `minutes, at least ${minIntervalMinutes()}` : "hours"})</span>
+                <TextInput
+                  type="number"
+                  min={schedule.every === "minutes" ? minIntervalMinutes() : 1}
+                  max={schedule.every === "minutes" ? 1440 : 24}
+                  step={1}
+                  value={String(state.answers.schedule?.interval ?? schedule.interval ?? "")}
+                  onChange={(e) => set({ schedule: { ...state.answers.schedule!, interval: e.target.value ? Number(e.target.value) : null } })}
+                  aria-invalid={Boolean(errors.schedule)}
+                />
+              </label>
+            )}
+            {schedule?.kind === "schedule" && (schedule.every === "day" || schedule.every === "week") && (
               <div className={styles.row}>
                 {schedule.every === "week" && (
-                  <label className={styles.field}>
-                    <span className={styles.label}>On</span>
-                    <select className={styles.select} value={state.answers.schedule?.day ?? 1} onChange={(e) => set({ schedule: { at: state.answers.schedule?.at ?? null, day: Number(e.target.value) } })}>
-                      {DAYS.map((name, i) => (
-                        <option key={name} value={i}>
-                          {name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  <fieldset className={styles.days}>
+                    <legend className={styles.label}>On</legend>
+                    {DAYS.map((name, i) => {
+                      const days = state.answers.schedule?.days ?? [1];
+                      return (
+                        <label key={name} className={styles.day}>
+                          <input
+                            type="checkbox"
+                            checked={days.includes(i)}
+                            onChange={(e) => {
+                              const next = e.target.checked ? [...days, i] : days.filter((x) => x !== i);
+                              set({ schedule: { at: state.answers.schedule?.at ?? null, day: next[0] ?? null, days: next, interval: null } });
+                            }}
+                          />
+                          {name.slice(0, 3)}
+                        </label>
+                      );
+                    })}
+                  </fieldset>
                 )}
                 <label className={styles.field}>
                   <span className={styles.label}>At</span>
-                  <TextInput type="time" value={state.answers.schedule?.at ?? ""} onChange={(e) => set({ schedule: { at: e.target.value || null, day: state.answers.schedule?.day ?? null } })} aria-invalid={Boolean(errors.schedule)} />
+                  <TextInput type="time" value={state.answers.schedule?.at ?? ""} onChange={(e) => set({ schedule: { ...state.answers.schedule!, at: e.target.value || null } })} aria-invalid={Boolean(errors.schedule)} />
                 </label>
               </div>
             )}
             {err("schedule")}
+            {d.spends && (
+              <label className={styles.field}>
+                <span className={styles.label}>Spend without asking you, per payment or order (USDC)</span>
+                <TextInput type="number" min={0} max={1000} step={1} value={String(state.answers.autoSpendUsdc ?? 0)} onChange={(e) => set({ autoSpendUsdc: Math.max(0, Number(e.target.value) || 0) })} />
+                <span className={styles.quiet}>Anything over it waits for your yes. 0 means it asks before every spend.</span>
+              </label>
+            )}
             <div className={styles.row}>
               <label className={styles.field}>
                 <span className={styles.label}>Model spend a day, at most (US dollars)</span>

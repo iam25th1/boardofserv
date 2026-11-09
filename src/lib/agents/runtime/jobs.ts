@@ -5,6 +5,10 @@ import type { AgentDefinition, DecisionStepDef } from "../definition";
 import { askServ, readDecision, runSteps, startState, typedRules, type Decided, type EngineResult, type RunEvent, type RunState } from "../runner";
 import { FEE_SHORT, holdJobFee } from "../../market/charges";
 import { pauseForOwner } from "./approvals";
+import { screenText } from "../screen";
+import { budgetGate, meter, type Scope } from "../metering";
+import { pauseOnRepeatedFailure, rateLimits } from "./rates";
+import { holdOn } from "../../safety/freeze";
 import type { Runtime } from "./context";
 import { JobTools } from "./tools";
 import { spendToday } from "./views";
@@ -128,6 +132,15 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
   const definition = row?.version.definition;
   if (!row || !definition) return finish(rt, job, worker, null, { status: "failed", reason: "Its agent version isn't there any more." });
   const { installation, version, owner } = row;
+  // Stopped everywhere by its maker, or frozen: nothing runs.
+  const held = await holdOn(rt, installation);
+  if (held) {
+    await rt.db
+      .update(agentInstallations)
+      .set({ status: "paused", pausedReason: held, updatedAt: rt.now() })
+      .where(and(eq(agentInstallations.id, installation.id), eq(agentInstallations.status, "active")));
+    return finish(rt, job, worker, job.state ?? null, { status: "cancelled", reason: held });
+  }
   // A rented agent's fee for this job, held from its renter before the job
   // first starts (settled when it ends: see market/charges.ts).
   if (!job.state) {
@@ -150,9 +163,11 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
     if (rt.decide) return rt.decide(step, input);
     if (!serv) return { ok: false, note: "SERV isn't set up here.", reason: "SERV isn't set up, so its decisions can't be made.", costUsd: 0, infra: true };
     const call = await askServ(step, input, serv.config, { fetchImpl: rt.fetchImpl, untrusted });
-    await rt.record(owner, call, serv.ownKey);
+    await rt.record(owner, call, serv.ownKey, "agent_decision");
+    await meter(rt, scope, "decision", call, serv.ownKey);
     return readDecision(step, call);
   };
+  const scope: Scope = { installationId: installation.id, jobId: job.id, agentId: installation.agentId, ownerUserId: installation.ownerUserId };
 
   let result: EngineResult;
   try {
@@ -160,13 +175,19 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
       definition,
       code: version.code,
       state,
-      tools: new JobTools(rt, installation, definition, job),
+      tools: new JobTools(rt, installation, definition, job, owner),
       decide,
       onEvent: log.on,
       save,
+      // Before each step: stopped by its owner, or its installation paused
+      // (by its renter, its maker's kill switch or a freeze): the step it
+      // was on finished, and nothing after it runs.
       shouldStop: async () => {
         const [j] = await rt.db.select({ stop: agentJobs.stopAsked }).from(agentJobs).where(eq(agentJobs.id, job.id));
-        return j?.stop ? "Stopped by its owner." : null;
+        if (j?.stop) return "Stopped by its owner.";
+        const [i] = await rt.db.select({ status: agentInstallations.status, why: agentInstallations.pausedReason }).from(agentInstallations).where(eq(agentInstallations.id, installation.id));
+        if (i && i.status !== "active") return i.why ?? "Paused by you: it stopped after the step it was on.";
+        return null;
       },
       // Before each model call: the installation's daily cap, then the
       // site's (this spend counts towards it like any other).
@@ -177,6 +198,30 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
         if ((await spendToday(rt, installation.id)) >= cap) return `It reached its daily spend limit of $${cap >= 0.01 ? cap.toFixed(2) : Number(cap.toFixed(6))} for today.`;
         return serv ? rt.siteRefusal(owner, serv.ownKey) : null;
       },
+      // The week's model budget before each decision: over it, the renter
+      // is asked; a free agent out of its allowance pauses until Monday.
+      budget: async () => {
+        if (rt.decide || !serv) return null;
+        const gate = await budgetGate(rt, installation, serv.ownKey);
+        if (gate.kind === "ok") return null;
+        if (gate.kind === "ask") return { ask: { question: gate.question, reason: gate.reason } };
+        await rt.db
+          .update(agentInstallations)
+          .set({ status: "paused", pausedReason: gate.reason, updatedAt: rt.now() })
+          .where(and(eq(agentInstallations.id, installation.id), eq(agentInstallations.status, "active")));
+        return { stop: gate.reason };
+      },
+      // The prompt guard on what a decision or code step reads from outside.
+      screen: async (step, input, tainted, from) => {
+        const text = JSON.stringify(Object.fromEntries(tainted.map((k) => [k, input[k]])));
+        const r = await screenText(rt, owner, text, `from ${from.join(", ") || "outside"}`, { scope, installation });
+        if (!r.flagged) return null;
+        return {
+          question: `Something "${step.title}" is about to read, from ${from.join(" and ") || "outside"}, looks like an attempt to give the agent instructions${r.excerpt ? `: "${r.excerpt}"` : ""}. Let it go on?`,
+          reason: r.reason || "It reads like instructions to the agent.",
+        };
+      },
+      maxVisits: rateLimits().stepVisits,
       retryInfra: true,
     });
   } catch (err) {
@@ -209,6 +254,7 @@ async function finish(rt: Runtime, job: AgentJob, worker: string, state: RunStat
         .update(agentJobs)
         .set({ status: "failed", reason: `${how.retry} It was tried ${MAX_ATTEMPTS} times.`, attempts, state, claimedBy: null, finishedAt: now, updatedAt: now })
         .where(mine);
+      await pauseOnRepeatedFailure(rt, job.installationId);
       return;
     }
     // The step runs again; calls that failed outside the agent are made again.
@@ -222,10 +268,13 @@ async function finish(rt: Runtime, job: AgentJob, worker: string, state: RunStat
       .where(mine);
     return;
   }
-  await rt.db
+  const ended = await rt.db
     .update(agentJobs)
     .set({ status: how.status, reason: how.reason, state, claimedBy: null, finishedAt: now, updatedAt: now, ...(state ? { costUsd: state.costUsd.toFixed(6) } : {}) })
-    .where(mine);
+    .where(mine)
+    .returning({ id: agentJobs.id });
+  // Failing the same way again and again pauses the installation.
+  if (ended.length && how.status === "failed") await pauseOnRepeatedFailure(rt, job.installationId);
 }
 
 // The job's step log, written as the run's events come: a row per step

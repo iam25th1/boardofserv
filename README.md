@@ -879,6 +879,127 @@ files, with no model call; running it again changes nothing.
 In development, `/demo?market=board|agent|rentals|rental|maker|requests|request`
 shows each market screen with sample data.
 
+## Safeguards
+
+### Risk levels and what asks first
+
+Every tool has a risk level: looks things up (`sheets.read`, `web.fetch`,
+`web.search`, `memory.get`), changes the renter's own data (`sheets.write`,
+`memory.set`), sends a message (`telegram.send`, `telegram.ask`) or spends
+money (`wallet.pay`) (`src/lib/agents/toolbox.ts`, `risk.ts`). The platform's
+floor: a payment asks first above the renter's auto limit (0 USDC unless they
+raise it, at most 1000), and so does anything sent or paid that carries a
+link, address or contact detail the renter never gave the agent. Renters can
+make any tool that changes or sends something ask them every time (the
+installation page's "What it may do on its own", `PATCH
+/api/installations/:id`); nobody can lower the floor. Each approval says why
+it asks.
+
+### SERV's guard on every action
+
+Before anything that writes, sends or spends runs, SERV reads it with the
+agent's purpose, the step, the renter's settings and what the step worked
+from, and answers allow, ask or block with a reason
+(`src/lib/agents/guard.ts`, structured output `action_guard`). Ask waits for
+the renter with SERV's reason; block stops the step and says why. When SERV
+can't be reached, can't be paid for today or the week's model budget is
+spent, the answer is ask, never allow. The same call is checked once a run.
+
+### Untrusted input
+
+What an agent reads from outside (web pages, search results, sheet cells,
+Telegram messages, memory, request posts) reaches a model only inside a
+labelled data fence it can't close, with the rule that data is never obeyed
+(`untrusted.ts`). Before a decision or code step reads any of it, a quick
+local look and then SERV (with its prompt guard, `input_screen`) screen it;
+anything that reads like instructions to the agent waits for the renter,
+with the excerpt shown, and a no stops the job before it acts
+(`screen.ts`). Verdicts are kept by hash, so the same text is screened once.
+
+### Code review before publish
+
+Every version is reviewed before it is published or offered to renters as
+an update: plain checks on each code step (network outside the tools,
+modules, the host's globals, code built at run time, constructors and
+prototypes, encoded text, long blobs, endless loops; secrets, other accounts
+and fixed web addresses as warnings), then SERV reads all of the code
+against what the agent says it does (`vetting.ts`, `version_review`). A
+blocking finding stops the publish and the maker sees the findings in plain
+words; findings never quote code (anything copied from it is taken out).
+When SERV can't review, publishing waits. The sandbox has no network, files,
+modules or environment, stops after 2 seconds and reaches only the tools a
+step was given.
+
+### Model cost and budgets
+
+Every model call a run makes (decisions, the guard, the screen) is metered
+per installation, job and day, in tokens and USDC at the `*_PRICE_*_PER_M`
+rates (`metering.ts`, `agent_model_usage`). Each installation has a weekly
+model budget: the maker sets a default on the listing, the platform a
+ceiling (`AGENT_MODEL_BUDGET_CEILING_USDC`, 5), the renter can change it
+within the ceiling. A run that would go over it asks first. Free agents run
+on a weekly allowance the platform pays for
+(`AGENT_FREE_MODEL_ALLOWANCE_USDC`, 0.25) and pause with a plain message when
+it is used up, until Monday or sooner on the renter's own SERV key. A maker
+can pass model cost on to renters: each finished job's cost is charged on top
+of the fee. The board shows a weekly estimate.
+
+### Schedules
+
+Schedules run every N minutes, every N hours, every day at a time, or every
+week on some days at a time, in the renter's time zone, never more often than
+the platform's minimum (`AGENT_MIN_INTERVAL_MINUTES`, 15) whatever the plan
+or the renter says (`schedule.ts`, `interval.ts`). The enquiry follow-up
+example now wakes every 15 minutes.
+
+### Limits per installation
+
+Jobs an hour (`AGENT_JOBS_PER_HOUR`, 12), messages to its renter an hour
+(`AGENT_OUTBOUND_PER_HOUR`, 20), actions in one job
+(`AGENT_ACTIONS_PER_JOB`, 40), visits to the same step in one job
+(`AGENT_STEP_VISITS`, 12), and jobs in a row failing the same way
+(`AGENT_SAME_FAILURES`, 3). Past one, the installation pauses with a plain
+message saying which (`runtime/rates.ts`).
+
+### Kill switch and freezes
+
+A maker can stop their agent everywhere at once from its dashboard
+(`POST /api/agents/:id/kill`): every installation pauses with a message to
+its renter, renewals and new rentals wait, and starting it again adds the
+stopped time back to every paid week. An admin can freeze an agent, a
+version, a maker or a renter with a reason (`POST /api/admin/freezes`, lift
+with `POST /api/admin/freezes/:id`): a frozen thing can't run, be rented,
+publish or offer. Whatever pauses an installation, the step running now
+finishes and nothing after it runs (`src/lib/safety/freeze.ts`).
+
+### Reports and moderation
+
+SERV screens new listings, request posts and offers for scams, harmful jobs
+and other people's personal data before they go public (`content_screen`);
+anything it holds, or can't screen, waits in the admin queue and is seen only
+by whoever posted it. A held listing can't be rented and a held offer can't be
+accepted. Anyone signed in can report an agent, its maker, a request or an
+offer with a reason and a note (`POST /api/reports`, once per thing, ten a
+day). Admins work the queue on `/app/admin/safety`: approve, hide or freeze,
+each with a reason (`POST /api/admin/moderate`, `src/lib/safety/moderation.ts`).
+
+### Audit log
+
+Every guarded action gets an append-only line: what ran (or was asked,
+declined, blocked, stopped by a limit, or failed), SERV's check and its
+reason, who approved it, the check's model cost and any USDC spent
+(`agent_audit`, `src/lib/agents/audit.ts`, the only file that touches the
+table; a database trigger refuses updates and deletes). Renters see all of
+theirs on the installation page (`GET /api/installations/:id/audit`); makers
+see every installation of their agent on its dashboard, renters by number
+and their data hidden (`GET /api/agents/:id/audit`); admins see everything
+(`GET /api/admin/audit`).
+
+### Seeing it without a sign-in
+
+In development, `/demo?safety=approval|review|budget|kill|queue|audit`
+shows each safeguard's screen with sample data.
+
 ## Payments
 
 Users top up a balance in USDC or $SERV, pay for helper uses from it, and

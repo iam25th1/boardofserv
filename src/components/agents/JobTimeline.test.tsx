@@ -34,6 +34,7 @@ const approval: ApprovalDTO = {
   agentName: "Fabric restock",
   stepTitle: "Ask the owner",
   kind: "ask",
+  reason: null,
   question: "Order 36 metres of linen from Weftworks?",
   options: [
     { label: "Yes", effect: 'It goes on to "Owner said yes?" with "Yes" as your answer.' },

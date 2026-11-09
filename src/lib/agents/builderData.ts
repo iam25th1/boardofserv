@@ -21,5 +21,6 @@ export async function builderOf(agent: Agent, version: AgentVersion): Promise<Ag
     versions: versions.map((v) => ({ number: v.number, state: v.state, createdAt: v.createdAt.toISOString(), publishedAt: v.publishedAt?.toISOString() ?? null })),
     runnable: published?.definition ? { version: published.number, definition: published.definition, defaults: published.bench?.settings ?? {} } : null,
     listing: await makerListing(serverRuntime(), agent.id),
+    review: version.review ? { status: version.review.status, findings: version.review.findings, by: version.review.by, reviewedAt: version.review.reviewedAt } : null,
   };
 }

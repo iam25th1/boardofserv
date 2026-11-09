@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { minIntervalMinutes } from "./interval";
 
 // The agent format: one versioned definition of an agent a maker builds and
 // renters run. It is plain data, checked here with zod, stored in
@@ -66,7 +67,18 @@ const text = (max: number) => z.string().trim().min(1).max(max);
 export const Job = z.object({ does: text(400), done: text(400) });
 
 export const Trigger = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("schedule"), every: z.enum(["hour", "day", "week"]), at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(), description: text(200) }),
+  // every: minutes or hours, with interval (every 15 minutes, every 2
+  // hours; "hour" is every 1 hour, from before intervals); day, at a time;
+  // week, on days (0 is Sunday) at a time. Within the platform's minimum
+  // interval (schedule.ts), whatever the plan says.
+  z.object({
+    kind: z.literal("schedule"),
+    every: z.enum(["minutes", "hours", "hour", "day", "week"]),
+    interval: z.number().int().min(1).max(1440).nullable().optional(),
+    at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(),
+    days: z.array(z.number().int().min(0).max(6)).max(7).nullable().optional(),
+    description: text(200),
+  }),
   // step: the code step that checks, outside the run's own steps. It reads
   // the watched value and returns { holds } (and optionally { value }); the
   // run starts when holds turns true, not on every check while it stays true.
@@ -198,10 +210,10 @@ export function connectionsNeeded(d: AgentDefinition): { telegram: boolean; goog
 // questions it asks, its rules, its schedule and the connections it needs.
 // A renter's setup gets this, never the definition (its steps hold the
 // code steps' descriptions and the decisions' prompts).
-export type SetupShape = Pick<AgentDefinition, "name" | "settings" | "rules" | "triggers"> & { needs: { telegram: boolean; google: boolean } };
+export type SetupShape = Pick<AgentDefinition, "name" | "settings" | "rules" | "triggers"> & { needs: { telegram: boolean; google: boolean }; spends?: boolean };
 
 export function setupShapeOf(d: AgentDefinition): SetupShape {
-  return { name: d.name, settings: d.settings, rules: d.rules, triggers: d.triggers.filter((t) => t.kind === "schedule"), needs: connectionsNeeded(d) };
+  return { name: d.name, settings: d.settings, rules: d.rules, triggers: d.triggers.filter((t) => t.kind === "schedule"), needs: connectionsNeeded(d), spends: d.actions.some(spends) };
 }
 
 // Why moving an installation from one version of an agent to another
@@ -318,6 +330,14 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
     }
   });
 
+  // Schedules and checks keep to the platform's minimum interval.
+  const least = minIntervalMinutes();
+  d.triggers.forEach((t, i) => {
+    if (t.kind === "schedule" && t.every === "minutes" && (t.interval ?? 0) < least) say(`a schedule runs at most every ${least} minutes`, ["triggers", i, "interval"]);
+    if (t.kind === "schedule" && t.every === "hours" && !t.interval) say("an hourly schedule says every how many hours", ["triggers", i, "interval"]);
+    if (t.kind === "schedule" && t.every === "week" && t.days && !t.days.length) say("a weekly schedule names at least one day", ["triggers", i, "days"]);
+    if (t.kind === "check" && t.everyMinutes < least) say(`a value check runs at most every ${least} minutes`, ["triggers", i, "everyMinutes"]);
+  });
   // A check trigger's step reads and says whether the condition holds; it
   // isn't one of the run's steps.
   const checks = new Set<string>();

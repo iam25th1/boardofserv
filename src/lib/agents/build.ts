@@ -51,7 +51,7 @@ export async function codeFallbacks(now: Date = new Date()): Promise<{ last30Day
   return { last30Days: row?.recent ?? 0, total: row?.total ?? 0 };
 }
 
-export type AgentCallKind = "agent_plan" | "agent_code" | "agent_review" | "agent_decision";
+export type AgentCallKind = "agent_plan" | "agent_code" | "agent_review" | "agent_decision" | "agent_guard" | "agent_screen" | "agent_vetting";
 
 export interface CallRecord {
   provider: string | null;

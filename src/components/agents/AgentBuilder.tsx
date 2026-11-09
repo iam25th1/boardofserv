@@ -8,6 +8,7 @@ import type { BenchData, RunEvent } from "@/lib/agents/types";
 import { TOOLS } from "@/lib/agents/toolbox";
 import type { AgentBuilderDTO, AgentSummaryDTO } from "@/lib/types";
 import { ListingPanel, type ListingBody } from "@/components/market/ListingPanel";
+import { ReviewPanel } from "./ReviewPanel";
 import { SetupFlow, type SetupApi } from "./SetupFlow";
 import { StepDiagram, type NodeState } from "./StepDiagram";
 import styles from "./AgentBuilder.module.css";
@@ -184,6 +185,8 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
       );
     } catch (err) {
       setHeadSaid(err instanceof Error ? err.message : "It could not be published. Try again.");
+      // A refused publish keeps the review's findings on the draft: show them.
+      api.load().then(setData, () => {});
     } finally {
       setBusy(null);
     }
@@ -254,6 +257,7 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
       {api.list && data.runnable && (
         <ListingPanel agentId={data.agent.id} version={data.runnable.version} listing={data.listing} save={async (body) => setData(await api.list!(body))} />
       )}
+      {data.review && <ReviewPanel review={data.review} fixHint={Boolean(api.fix)} />}
       {installing && api.setup && data.runnable && (
         <section className={styles.section} aria-label="Run it for real">
           <h2>Run version {data.runnable.version} for real</h2>

@@ -34,7 +34,7 @@ describe("the settings form", () => {
       settings: { stock_sheet: "Stock", page: "https://suppliers.example/prices", fabrics: ["Linen", "Felt"], size: "Large", weekends: true, minimum: 12 },
       rules: { approval_over_usdc: "250", verbose: "true" },
       timezone: "Europe/Paris",
-      schedule: { at: "07:30", day: 5 },
+      schedule: { at: "07:30", day: 5, days: null, interval: null },
       minGapMinutes: 5,
       dailySpendUsd: 0.5,
     });

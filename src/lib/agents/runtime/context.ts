@@ -8,6 +8,7 @@ import { recordAgentCall, servOnly } from "../build";
 import type { DecisionStepDef } from "../definition";
 import type { Decided } from "../runner";
 import type { WebPolicy } from "./webFetch";
+import type { GuardInput, GuardVerdict } from "../guard";
 
 export const DEFAULT_FETCHES_PER_DAY = 100;
 
@@ -69,10 +70,13 @@ export interface Runtime {
   fetchImpl?: typeof fetch;
   // Why the site may not spend on this owner now (the day's site limit).
   siteRefusal: (owner: User, ownKey: boolean) => Promise<string | null>;
-  // One decision's model call, counted like any other.
-  record: (owner: User, call: JsonResult, ownKey: boolean) => Promise<void>;
+  // One model call in a run (a decision, the guard's check), counted like
+  // any other.
+  record: (owner: User, call: JsonResult, ownKey: boolean, kind?: "agent_decision" | "agent_guard" | "agent_screen" | "agent_vetting") => Promise<void>;
   // In place of SERV (the development demo only).
   decide?: (step: DecisionStepDef, input: Record<string, unknown>) => Promise<Decided>;
+  // In place of SERV's action guard (the development demo only).
+  guard?: (input: GuardInput) => Promise<{ verdict: GuardVerdict; reason: string }>;
   // web.fetch's rules: never any exceptions on the server; tests and the
   // development demo let through a page they serve themselves.
   web: WebPolicy;
@@ -92,7 +96,7 @@ export function serverRuntime(): Runtime {
       return serv.providers.length ? { config: serv, ownKey: Boolean(config.ownKey) } : null;
     },
     siteRefusal: async (owner, ownKey) => (await refusal(owner.id, { ownKey }))?.error ?? null,
-    record: (owner, call, ownKey) => recordAgentCall({ userId: owner.id, conversationId: null, ownKey }, "agent_decision", call),
+    record: (owner, call, ownKey, kind = "agent_decision") => recordAgentCall({ userId: owner.id, conversationId: null, ownKey }, kind, call),
     web: {},
     fetchesPerDay: fetchesPerDay(),
     services: servicesFrom(),
