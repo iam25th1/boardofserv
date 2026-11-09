@@ -3,7 +3,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent } from "./agents/types";
 import type { InstallAnswers } from "./agents/settingsForm";
-import type { AccountDTO, AdminDTO, AgentMessageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, ConnectionDTO, AgentMessageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
 
 // When the server sends no sentence of its own: never a status code.
 const SOMETHING_WRONG = "Something went wrong. Try again in a few minutes.";
@@ -32,6 +32,9 @@ export function useApi() {
       return res.json() as Promise<T>;
     };
     return {
+      // The owner's connections, and which services can be connected here.
+      listConnections: () => json<{ connections: ConnectionDTO[]; available: { telegram: boolean; google: boolean } }>("/api/connections"),
+      disconnect: (provider: ConnectionDTO["provider"]) => json<{ revoked: boolean | null; paused: number }>(`/api/connections/${provider}`, { method: "DELETE" }),
       listConversations: () => json<{ conversations: ConversationDTO[] }>("/api/conversations").then((d) => d.conversations),
       createConversation: () => json<{ conversation: ConversationDTO }>("/api/conversations", { method: "POST" }).then((d) => d.conversation),
       renameConversation: (id: string, title: string) =>

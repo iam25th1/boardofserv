@@ -183,6 +183,13 @@
       "when": 1794231101281,
       "tag": "0025_agent_jobs_one_running",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794239842823,
+      "tag": "0026_connections",
+      "breakpoints": true
     }
   ]
 }

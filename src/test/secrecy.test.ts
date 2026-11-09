@@ -63,6 +63,9 @@ import { serverRuntime } from "@/lib/agents/runtime/context";
 import { install } from "@/lib/agents/runtime/installations";
 import { claimJob, enqueue, runJob } from "@/lib/agents/runtime/jobs";
 import * as demoLive from "@/app/api/demo/agent/live/route";
+import * as connectionsRoute from "@/app/api/connections/route";
+import * as connectionRoute from "@/app/api/connections/[provider]/route";
+import { keep } from "@/lib/connections/vault";
 
 // A published helper's system prompt and canary never leave the server. This
 // drives every API route (and fails if a route is added without being driven
@@ -134,7 +137,15 @@ const ROUTES: Record<string, object> = {
   "installations/[id]/control": installationControl,
   "demo/agent": demoAgent,
   "demo/agent/live": demoLive,
+  "connections": connectionsRoute,
+  "connections/[provider]": connectionRoute,
 };
+
+// What the connection vault holds for Maya: never in any response or log
+// line, whoever asks.
+const VAULT_CHAT = 918273645;
+const VAULT_REFRESH = "bosVaultRefreshMarker5";
+const VAULT_ACCESS = "bosVaultAccessMarker6";
 
 // What one owner gave their copy of an agent: never shown to its maker.
 const SAM_PRIVATE = "SamPrivateStockSheet";
@@ -266,6 +277,8 @@ beforeAll(async () => {
   vi.stubEnv("HELPER_DAILY_USES", "6");
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body)) as { stream: boolean; tools?: unknown; response_format?: { json_schema?: { name?: string; schema?: { properties?: { outcome?: { enum?: string[] } } } } } };
+    // Google, revoking a token on disconnect.
+    if (url.startsWith("https://oauth2.googleapis.com/revoke")) return new Response("{}", { status: 200 });
     // An agent's build: Dolphin's code and SERV's plan carry markers.
     if (url.includes("dphn.ai")) {
       const ask = JSON.stringify(body);
@@ -625,6 +638,11 @@ describe("a helper's instructions stay on the server", () => {
         await (await hit("agent: install", agentInstall.POST(req(`/api/agents/${id}/installations`, "POST", { settings: restockBench().settings, rules: {}, timezone: "UTC" }), p))).clone().text(),
       );
       const ip = { params: { id: installed.installation.id as string } };
+      // Maya links Telegram and Google: the vault holds them.
+      vi.stubEnv("OPENSERV_KEY_ENC_KEY", randomBytes(32).toString("base64"));
+      await keep(serverRuntime(), maya.id, "telegram", "@maya", { chatId: VAULT_CHAT, userId: VAULT_CHAT });
+      await keep(serverRuntime(), maya.id, "google", "maya@sheets.test", { refreshToken: VAULT_REFRESH, accessToken: VAULT_ACCESS, expiresAt: Date.now() + 3_600_000, scope: "spreadsheets" });
+      await hit("connections: list", connectionsRoute.GET(req("/api/connections")));
       await hit("agent: installations", installationsRoute.GET(req("/api/installations")));
       await hit("agent: installation", installationRoute.GET(req(`/api/installations/${ip.params.id}`), ip));
       await hit("agent: message box", installationMessages.GET(req(`/api/installations/${ip.params.id}/messages`), ip));
@@ -690,7 +708,17 @@ describe("a helper's instructions stay on the server", () => {
         await hit(`agent: ${tag} installation jobs`, installationJobs.GET(req(`/api/installations/${ip.params.id}/jobs`), ip));
         await hit(`agent: ${tag} maker's jobs`, agentJobs.GET(req(`/api/agents/${id}/jobs`), p));
         await hit(`agent: ${tag} stop`, installationControl.POST(req(`/api/installations/${ip.params.id}/control`, "POST", { action: "stop" }), ip));
+        await hit(`connections: ${tag} list`, connectionsRoute.GET(req("/api/connections")));
+        await hit(`connections: ${tag} disconnect`, connectionRoute.DELETE(req("/api/connections/google", "DELETE"), { params: { provider: "google" } }));
       }
+      // Maya disconnects both: what used them pauses, and the vault forgets them.
+      state.user = maya;
+      await hit("connections: disconnect google", connectionRoute.DELETE(req("/api/connections/google", "DELETE"), { params: { provider: "google" } }));
+      await hit("connections: disconnect telegram", connectionRoute.DELETE(req("/api/connections/telegram", "DELETE"), { params: { provider: "telegram" } }));
+      await hit("connections: disconnect what isn't there", connectionRoute.DELETE(req("/api/connections/telegram", "DELETE"), { params: { provider: "telegram" } }));
+      await hit("connections: no such service", connectionRoute.DELETE(req("/api/connections/fax", "DELETE"), { params: { provider: "fax" } }));
+      await hit("connections: after", connectionsRoute.GET(req("/api/connections")));
+      expect(await db.select().from(schema.connections).where(eq(schema.connections.ownerUserId, maya.id))).toEqual([]);
     } finally {
       vi.stubEnv("DOLPHIN_API_KEY", "");
     }
@@ -712,6 +740,15 @@ describe("a helper's instructions stay on the server", () => {
     for (const line of logged) {
       expect(line.includes(CODE_MARKER) || line.includes(PROMPT_MARKER), line).toBe(false);
     }
+    // The vault's secrets: in no response and no log line, ever. Maya sees
+    // her connections by their labels alone.
+    for (const { label, body } of [...bodies, ...logged.map((body) => ({ label: "log", body }))]) {
+      for (const secret of [String(VAULT_CHAT), VAULT_REFRESH, VAULT_ACCESS]) expect(body.includes(secret), `${label} carries a connection secret`).toBe(false);
+    }
+    expect(bodies.find((b) => b.label === "connections: list")!.body).toContain("@maya");
+    expect(bodies.find((b) => b.label === "connections: list")!.body).toContain("maya@sheets.test");
+    expect(bodies.find((b) => b.label === "connections: sam list")!.body).not.toContain("@maya");
+    expect(bodies.find((b) => b.label === "connections: signed out list")!.body).toBe('{"error":"Not signed in"}');
     expect(bodies.find((b) => b.label === "agent: sam builder")!.body).toBe('{"error":"Not found"}');
     expect(bodies.find((b) => b.label === "agent: sam installation")!.body).toBe('{"error":"Not found"}');
     // Job logs and questions: the owner sees their own data, the maker of

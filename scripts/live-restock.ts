@@ -58,6 +58,7 @@ async function main() {
     record: async () => {},
     web: { allowOrigins: [origin] },
     fetchesPerDay: 100,
+    services: { fetch: (...args) => fetch(...args), telegramToken: null, google: null, braveKey: null },
     log: (line) => console.log(line),
   };
   const [owner] = await db.insert(schema.users).values({ privyUserId: "did:live:shop", handle: "fabric_shop", access: "approved" }).returning();

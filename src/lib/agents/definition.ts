@@ -166,6 +166,17 @@ export type DecisionStepDef = z.infer<typeof DecisionStep>;
 export type ActionStepDef = z.infer<typeof ActionStep>;
 export type StepKind = AgentStep["kind"];
 
+// The connections an agent needs its owner to have: Telegram for an agent
+// that messages or asks its owner or takes their messages, Google for one
+// that reads or writes sheets.
+export function connectionsNeeded(d: AgentDefinition): { telegram: boolean; google: boolean } {
+  const tools = new Set<ToolName>([...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))]);
+  return {
+    telegram: tools.has("telegram.send") || tools.has("telegram.ask") || d.triggers.some((t) => t.kind === "message"),
+    google: tools.has("sheets.read") || tools.has("sheets.write") || d.settings.some((s) => s.type === "sheet"),
+  };
+}
+
 // Where a step can go next: one step, or one per outcome, and for an action
 // that waits for the owner, where it goes without an answer.
 export function nextOf(step: AgentStep): (string | null)[] {

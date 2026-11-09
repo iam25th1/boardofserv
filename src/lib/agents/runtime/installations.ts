@@ -2,7 +2,8 @@ import "server-only";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { agentApprovals, agentInstallations, agentJobs, agents, agentTriggers, agentVersions, type Agent, type AgentInstallation, type AgentVersion } from "../../db/schema";
 import type { InstallationDTO } from "../../types";
-import type { AgentDefinition } from "../definition";
+import { hasConnection, SERVICE_NAME } from "../../connections/vault";
+import { connectionsNeeded, type AgentDefinition } from "../definition";
 import { describeTriggers } from "../schedule";
 import { checkAnswers, type InstallAnswers } from "../settingsForm";
 import { emptyBench } from "../types";
@@ -117,6 +118,9 @@ export async function installationDTO(rt: Runtime, l: Loaded): Promise<Installat
     name: d.name,
     version: l.version.number,
     status: i.status,
+    pausedReason: i.status === "paused" ? i.pausedReason : null,
+    needs: connectionsNeeded(d),
+    missing: await missingConnections(rt, i.ownerUserId, d),
     timezone: i.timezone,
     settings: d.settings.map((s) => ({ key: s.key, label: s.label, value: i.settings[s.key] ?? null })),
     rules: d.rules.map((r) => ({ key: r.key, label: r.label, type: r.type, value: i.rules[r.key] ?? r.value })),
@@ -132,6 +136,14 @@ export async function installationDTO(rt: Runtime, l: Loaded): Promise<Installat
     recentJobs: await jobsOfInstallation(rt, i.id, 5),
     approvals: await approvalsOf(rt, i.ownerUserId, { installationId: i.id, pendingOnly: true }),
   };
+}
+
+// The connections this agent needs that its owner hasn't made.
+export async function missingConnections(rt: Runtime, ownerUserId: string, d: AgentDefinition): Promise<("telegram" | "google")[]> {
+  const needs = connectionsNeeded(d);
+  const missing: ("telegram" | "google")[] = [];
+  for (const p of ["telegram", "google"] as const) if (needs[p] && !(await hasConnection(rt, ownerUserId, p))) missing.push(p);
+  return missing;
 }
 
 export type Control = "pause" | "resume" | "stop" | "run";
@@ -158,12 +170,14 @@ export async function control(rt: Runtime, l: Loaded, action: Control): Promise<
   if (i.status === "stopped") throw new ControlRefused("It's stopped for good. Start it again from its agent's page.");
   if (action === "pause") {
     if (i.status !== "active") throw new ControlRefused("It's paused already.");
-    await rt.db.update(agentInstallations).set({ status: "paused", updatedAt: now }).where(here);
+    await rt.db.update(agentInstallations).set({ status: "paused", pausedReason: null, updatedAt: now }).where(here);
     return;
   }
   if (action === "resume") {
     if (i.status !== "paused") throw new ControlRefused("It isn't paused.");
-    const [row] = await rt.db.update(agentInstallations).set({ status: "active", updatedAt: now }).where(here).returning();
+    const missing = await missingConnections(rt, i.ownerUserId, d);
+    if (missing.length) throw new ControlRefused(`Connect ${missing.map((p) => SERVICE_NAME[p]).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
+    const [row] = await rt.db.update(agentInstallations).set({ status: "active", pausedReason: null, updatedAt: now }).where(here).returning();
     await setUpTriggers(rt, row!, d);
     return;
   }

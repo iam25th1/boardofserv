@@ -1,5 +1,5 @@
 import "server-only";
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 
 // AES-256-GCM encryption for each user's OpenServ API key at rest. The key
 // comes from OPENSERV_KEY_ENC_KEY (32 bytes, base64) and lives only in the
@@ -34,4 +34,12 @@ export function decryptSecret(stored: string): string {
   const decipher = createDecipheriv(ALGO, key(), Buffer.from(ivB64, "base64url"));
   decipher.setAuthTag(Buffer.from(tagB64, "base64url"));
   return Buffer.concat([decipher.update(Buffer.from(dataB64, "base64url")), decipher.final()]).toString("utf8");
+}
+// A keyed hash for finding a row by a secret value without storing the
+// value readably (a linked Telegram chat's id): HMAC-SHA256 under a key
+// derived from the encryption key, so it can't be worked back from the
+// database alone.
+export function lookupHash(purpose: string, value: string): string {
+  const sub = createHmac("sha256", key()).update("lookup").digest();
+  return createHmac("sha256", sub).update(`${purpose}:${value}`).digest("base64url");
 }

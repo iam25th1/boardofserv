@@ -76,6 +76,7 @@ async function start(origin: string): Promise<Demo> {
     decide: standIn,
     web: { allowOrigins: [origin] },
     fetchesPerDay: 10_000,
+    services: { fetch: (...args) => fetch(...args), telegramToken: null, google: null, braveKey: null },
     log: (line) => console.info(`demo: ${line}`),
   };
   const [owner] = await db.insert(schema.users).values({ privyUserId: "did:demo:shop", handle: "fabric_shop", access: "approved" }).returning();

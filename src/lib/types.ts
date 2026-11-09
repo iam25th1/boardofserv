@@ -131,6 +131,11 @@ export interface InstallationDTO {
   name: string;
   version: number;
   status: "active" | "paused" | "stopped";
+  // Why the runtime paused it (a connection it needs went away), or null.
+  pausedReason: string | null;
+  // The connections it needs, and which of those the owner hasn't made.
+  needs: { telegram: boolean; google: boolean };
+  missing: ("telegram" | "google")[];
   timezone: string;
   settings: { key: string; label: string; value: unknown }[];
   rules: { key: string; label: string; type: string; value: string }[];
@@ -150,6 +155,17 @@ export interface InstallationDTO {
   recentJobs: JobSummaryDTO[];
   // The questions its jobs wait on.
   approvals: ApprovalDTO[];
+}
+
+// One of the owner's connections, as only they see it: the service, the
+// account or chat it is linked to, when, and what uses it. Never a secret.
+export interface ConnectionDTO {
+  provider: "telegram" | "google";
+  name: string;
+  label: string;
+  connectedAt: string;
+  lastUsedAt: string | null;
+  usedBy: { id: string; name: string; status: string }[];
 }
 
 // A job, in a list: how it started and ended, its time and cost. reason

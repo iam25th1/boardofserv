@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { PgliteDatabase } from "drizzle-orm/pglite";
 import * as schema from "@/lib/db/schema";
 import { modelConfig } from "@/lib/model";
@@ -8,7 +9,12 @@ import type { Runtime } from "@/lib/agents/runtime/context";
 import { install } from "@/lib/agents/runtime/installations";
 import type { InstallAnswers } from "@/lib/agents/settingsForm";
 import type { BenchData, StepCode } from "@/lib/agents/types";
+import { keep } from "@/lib/connections/vault";
 import { COMPARE, FIND_LOW, RESTOCK_WIRE, restockBench } from "./agentFixtures";
+import { fakeNet, TEST_BOT_TOKEN, type FakeNet } from "./fakeNet";
+
+// Connection secrets are encrypted like every other stored secret.
+process.env.OPENSERV_KEY_ENC_KEY ||= randomBytes(32).toString("base64");
 
 // The runtime on an in-memory Postgres: a clock the test moves, SERV
 // answered by the test (each decision's outcome from `decisions`, by step),
@@ -21,6 +27,8 @@ export interface TestRuntime extends Runtime {
   asked: string[];
   // The outcome SERV picks from the ones offered ("" for no answer at all).
   serve: (outcomes: string[], content: string) => string;
+  // Telegram, Google and Brave, answered by the test.
+  net: FakeNet;
 }
 
 export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date("2026-11-09T06:00:00Z")): TestRuntime {
@@ -30,8 +38,16 @@ export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date(
       this.at = new Date(this.at.getTime() + ms);
     },
   };
+  const net = fakeNet();
   const rt: TestRuntime = {
     db: db as unknown as Runtime["db"],
+    net,
+    services: {
+      fetch: net.fetch,
+      telegramToken: TEST_BOT_TOKEN,
+      google: { clientId: "test-client", clientSecret: "test-google-secret", redirectUri: "https://boardofserv.test/api/connections/google/callback" },
+      braveKey: "test-brave-key",
+    },
     now: () => clock.at,
     clock,
     logged: [],
@@ -77,6 +93,13 @@ export async function publishedAgent(
     .values({ agentId: agent!.id, number: 1, state: "published", publishedAt: new Date(), definition, code: o.code ?? RESTOCK_CODE, bench: o.bench ?? restockBench() })
     .returning();
   return { agent: agent!, version: version! };
+}
+
+// The owner's Telegram chat and Google account, as if they had linked them.
+export const TEST_CHAT_ID = 4242;
+export async function linkConnections(rt: Runtime, owner: schema.User, chatId = TEST_CHAT_ID): Promise<void> {
+  await keep(rt, owner.id, "telegram", "@owner", { chatId, userId: chatId });
+  await keep(rt, owner.id, "google", "owner@example.com", { refreshToken: `refresh-${owner.id}`, accessToken: `access-${owner.id}`, expiresAt: rt.now().getTime() + 3_600_000, scope: "spreadsheets" });
 }
 
 export async function installed(

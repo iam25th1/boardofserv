@@ -540,6 +540,9 @@ export const agentInstallations = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     status: text("status", { enum: ["active", "paused", "stopped"] }).notNull().default("active"),
+    // Why it was paused, when the runtime paused it (a connection it needs
+    // went away), in plain words for its owner; null when they paused it.
+    pausedReason: text("paused_reason"),
     settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
     rules: jsonb("rules").$type<Record<string, string>>().notNull().default({}),
     memory: jsonb("memory").$type<Record<string, unknown>>().notNull().default({}),
@@ -741,6 +744,37 @@ export const agentFetchDays = pgTable(
   (t) => ({ pk: primaryKey({ columns: [t.installationId, t.day] }) }),
 );
 
+// The connection vault: each owner's links to outside services, one per
+// service. The secret (a Telegram chat, Google tokens) is AES-256-GCM
+// ciphertext only (crypto.ts), decrypted on the server for the one call
+// that needs it: never readable by agent code, makers, logs or responses.
+// label is what the owner sees ("@name", an email address). lookup is a
+// keyed hash for finding a Telegram chat's owner without decrypting every
+// row; a chat links to one owner at a time.
+export const CONNECTION_PROVIDERS = ["telegram", "google"] as const;
+export type ConnectionProvider = (typeof CONNECTION_PROVIDERS)[number];
+export const connections = pgTable(
+  "connections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: CONNECTION_PROVIDERS }).notNull(),
+    label: text("label").notNull(),
+    secretEncrypted: text("secret_encrypted").notNull(),
+    lookup: text("lookup"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  },
+  (t) => ({
+    onePerService: uniqueIndex("connections_owner_provider_idx").on(t.ownerUserId, t.provider),
+    byLookup: uniqueIndex("connections_lookup_idx").on(t.provider, t.lookup),
+    knownProvider: check("connections_provider", sql`${t.provider} in ('telegram', 'google')`),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
@@ -754,3 +788,4 @@ export type AgentJobStep = typeof agentJobSteps.$inferSelect;
 export type AgentTrigger = typeof agentTriggers.$inferSelect;
 export type AgentMessage = typeof agentMessages.$inferSelect;
 export type AgentApproval = typeof agentApprovals.$inferSelect;
+export type Connection = typeof connections.$inferSelect;

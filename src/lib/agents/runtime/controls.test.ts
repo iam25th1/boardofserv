@@ -8,7 +8,7 @@ import { asc, eq, inArray } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import type { AgentDefinition, CodeStepDef } from "@/lib/agents/definition";
 import { addUser, testDb } from "@/test/helperDb";
-import { installed, publishedAgent, RESTOCK_CODE, restockDefinition, testRuntime, type TestRuntime } from "@/test/runtimeFixtures";
+import { installed, linkConnections, publishedAgent, RESTOCK_CODE, restockDefinition, testRuntime, type TestRuntime } from "@/test/runtimeFixtures";
 import { approvalsOf } from "./approvals";
 import { control, ControlRefused, installationDTO, loadInstallation } from "./installations";
 import { claimJob, enqueue, runJob } from "./jobs";
@@ -27,6 +27,7 @@ let release: () => void = () => {};
 beforeAll(async () => {
   ({ client, db } = await testDb());
   owner = await addUser(db, "owner");
+  await linkConnections(testRuntime(db), owner);
   // A page that answers only when the test says so.
   server = createServer((_req, res) => {
     release = () => res.writeHead(200, { "content-type": "text/plain" }).end("ok");
