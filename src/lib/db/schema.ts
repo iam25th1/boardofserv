@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, json, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, bigserial, json, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
 import type { AgentDefinition } from "../agents/definition";
 import type { BenchData, RunState, StepCode } from "../agents/types";
 import { CURRENCIES } from "../money";
@@ -1185,6 +1185,52 @@ export const agentModelUsage = pgTable(
     byDay: index("agent_model_usage_day_idx").on(t.day),
   }),
 );
+
+// The audit log: every guarded action an installation's agent took or
+// tried (anything that writes, sends or spends), with SERV's check and its
+// reason, who approved it and what it cost. Append-only: rows are added
+// and never changed or removed (agents/audit.ts is the only writer, and a
+// test holds every other file to that). No foreign keys, so the log
+// outlives what it is about.
+export const AUDIT_OUTCOMES = ["ran", "failed", "asked", "declined", "blocked", "stopped"] as const;
+export const agentAudit = pgTable(
+  "agent_audit",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    // The order lines were added in: the log reads newest first by it.
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    installationId: uuid("installation_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    ownerUserId: uuid("owner_user_id").notNull(),
+    jobId: uuid("job_id"),
+    // The step's title, the tool and its risk level.
+    step: text("step").notNull(),
+    tool: text("tool").notNull(),
+    risk: text("risk").notNull(),
+    // The call in words (it can carry the renter's data).
+    what: text("what").notNull(),
+    outcome: text("outcome", { enum: AUDIT_OUTCOMES }).notNull(),
+    // SERV's check: allow, ask, block, or unavailable (it asked instead);
+    // none when the renter's earlier yes let it run.
+    guard: text("guard", { enum: ["allow", "ask", "block", "unavailable"] }),
+    guardReason: text("guard_reason"),
+    // Why it asked, stopped, failed or was declined.
+    reason: text("reason"),
+    // The renter's yes, or their own rules (nothing needed asking).
+    approvedBy: text("approved_by", { enum: ["renter", "rules"] }),
+    // The model cost of its check, USDC minor units; USDC it spent.
+    cost: numeric("cost", { precision: 78, scale: 0 }).notNull().default("0"),
+    spent: numeric("spent", { precision: 20, scale: 6 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    bySeq: uniqueIndex("agent_audit_seq_idx").on(t.seq),
+    byInstallation: index("agent_audit_installation_idx").on(t.installationId, t.seq),
+    byAgent: index("agent_audit_agent_idx").on(t.agentId, t.seq),
+  }),
+);
+export type AgentAudit = typeof agentAudit.$inferSelect;
+export type NewAgentAudit = typeof agentAudit.$inferInsert;
 
 // An admin's freeze of an agent, a version, a maker or a renter, with a
 // reason. A frozen thing can't run, be rented, publish or offer. Lifting

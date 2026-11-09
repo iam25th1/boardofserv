@@ -88,6 +88,9 @@ import * as adminFreezes from "@/app/api/admin/freezes/route";
 import * as adminFreeze from "@/app/api/admin/freezes/[id]/route";
 import * as reportsRoute from "@/app/api/reports/route";
 import * as adminModerate from "@/app/api/admin/moderate/route";
+import * as installationAudit from "@/app/api/installations/[id]/audit/route";
+import * as agentAudit from "@/app/api/agents/[id]/audit/route";
+import * as adminAudit from "@/app/api/admin/audit/route";
 import { fakeNet, fakeSheetUrl } from "./fakeNet";
 import { keep } from "@/lib/connections/vault";
 
@@ -186,6 +189,9 @@ const ROUTES: Record<string, object> = {
   "admin/freezes/[id]": adminFreeze,
   "reports": reportsRoute,
   "admin/moderate": adminModerate,
+  "installations/[id]/audit": installationAudit,
+  "agents/[id]/audit": agentAudit,
+  "admin/audit": adminAudit,
 };
 
 // Google, for this test: Maya's and Sam's own spreadsheets, and the token
@@ -797,6 +803,24 @@ describe("a helper's instructions stay on the server", () => {
       await hit("agent: sam's own job", jobRoute.GET(req(`/api/jobs/${samsJob.id}`), sj));
       await hit("agent: sam sees maya's job", jobRoute.GET(req(`/api/jobs/${jp.params.id}`), jp));
       await hit("agent: sam answers maya's question", approvalRoute.POST(req(`/api/approvals/${pending[0]!.id}`, "POST", { answer: "No" }), { params: { id: pending[0]!.id } }));
+      // The audit log: Sam's own in full, Maya's agent's for Maya with Sam's
+      // data hidden, all of it for an admin, and nobody else's.
+      const sp = { params: { id: samsCopy.id } };
+      await hit("audit: sam's own", installationAudit.GET(req(`/api/installations/${samsCopy.id}/audit`), sp));
+      await hit("audit: sam opens maya's", installationAudit.GET(req(`/api/installations/${ip.params.id}/audit`), ip));
+      await hit("audit: sam opens maya's agent's", agentAudit.GET(req(`/api/agents/${id}/audit`), p));
+      await hit("audit: sam as an admin", adminAudit.GET(req("/api/admin/audit")));
+      state.user = maya;
+      await hit("audit: maya's own", installationAudit.GET(req(`/api/installations/${ip.params.id}/audit`), ip));
+      await hit("audit: maya opens sam's", installationAudit.GET(req(`/api/installations/${samsCopy.id}/audit`), sp));
+      await hit("audit: maya's agent's", agentAudit.GET(req(`/api/agents/${id}/audit`), p));
+      vi.stubEnv("ADMIN_USER_IDS", maya.id);
+      resetPaymentsConfig();
+      await hit("audit: admin", adminAudit.GET(req(`/api/admin/audit?installation=${samsCopy.id}`)));
+      vi.stubEnv("ADMIN_USER_IDS", "");
+      resetPaymentsConfig();
+      state.user = null;
+      await hit("audit: signed out", installationAudit.GET(req(`/api/installations/${samsCopy.id}/audit`), sp));
       state.user = maya;
       await hit("agent: job that isn't there", jobRoute.GET(req(`/api/jobs/${cid}`), { params: { id: cid } }));
       await hit("agent: fix", agentFix.POST(req(`/api/agents/${id}/fix`, "POST", { message: "it ignored delivery time" }), p));
@@ -981,7 +1005,9 @@ describe("a helper's instructions stay on the server", () => {
     // (his tab, his sheet) reaches nobody but Sam: not its maker, not the
     // board, its page, its listing or the request board, and nobody signed
     // out.
+    // An admin's audit log is the one exception: admins see everything.
     for (const b of bodies) {
+      if (b.label === "audit: admin") continue;
       if (b.who?.id === sam.id) expect(b.body.includes(MAYA_SHEET), `${b.label} shows sam maya's sheet`).toBe(false);
       if (b.who?.id !== sam.id) {
         expect(b.body.includes(SAM_SHEET), `${b.label} shows sam's sheet`).toBe(false);
@@ -1011,6 +1037,16 @@ describe("a helper's instructions stay on the server", () => {
     expect(said("agent: maker sees sam's job")).toContain('"viewer":"maker"');
     for (const label of ["agent: maker sees sam's job", "agent: maker's jobs with sam's", "agent: installation after a job", "agent: questions"]) expect(said(label), label).not.toContain(SAM_PRIVATE);
     expect(said("agent: sam sees maya's job")).toBe('{"error":"Not found"}');
+    // The audit log: each renter's own lines in full, with what SERV's check
+    // said; the maker's with renters by number and nothing of theirs; an
+    // admin's with everything; nobody else's.
+    expect(said("audit: sam's own")).toContain('"guard":"allow"');
+    expect(said("audit: admin")).toContain(`"renter":"@${sam.handle}"`);
+    const makers = JSON.parse(said("audit: maya's agent's")).audit.entries as { renter: string; what: unknown; guardReason: unknown }[];
+    expect(new Set(makers.map((e) => e.renter))).toEqual(new Set(["You", "Renter 1"]));
+    expect(makers.every((e) => e.what === null && e.guardReason === null)).toBe(true);
+    for (const label of ["audit: sam opens maya's", "audit: sam opens maya's agent's", "audit: sam as an admin", "audit: maya opens sam's"]) expect(said(label), label).toBe('{"error":"Not found"}');
+    expect(said("audit: signed out")).toBe('{"error":"Not signed in"}');
     expect(said("agent: sam answers maya's question")).toBe('{"error":"Not found"}');
     // The kill switch and freezes.
     expect(said("safety: sam stops maya's agent")).toBe('{"error":"Not found"}');

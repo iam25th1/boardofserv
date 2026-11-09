@@ -8,7 +8,9 @@ import { braveSearch, SearchRefused, SearchUnavailable } from "../../search/brav
 import type { AgentDefinition, AgentStep, ToolName } from "../definition";
 import { Blocked, Declined, Halted, InfraError, Paused, type CallContext, type ToolHost } from "../runner";
 import { askGuard, GUARD_DOWN, guardKey, type GuardInput, type GuardResult } from "../guard";
-import { budgetGate, meter } from "../metering";
+import { budgetGate, costMicros, meter } from "../metering";
+import { audit } from "../audit";
+import type { AgentAudit } from "../../db/schema";
 import type { Risk } from "../toolbox";
 import { unknownContacts } from "../untrusted";
 import { outboundRoom, pauseFor, takeAction } from "./rates";
@@ -45,6 +47,8 @@ export class JobTools implements ToolHost {
   private mock: MockTools | null = null;
   // The guard's answers in this run, by call: the same call is checked once.
   private checked = new Map<string, GuardResult>();
+  // The checks whose model cost is in the audit log already.
+  private costed = new Set<GuardResult>();
 
   constructor(
     private rt: Runtime,
@@ -121,6 +125,42 @@ export class JobTools implements ToolHost {
     return result;
   }
 
+  // The call's line in the audit log (audit.ts): what it was, what SERV's
+  // check said, who approved it, what it cost. The check's cost is logged
+  // once, on the first line about it.
+  private async logged(step: AgentStep, tool: ToolName, risk: Risk, what: string, e: { outcome: AgentAudit["outcome"]; guard?: GuardResult | null; reason?: string | null; approvedBy?: AgentAudit["approvedBy"]; spent?: number | null }): Promise<void> {
+    const g = e.guard ?? null;
+    const cost = g?.call && !this.costed.has(g) ? costMicros(g.call) : 0n;
+    if (g) this.costed.add(g);
+    await audit(this.rt, {
+      installationId: this.installation.id,
+      agentId: this.installation.agentId,
+      ownerUserId: this.installation.ownerUserId,
+      jobId: this.job?.id ?? null,
+      step: step.title,
+      tool,
+      risk,
+      what,
+      outcome: e.outcome,
+      guard: g ? (g.fallback ? "unavailable" : g.verdict) : null,
+      guardReason: g?.reason ?? null,
+      reason: e.reason ?? null,
+      approvedBy: e.approvedBy ?? null,
+      cost: cost.toString(),
+      spent: e.spent !== null && e.spent !== undefined ? e.spent.toFixed(6) : null,
+    });
+  }
+
+  // Its limits, logged when one stops the call.
+  private async limited(step: AgentStep, tool: ToolName, risk: Risk, what: string): Promise<void> {
+    try {
+      await this.withinLimits(risk);
+    } catch (err) {
+      if (err instanceof Halted) await this.logged(step, tool, risk, what, { outcome: "stopped", reason: err.message });
+      throw err;
+    }
+  }
+
   // The installation's stand-in data, read fresh when a job (re)starts.
   private async mocks(): Promise<MockTools> {
     if (this.mock) return this.mock;
@@ -136,10 +176,15 @@ export class JobTools implements ToolHost {
       // A question goes only to the renter, who answers it: the guard can
       // stop one that shouldn't be asked, and asking is what it does.
       const strange = unknownContacts(args, this.known());
+      const what = `Ask you: "${fixDashes(parsed.data.question).slice(0, 300)}"`;
       if (!approval) {
-        await this.withinLimits("outbound");
+        await this.limited(step, tool, "outbound", what);
         const g = await this.guard(step, tool, "outbound", args, ctx);
-        if (g.verdict === "block") throw new Blocked(g.reason);
+        if (g.verdict === "block") {
+          await this.logged(step, tool, "outbound", what, { outcome: "blocked", guard: g, reason: g.reason });
+          throw new Blocked(g.reason);
+        }
+        await this.logged(step, tool, "outbound", what, { outcome: "asked", guard: g, reason: strange.length ? `It mentions things you didn't give it: ${strange.slice(0, 3).join(", ")}.` : null });
       }
       // The owner's answer, once it has come; until then the job waits.
       if (!approval) {
@@ -155,14 +200,20 @@ export class JobTools implements ToolHost {
     }
     const risk = riskOf(this.definition, step, tool);
     if (risk === "read") return this.use(step, tool, args);
-    if (!approval) await this.withinLimits(risk);
     // Anything that changes, says or spends something waits for the
     // renter's yes when the platform's floor or their own settings say so,
     // or when spending would take the job's or the day's total over a
     // rule's limit (spend.ts). One answer covers them all; a no stops it.
+    // Every such call, whatever happens to it, gets a line in the audit log.
     const spend = spendOf(this.definition, step, tool, args);
+    const what = spend?.what ?? describeCall(tool, args);
+    if (!approval) await this.limited(step, tool, risk, what);
+    let g: GuardResult | null = null;
     if (approval) {
-      if (!isYes(approval.answer)) throw new Declined(approval.answer);
+      if (!isYes(approval.answer)) {
+        await this.logged(step, tool, risk, what, { outcome: "declined", reason: approval.answer === null ? "No answer came in time." : `You answered: ${approval.answer.slice(0, 200)}` });
+        throw new Declined(approval.answer);
+      }
     } else {
       const over = spend ? await overLimit(this.rt, this.installation, this.definition, this.job?.id ?? null, spend) : null;
       const why = policyAsks(readPolicy(this.installation.policy), { tool, risk, amount: spend?.amount ?? 0, toOwner: TO_OWNER_ONLY.includes(tool) });
@@ -170,15 +221,27 @@ export class JobTools implements ToolHost {
         const strange = unknownContacts(args, this.known());
         if (strange.length) why.push(`It carries ${strange.length === 1 ? "a link, address or contact detail" : "links, addresses or contact details"} you didn't give it: ${strange.slice(0, 3).join(", ")}.`);
       }
-      const g = await this.guard(step, tool, risk, args, ctx);
-      if (g.verdict === "block") throw new Blocked(g.reason);
+      g = await this.guard(step, tool, risk, args, ctx);
+      if (g.verdict === "block") {
+        await this.logged(step, tool, risk, what, { outcome: "blocked", guard: g, reason: g.reason });
+        throw new Blocked(g.reason);
+      }
       if (g.verdict === "ask") why.push(g.fallback ? g.reason : `Safety check: ${g.reason}`);
       if (over || why.length) {
-        throw new Paused({ kind: why.length ? "safety" : "over_limit", question: over ?? spend?.what ?? describeCall(tool, args), choices: ["Yes", "No"], tool, reason: why.join(" ") || null });
+        await this.logged(step, tool, risk, what, { outcome: "asked", guard: g, reason: [over ? "It goes over a spending limit in your rules." : null, ...why].filter(Boolean).join(" ") });
+        throw new Paused({ kind: why.length ? "safety" : "over_limit", question: over ?? what, choices: ["Yes", "No"], tool, reason: why.join(" ") || null });
       }
     }
-    const result = await this.use(step, tool, args);
+    const approvedBy = approval ? "renter" : "rules";
+    let result: unknown;
+    try {
+      result = await this.use(step, tool, args);
+    } catch (err) {
+      await this.logged(step, tool, risk, what, { outcome: "failed", guard: g, reason: err instanceof Error ? err.message : "It failed.", approvedBy });
+      throw err;
+    }
     if (spend) await recordSpend(this.rt, this.installation, this.job?.id ?? null, spend);
+    await this.logged(step, tool, risk, what, { outcome: "ran", guard: g, approvedBy, spent: spend?.amount ?? null });
     return result;
   }
 

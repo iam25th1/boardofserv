@@ -4,10 +4,11 @@ import Link from "next/link";
 import { SkeletonPanel } from "@/components/ui";
 import { Page } from "@/components/shell/Page";
 import { AgentRuns } from "@/components/agents/AgentRuns";
-import type { JobSummaryDTO, MakerDashboardDTO } from "@/lib/types";
+import type { AuditPageDTO, JobSummaryDTO, MakerDashboardDTO } from "@/lib/types";
 import { price } from "./BoardView";
 import { EarningsChart } from "./EarningsChart";
 import { KillSwitch } from "./KillSwitch";
+import { AuditLog } from "@/components/agents/AuditLog";
 import { day, RENTAL_WORD } from "./RentalView";
 import styles from "./MakerDashboard.module.css";
 
@@ -22,6 +23,8 @@ export interface MakerDashboardApi {
   runs: () => Promise<JobSummaryDTO[]>;
   // The kill switch: stop it everywhere, or start it again.
   kill?: (action: "stop" | "start", note?: string) => Promise<MakerDashboardDTO>;
+  // The audit log across every renter, their data hidden.
+  audit?: (before?: string | null) => Promise<AuditPageDTO>;
 }
 
 export function MakerDashboard({ id, api }: { id: string; api: MakerDashboardApi }) {
@@ -115,6 +118,7 @@ export function MakerDashboard({ id, api }: { id: string; api: MakerDashboardApi
       </section>
 
       <AgentRuns load={api.runs} />
+      {api.audit && <AuditLog load={api.audit} view="maker" />}
     </Page>
   );
 }

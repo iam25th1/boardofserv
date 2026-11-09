@@ -3,8 +3,9 @@ import { useCallback, useEffect, useId, useState } from "react";
 import Link from "next/link";
 import { Button, SkeletonPanel, TextInput, Textarea } from "@/components/ui";
 import { ReviewPanel } from "@/components/agents/ReviewPanel";
+import { AuditLog } from "@/components/agents/AuditLog";
 import { formatAmount } from "@/lib/money";
-import type { AdminSafetyDTO, FreezeDTO } from "@/lib/types";
+import type { AdminSafetyDTO, AuditPageDTO, FreezeDTO } from "@/lib/types";
 import styles from "./SafetyAdmin.module.css";
 
 // The admin's safety page: the queue (what the screen held and what people
@@ -14,6 +15,7 @@ export interface SafetyAdminApi {
   load: () => Promise<AdminSafetyDTO>;
   freeze?: (body: { kind: FreezeDTO["kind"]; target: string; reason: string }) => Promise<AdminSafetyDTO>;
   lift?: (id: string, reason: string) => Promise<AdminSafetyDTO>;
+  audit?: (before?: string | null) => Promise<AuditPageDTO>;
   moderate?: (body: { type: "report" | "listing" | "request" | "offer"; id: string; action: "approve" | "hide" | "freeze"; reason: string }) => Promise<AdminSafetyDTO>;
 }
 
@@ -91,6 +93,7 @@ export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
           <p className={styles.quiet}>Nothing has been frozen.</p>
         )}
       </section>
+      {api.audit && <AuditLog load={api.audit} view="admin" />}
       <section className={styles.section} aria-labelledby="costs-h">
         <h2 id="costs-h">Model cost this week</h2>
         {data.costs.length ? (

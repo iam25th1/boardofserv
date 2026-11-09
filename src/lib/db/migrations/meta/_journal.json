@@ -295,6 +295,13 @@
       "when": 1794257444401,
       "tag": "0041_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1794258406815,
+      "tag": "0042_audit_log",
+      "breakpoints": true
     }
   ]
 }

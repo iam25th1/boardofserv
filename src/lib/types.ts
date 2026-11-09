@@ -676,3 +676,34 @@ export interface AdminSafetyDTO {
   costs: { installationId: string; name: string; owner: string; maker: string; week: string; sitePaid: string; calls: number; decimals: number }[];
   reviews: { versionId: string; agentId: string; name: string; maker: string; version: number; state: "draft" | "published"; review: VersionReviewDTO }[];
 }
+
+// One line of the audit log of guarded actions. The maker's view leaves
+// out what the renter's data could show: the call in words, the reasons
+// and amounts (null there), and names renters by number.
+export interface AuditEntryDTO {
+  id: string;
+  at: string;
+  agent: string;
+  // Who runs it: null in the renter's own view; "You" or "Renter 2" for
+  // the maker; a handle for an admin.
+  renter: string | null;
+  step: string;
+  tool: string;
+  risk: "read" | "write" | "outbound" | "money";
+  what: string | null;
+  outcome: "ran" | "failed" | "asked" | "declined" | "blocked" | "stopped";
+  guard: "allow" | "ask" | "block" | "unavailable" | null;
+  guardReason: string | null;
+  reason: string | null;
+  approvedBy: "renter" | "rules" | null;
+  // The model cost of its check (USDC minor units), and USDC it spent.
+  cost: string;
+  spent: string | null;
+  decimals: number;
+}
+
+export interface AuditPageDTO {
+  entries: AuditEntryDTO[];
+  // The cursor for older entries, or null at the start of the log.
+  next: string | null;
+}

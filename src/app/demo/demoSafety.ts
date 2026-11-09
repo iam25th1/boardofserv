@@ -1,4 +1,4 @@
-import type { AdminSafetyDTO } from "@/lib/types";
+import type { AdminSafetyDTO, AuditEntryDTO } from "@/lib/types";
 
 // The admin's safety page with something in every part, for the demo and
 // its tests.
@@ -46,3 +46,28 @@ export const DEMO_SAFETY: AdminSafetyDTO = {
     { versionId: "v-restock", agentId: "a-restock", name: "Restock helper", maker: "@lena_prints", version: 3, state: "published", review: { status: "passed", by: "serv", reviewedAt: at(30), findings: [] } },
   ],
 };
+
+// An installation's audit log, newest first: a run on the renter's yes, a
+// block, an ask, a message within its settings, a limit.
+const line = (e: Partial<AuditEntryDTO> & Pick<AuditEntryDTO, "id" | "step" | "tool" | "risk" | "outcome">, hoursAgo: number): AuditEntryDTO => ({
+  at: at(hoursAgo),
+  agent: "Restock helper",
+  renter: null,
+  what: null,
+  guard: null,
+  guardReason: null,
+  reason: null,
+  approvedBy: null,
+  cost: "0",
+  spent: null,
+  decimals: 6,
+  ...e,
+});
+
+export const DEMO_AUDIT: AuditEntryDTO[] = [
+  line({ id: "l-1", step: "Record the order", tool: "sheets.write", risk: "write", outcome: "ran", what: 'Add 1 row to "Orders"?', guard: "allow", guardReason: "It fits what the agent is for.", approvedBy: "renter", cost: "1156" }, 0.2),
+  line({ id: "l-2", step: "Pay the supplier", tool: "wallet.pay", risk: "money", outcome: "blocked", what: "Pay 480.00 USDC to 0x9f2c...e41b?", guard: "block", guardReason: "It sends the shop's orders to a supplier it doesn't use.", reason: "It sends the shop's orders to a supplier it doesn't use.", cost: "1203" }, 0.4),
+  line({ id: "l-3", step: "Record the order", tool: "sheets.write", risk: "write", outcome: "asked", what: 'Add 1 row to "Orders"?', guard: "ask", guardReason: "This order is larger than usual for this shop.", reason: "Safety check: This order is larger than usual for this shop.", cost: "1188" }, 0.5),
+  line({ id: "l-4", step: "Tell the owner", tool: "telegram.send", risk: "outbound", outcome: "ran", what: 'Send you this message? "Linen is down to 4 metres. I ordered 20."', guard: "allow", guardReason: "A note to the shop owner about their own stock.", approvedBy: "rules", cost: "1092" }, 26),
+  line({ id: "l-5", step: "Tell the owner", tool: "telegram.send", risk: "outbound", outcome: "stopped", what: 'Send you this message? "Linen is down to 4 metres."', reason: "It reached its limit of 20 messages an hour, so it is paused. Start it again when you're ready." }, 27),
+];
