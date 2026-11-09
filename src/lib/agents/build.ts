@@ -3,12 +3,13 @@ import { db } from "../db";
 import { replyUsage, type Agent, type AgentVersion } from "../db/schema";
 import { describeFailures, type JsonResult, type ModelConfig } from "../model";
 import type { AgentSummaryDTO } from "../types";
-import { codeSpec, nextOf, type AgentDefinition } from "./definition";
+import { dolphinProvider, writeStep } from "./code";
+import { codeSpec, nextOf, type AgentDefinition, type CodeStepDef } from "./definition";
 import { planAgent, MAX_PLAN_TRIES, type PlanInput } from "./plan";
-import { updateDraft } from "./store";
+import { setStepCode, updateDraft, versionById } from "./store";
 import type { StepCode } from "./types";
 
-// The build: planning (and, once planned, the code) runs in the background,
+// The build: planning, then the code, runs in the background,
 // because it can take longer than a request may. One job per draft at a
 // time, kept in this process; the draft's build_state says where it is, and
 // the builder polls it. A server restart mid-build leaves a state no job
@@ -81,15 +82,36 @@ export function carryCode(definition: AgentDefinition, before: Record<string, St
   return out;
 }
 
-export type AfterPlan = (version: AgentVersion, definition: AgentDefinition, ctx: BuildContext) => Promise<void>;
-
-// What runs once a plan is saved. Code writing hooks in here.
-let afterPlan: AfterPlan = async (version) => {
-  await updateDraft(version.id, { buildState: "idle" });
-};
-
-export function setAfterPlan(fn: AfterPlan): void {
-  afterPlan = fn;
+// Once a plan is saved: write each code step that has no approved code,
+// one at a time, Dolphin writing and SERV reviewing (code.ts). The dock
+// sees each step's progress as it goes.
+export async function writeAllCode(version: AgentVersion, definition: AgentDefinition, ctx: BuildContext, fetchImpl?: typeof fetch): Promise<void> {
+  const dolphin = dolphinProvider();
+  const todo = definition.steps.filter((s): s is CodeStepDef => s.kind === "code" && version.code[s.id]?.status !== "approved");
+  for (const step of todo) {
+    const spec = codeSpec(step);
+    if (!dolphin) {
+      await setStepCode(version.id, step.id, { spec, status: "needs_attention", source: null, rounds: 0, note: "Code writing isn't set up here.", updatedAt: new Date().toISOString() });
+      continue;
+    }
+    const entry = await writeStep(step, definition, spec, {
+      dolphin,
+      serv: ctx.serv,
+      fetchImpl,
+      hooks: {
+        progress: async (status, round) => {
+          await setStepCode(version.id, step.id, { spec, status, source: null, rounds: round, note: null, updatedAt: new Date().toISOString() });
+        },
+        // Dolphin runs on the site's key, whoever is building.
+        record: (kind, call) => recordAgentCall(ctx, kind, call, kind === "agent_code" ? false : ctx.ownKey),
+      },
+    });
+    // A draft published or replanned meanwhile stops the writing.
+    if (!(await setStepCode(version.id, step.id, entry))) return;
+  }
+  const now = await versionById(version.id);
+  const attention = Object.values(now?.code ?? {}).filter((c) => c.status === "needs_attention").length;
+  await updateDraft(version.id, { buildState: "idle", buildNote: attention ? `${attention} ${attention === 1 ? "step needs" : "steps need"} your attention.` : null });
 }
 
 const PLAN_FAILED = `The plan didn't come together after ${MAX_PLAN_TRIES} tries. Try again, or add a detail in the chat.`;
@@ -111,7 +133,7 @@ export function startPlan(version: AgentVersion, input: PlanInput, ctx: BuildCon
         return;
       }
       const saved = await updateDraft(version.id, { definition: plan.definition, code: carryCode(plan.definition, version.code), buildState: "writing" });
-      if (saved) await afterPlan(saved, plan.definition, ctx);
+      if (saved) await writeAllCode(saved, plan.definition, ctx);
     } catch (err) {
       console.error(`agents: the build stopped: ${err instanceof Error ? err.message : "unknown error"}`);
       await updateDraft(version.id, { buildState: "failed", buildNote: "Something went wrong while building. Try again." }).catch(() => null);

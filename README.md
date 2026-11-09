@@ -510,6 +510,35 @@ call writes a `reply_usage` row (`agent_plan`, `agent_code`, `agent_review`,
 is refused like a chat turn when the day's limit is reached or the account
 isn't let in yet.
 
+### Code writing and review
+
+Once a plan is saved, each code step without approved code is written
+(`src/lib/agents/code.ts`), one at a time:
+
+1. Dolphin, and only Dolphin, writes it as `async function run(input,
+   tools)` against the toolbox's declarations for the step's own tools,
+   told what each input holds (the renter's settings and rules by key and
+   type, or the earlier step it comes from) and what to return. Settings
+   from recon on Dolphin's API: `max_tokens` 4000, its reasoning off for
+   the first draft (`chat_template_kwargs: { thinking: false }`, which it
+   accepts though its docs don't list it) and on for a rewrite. If Dolphin
+   ever refuses that field, the call is made again without it.
+   `DOLPHIN_CODE_TIMEOUT_MS` (default 240000) bounds one call.
+2. Plain checks, before any review: it parses (compiled with `node:vm`,
+   never run), defines `run`, calls only its step's tools by name, and
+   reaches for nothing outside the sandbox (require, imports, fetch,
+   globals, timers, building code at run time, prototype tricks).
+3. SERV reviews it (strict json_schema, approve or reject with a reason):
+   does it do what the step says with exactly its inputs and outputs, does
+   it touch only the declared tools, does it do anything risky.
+
+A failed check or a rejection goes back to Dolphin with the reason, up to
+three rounds. After that the step "needs attention" in the builder, with the
+last reason and the last code. The code is stored with the version
+(`agent_versions.code`), and only the maker's own builder ever shows it.
+Dolphin's calls are on the site's key whoever builds; SERV's on the
+maker's own key when they have one.
+
 ## Payments
 
 Users top up a balance in USDC or $SERV, pay for helper uses from it, and
