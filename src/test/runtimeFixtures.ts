@@ -34,6 +34,10 @@ export interface TestRuntime extends Runtime {
   // and every check it was asked.
   guardVerdict: (request: string) => { verdict: "allow" | "ask" | "block"; reason: string } | "down";
   guarded: string[];
+  // SERV's input screen (the prompt guard): its answer to each text, and
+  // every text it was asked about.
+  screenVerdict: (text: string) => { verdict: "clean" | "flagged"; excerpt: string; reason: string } | "down";
+  screened: string[];
 }
 
 export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date("2026-11-09T06:00:00Z")): TestRuntime {
@@ -68,6 +72,8 @@ export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date(
     log: (line) => void rt.logged.push(line),
     guardVerdict: () => ({ verdict: "allow", reason: "It fits what the agent is for." }),
     guarded: [],
+    screenVerdict: () => ({ verdict: "clean", excerpt: "", reason: "Ordinary data." }),
+    screened: [],
     fetchImpl: (async (_url: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body)) as { messages: { content: string }[]; response_format: { json_schema: { name: string; schema: { properties: { outcome: { enum: string[] } } } } } };
       if (body.response_format.json_schema.name === "action_guard") {
@@ -75,6 +81,12 @@ export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date(
         const v = rt.guardVerdict(body.messages[1]!.content);
         if (v === "down") return new Response("{}", { status: 503 });
         return Response.json({ choices: [{ message: { content: JSON.stringify(v) } }], usage: { prompt_tokens: 600, completion_tokens: 25 } });
+      }
+      if (body.response_format.json_schema.name === "input_screen") {
+        rt.screened.push(body.messages[1]!.content);
+        const v = rt.screenVerdict(body.messages[1]!.content);
+        if (v === "down") return new Response("{}", { status: 503 });
+        return Response.json({ choices: [{ message: { content: JSON.stringify(v) } }], usage: { prompt_tokens: 650, completion_tokens: 40 } });
       }
       const ids = body.response_format.json_schema.schema.properties.outcome.enum;
       rt.asked.push(body.messages[1]!.content);

@@ -72,12 +72,19 @@ export interface RunState {
   // The current step has started already (it runs again after a pause or a
   // restart, and isn't counted twice).
   resumed: boolean;
-  // Values in the bag made from web pages: untrusted data.
+  // Values in the bag made from anything outside the renter's own answers
+  // (web pages, web searches, sheets, messages, memory): untrusted data.
   untrusted?: string[];
+  // Where each untrusted value came from, in words ("a web page").
+  sources?: Record<string, string[]>;
 }
 
+// The screen of a step's untrusted inputs takes the step's first journal
+// place when it runs, so its pause and answer replay like a tool call's.
+export const SCREEN = "screen" as const;
+
 export interface JournalEntry {
-  tool: ToolName;
+  tool: ToolName | typeof SCREEN;
   args: unknown;
   // What it answered, or the error it gave (absent while it waits).
   result?: unknown;

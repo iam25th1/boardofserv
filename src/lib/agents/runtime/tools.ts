@@ -9,6 +9,7 @@ import type { AgentDefinition, AgentStep, ToolName } from "../definition";
 import { Blocked, Declined, Halted, InfraError, Paused, type CallContext, type ToolHost } from "../runner";
 import { askGuard, GUARD_DOWN, guardKey, type GuardInput, type GuardResult } from "../guard";
 import type { Risk } from "../toolbox";
+import { unknownContacts } from "../untrusted";
 import { MAX_MEMORY_BYTES, memoryProblem, MockTools, TOOL_ARGS, ToolError } from "../toolbox";
 import { emptyBench } from "../types";
 import type { Runtime } from "./context";
@@ -48,6 +49,13 @@ export class JobTools implements ToolHost {
     private job: AgentJob | null,
     private owner: User | null = null,
   ) {}
+
+  // What the renter gave it themselves: their answers, rules and, for a job
+  // they started with a message, that message.
+  private known(): string {
+    const trigger = this.job?.trigger as { kind?: string; text?: string } | undefined;
+    return JSON.stringify([this.installation.settings, this.installation.rules, trigger?.kind === "message" ? trigger.text ?? "" : ""]);
+  }
 
   private async ownerOf(): Promise<User> {
     if (this.owner) return this.owner;
@@ -104,12 +112,20 @@ export class JobTools implements ToolHost {
       if (!parsed.success) throw new ToolError(tool, "telegram.ask was called wrongly: it takes { question, choices? }.");
       // A question goes only to the renter, who answers it: the guard can
       // stop one that shouldn't be asked, and asking is what it does.
+      const strange = unknownContacts(args, this.known());
       if (!approval) {
         const g = await this.guard(step, tool, "outbound", args, ctx);
         if (g.verdict === "block") throw new Blocked(g.reason);
       }
       // The owner's answer, once it has come; until then the job waits.
-      if (!approval) throw new Paused({ kind: "ask", question: fixDashes(parsed.data.question), choices: parsed.data.choices?.length ? parsed.data.choices : ["Yes", "No"] });
+      if (!approval) {
+        throw new Paused({
+          kind: "ask",
+          question: fixDashes(parsed.data.question),
+          choices: parsed.data.choices?.length ? parsed.data.choices : ["Yes", "No"],
+          reason: strange.length ? `It mentions ${strange.length === 1 ? "something" : "things"} you didn't give it: ${strange.slice(0, 3).join(", ")}. Don't follow ${strange.length === 1 ? "it" : "them"} unless you trust ${strange.length === 1 ? "it" : "them"}.` : null,
+        });
+      }
       if (approval.answer === null) throw new Declined(null);
       return { answer: approval.answer };
     }
@@ -125,6 +141,10 @@ export class JobTools implements ToolHost {
     } else {
       const over = spend ? await overLimit(this.rt, this.installation, this.definition, this.job?.id ?? null, spend) : null;
       const why = policyAsks(readPolicy(this.installation.policy), { tool, risk, amount: spend?.amount ?? 0, toOwner: TO_OWNER_ONLY.includes(tool) });
+      if (risk === "outbound" || risk === "money") {
+        const strange = unknownContacts(args, this.known());
+        if (strange.length) why.push(`It carries ${strange.length === 1 ? "a link, address or contact detail" : "links, addresses or contact details"} you didn't give it: ${strange.slice(0, 3).join(", ")}.`);
+      }
       const g = await this.guard(step, tool, risk, args, ctx);
       if (g.verdict === "block") throw new Blocked(g.reason);
       if (g.verdict === "ask") why.push(g.fallback ? g.reason : `Safety check: ${g.reason}`);

@@ -1110,6 +1110,17 @@ export const requestOffers = pgTable(
 export type Request = typeof requests.$inferSelect;
 export type RequestOffer = typeof requestOffers.$inferSelect;
 
+// The prompt guard's verdicts on untrusted text, by the text's hash, so the
+// same sheet or page isn't screened again every run. No text is kept, only
+// the short excerpt that shows a flag.
+export const inputScreens = pgTable("input_screens", {
+  hash: text("hash").primaryKey(),
+  verdict: text("verdict", { enum: ["clean", "flagged"] }).notNull(),
+  excerpt: text("excerpt").notNull().default(""),
+  reason: text("reason").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;

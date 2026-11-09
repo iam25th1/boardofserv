@@ -5,6 +5,7 @@ import type { AgentDefinition, DecisionStepDef } from "../definition";
 import { askServ, readDecision, runSteps, startState, typedRules, type Decided, type EngineResult, type RunEvent, type RunState } from "../runner";
 import { FEE_SHORT, holdJobFee } from "../../market/charges";
 import { pauseForOwner } from "./approvals";
+import { screenText } from "../screen";
 import type { Runtime } from "./context";
 import { JobTools } from "./tools";
 import { spendToday } from "./views";
@@ -176,6 +177,16 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
         const cap = Number(installation.dailySpendUsd);
         if ((await spendToday(rt, installation.id)) >= cap) return `It reached its daily spend limit of $${cap >= 0.01 ? cap.toFixed(2) : Number(cap.toFixed(6))} for today.`;
         return serv ? rt.siteRefusal(owner, serv.ownKey) : null;
+      },
+      // The prompt guard on what a decision or code step reads from outside.
+      screen: async (step, input, tainted, from) => {
+        const text = JSON.stringify(Object.fromEntries(tainted.map((k) => [k, input[k]])));
+        const r = await screenText(rt, owner, text, `from ${from.join(", ") || "outside"}`);
+        if (!r.flagged) return null;
+        return {
+          question: `Something "${step.title}" is about to read, from ${from.join(" and ") || "outside"}, looks like an attempt to give the agent instructions${r.excerpt ? `: "${r.excerpt}"` : ""}. Let it go on?`,
+          reason: r.reason || "It reads like instructions to the agent.",
+        };
       },
       retryInfra: true,
     });
