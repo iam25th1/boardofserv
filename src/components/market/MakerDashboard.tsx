@@ -52,7 +52,7 @@ export function MakerDashboard({ id, api }: { id: string; api: MakerDashboardApi
   const finished = d.jobs.done + d.jobs.failed;
   const rate = finished ? Math.round((d.jobs.done / finished) * 100) : null;
   return (
-    <Page title={d.name} note={d.stopped ? "stopped everywhere" : "on the board"} width="wide" asideSide="right" asideNarrow="below" aside={<Side d={d} />}>
+    <Page title={d.name} note={d.stopped ? "stopped everywhere" : d.listing?.screen === "held" ? "on hold for review" : d.listing?.listed && d.listing.screen === "ok" ? "on the board" : "not on the board"} width="wide" asideSide="right" asideNarrow="below" aside={<Side d={d} />}>
       {api.kill && <KillSwitch d={d} kill={async (action, note) => setData(await api.kill!(action, note))} />}
       <dl className={styles.stats}>
         <div>
@@ -139,7 +139,7 @@ function Side({ d }: { d: MakerDashboardDTO }) {
         <span className={styles.hand}>{l?.listed && l.screen === "ok" ? "On the board" : l?.listed && l.screen === "held" ? "On hold for review" : "Not on the board"}</span>
         {l?.screen === "held" && (
           <p className={styles.held} role="status">
-            Off the board while an admin looks. {l.screenReason} Renters keep running it as before.
+            {l.screenReason ?? "It is off the board until an admin looks."} Renters keep running it as before.
           </p>
         )}
         {l && (

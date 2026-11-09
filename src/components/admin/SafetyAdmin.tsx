@@ -59,7 +59,7 @@ export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
                   <strong>{h.title}</strong>
                   <span className={styles.quiet}>by {h.by}</span>
                 </div>
-                <p>The screen held it: {h.reason}</p>
+                <p>{h.reason.startsWith("Reppo") ? h.reason : `The screen held it: ${h.reason}`}</p>
                 {api.moderate && <Decide type={h.type} id={h.id} moderate={api.moderate} onDone={setData} />}
               </li>
             ))}
