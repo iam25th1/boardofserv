@@ -9,7 +9,8 @@
  * sets data-theme on the root and remembers it).
  *
  * Font families are injected by next/font in the root layout as --font-onest
- * (everything you read) and --font-caveat (small handwritten notes only).
+ * (everything you read) and --font-caveat (small handwritten notes only),
+ * from font files in the repo (src/app/fonts), never fetched at build time.
  *
  * src/design/palette.ts mirrors the solid colours for the few places that need
  * a literal (the browser theme colour, Privy's accent, the contrast test). A
