@@ -150,7 +150,7 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
     if (rt.decide) return rt.decide(step, input);
     if (!serv) return { ok: false, note: "SERV isn't set up here.", reason: "SERV isn't set up, so its decisions can't be made.", costUsd: 0, infra: true };
     const call = await askServ(step, input, serv.config, { fetchImpl: rt.fetchImpl, untrusted });
-    await rt.record(owner, call, serv.ownKey);
+    await rt.record(owner, call, serv.ownKey, "agent_decision");
     return readDecision(step, call);
   };
 
@@ -160,7 +160,7 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
       definition,
       code: version.code,
       state,
-      tools: new JobTools(rt, installation, definition, job),
+      tools: new JobTools(rt, installation, definition, job, owner),
       decide,
       onEvent: log.on,
       save,

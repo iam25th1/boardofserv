@@ -92,10 +92,11 @@ describe("limits", () => {
 
   it("counts towards the site's daily limit, and stops when the site has reached it", async () => {
     const recorded: unknown[] = [];
-    rt.record = async (_owner, call) => void recorded.push(call);
+    rt.record = async (_owner, _call, _own, kind) => void recorded.push(kind);
     const inst = await installed(rt, owner, await publishedAgent(db, maker));
     await run(inst);
-    expect(recorded).toHaveLength(1);
+    // Its decision, and the guard's check of the order it records.
+    expect(recorded).toEqual(["agent_decision", "agent_guard"]);
     rt.siteRefusal = async () => "boardofserv has hit today's limit. It resets at midnight UTC.";
     expect(await run(inst)).toMatchObject({ status: "failed", reason: "boardofserv has hit today's limit. It resets at midnight UTC." });
   });

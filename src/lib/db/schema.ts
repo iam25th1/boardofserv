@@ -108,7 +108,7 @@ export const replyUsage = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
-    kind: text("kind", { enum: ["reply", "compile", "agent_plan", "agent_code", "agent_review", "agent_decision"] }).notNull().default("reply"),
+    kind: text("kind", { enum: ["reply", "compile", "agent_plan", "agent_code", "agent_review", "agent_decision", "agent_guard", "agent_screen", "agent_vetting"] }).notNull().default("reply"),
     ownKey: boolean("own_key").notNull().default(false),
     provider: text("provider"),
     model: text("model"),

@@ -78,6 +78,15 @@ export class Halted extends Error {
   }
 }
 
+// The safety guard (or another platform check) stopped this call: the step
+// fails with why, and nothing after it runs.
+export class Blocked extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "Blocked";
+  }
+}
+
 // Something outside the agent failed: worth another try later.
 export class InfraError extends Error {
   constructor(message: string) {
@@ -88,15 +97,22 @@ export class InfraError extends Error {
 
 // The live tool calls of a run: the bench's mocks, or a job's own tools.
 // `approval` is the owner's answer when the call waited for one.
+// What a call is made from: the step's inputs, and which of them came from
+// outside (web pages, sheets, messages, memory).
+export interface CallContext {
+  inputs: Record<string, unknown>;
+  untrusted: string[];
+}
+
 export interface ToolHost {
-  call(step: AgentStep, tool: ToolName, args: unknown, approval?: { answer: string | null }): Promise<unknown>;
+  call(step: AgentStep, tool: ToolName, args: unknown, approval?: { answer: string | null }, ctx?: CallContext): Promise<unknown>;
 }
 
 export type Decided =
   | { ok: true; outcome: string; note: string | null; costUsd: number; model: string | null }
   | { ok: false; note: string; reason: string; costUsd: number; infra: boolean };
 
-export type EndCause = "end" | "logic" | "limit" | "stop" | "declined" | "infra";
+export type EndCause = "end" | "logic" | "limit" | "stop" | "declined" | "infra" | "blocked";
 
 export type EngineResult =
   | { kind: "end"; status: "done" | "failed" | "stopped"; cause: EndCause; reason: string }
@@ -192,6 +208,7 @@ type Invoked =
   | { kind: "paused"; ask: Ask }
   | { kind: "declined"; answer: string | null }
   | { kind: "halted"; reason: string }
+  | { kind: "blocked"; reason: string }
   | { kind: "diverged" };
 
 export async function runSteps(o: EngineOptions): Promise<EngineResult> {
@@ -252,7 +269,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         return prior.error ? { kind: "error", message: prior.error, infra: false } : { kind: "ok", result: prior.result };
       }
       try {
-        const result = await o.tools.call(step, tool, args, prior?.approval);
+        const result = await o.tools.call(step, tool, args, prior?.approval, { inputs: input, untrusted: step.inputs.filter((k) => untrusted.has(k)) });
         state.journal[i] = { tool, args, result: result ?? null, ...(prior?.approval ? { approval: prior.approval } : {}) };
         await o.save?.(state);
         emit(result, null);
@@ -266,6 +283,12 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         if (err instanceof Halted) {
           emit(null, err.message);
           return { kind: "halted", reason: err.message };
+        }
+        if (err instanceof Blocked) {
+          state.journal[i] = { tool, args, result: null, error: err.message };
+          await o.save?.(state);
+          emit(null, err.message);
+          return { kind: "blocked", reason: err.message };
         }
         if (err instanceof Declined) {
           state.journal[i] = { tool, args, approval: { answer: err.answer }, result: null };
@@ -292,6 +315,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       const halt = new AbortController();
       let paused: { ask: Ask; index: number } | null = null;
       let halted: string | null = null;
+      let blocked: string | null = null;
       let diverged = false;
       let infraFault = false;
       const result = await runInSandbox(entry.source, input, {
@@ -313,6 +337,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
           }
           if (r.kind === "paused") paused = { ask: r.ask, index };
           else if (r.kind === "halted") halted = r.reason;
+          else if (r.kind === "blocked") blocked = r.reason;
           else diverged = true;
           halt.abort();
           return new Promise(() => {});
@@ -325,6 +350,10 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       if (halted) {
         done("failed", null, null, halted);
         return end("stopped", "stop", halted);
+      }
+      if (blocked) {
+        done("failed", null, null, blocked);
+        return end("failed", "blocked", `"${step.title}" was stopped by the safety check: ${blocked}`);
       }
       if (diverged) {
         done("failed", null, null, DIVERGED);
@@ -396,6 +425,10 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       if (r.kind === "halted") {
         done("failed", null, null, r.reason);
         return end("stopped", "stop", r.reason);
+      }
+      if (r.kind === "blocked") {
+        done("failed", null, null, r.reason);
+        return end("failed", "blocked", `"${step.title}" was stopped by the safety check: ${r.reason}`);
       }
       if (r.kind === "diverged") {
         done("failed", null, null, DIVERGED);

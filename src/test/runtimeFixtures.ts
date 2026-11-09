@@ -30,6 +30,10 @@ export interface TestRuntime extends Runtime {
   serve: (outcomes: string[], content: string) => string;
   // Telegram, Google and Brave, answered by the test.
   net: FakeNet;
+  // SERV's action guard: its answer to each check ("down" for no answer),
+  // and every check it was asked.
+  guardVerdict: (request: string) => { verdict: "allow" | "ask" | "block"; reason: string } | "down";
+  guarded: string[];
 }
 
 export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date("2026-11-09T06:00:00Z")): TestRuntime {
@@ -62,8 +66,16 @@ export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date(
     web: {},
     fetchesPerDay: 100,
     log: (line) => void rt.logged.push(line),
+    guardVerdict: () => ({ verdict: "allow", reason: "It fits what the agent is for." }),
+    guarded: [],
     fetchImpl: (async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(String(init.body)) as { messages: { content: string }[]; response_format: { json_schema: { schema: { properties: { outcome: { enum: string[] } } } } } };
+      const body = JSON.parse(String(init.body)) as { messages: { content: string }[]; response_format: { json_schema: { name: string; schema: { properties: { outcome: { enum: string[] } } } } } };
+      if (body.response_format.json_schema.name === "action_guard") {
+        rt.guarded.push(body.messages[1]!.content);
+        const v = rt.guardVerdict(body.messages[1]!.content);
+        if (v === "down") return new Response("{}", { status: 503 });
+        return Response.json({ choices: [{ message: { content: JSON.stringify(v) } }], usage: { prompt_tokens: 600, completion_tokens: 25 } });
+      }
       const ids = body.response_format.json_schema.schema.properties.outcome.enum;
       rt.asked.push(body.messages[1]!.content);
       const outcome = rt.serve(ids, body.messages[1]!.content);

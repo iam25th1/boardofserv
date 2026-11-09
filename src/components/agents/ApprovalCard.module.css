@@ -52,3 +52,21 @@
 .said {
   font-size: var(--t-xs);
 }
+/* Why the platform asks: a chalk note set off with a dashed rule, in the
+   renter's words, never a coloured bar. */
+.reason {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s-2) var(--s-3);
+  border: 1px dashed var(--chalk-3);
+  border-radius: var(--r-md);
+  font-size: var(--t-sm);
+  color: var(--chalk);
+  max-width: 64ch;
+}
+.reasonLabel {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk-2);
+}

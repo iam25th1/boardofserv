@@ -337,6 +337,8 @@ beforeAll(async () => {
     }
     if (body.response_format?.json_schema?.name === "agent_plan") return Response.json({ choices: [{ message: { content: JSON.stringify(AGENT_PLAN) } }] });
     if (body.response_format?.json_schema?.name === "code_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "approve", reason: "Fine." }) } }] });
+    // The guard lets Maya's agent through (its own checks are tested elsewhere).
+    if (body.response_format?.json_schema?.name === "action_guard") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "allow", reason: "It fits what the agent is for." }) } }] });
     if (body.response_format?.json_schema?.name === "decision") {
       return Response.json({ choices: [{ message: { content: JSON.stringify({ outcome: body.response_format.json_schema.schema!.properties!.outcome!.enum![0], reason: "x" }) } }] });
     }

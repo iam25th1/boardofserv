@@ -86,6 +86,8 @@ async function start(origin: string): Promise<Demo> {
     siteRefusal: async () => null,
     record: async () => {},
     decide: standIn,
+    // A stand-in for SERV's action guard, like the one for decisions.
+    guard: async () => ({ verdict: "allow", reason: "The demo's stand-in check lets the example through." }),
     web: { allowOrigins: [origin] },
     fetchesPerDay: 10_000,
     services: { fetch: google as typeof fetch, telegramToken: null, google: { clientId: "demo", clientSecret: "demo", redirectUri: `${origin}/api/connections/google/callback` }, braveKey: null, caps: DEFAULT_CAPS },
@@ -103,6 +105,9 @@ async function start(origin: string): Promise<Demo> {
     ownerUserId: owner!.id,
     agent: agent!,
     version: version!,
+    // The demo shop lets small orders go ahead on their own: its approval
+    // limit rule is what asks.
+    policy: { autoSpendUsdc: 1000 },
     answers: {
       settings: {
         ...bench.settings,

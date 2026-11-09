@@ -1,12 +1,14 @@
 import "server-only";
 import { fixDashes } from "../../dashes";
 import { eq, sql } from "drizzle-orm";
-import { agentFetchDays, agentInstallations, agentMessages, agentToolDays, type AgentInstallation, type AgentJob, type SheetGrant } from "../../db/schema";
+import { agentFetchDays, agentInstallations, agentMessages, agentToolDays, users, type AgentInstallation, type AgentJob, type SheetGrant, type User } from "../../db/schema";
 import { GoogleRevoked, GoogleUnavailable, REVOKED_REASON } from "../../google/oauth";
 import { readTab, SheetRefused, writeTab, type SheetRow } from "../../google/sheets";
 import { braveSearch, SearchRefused, SearchUnavailable } from "../../search/brave";
 import type { AgentDefinition, AgentStep, ToolName } from "../definition";
-import { Declined, Halted, InfraError, Paused, type ToolHost } from "../runner";
+import { Blocked, Declined, Halted, InfraError, Paused, type CallContext, type ToolHost } from "../runner";
+import { askGuard, GUARD_DOWN, guardKey, type GuardInput, type GuardResult } from "../guard";
+import type { Risk } from "../toolbox";
 import { MAX_MEMORY_BYTES, memoryProblem, MockTools, TOOL_ARGS, ToolError } from "../toolbox";
 import { emptyBench } from "../types";
 import type { Runtime } from "./context";
@@ -36,13 +38,57 @@ export const isYes = (answer: string | null) => answer !== null && /^\s*(yes|y|o
 
 export class JobTools implements ToolHost {
   private mock: MockTools | null = null;
+  // The guard's answers in this run, by call: the same call is checked once.
+  private checked = new Map<string, GuardResult>();
 
   constructor(
     private rt: Runtime,
     private installation: AgentInstallation,
     private definition: AgentDefinition,
     private job: AgentJob | null,
+    private owner: User | null = null,
   ) {}
+
+  private async ownerOf(): Promise<User> {
+    if (this.owner) return this.owner;
+    const [u] = await this.rt.db.select().from(users).where(eq(users.id, this.installation.ownerUserId));
+    this.owner = u!;
+    return u!;
+  }
+
+  // SERV's check of a call that writes, sends or spends: once per call in a
+  // run. When SERV can't be reached, can't be paid for today or doesn't
+  // answer, the answer is ask, never allow.
+  private async guard(step: AgentStep, tool: ToolName, risk: Risk, args: unknown, ctx: CallContext | undefined): Promise<GuardResult> {
+    const key = guardKey(tool, args);
+    const seen = this.checked.get(key);
+    if (seen) return seen;
+    const owner = await this.ownerOf();
+    const input: GuardInput = {
+      definition: this.definition,
+      step,
+      tool,
+      risk,
+      args,
+      settings: settingsByLabel(this.definition, this.installation),
+      inputs: ctx?.inputs ?? {},
+      untrusted: ctx?.untrusted ?? [],
+    };
+    let result: GuardResult;
+    if (this.rt.guard) {
+      result = { ...(await this.rt.guard(input)), fallback: false, call: null };
+    } else {
+      const serv = this.rt.serv(owner);
+      const refused = serv ? await this.rt.siteRefusal(owner, serv.ownKey) : null;
+      if (!serv || refused) result = { verdict: "ask", reason: GUARD_DOWN, fallback: true, call: null };
+      else {
+        result = await askGuard(input, serv.config, { fetchImpl: this.rt.fetchImpl });
+        await this.rt.record(owner, result.call!, serv.ownKey, "agent_guard");
+      }
+    }
+    this.checked.set(key, result);
+    return result;
+  }
 
   // The installation's stand-in data, read fresh when a job (re)starts.
   private async mocks(): Promise<MockTools> {
@@ -52,10 +98,16 @@ export class JobTools implements ToolHost {
     return this.mock;
   }
 
-  async call(step: AgentStep, tool: ToolName, args: unknown, approval?: { answer: string | null }): Promise<unknown> {
+  async call(step: AgentStep, tool: ToolName, args: unknown, approval?: { answer: string | null }, ctx?: CallContext): Promise<unknown> {
     if (tool === "telegram.ask") {
       const parsed = TOOL_ARGS["telegram.ask"].safeParse(args);
       if (!parsed.success) throw new ToolError(tool, "telegram.ask was called wrongly: it takes { question, choices? }.");
+      // A question goes only to the renter, who answers it: the guard can
+      // stop one that shouldn't be asked, and asking is what it does.
+      if (!approval) {
+        const g = await this.guard(step, tool, "outbound", args, ctx);
+        if (g.verdict === "block") throw new Blocked(g.reason);
+      }
       // The owner's answer, once it has come; until then the job waits.
       if (!approval) throw new Paused({ kind: "ask", question: fixDashes(parsed.data.question), choices: parsed.data.choices?.length ? parsed.data.choices : ["Yes", "No"] });
       if (approval.answer === null) throw new Declined(null);
@@ -73,6 +125,9 @@ export class JobTools implements ToolHost {
     } else {
       const over = spend ? await overLimit(this.rt, this.installation, this.definition, this.job?.id ?? null, spend) : null;
       const why = policyAsks(readPolicy(this.installation.policy), { tool, risk, amount: spend?.amount ?? 0, toOwner: TO_OWNER_ONLY.includes(tool) });
+      const g = await this.guard(step, tool, risk, args, ctx);
+      if (g.verdict === "block") throw new Blocked(g.reason);
+      if (g.verdict === "ask") why.push(g.fallback ? g.reason : `Safety check: ${g.reason}`);
       if (over || why.length) {
         throw new Paused({ kind: why.length ? "safety" : "over_limit", question: over ?? spend?.what ?? describeCall(tool, args), choices: ["Yes", "No"], tool, reason: why.join(" ") || null });
       }
@@ -215,4 +270,12 @@ export class JobTools implements ToolHost {
       .where(here);
     return { ok: true };
   }
+}
+
+// The renter's answers and rules, by their labels, for the guard to read.
+export function settingsByLabel(d: AgentDefinition, i: Pick<AgentInstallation, "settings" | "rules">): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const s of d.settings) out[s.label] = i.settings[s.key] ?? null;
+  for (const r of d.rules) out[r.label] = i.rules[r.key] ?? r.value;
+  return out;
 }
