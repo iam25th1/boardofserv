@@ -1,7 +1,8 @@
 "use client";
 import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
-import type { AccountDTO, AdminDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
+import type { BenchData, RunEvent } from "./agents/types";
+import type { AccountDTO, AdminDTO, AgentBuilderDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
 
 // When the server sends no sentence of its own: never a status code.
 const SOMETHING_WRONG = "Something went wrong. Try again in a few minutes.";
@@ -43,6 +44,28 @@ export function useApi() {
       planAgent: (conversationId: string) =>
         json<{ agent: AgentSummaryDTO }>("/api/agents", { method: "POST", body: JSON.stringify({ conversationId }) }).then((d) => d.agent),
       getAgent: (id: string) => json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}`).then((d) => d.agent),
+      getAgentBuilder: (id: string) => json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}?view=builder`).then((d) => d.builder),
+      // Change the plan from what the maker says; it rebuilds in the background.
+      fixAgent: (id: string, message: string) =>
+        json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/fix`, { method: "POST", body: JSON.stringify({ message }) }).then((d) => d.agent),
+      // One test bench run, streamed. Returns an abort function.
+      runAgent(id: string, body: { dryRun: boolean; bench: BenchData }, on: (e: RunEvent) => void): () => void {
+        const controller = new AbortController();
+        (async () => {
+          try {
+            const res = await authed(`/api/agents/${encodeURIComponent(id)}/run`, { method: "POST", body: JSON.stringify(body), signal: controller.signal });
+            if (!res.ok || !res.body) {
+              const refused = (await res.json().catch(() => ({}))) as { error?: string };
+              on({ type: "end", status: "failed", reason: refused.error ?? "The run could not start. Try again.", steps: 0, ms: 0, costUsd: 0, memory: {}, sheets: {} });
+              return;
+            }
+            await readEvents(res.body, (_type, data) => on(data as RunEvent));
+          } catch {
+            if (!controller.signal.aborted) on({ type: "end", status: "failed", reason: "The connection dropped. Try again.", steps: 0, ms: 0, costUsd: 0, memory: {}, sheets: {} });
+          }
+        })();
+        return () => controller.abort();
+      },
       // Already on the board (409) comes back as the helper that is there.
       publishHelper: async (body: {
         conversationId: string;

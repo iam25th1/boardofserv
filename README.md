@@ -539,6 +539,41 @@ last reason and the last code. The code is stored with the version
 Dolphin's calls are on the site's key whoever builds; SERV's on the
 maker's own key when they have one.
 
+### The sandbox and the test bench
+
+Code steps run in QuickJS compiled to WebAssembly
+(`src/lib/agents/sandbox.ts`, `quickjs-emscripten-core` with its prebuilt
+release build: no native step to install), a fresh runtime for each step.
+It has no network, no files, no modules and no timers. The step's code sees
+its input as JSON and a frozen `tools` object whose functions call one host
+function, the bridge, with a tool name and JSON arguments, and get JSON
+back; the bridge lets through only the tools the step lists, and the
+toolbox checks the arguments. Only strings cross, so no prototype trick
+inside can reach the host. Five seconds (an endless loop is interrupted),
+32 MB and a small stack bound each step; deep recursion stops inside
+QuickJS as a plain error, and any fault on the host side drops the wasm
+instance rather than trusting it again. The packages are loaded from
+`node_modules` at run time (`serverComponentsExternalPackages`), since the
+runtime reads its `.wasm` file from its package.
+
+The test bench is on the agent's builder page, `/agents/:id`, for its
+maker only. The maker edits sample data for every tool's mock (sheets and
+their rows, pages, search results, the owner's answers, memory, a wallet
+balance, the settings and rules a renter would have) and runs the agent
+(`POST /api/agents/:id/run`, streamed). Each step lights up on the diagram
+and in the trace as it happens, with its input, output, tool calls, time
+and cost (`src/lib/agents/runner.ts`). Decision steps ask SERV, within the
+agent's spend limit; a dry run takes the recorded answers instead and calls
+no model. An action step is taken with its first input when that is
+already the tool's arguments; a message to the owner is made from any
+inputs. The run stops at the end, at the first failure or at the agent's
+limits on steps, time and spend, and says which.
+
+Fix by chatting (`POST /api/agents/:id/fix`): the maker says what went
+wrong ("it ignored delivery time"), SERV changes the plan from the plan as
+it is, and only the code steps whose job changed are written and reviewed
+again; the rest keep their approved code.
+
 ## Payments
 
 Users top up a balance in USDC or $SERV, pay for helper uses from it, and

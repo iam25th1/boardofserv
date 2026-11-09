@@ -125,7 +125,8 @@ export function wireToDefinition(w: Wire): unknown {
 export const PLAN_AGENT_PROMPT = [
   "You plan an agent for boardofserv from the maker's interview. Answer with the whole agent as JSON in the given schema.",
   "Steps. code: data work in a sandbox (read sheets, fetch pages, search, compare, compute, remember); describe exactly what the code must do with its inputs and what it returns, and list only the tools it calls.",
-  "decision: a judgement made by a model, with 2 to 6 outcomes, each naming the step it leads to. action: takes one declared action, using the step's inputs.",
+  "decision: a judgement made by a model, with 2 to 6 outcomes, each naming the step it leads to.",
+  "action: takes one declared action. For sheets.write and wallet.pay its first input must already be that tool's arguments ({ sheet, rows } or { to, amountUsdc, memo }), made by a code step before it; telegram.send and telegram.ask make their message from any inputs. The step's first output holds the tool's result (telegram.ask gives { answer }).",
   'A run starts at the first step. next is the next step\'s id, or "" when the run ends there.',
   "Inputs name values a step reads: settings, rules, memory, trigger, or an output of an earlier step. Outputs name what it adds.",
   `Tools: ${TOOL_NAMES.map((t) => `${t} (${TOOLS[t].summary})`).join("; ")}.`,

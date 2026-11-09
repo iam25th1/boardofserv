@@ -1,0 +1,22 @@
+/* The agents pages: the admin page's column. */
+.page {
+  min-height: 100dvh;
+}
+.col {
+  width: 100%;
+  max-width: var(--top-col);
+  margin: 0 auto;
+  padding: var(--s-6) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-8) max(var(--gutter), env(safe-area-inset-left, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+.quiet {
+  font-size: var(--t-sm);
+  color: var(--chalk-3);
+}
+.loading {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-3);
+}

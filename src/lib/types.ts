@@ -1,4 +1,6 @@
 import type { SketchFieldKey } from "./sketchFields";
+import type { AgentDefinition } from "./agents/definition";
+import type { BenchData, CodeStatus } from "./agents/types";
 // Shapes the browser works with. Dates arrive as ISO strings over JSON.
 export interface ConversationDTO {
   id: string;
@@ -90,6 +92,19 @@ export interface AgentSummaryDTO {
     // A code step's code: null for other kinds.
     code: "queued" | "writing" | "reviewing" | "approved" | "needs_attention" | null;
   }[];
+}
+
+// Everything the agent's own builder shows its maker: the definition, each
+// code step's code and review, the test bench's sample data and the
+// versions. Only ever sent to the agent's maker.
+export interface AgentBuilderDTO {
+  agent: AgentSummaryDTO;
+  name: string;
+  conversationId: string | null;
+  definition: AgentDefinition | null;
+  code: Record<string, { status: CodeStatus; source: string | null; rounds: number; note: string | null }>;
+  bench: BenchData;
+  versions: { number: number; state: "draft" | "published"; createdAt: string; publishedAt: string | null }[];
 }
 
 // A published helper as anyone may see it: never its instructions.

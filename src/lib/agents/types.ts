@@ -52,3 +52,11 @@ export interface BenchData {
 export function emptyBench(): BenchData {
   return { settings: {}, rules: {}, trigger: null, sheets: {}, pages: {}, search: {}, telegram: { answers: [] }, memory: {}, wallet: { balanceUsdc: 0 }, decisions: {} };
 }
+
+// What a test bench run reports, step by step, as it happens.
+export type RunEvent =
+  | { type: "start"; dryRun: boolean }
+  | { type: "step"; stepId: string; input: unknown }
+  | { type: "tool"; stepId: string; tool: string; args: unknown; result: unknown; error: string | null }
+  | { type: "step_done"; stepId: string; status: "ok" | "failed"; output: unknown; outcome: string | null; note: string | null; ms: number; costUsd: number }
+  | { type: "end"; status: "done" | "failed" | "stopped"; reason: string; steps: number; ms: number; costUsd: number; memory: Record<string, unknown>; sheets: BenchData["sheets"] };

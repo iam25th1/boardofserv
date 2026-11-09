@@ -208,3 +208,19 @@ export function gate(allowed: readonly ToolName[], name: unknown): ToolName {
   if (!allowed.includes(name)) throw new ToolError(name, `This step may not use ${name}.`);
   return name;
 }
+
+// The bench's sample data as the builder sends it: anything JSON, within
+// reason, in the shape the mocks read.
+const json = z.unknown().refine((v) => JSON.stringify(v ?? null).length <= 200_000, "too large");
+export const BenchSchema = z.object({
+  settings: z.record(z.unknown()),
+  rules: z.record(z.string().max(200)),
+  trigger: z.record(z.unknown()).nullable(),
+  sheets: z.record(z.array(z.record(z.unknown())).max(500)),
+  pages: z.record(z.string().max(50_000)),
+  search: z.record(z.array(z.object({ title: z.string().max(300), url: z.string().max(2000), snippet: z.string().max(2000) })).max(20)),
+  telegram: z.object({ answers: z.array(z.string().max(2000)).max(20) }),
+  memory: z.record(z.unknown()),
+  wallet: z.object({ balanceUsdc: z.number().min(0).max(1_000_000) }),
+  decisions: z.record(z.string().max(40)),
+}).refine((b) => json.safeParse(b).success, "The sample data is too large.");
