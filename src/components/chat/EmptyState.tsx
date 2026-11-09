@@ -2,10 +2,12 @@
 import { useLayoutEffect, useRef } from "react";
 import { animate, createScope, createTimeline, stagger, svg, utils } from "animejs";
 import { REDUCED_MOTION, ease } from "@/lib/motion";
+import { useTapGuard } from "@/lib/useTapGuard";
 import styles from "./EmptyState.module.css";
 
 // The first screen. A big question, a handwritten nudge with a chalk arrow,
-// and three examples. Tapping an example sends it as a real message.
+// and three examples, each a clearly bordered button. Tapping one sends it
+// as a real message; a touch that scrolls doesn't.
 
 const IDEAS = [
   {
@@ -95,25 +97,29 @@ export function EmptyState({ onPick, disabled }: { onPick: (text: string) => voi
           <span data-note>just say it plainly</span>
         </div>
         <p data-line>I&apos;ll ask what I need, sketch the agent as we talk, then run it for you. No code and no setup screens.</p>
-        <div className={styles.ideas}>
+        <ul className={styles.ideas} aria-label="Examples to start from">
           {IDEAS.map((idea) => (
-            <button
-              key={idea.k}
-              type="button"
-              className={styles.idea}
-              data-idea
-              disabled={disabled}
-              onClick={() => onPick(idea.send)}
-            >
-              <span className={styles.k}>{idea.k}</span>
-              <span className={styles.t}>{idea.t}</span>
-              <svg viewBox="0 0 100 8" preserveAspectRatio="none" className="chalky" aria-hidden="true">
-                <path d={idea.d} />
-              </svg>
-            </button>
+            <li key={idea.k}>
+              <Idea idea={idea} disabled={disabled} onPick={onPick} />
+            </li>
           ))}
-        </div>
+        </ul>
       </section>
     </div>
+  );
+}
+
+// One example: a bordered button with a press state. It counts only as a
+// tap that didn't move, so scrolling past it never sends it.
+function Idea({ idea, disabled, onPick }: { idea: (typeof IDEAS)[number]; disabled?: boolean; onPick: (text: string) => void }) {
+  const tap = useTapGuard(() => onPick(idea.send));
+  return (
+    <button type="button" className={styles.idea} data-idea disabled={disabled} {...tap}>
+      <span className={styles.k}>{idea.k}</span>
+      <span className={styles.t}>{idea.t}</span>
+      <svg viewBox="0 0 100 8" preserveAspectRatio="none" className="chalky" aria-hidden="true">
+        <path d={idea.d} />
+      </svg>
+    </button>
   );
 }

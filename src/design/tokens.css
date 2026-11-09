@@ -38,6 +38,8 @@
   --t-xs: 0.8125rem;
   --t-sm: 0.875rem;
   --t-base: 0.96875rem;
+  /* What you type in: never under 16px, or iOS zooms in on focus. */
+  --t-input: 1rem;
   --t-md: 1.0625rem;
   --t-lg: 1.25rem;
   --t-xl: 1.5rem;

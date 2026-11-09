@@ -46,7 +46,7 @@
   border: 0;
   background: transparent;
   outline: none;
-  font-size: var(--t-sm);
+  font-size: var(--t-input);
   color: var(--chalk);
 }
 .search input::placeholder {

@@ -189,3 +189,13 @@ button {
   display: flex;
   flex-direction: column;
 }
+
+/* On touch screens nothing you type in is under 16px: iOS zooms in on a
+   smaller field when it is focused, and the page jumps. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select {
+    font-size: max(16px, 1em) !important;
+  }
+}

@@ -35,6 +35,9 @@ export const viewport: Viewport = {
   initialScale: 1,
   // Lets the composer and the top bar read the safe-area insets on phones.
   viewportFit: "cover",
+  // The on-screen keyboard shrinks the page (where the browser allows it,
+  // as Chrome does) rather than covering it, so 100dvh means what's left.
+  interactiveWidget: "resizes-content",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

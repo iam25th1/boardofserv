@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
@@ -38,12 +39,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+// iOS Safari doesn't shrink the page for its keyboard: it slides the page
+// up under it, and the composer jumps. The chat's shell follows the visual
+// viewport instead (its height and where it starts), so the composer stays
+// just above the keyboard and nothing jumps.
+function useFitToVisualViewport(enabled: boolean, ref: React.RefObject<HTMLDivElement>) {
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const el = ref.current;
+    if (!enabled || !vv || !el) return;
+    const fit = () => {
+      el.style.setProperty("--app-h", `${Math.round(vv.height)}px`);
+      el.style.setProperty("--app-top", `${Math.round(vv.offsetTop)}px`);
+    };
+    fit();
+    vv.addEventListener("resize", fit);
+    vv.addEventListener("scroll", fit);
+    return () => {
+      vv.removeEventListener("resize", fit);
+      vv.removeEventListener("scroll", fit);
+      el.style.removeProperty("--app-h");
+      el.style.removeProperty("--app-top");
+    };
+  }, [enabled, ref]);
+}
+
 function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname() ?? "";
+  const fit = path.startsWith("/app/chat");
+  const ref = useRef<HTMLDivElement>(null);
+  useFitToVisualViewport(fit, ref);
   return (
     // The chat fills the window exactly, its composer at the bottom; other
     // pages scroll.
-    <div className={styles.shell} data-fit={path.startsWith("/app/chat") ? "true" : undefined}>
+    <div className={styles.shell} data-fit={fit ? "true" : undefined} ref={ref}>
       <header className={styles.bar}>
         <div className={styles.row}>
           <Link href="/" className={styles.home} aria-label="boardofserv, the front page">

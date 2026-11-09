@@ -52,20 +52,47 @@
 }
 
 .ideas {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  margin-top: 10px;
-  border-top: 1px solid var(--line);
+  gap: var(--s-3);
 }
 
+/* Each example: a chalk-outlined button with room around it, so a finger
+   can't hit one by accident, and a press you can see. */
 .idea {
   position: relative;
   display: flex;
   align-items: baseline;
   gap: var(--s-4);
+  width: 100%;
+  min-height: 56px;
   text-align: left;
-  padding: 15px 4px;
-  border-bottom: 1px solid var(--line);
+  padding: 14px var(--s-4) 18px;
+  border: var(--stroke) solid var(--line);
+  border-radius: var(--r-lg);
+  background: transparent;
+  color: var(--chalk);
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    border-color var(--dur) var(--ease),
+    background-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+.idea:hover {
+  border-color: var(--chalk-3);
+}
+.idea:active:not(:disabled) {
+  background: var(--dust);
+  border-color: var(--chalk);
+  transform: translateY(1px);
+}
+.idea:focus-visible {
+  outline: var(--focus);
+  outline-offset: 3px;
 }
 .idea:disabled {
   cursor: default;
@@ -89,9 +116,9 @@
 /* The chalk underline, drawn by anime.js on hover and focus. */
 .idea svg {
   position: absolute;
-  left: 120px;
+  left: 136px;
   bottom: 8px;
-  width: calc(100% - 128px);
+  width: calc(100% - 152px);
   height: 8px;
   overflow: visible;
   pointer-events: none;
@@ -112,7 +139,16 @@
     gap: 2px;
   }
   .idea svg {
-    left: 4px;
-    width: calc(100% - 8px);
+    left: var(--s-4);
+    width: calc(100% - 2 * var(--s-4));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .idea {
+    transition: none;
+  }
+  .idea:active:not(:disabled) {
+    transform: none;
   }
 }

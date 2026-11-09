@@ -3,7 +3,7 @@
   min-height: var(--s-10);
   resize: vertical;
   font-family: var(--font-body);
-  font-size: var(--t-base);
+  font-size: var(--t-input);
   line-height: var(--lh-body);
   color: var(--chalk);
   background-color: var(--slate-2);
