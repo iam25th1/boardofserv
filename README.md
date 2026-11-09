@@ -395,6 +395,50 @@ line carries either, or any part of anyone's email (apart from the account
 menu's response to its owner).
 
 
+## Agents
+
+An agent runs on its own: on a schedule, when a value it checks changes, or
+when a message comes in. A maker builds one in the chat, SERV plans it,
+Dolphin writes its code, SERV reviews that code, and the maker tries it on
+a test bench before publishing a version.
+
+### The agent format
+
+`src/lib/agents/definition.ts`: one versioned definition (`format: 1`),
+checked with zod.
+
+- `job`: what it does and what counts as done.
+- `triggers`: a schedule (every hour, day or week, at a time), a value
+  checked every so many minutes, or an incoming Telegram message. Stored
+  now, run in a later phase.
+- `settings`: the questions each renter answers at setup (label, type, help).
+- `rules`: the limits a renter may adjust, each with the maker's default (a
+  spend cap in USDC, an approval threshold, an allowed list).
+- `memory`: named values kept per renter between jobs.
+- `steps`: each with an id, title, kind, inputs, outputs and where it goes
+  next. A code step carries a plain description of what its code must do and
+  the tools it may call; a decision step carries a prompt for SERV and two to
+  six outcomes, each with its own next step; an action step takes one
+  declared action. A run starts at the first step.
+- `actions`: the only actions the agent may ever take. A step may use a
+  tool with a side effect (`sheets.write`, `telegram.send`, `telegram.ask`,
+  `wallet.pay`) only when an action declares it.
+- `limits`: the most steps, seconds and model spend (US dollars) one job
+  may use.
+
+Steps pass values through one bag per run: `settings`, `rules`, `memory`
+and `trigger` are in it from the start, and each step adds its outputs. The
+checks beyond the shape: names are unique, every next step exists and every
+step can be reached from the first, every input comes from somewhere, action
+steps take declared actions, and side effects are declared.
+
+Agents live in `agents` (owner, the conversation it was built in, name) and
+`agent_versions` (number, state, definition, code, bench data, build state).
+An agent has at most one draft. Publishing turns the draft into a version
+that never changes again: every write to a version is guarded by
+`state = 'draft'` (`src/lib/agents/store.ts`), and editing after that starts
+a new draft copied from the newest published version.
+
 ## Payments
 
 Users top up a balance in USDC or $SERV, pay for helper uses from it, and
