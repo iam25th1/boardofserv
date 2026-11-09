@@ -1,5 +1,6 @@
 import "server-only";
 import { qualityOf, scoredJobs } from "../reppo/quality";
+import { openBlocks } from "../reppo/blocks";
 import { and, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { agentInstallations, agentJobs, agentJobSteps, agentVersions, holds, ledgerEntries, rentalCharges, rentals, users, type Agent } from "../db/schema";
 import type { MakerDashboardDTO } from "../types";
@@ -87,6 +88,7 @@ export async function makerDashboard(rt: Runtime, agent: Agent): Promise<MakerDa
     listing,
     quality,
     scored: await scoredJobs(rt, agent.id),
+    flagged: await openBlocks(rt, agent.id),
     decimals: USDC_DECIMALS,
     renters,
     earnings,

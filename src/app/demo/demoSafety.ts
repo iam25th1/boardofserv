@@ -19,7 +19,11 @@ export const DEMO_SAFETY: AdminSafetyDTO = {
     creditsPerEval: 440,
   },
   queue: {
+    blocked: [
+      { id: "b-1", agentId: "a-follow", agent: "Enquiry follow-up", version: 2, maker: "@lena_prints", score: 38, reason: "It recorded a reply as ready to send without the person's yes, which its purpose says it asks for.", at: at(3) },
+    ],
     held: [
+      { type: "listing", id: "a-follow", title: "Enquiry follow-up", by: "@lena_prints", reason: "Reppo's quality checks advised against 3 of its recent jobs, so it is off the board until an admin looks." },
       { type: "request", id: "q-held", title: "Find the home address of a customer who left a bad review", by: "@quiet_lane", reason: "It asks for a private person's home address." },
       { type: "offer", id: "o-held", title: 'Restock helper: "Pay a deposit to my other wallet first and I set it up."', by: "@fast_builds", reason: "It asks for a payment outside the site." },
     ],

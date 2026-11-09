@@ -7,7 +7,7 @@ import { requireAdmin } from "../guard";
 export const runtime = "nodejs";
 
 const Body = z.object({
-  type: z.enum(["report", "listing", "request", "offer"]),
+  type: z.enum(["report", "listing", "request", "offer", "reppo"]),
   id: z.string().max(64),
   action: z.enum(["approve", "hide", "freeze"]),
   reason: z.string().trim().min(3).max(300),

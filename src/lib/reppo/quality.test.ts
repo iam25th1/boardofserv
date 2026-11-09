@@ -108,7 +108,7 @@ describe("the quality score", () => {
     const p = await listed();
     await scored(p, p.version.id, 38, "block", "It recorded the order without asking first.");
     const jobs = await scoredJobs(rt, p.agent.id);
-    expect(jobs).toEqual([{ id: expect.any(String), at: expect.any(String), version: 1, score: 38, route: "block", confidence: null, reason: "It recorded the order without asking first.", rubric: { scope: 38, safety: 90 } }]);
+    expect(jobs).toEqual([{ id: expect.any(String), at: expect.any(String), version: 1, score: 38, route: "block", confidence: null, reason: "It recorded the order without asking first.", rubric: { scope: 38, safety: 90 }, flagged: true }]);
     const d = await makerDashboard(rt, p.agent);
     expect(d.scored).toHaveLength(1);
     expect(d.quality).toMatchObject({ reviewed: 1 });

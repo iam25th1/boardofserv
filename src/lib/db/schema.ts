@@ -994,6 +994,9 @@ export const agentListings = pgTable(
     screen: text("screen", { enum: ["ok", "held", "hidden"] }).notNull().default("ok"),
     screenReason: text("screen_reason"),
     screenHash: text("screen_hash"),
+    // Reppo's blocks before this don't count toward a hold: set when an
+    // admin lets a held listing back on the board.
+    qualityClearedAt: timestamp("quality_cleared_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -1272,6 +1275,11 @@ export const reppoEvals = pgTable(
     reason: text("reason"),
     rubric: jsonb("rubric").$type<Record<string, number>>(),
     creditsCharged: integer("credits_charged").notNull().default(0),
+    // A job Reppo routed to block waits in the admin queue until an admin
+    // looks: when, who, and what they decided.
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewedBy: uuid("reviewed_by"),
+    resolution: text("resolution"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),

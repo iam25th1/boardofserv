@@ -85,6 +85,8 @@ describe("the admin queue", () => {
       expect((await moderateIt(post("/api/admin/moderate", bad))).status, JSON.stringify(bad)).toBe(400);
     }
     expect((await moderateIt(post("/api/admin/moderate", { ...body, id: "nope" }))).status).toBe(409);
+    // A Reppo block that isn't waiting (or isn't a block at all) isn't in the queue.
+    expect((await moderateIt(post("/api/admin/moderate", { ...body, type: "reppo", id: open!.id }))).status).toBe(409);
     const done = await moderateIt(post("/api/admin/moderate", body));
     expect(done.status).toBe(200);
     const safety = ((await done.json()) as { safety: { queue: { reports: { id: string }[] } } }).safety;

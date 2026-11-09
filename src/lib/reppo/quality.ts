@@ -100,7 +100,7 @@ export async function qualityOf(rt: Runtime, listed: { agentId: string; versionI
 // scores, with nothing of the renter's (no who, no what it read).
 export async function scoredJobs(rt: Runtime, agentId: string, limit = 30): Promise<ScoredJobDTO[]> {
   const rows = await rt.db
-    .select({ id: reppoEvals.id, at: reppoEvals.completedAt, version: agentVersions.number, score: reppoEvals.score, route: reppoEvals.route, confidence: reppoEvals.confidence, reason: reppoEvals.reason, rubric: reppoEvals.rubric })
+    .select({ id: reppoEvals.id, at: reppoEvals.completedAt, version: agentVersions.number, score: reppoEvals.score, route: reppoEvals.route, confidence: reppoEvals.confidence, reason: reppoEvals.reason, rubric: reppoEvals.rubric, reviewedAt: reppoEvals.reviewedAt })
     .from(reppoEvals)
     .innerJoin(agentVersions, eq(agentVersions.id, reppoEvals.versionId))
     .where(and(eq(reppoEvals.agentId, agentId), eq(reppoEvals.kind, "job"), eq(reppoEvals.status, "completed")))
@@ -115,5 +115,6 @@ export async function scoredJobs(rt: Runtime, agentId: string, limit = 30): Prom
     confidence: r.confidence,
     reason: r.reason,
     rubric: r.rubric ?? {},
+    flagged: r.route === "block" && r.reviewedAt === null,
   }));
 }

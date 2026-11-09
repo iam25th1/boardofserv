@@ -3,6 +3,7 @@ import type { Runtime } from "../agents/runtime/context";
 import type { CallOptions } from "./client";
 import { pollDue, submitDue } from "./evals";
 import { onOpinion } from "./opinion";
+import { onJobResult } from "./blocks";
 import { reppoSettings, sampleFinished, submitRoom } from "./sampling";
 
 // Reppo's part of the job worker's cycle: sample jobs that finished, submit
@@ -14,5 +15,11 @@ export async function reppoCycle(rt: Runtime, o: { call?: CallOptions } = {}): P
   const settings = reppoSettings();
   await sampleFinished(rt, settings);
   await submitDue(rt, { room: (r, row) => submitRoom(r, row, settings), call: o.call });
-  await pollDue(rt, { onResult: onOpinion, call: o.call });
+  await pollDue(rt, {
+    onResult: async (r, row) => {
+      await onOpinion(r, row);
+      await onJobResult(r, row);
+    },
+    call: o.call,
+  });
 }

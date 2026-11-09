@@ -260,3 +260,11 @@
     grid-row: 2;
   }
 }
+/* Jobs Reppo advised against, waiting for an admin: a dashed chalk note. */
+.flag {
+  padding: var(--s-2) var(--s-3);
+  border: 1px dashed var(--chalk);
+  border-radius: var(--r-md);
+  font-size: var(--t-sm);
+  max-width: 64ch;
+}

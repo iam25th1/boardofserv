@@ -82,7 +82,7 @@ export function ListingPanel({ agentId, version, listing, save }: { agentId: str
       </div>
       {listing?.screen === "held" && (
         <p className={styles.said} data-bad="true" role="status">
-          It isn&apos;t on the board yet: it waits for an admin to look. {listing.screenReason}
+          It is off the board while it waits for an admin to look. {listing.screenReason}
         </p>
       )}
       {listing?.screen === "hidden" && (

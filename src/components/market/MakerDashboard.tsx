@@ -118,6 +118,11 @@ export function MakerDashboard({ id, api }: { id: string; api: MakerDashboardApi
         <p className={styles.quiet}>Counted by the step that failed. What a renter&apos;s job read or wrote stays theirs.</p>
       </section>
 
+      {d.flagged > 0 && (
+        <p className={styles.flag} role="status">
+          Reppo&apos;s quality checks advised against {d.flagged === 1 ? "one of its jobs" : `${d.flagged} of its jobs`}. An admin looks at each; several on one version put its listing on hold until they do. Its reasons are below.
+        </p>
+      )}
       {d.quality && <QualityPanel q={d.quality} title="Quality of its listed version" />}
       <ScoredJobs jobs={d.scored} />
       <AgentRuns load={api.runs} />

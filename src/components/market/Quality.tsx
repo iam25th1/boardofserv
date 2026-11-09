@@ -78,6 +78,7 @@ export function ScoredJobs({ jobs }: { jobs: ScoredJobDTO[] }) {
               <div className={styles.jobHead}>
                 <strong>{j.score ?? "?"}</strong>
                 <span className={styles.chip}>{j.route ? ROUTE_WORDS[j.route] : "no route"}</span>
+                {j.flagged && <span className={styles.chip}>flagged for an admin</span>}
                 <span className={styles.meta}>
                   version {j.version}
                   {j.confidence ? `, ${j.confidence} confidence` : ""}

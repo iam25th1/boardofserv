@@ -235,6 +235,8 @@ export interface ScoredJobDTO {
   confidence: string | null;
   reason: string | null;
   rubric: Record<string, number>;
+  // Routed to block and waiting for an admin to look.
+  flagged: boolean;
 }
 
 // An agent on the board, for anyone: what it does, what it connects to,
@@ -635,6 +637,8 @@ export interface MakerDashboardDTO {
   // Its listed (or newest) version's quality, and the jobs Reppo scored.
   quality: QualityDTO | null;
   scored: ScoredJobDTO[];
+  // Jobs Reppo routed to block that an admin hasn't looked at yet.
+  flagged: number;
 }
 
 // A request on the request board, for anyone: what someone wants an agent
@@ -699,6 +703,8 @@ export interface FreezeDTO {
 export interface ModerationQueueDTO {
   reports: { id: string; kind: "agent" | "maker" | "request" | "offer"; target: string; targetId: string; reason: string; reasonWords: string; note: string; by: string; createdAt: string }[];
   held: { type: "listing" | "request" | "offer"; id: string; title: string; by: string; reason: string }[];
+  // Jobs Reppo's quality checks routed to block, with Reppo's reason.
+  blocked: { id: string; agentId: string; agent: string; version: number; maker: string; score: number | null; reason: string; at: string }[];
 }
 
 // Reppo's quality checks, for the admin: credits used, what is in flight
