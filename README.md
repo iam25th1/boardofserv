@@ -997,8 +997,78 @@ and their data hidden (`GET /api/agents/:id/audit`); admins see everything
 
 ### Seeing it without a sign-in
 
-In development, `/demo?safety=approval|review|budget|kill|queue|audit`
+In development, `/demo?safety=approval|review|budget|kill|held|queue|audit`
 shows each safeguard's screen with sample data.
+
+## Quality: Reppo
+
+[Reppo's Eval Router](https://eval.reppo.xyz/agents.md) scores what agents
+do. It is a second opinion for people to read: it never allows, approves
+or blocks an action on its own. With `REPPO_API_KEY` unset it is off and
+everything else works as before.
+
+### What Reppo is shown
+
+Submissions are treated as public. An evaluation's input is built only
+from what is public already (an agent's published purpose, step titles,
+the outcomes its decisions can pick, what its actions are for) and words
+fixed in `src/lib/reppo/redact.ts` (what started the job, which steps ran,
+which actions ran, what SERV's safety check said, who let them run, how it
+ended). Never a renter's name, contacts, answers, sheets, messages,
+memory, amounts, wallet addresses, links or ids, nor the agent's code or
+prompts; a last pass takes out anything that looks like one, and every
+value the renter gave it. The input stored on `reppo_evals` is exactly
+what was sent.
+
+### Scoring jobs
+
+The worker's cycle (beside the jobs, never in their way) samples finished
+jobs sparsely: the first few of each new version (`REPPO_FIRST_JOBS`, 3),
+then one in N (`REPPO_SAMPLE_EVERY`, 10), at most so many a week for each
+agent (`REPPO_AGENT_WEEKLY_CAP`, 10), free examples included, and never past
+the site's daily credit budget (`REPPO_DAILY_CREDITS`, 4400: ten
+evaluations at 440 credits). It submits them (`POST
+/api/v1/agents/evals`, task type `action`), reads each back from 30
+seconds on with growing gaps, and records the score, route, reason and
+rubric scores. One row per job or approval, so nothing is scored twice.
+Reppo slow, down, out of credits or refusing the key never touches a job:
+the failure is recorded and tried again later, a few times; a 401 or 402
+stops submissions for an hour. Admins see credits used today and this
+week, what is in flight and waiting, and the settings on
+`/app/admin/safety`.
+
+### Second opinions
+
+A payment, or something sent to a contact the renter never gave the agent,
+that already waits for the renter's yes also gets a Reppo action
+evaluation, queued beside the wait (`REPPO_ACTION_OPINIONS=0` turns this
+off). The approval card shows "still being checked" until it comes, then
+the score, the route in words and Reppo's reason; Telegram's question says
+one is coming, and it follows in the renter's chat while the question
+waits. The renter's answer is always the decision; a late or missing
+opinion never holds anything up (`src/lib/reppo/opinion.ts`).
+
+### Quality score
+
+Each version's rolling score from its latest scored jobs
+(`REPPO_SCORE_WINDOW`, 30), shown once enough were reviewed
+(`REPPO_MIN_SCORED`, 5), otherwise "not enough reviewed jobs yet", with
+how many were and the share routed ship, review and block. A new version
+starts fresh and shows the previous version's score as history. Board
+cards and agent pages show it; the board sorts by it (`?sort=quality`) and
+filters by it (`?quality=N`). The maker's dashboard lists each scored job
+with its score, route, reason and rubric scores, with nothing of the
+renter's (`src/lib/reppo/quality.ts`).
+
+### Blocks and holds
+
+A job Reppo routes to block is flagged on its maker's dashboard and waits
+in the admin queue with Reppo's reason; admins approve, hide the listing
+or freeze the version. Several blocks on the listed version within a
+window (`REPPO_HOLD_BLOCKS`, 3, within `REPPO_HOLD_DAYS`, 7) put its listing
+on hold: off the board until an admin looks, its renters told in plain
+words, their installations running as before with their pause button
+(`src/lib/reppo/blocks.ts`).
 
 ## Payments
 

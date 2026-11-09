@@ -137,6 +137,14 @@ Safeguards, optional, with defaults: `AGENT_MODEL_BUDGET_USDC` (1),
 `AGENT_OUTBOUND_PER_HOUR` (20), `AGENT_ACTIONS_PER_JOB` (40),
 `AGENT_STEP_VISITS` (12), `AGENT_SAME_FAILURES` (3).
 
+Reppo, to add to the store before the deploy that brings it:
+`REPPO_API_KEY`. Optional, with defaults: `REPPO_FIRST_JOBS` (3),
+`REPPO_SAMPLE_EVERY` (10), `REPPO_AGENT_WEEKLY_CAP` (10),
+`REPPO_DAILY_CREDITS` (4400), `REPPO_ACTION_OPINIONS` (on),
+`REPPO_MIN_SCORED` (5), `REPPO_SCORE_WINDOW` (30), `REPPO_HOLD_BLOCKS` (3),
+`REPPO_HOLD_DAYS` (7). Never `REPPO_BASE_URL` in production (tests only;
+anything not on reppo.xyz is ignored).
+
 Connections (Telegram, Google Sheets, web search), to add to the store
 before the deploy that brings them: `TELEGRAM_BOT_TOKEN`, `GOOGLE_CLIENT_ID`,
 `GOOGLE_CLIENT_SECRET`, `BRAVE_SEARCH_API_KEY`. Optional, with defaults:
@@ -265,6 +273,25 @@ deploy again, or `pier restart boardofserv`.
    saved one as a new version; see "Update the example agents" below.
 5. Open `/app/admin/safety` as an admin: the queue, freezes, model cost this
    week, code reviews and the audit log.
+
+### After the deploy that brings Reppo
+
+1. Add `REPPO_API_KEY` to the service's environment in Pier's dashboard
+   (http://127.0.0.1:7433, the Environment tab): it is in the development
+   `.env.local`. Without it Reppo stays off and nothing else changes.
+2. `pier deploy boardofserv`. The schema push adds the `reppo_evals` table
+   and columns only (`agent_jobs.reppo_sample`,
+   `agent_listings.quality_cleared_at`; migrations 0043 to 0045). The
+   build no longer fetches fonts from Google: they are in the repo.
+3. Update the example agents (below), so the enquiry follow-up already on
+   the board gets its every 15 minutes schedule.
+4. Open `/app/admin/safety` as an admin: "Reppo quality checks" shows
+   credits used today and this week. The first scores appear a minute or
+   two after the first jobs of each version finish; quality shows on the
+   board once a version has 5 reviewed jobs.
+5. Top up Reppo credits at https://eval.reppo.xyz/billing when the panel
+   says they ran out (the account started with 22,000 credits, 50
+   evaluations). Lower `REPPO_DAILY_CREDITS` to spend less.
 
 ### Update the example agents
 

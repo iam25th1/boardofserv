@@ -136,7 +136,12 @@ function Side({ d }: { d: MakerDashboardDTO }) {
   return (
     <div className={styles.side}>
       <div className={styles.priceBox}>
-        <span className={styles.hand}>{l?.listed ? "On the board" : "Not on the board"}</span>
+        <span className={styles.hand}>{l?.listed && l.screen === "ok" ? "On the board" : l?.listed && l.screen === "held" ? "On hold for review" : "Not on the board"}</span>
+        {l?.screen === "held" && (
+          <p className={styles.held} role="status">
+            Off the board while an admin looks. {l.screenReason} Renters keep running it as before.
+          </p>
+        )}
         {l && (
           <p className={styles.price}>
             {BigInt(l.weeklyPrice) === 0n ? "Free to rent" : `${price(l.weeklyPrice, l.decimals)} a week`}
@@ -144,7 +149,7 @@ function Side({ d }: { d: MakerDashboardDTO }) {
           </p>
         )}
         <Link href={`/app/agents/${d.agentId}`}>{l ? "Change the price in its builder" : "Put it on the board from its builder"}</Link>
-        {l?.listed && <Link href={`/app/board/agents/${d.agentId}`}>See its page</Link>}
+        {l?.listed && l.screen === "ok" && <Link href={`/app/board/agents/${d.agentId}`}>See its page</Link>}
       </div>
       <section aria-labelledby="versions-h" className={styles.versions}>
         <h2 id="versions-h">Versions</h2>
