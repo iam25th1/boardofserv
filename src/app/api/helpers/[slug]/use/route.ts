@@ -7,6 +7,7 @@ import { CURRENCIES, formatAmount, type Currency } from "@/lib/money";
 import { paymentsConfig } from "@/lib/payments/config";
 import { balancesOf } from "@/lib/payments/ledger";
 import { capture, pricesOf, release, reserve, type Hold } from "@/lib/payments/uses";
+import { servKeyOf } from "@/lib/servKey";
 import { refusal } from "@/lib/spend";
 import type { BalanceDTO, PriceDTO, QuotaDTO } from "@/lib/types";
 
@@ -30,7 +31,8 @@ function sse(event: string, data: unknown): string {
 }
 
 // One use of a published helper: a fresh single turn of its system prompt and
-// the user's input, nothing else. It runs on SERV with the operator's key and
+// the user's input, nothing else. It runs on SERV with the operator's key (or
+// the user's own SERV key, when they have set one) and
 // declares serv_prompt_guard; the content filter stays on. The answer streams
 // through the leak guard, which stops it if it carries the helper's canary or
 // a long run of its instructions. The system prompt and canary are never in
@@ -50,7 +52,9 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
   const helper = await helperSecret(params.slug);
   if (!helper) return Response.json({ error: "Not found" }, { status: 404 });
   if (helper.unpublishedAt) return Response.json({ error: "This helper was taken down." }, { status: 410 });
-  const no = await refusal(user.id, { ownKey: false });
+  const base = modelConfig(process.env, { servKey: servKeyOf(user) });
+  const ownKey = Boolean(base.ownKey);
+  const no = await refusal(user.id, { ownKey });
   if (no) return Response.json(no, { status: 429 });
 
   const prices = (await pricesOf([helper.id])).get(helper.id) ?? [];
@@ -80,13 +84,13 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
     if (quota.remaining === 0) return Response.json({ error: "No uses left today.", quota }, { status: 429 });
   }
 
-  const base = modelConfig();
-  // Uses go to SERV only: a backup model would not know the guard.
+  // Uses go to SERV only (on the person's own key when they have one): a
+  // backup model would not know the guard.
   const config = { ...base, providers: base.providers.filter((p) => p.id === "serv") };
   const controller = new AbortController();
   req.signal.addEventListener("abort", () => controller.abort());
   const started = Date.now();
-  const useId = await startUse(helper.id, user.id, hold?.id ?? null);
+  const useId = await startUse(helper.id, user.id, hold?.id ?? null, ownKey);
 
   const stream = new ReadableStream<Uint8Array>({
     async start(ctrl) {

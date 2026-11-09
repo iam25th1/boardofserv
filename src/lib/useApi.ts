@@ -54,6 +54,9 @@ export function useApi() {
         json<{ available: boolean; error?: string }>(`/api/account/handle?handle=${encodeURIComponent(handle)}`, { signal }),
       setHandle: (handle: string) =>
         json<{ handle: string; handleChosen: boolean }>("/api/account/handle", { method: "PATCH", body: JSON.stringify({ handle }) }),
+      setServKey: (key: string) =>
+        json<{ servKey: { last4: string } }>("/api/account/serv-key", { method: "POST", body: JSON.stringify({ key }) }).then((d) => d.servKey),
+      removeServKey: () => json<{ servKey: null }>("/api/account/serv-key", { method: "DELETE" }),
       linkStart: (address: string) => json<{ message: string }>("/api/openserv/link/start", { method: "POST", body: JSON.stringify({ address }) }),
       linkFinish: (address: string, message: string, signature: string) =>
         json<{ ok: boolean; openservUserId: string }>("/api/openserv/link/finish", { method: "POST", body: JSON.stringify({ address, message, signature }) }),

@@ -17,6 +17,7 @@ export async function GET(req: Request) {
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
 
   const linked = Boolean(user.openservKeyEncrypted);
+  const own = Boolean(user.servKeyEncrypted);
   let balance: "ok" | "low" | "unknown" = "unknown";
   if (linked && user.openservKeyEncrypted) {
     try {
@@ -35,7 +36,10 @@ export async function GET(req: Request) {
     linked,
     balance,
     admin: isAdmin(user),
-    chat: await chatQuota(user.id),
-    paused: await siteLimitReached(),
+    // Only the last four characters of the user's own SERV key, never more.
+    servKey: user.servKeyLast4 ? { last4: user.servKeyLast4 } : null,
+    // Own-key accounts have no daily limit and never pause.
+    chat: own ? null : await chatQuota(user.id),
+    paused: own ? false : await siteLimitReached(),
   });
 }

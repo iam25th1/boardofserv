@@ -96,24 +96,37 @@ server and checks). `GET /api/health` answers
 503 with `ok: false` while the database can't be reached; it never carries an
 address, a version or an error.
 
-## How a user signs in and links OpenServ
+## How a user signs in, and their own SERV key
 
 1. The user signs in with an email code through Privy and gets an embedded EOA.
-2. Linking is optional: chatting never needs it. When the user links OpenServ
-   from the account menu, that wallet signs OpenServ's SIWE message in the
-   browser.
-3. The server completes sign-in (`/auth/wallet/verify`), receives the user's
-   OpenServ API key, encrypts it with `OPENSERV_KEY_ENC_KEY`, and stores only the
-   ciphertext. The key is decrypted on the server when a request to OpenServ is
-   made, and never sent to the browser.
+2. Chatting needs nothing else: it runs on the site's own model keys, within
+   the daily limits below.
+3. "Use your own SERV key" in the account menu takes the user's own SERV
+   inference key. The server checks it with one request of one output token,
+   on that key's own credit (`src/lib/servKey.ts`): SERV must answer 200, so a
+   refused key or one out of credit is turned away with a plain sentence. The
+   key is then encrypted with `OPENSERV_KEY_ENC_KEY`, only the ciphertext and
+   its last four characters are stored, and the menu shows it as "Ending abcd"
+   with Remove. From then on the user's chat turns, plan calls, publishing and
+   helper uses go to SERV on their key and nowhere else (no Dolphin, no
+   backup), with no daily message limit, outside the site's spend limit and
+   never paused by it.
+
+Linking an OpenServ account (the embedded wallet signing OpenServ's SIWE
+message, the server storing the API key that sign-in returns, encrypted) is
+no longer offered in the account menu. Its code (`src/lib/useOpenServLink.ts`,
+`/api/openserv/link/*`) and stored keys are kept, and an account linked
+before still shows as linked.
 
 ## Security
 
 This app holds access to every user's OpenServ account, so secrets never leave
 the server:
 
-- Each OpenServ key is encrypted at rest (AES-256-GCM, `src/lib/crypto.ts`) and
-  decrypted only on the server.
+- Each OpenServ key and each user's own SERV key is encrypted at rest
+  (AES-256-GCM, `src/lib/crypto.ts`) and decrypted only on the server. A SERV
+  key is shown to its owner as its last four characters and is never in a
+  response or a log line (`src/test/secrecy.test.ts`).
 - Server modules import `server-only`, so an accidental client import fails the
   build rather than shipping a secret to the browser.
 - `src/test/secret-leak.test.ts` fails the build if a Client Component imports a
@@ -205,6 +218,8 @@ its provider and model. None of them stores message text.
   Once it is reached, chat, publishing and helper uses pause for everyone with
   "boardofserv has hit today's limit. It resets at midnight UTC." /admin shows
   today's spend against the limit.
+- Someone using their own SERV key has no daily message limit, is never
+  paused, and nothing they do counts towards the site's spend (`own_key`).
 - A refused turn is refused before anything is stored, and its text goes back
   into the composer.
 

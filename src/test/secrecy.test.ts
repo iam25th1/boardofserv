@@ -15,6 +15,7 @@ import { syncWallets } from "@/lib/payments/wallets";
 import { payoutTick } from "@/lib/payments/withdrawals";
 import * as handle from "@/app/api/account/handle/route";
 import * as account from "@/app/api/account/route";
+import * as servKey from "@/app/api/account/serv-key/route";
 import * as board from "@/app/api/board/route";
 import * as chat from "@/app/api/chat/route";
 import * as conversationMessages from "@/app/api/conversations/[id]/messages/route";
@@ -58,6 +59,7 @@ vi.mock("@/lib/auth-route", () => ({ getUserFromRequest: async () => state.user 
 const ROUTES: Record<string, object> = {
   "account": account,
   "account/handle": handle,
+  "account/serv-key": servKey,
   "board": board,
   "chat": chat,
   "conversations": conversations,
@@ -237,6 +239,8 @@ describe("a helper's instructions stay on the server", () => {
     await hit("rename", conversation.PATCH(req(`/api/conversations/${cid}`, "PATCH", { title: "Shop blurbs, renamed" }), { params: { id: cid } }));
     await hit("chat", chat.POST(req("/api/chat", "POST", { conversationId: cid, content: "Also refuse gift cards." })));
     await hit("account", account.GET(req("/api/account")));
+    await hit("serv key without a key", servKey.POST(req("/api/account/serv-key", "POST", {})));
+    await hit("serv key remove", servKey.DELETE(req("/api/account/serv-key", "DELETE")));
     await hit("health", healthRoute.GET());
     await hit("handle check", handle.GET(req("/api/account/handle?handle=shopkeeper")));
     await hit("handle set", handle.PATCH(req("/api/account/handle", "PATCH", { handle: "shopkeeper" })));

@@ -173,8 +173,6 @@ export function DemoHarness({
         account={
           <AccountMenu
             account={account}
-            linking={false}
-            onLink={() => {}}
             onSignOut={() => {}}
             onOpenShortcuts={() => {}}
             checkHandle={demoCheckHandle}

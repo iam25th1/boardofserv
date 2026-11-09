@@ -7,6 +7,7 @@ import { contextFor, CUT_OFF_SUFFIX, modelConfig, streamReply, type ChatMessage,
 import { mergeSketch, SketchSplitter } from "@/lib/sketchBlock";
 import { planTurn } from "@/lib/sketchPlan";
 import { loadSketch, saveSketch } from "@/lib/sketchStore";
+import { servKeyOf } from "@/lib/servKey";
 import { refusal } from "@/lib/spend";
 import { replySystemPrompt, type TurnPlan } from "@/lib/systemPrompt";
 
@@ -39,8 +40,9 @@ export async function POST(req: Request) {
 
   // Every turn is a reply: refuse it before anything is stored when the day's
   // limits are reached.
-  const config = modelConfig();
-  const no = await refusal(user.id, { ownKey: false, chat: true });
+  const config = modelConfig(process.env, { servKey: servKeyOf(user) });
+  const ownKey = Boolean(config.ownKey);
+  const no = await refusal(user.id, { ownKey, chat: true });
   if (no) return Response.json(no, { status: 429 });
 
   // Resolve the conversation, creating one on the first message.
@@ -104,7 +106,7 @@ export async function POST(req: Request) {
 
   const controller = new AbortController();
   req.signal.addEventListener("abort", () => controller.abort());
-  const usageId = await startUsage(cid, user.id, false);
+  const usageId = await startUsage(cid, user.id, ownKey);
 
   const stream = new ReadableStream<Uint8Array>({
     async start(ctrl) {

@@ -224,11 +224,11 @@ export async function quotaFor(userId: string, now: Date = new Date()): Promise<
 // answer. The row is written as the use starts, so uses running at the same
 // time all count against the limit, and finished when it ends. A failure to
 // record never breaks the use.
-export async function startUse(helperId: string, userId: string, holdId: string | null = null): Promise<string | null> {
+export async function startUse(helperId: string, userId: string, holdId: string | null = null, ownKey = false): Promise<string | null> {
   try {
     const [row] = await db
       .insert(helperUses)
-      .values({ helperId, userId, holdId, latencyMs: 0, outcome: "ok", createdAt: new Date() })
+      .values({ helperId, userId, holdId, ownKey, latencyMs: 0, outcome: "ok", createdAt: new Date() })
       .returning({ id: helperUses.id });
     return row?.id ?? null;
   } catch (err) {

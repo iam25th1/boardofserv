@@ -10,6 +10,7 @@ import { isUniqueViolation } from "@/lib/users";
 import { modelConfig } from "@/lib/model";
 import { fieldsOf } from "@/lib/sketchFields";
 import { loadSketch } from "@/lib/sketchStore";
+import { servKeyOf } from "@/lib/servKey";
 import { refusal } from "@/lib/spend";
 
 export const runtime = "nodejs";
@@ -54,8 +55,8 @@ export async function POST(req: Request) {
   }
   const live = await liveHelperFor(conversationId);
   if (live) return Response.json({ error: "This helper is already on the board.", helper: live }, { status: 409 });
-  const config = modelConfig();
-  const no = await refusal(user.id, { ownKey: false });
+  const config = modelConfig(process.env, { servKey: servKeyOf(user) });
+  const no = await refusal(user.id, { ownKey: Boolean(config.ownKey) });
   if (no) return Response.json(no, { status: 429 });
 
   const history = await db
@@ -72,7 +73,7 @@ export async function POST(req: Request) {
       conversationId,
       userId: user.id,
       kind: "compile",
-      ownKey: false,
+      ownKey: Boolean(config.ownKey),
       provider: result.provider,
       model: result.model,
       promptTokens: result.promptTokens,

@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useApi } from "@/lib/useApi";
-import { useOpenServLink } from "@/lib/useOpenServLink";
 import type { AccountDTO, ConversationDTO } from "@/lib/types";
 import { Button, Dialog, TextInput, useToast } from "@/components/ui";
 import { AgentsPill, type AgentsPillHandle } from "./AgentsPill";
@@ -25,7 +24,6 @@ import styles from "./ChatShell.module.css";
 
 export function ChatShell() {
   const api = useApi();
-  const link = useOpenServLink();
   const { logout } = usePrivy();
   const toast = useToast();
 
@@ -36,7 +34,6 @@ export function ChatShell() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [account, setAccount] = useState<AccountDTO | null>(null);
-  const [linking, setLinking] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
   // The active conversation's stored sketch, updated by each reply.
   const [sketch, setSketch] = useState<SketchDTO | null>(null);
@@ -326,18 +323,21 @@ export function ChatShell() {
     if (activeId) run({ conversationId: activeId, regenerate: true });
   }, [activeId, run]);
 
-  const doLink = useCallback(async () => {
-    setLinking(true);
-    try {
-      await link();
+  // Use your own SERV key, or stop: either way the limits shown change.
+  const saveServKey = useCallback(
+    async (key: string) => {
+      await api.setServKey(key);
       await refreshAccount();
-      toast.show({ title: "OpenServ account linked" });
-    } catch {
-      toast.show({ title: "Could not link OpenServ. Try again.", tone: "danger" });
-    } finally {
-      setLinking(false);
-    }
-  }, [link, refreshAccount, toast]);
+      toast.show({ title: "Your SERV key is in use" });
+    },
+    [api, refreshAccount, toast],
+  );
+
+  const removeServKey = useCallback(async () => {
+    await api.removeServKey();
+    await refreshAccount();
+    toast.show({ title: "Your SERV key is removed" });
+  }, [api, refreshAccount, toast]);
 
   const doRename = useCallback(async () => {
     if (!renameId || !renameValue.trim()) return;
@@ -488,12 +488,12 @@ export function ChatShell() {
         account={
           <AccountMenu
             account={account}
-            linking={linking}
-            onLink={doLink}
             onSignOut={() => void logout()}
             onOpenShortcuts={() => setShortcuts(true)}
             checkHandle={api.checkHandle}
             onSaveHandle={saveHandle}
+            onSaveServKey={saveServKey}
+            onRemoveServKey={removeServKey}
           />
         }
       />

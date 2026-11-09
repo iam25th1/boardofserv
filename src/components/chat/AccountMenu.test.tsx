@@ -19,7 +19,7 @@ const checkHandle = vi.fn(async (handle: string) => (handle === "maya" ? { avail
 const onSaveHandle = vi.fn(async () => {});
 
 function open(account = ACCOUNT) {
-  render(<AccountMenu account={account} linking={false} onLink={() => {}} onSignOut={() => {}} checkHandle={checkHandle} onSaveHandle={onSaveHandle} startOpen />);
+  render(<AccountMenu account={account} onSignOut={() => {}} checkHandle={checkHandle} onSaveHandle={onSaveHandle} startOpen />);
 }
 
 const input = () => screen.getByLabelText("Your handle");

@@ -32,6 +32,8 @@ export interface AccountDTO {
   balance: "ok" | "low" | "unknown";
   // Named in ADMIN_USER_IDS: the account menu links to /admin.
   admin?: boolean;
+  // The user's own SERV key, as its last four characters, or null.
+  servKey?: { last4: string } | null;
   // Messages left today, or null when there is no daily limit.
   chat?: QuotaDTO | null;
   // The day's spend limit is reached: chat and helper uses wait for midnight UTC.

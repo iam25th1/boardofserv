@@ -22,6 +22,11 @@ export const users = pgTable(
     // OpenServ linkage.
     openservUserId: text("openserv_user_id"),
     openservKeyEncrypted: text("openserv_key_encrypted"),
+    // The user's own SERV inference key, encrypted the same way, and its last
+    // four characters, the only part ever shown. With it set, their chat and
+    // helper uses run on it (see servKey.ts).
+    servKeyEncrypted: text("serv_key_encrypted"),
+    servKeyLast4: text("serv_key_last4"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

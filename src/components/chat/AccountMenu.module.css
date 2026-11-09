@@ -171,3 +171,36 @@
   justify-content: flex-end;
   gap: var(--s-2);
 }
+
+/* Your SERV key: a masked field, a plain note under it. */
+.keyInput {
+  width: 100%;
+  margin-top: var(--s-1);
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--slate);
+  color: var(--chalk);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+}
+.keyInput:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.hint {
+  margin-top: var(--s-1);
+  font-size: var(--t-2xs);
+  color: var(--chalk-3);
+}
+.keyError {
+  margin-top: var(--s-1);
+  font-size: var(--t-xs);
+  color: var(--chalk);
+}
+.mono {
+  font-family: var(--font-mono);
+}
+.keyActions {
+  margin-top: var(--s-2);
+}

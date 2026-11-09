@@ -69,6 +69,8 @@ export interface Provider {
 
 export interface ModelConfig {
   providers: Provider[];
+  // The providers are the person's own SERV key and nothing else.
+  ownKey?: boolean;
   firstTokenTimeoutMs: number;
   historyMessages: number;
   maxTokens: number;
@@ -80,13 +82,17 @@ function positiveInt(raw: string | undefined, fallback: number): number {
   return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
-// Providers in the order they are tried. Keys come from the environment only.
-export function modelConfig(env: Record<string, string | undefined> = process.env): ModelConfig {
+// Providers in the order they are tried. Keys come from the environment,
+// except a person's own SERV key: with one, their calls go to SERV on it and
+// nowhere else, so nothing of theirs ever runs on the operator's keys.
+export function modelConfig(env: Record<string, string | undefined> = process.env, own: { servKey?: string | null } = {}): ModelConfig {
   const providers: Provider[] = [];
-  if (env.SERV_API_KEY) {
+  if (own.servKey) {
+    providers.push({ id: "serv", label: SERV_LABEL, baseUrl: SERV_BASE_URL, apiKey: own.servKey, model: SERV_MODEL, askForUsage: false });
+  } else if (env.SERV_API_KEY) {
     providers.push({ id: "serv", label: SERV_LABEL, baseUrl: SERV_BASE_URL, apiKey: env.SERV_API_KEY, model: SERV_MODEL, askForUsage: false });
   }
-  if (env.DOLPHIN_API_KEY) {
+  if (env.DOLPHIN_API_KEY && !own.servKey) {
     providers.push({
       id: "dolphin",
       label: DOLPHIN_LABEL,
@@ -96,7 +102,7 @@ export function modelConfig(env: Record<string, string | undefined> = process.en
       askForUsage: true,
     });
   }
-  if (env.FALLBACK_BASE_URL && env.FALLBACK_API_KEY && env.FALLBACK_MODEL) {
+  if (env.FALLBACK_BASE_URL && env.FALLBACK_API_KEY && env.FALLBACK_MODEL && !own.servKey) {
     providers.push({
       id: "fallback",
       label: env.FALLBACK_LABEL || env.FALLBACK_MODEL,
@@ -108,6 +114,7 @@ export function modelConfig(env: Record<string, string | undefined> = process.en
   }
   return {
     providers,
+    ownKey: Boolean(own.servKey),
     firstTokenTimeoutMs: positiveInt(env.MODEL_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_FIRST_TOKEN_TIMEOUT_MS),
     historyMessages: positiveInt(env.CHAT_HISTORY_MESSAGES, DEFAULT_HISTORY_MESSAGES),
     maxTokens: positiveInt(env.CHAT_MAX_TOKENS, DEFAULT_MAX_TOKENS),
