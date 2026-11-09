@@ -8,7 +8,8 @@ export const runtime = "nodejs";
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
-  const loaded = await ownedInstallation(serverRuntime(), user.id, params.id);
+  const rt = serverRuntime();
+  const loaded = await ownedInstallation(rt, user.id, params.id);
   if (!loaded) return Response.json({ error: "Not found" }, { status: 404 });
-  return Response.json({ installation: installationDTO(loaded) });
+  return Response.json({ installation: await installationDTO(rt, loaded) });
 }

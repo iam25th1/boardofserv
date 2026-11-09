@@ -639,6 +639,51 @@ export const agentJobSteps = pgTable(
   }),
 );
 
+// When each of an installation's triggers is due next, by its place in the
+// version's triggers. A schedule fires at next_at and moves on; a value
+// check runs its check step at next_at and keeps what it found (holds), so
+// it starts a job only when the condition turns true. note says why the
+// last check failed, in plain words. Messages have no row: they start a job
+// when they come.
+export const agentTriggers = pgTable(
+  "agent_triggers",
+  {
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => agentInstallations.id, { onDelete: "cascade" }),
+    index: integer("index").notNull(),
+    kind: text("kind", { enum: ["schedule", "check"] }).notNull(),
+    nextAt: timestamp("next_at", { withTimezone: true }).notNull(),
+    holds: boolean("holds"),
+    lastAt: timestamp("last_at", { withTimezone: true }),
+    note: text("note"),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.installationId, t.index] }),
+    due: index("agent_triggers_due_idx").on(t.nextAt),
+  }),
+);
+
+// The in-app message box of an installation (Telegram comes later): what
+// its owner sends it, each starting a job with the message as its input,
+// and what the agent sends its owner (telegram.send).
+export const agentMessages = pgTable(
+  "agent_messages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => agentInstallations.id, { onDelete: "cascade" }),
+    from: text("from", { enum: ["owner", "agent"] }).notNull(),
+    text: text("text").notNull(),
+    jobId: uuid("job_id").references(() => agentJobs.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byInstallation: index("agent_messages_installation_idx").on(t.installationId, t.createdAt),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
@@ -649,3 +694,5 @@ export type AgentVersion = typeof agentVersions.$inferSelect;
 export type AgentInstallation = typeof agentInstallations.$inferSelect;
 export type AgentJob = typeof agentJobs.$inferSelect;
 export type AgentJobStep = typeof agentJobSteps.$inferSelect;
+export type AgentTrigger = typeof agentTriggers.$inferSelect;
+export type AgentMessage = typeof agentMessages.$inferSelect;

@@ -1,0 +1,121 @@
+/* An agent running for its owner: chalk panels, plain lists. */
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+.head h1 {
+  font-weight: var(--w-semibold);
+  font-size: var(--t-xl);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.02em;
+}
+.status {
+  padding: 4px 12px;
+  border-radius: var(--r-full);
+  border: 1px dashed var(--chalk-3);
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+}
+.status[data-status="active"] {
+  border-style: solid;
+  border-color: var(--chalk);
+  color: var(--chalk);
+}
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--slate-2);
+}
+.section h2 {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+}
+.quiet {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.loading {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk-3);
+}
+.note {
+  padding: var(--s-2) var(--s-3);
+  border: var(--stroke) dashed var(--chalk);
+  border-radius: var(--r-md);
+  font-size: var(--t-sm);
+}
+.runs {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--t-base);
+}
+.next {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}
+.pairs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: var(--s-3) var(--s-4);
+  margin: 0;
+}
+.pairs dt {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.pairs dd {
+  margin: 0;
+  font-size: var(--t-sm);
+  overflow-wrap: anywhere;
+}
+.messages {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  max-height: 22rem;
+  overflow-y: auto;
+}
+.messages li {
+  max-width: 85%;
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  font-size: var(--t-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.messages li[data-from="owner"] {
+  align-self: flex-end;
+  border-style: dashed;
+}
+.who {
+  display: block;
+  font-size: var(--t-2xs);
+  color: var(--chalk-3);
+}
+.send {
+  display: flex;
+  gap: var(--s-2);
+  align-items: flex-end;
+}
+.send > :first-of-type {
+  flex: 1;
+}

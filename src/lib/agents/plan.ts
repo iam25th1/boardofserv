@@ -45,6 +45,7 @@ export const AGENT_PLAN_SCHEMA = {
         everyMinutes: { type: "number", description: "check: minutes between checks, else 0" },
         watch: str("check: the value it watches, else empty"),
         when: str("check: when it acts, else empty"),
+        step: str("check: the id of its own code step that reads the value and returns { holds }, else empty"),
         description: str("in plain words"),
       }),
       "what wakes it up",
@@ -125,7 +126,7 @@ export function wireToDefinition(w: Wire): unknown {
   readBags(steps as { inputs: string[]; outputs: string[]; description?: string; prompt?: string }[], w);
   const triggers = arr(w.triggers).map((x) => {
     const t = x as Wire;
-    if (t.kind === "check") return { kind: "check", everyMinutes: Math.round(n(t.everyMinutes)), watch: s(t.watch), when: s(t.when) };
+    if (t.kind === "check") return { kind: "check", everyMinutes: Math.round(n(t.everyMinutes)), watch: s(t.watch), when: s(t.when), ...(s(t.step) ? { step: s(t.step) } : {}) };
     if (t.kind === "message") return { kind: "message", from: "telegram", description: s(t.description) };
     return { kind: "schedule", every: t.every === "none" || !t.every ? "day" : t.every, at: s(t.at) || null, description: s(t.description) };
   });
@@ -157,6 +158,7 @@ export const PLAN_AGENT_PROMPT = [
   "decision: a judgement made by a model, with 2 to 6 outcomes, each naming the step it leads to.",
   "action: takes one declared action, which only changes things (sheets.write, telegram.send, telegram.ask, wallet.pay, memory.set); never use an action to read. For sheets.write, wallet.pay and memory.set its first input must already be that tool's arguments ({ sheet, rows }, { to, amountUsdc, memo } or { key, value }), a value of its own made by a code step before it for that action alone; telegram.send and telegram.ask make their message from any inputs. The step's first output holds the tool's result (telegram.ask gives { answer }).",
   'A run starts at the first step. next is the next step\'s id, or "" when the run ends there.',
+  'A check trigger names its own code step (step), listed with the steps but outside the run: it reads the watched value with tools that only read, from settings, rules and memory, and returns { holds } (true when the condition is met, and optionally value). The run starts when holds turns true. Its next is "" and no step leads to it.',
   'Inputs name values a step reads: settings, rules, memory, trigger, or an output of an earlier step. Outputs name what it adds. A setting is read as settings.<key>: a step that uses one lists "settings" in its inputs, never the key itself; the same for rules and memory.',
   "In code step descriptions, name the exact sheets, columns and fields the maker gave, and the shape of what the step returns.",
   `Tools: ${TOOL_NAMES.map((t) => `${t} (${TOOLS[t].summary})`).join("; ")}.`,

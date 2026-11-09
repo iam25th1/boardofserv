@@ -32,7 +32,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   try {
     const row = await install(rt, { ownerUserId: who.user.id, agent: who.agent, version, answers: parsed.data });
     const loaded = await loadInstallation(rt, row.id);
-    return Response.json({ installation: installationDTO(loaded!) }, { status: 201 });
+    return Response.json({ installation: await installationDTO(rt, loaded!) }, { status: 201 });
   } catch (err) {
     if (err instanceof InstallRefused) return Response.json({ error: err.message, errors: err.errors }, { status: 400 });
     throw err;

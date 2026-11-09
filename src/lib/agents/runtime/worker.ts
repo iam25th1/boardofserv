@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { hostname } from "node:os";
 import type { Runtime } from "./context";
 import { beat, claimJob, HEARTBEAT_MS, requeueStale, runJob } from "./jobs";
+import { fireDue } from "./triggers";
 
 // The agents' job worker: one cycle every few seconds, in the server
 // process (see boot.ts for why), under its own Postgres advisory lock taken
@@ -10,7 +11,8 @@ import { beat, claimJob, HEARTBEAT_MS, requeueStale, runJob } from "./jobs";
 // only one process on a database runs the cycles. A cycle:
 //
 // 1. puts jobs whose worker stopped beating back in the queue,
-// 2. starts claimed jobs up to the worker's capacity, without waiting for
+// 2. fires the triggers that are due (triggers.ts),
+// 3. starts claimed jobs up to the worker's capacity, without waiting for
 //    them: they run on, beating, while the next cycles go by.
 //
 // Claiming is atomic in the database as well, so even two processes that
@@ -40,6 +42,7 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
     async cycle() {
       const picked = await requeueStale(rt);
       if (picked) rt.log(`jobs: ${picked} ${picked === 1 ? "job" : "jobs"} left running by a stopped server went back in the queue.`);
+      await fireDue(rt);
       while (running.size < capacity) {
         const job = await claimJob(rt, id);
         if (!job) break;

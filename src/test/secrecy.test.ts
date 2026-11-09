@@ -51,6 +51,7 @@ import * as agentPublish from "@/app/api/agents/[id]/publish/route";
 import * as agentInstall from "@/app/api/agents/[id]/installations/route";
 import * as installationsRoute from "@/app/api/installations/route";
 import * as installationRoute from "@/app/api/installations/[id]/route";
+import * as installationMessages from "@/app/api/installations/[id]/messages/route";
 import * as demoAgent from "@/app/api/demo/agent/route";
 
 // A published helper's system prompt and canary never leave the server. This
@@ -114,6 +115,7 @@ const ROUTES: Record<string, object> = {
   "agents/[id]/installations": agentInstall,
   "installations": installationsRoute,
   "installations/[id]": installationRoute,
+  "installations/[id]/messages": installationMessages,
   "demo/agent": demoAgent,
 };
 
@@ -600,6 +602,8 @@ describe("a helper's instructions stay on the server", () => {
       const ip = { params: { id: installed.installation.id as string } };
       await hit("agent: installations", installationsRoute.GET(req("/api/installations")));
       await hit("agent: installation", installationRoute.GET(req(`/api/installations/${ip.params.id}`), ip));
+      await hit("agent: message box", installationMessages.GET(req(`/api/installations/${ip.params.id}/messages`), ip));
+      await hit("agent: message", installationMessages.POST(req(`/api/installations/${ip.params.id}/messages`, "POST", { text: "Check now please" }), ip));
       await hit("agent: fix", agentFix.POST(req(`/api/agents/${id}/fix`, "POST", { message: "it ignored delivery time" }), p));
       await jobFor((await draftOf(id))!.id);
       await hit("agent: board", board.GET(req("/api/board")));
@@ -618,6 +622,8 @@ describe("a helper's instructions stay on the server", () => {
         await hit(`agent: ${tag} install`, agentInstall.POST(req(`/api/agents/${id}/installations`, "POST", { settings: {}, rules: {}, timezone: "UTC" }), p));
         await hit(`agent: ${tag} installations`, installationsRoute.GET(req("/api/installations")));
         await hit(`agent: ${tag} installation`, installationRoute.GET(req(`/api/installations/${ip.params.id}`), ip));
+        await hit(`agent: ${tag} message box`, installationMessages.GET(req(`/api/installations/${ip.params.id}/messages`), ip));
+        await hit(`agent: ${tag} message`, installationMessages.POST(req(`/api/installations/${ip.params.id}/messages`, "POST", { text: "hello" }), ip));
       }
     } finally {
       vi.stubEnv("DOLPHIN_API_KEY", "");

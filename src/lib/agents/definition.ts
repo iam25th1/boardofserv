@@ -7,7 +7,8 @@ import { z } from "zod";
 //
 // - job: what it does and what counts as done.
 // - triggers: what wakes it up (a schedule, a value checked on an interval,
-//   or an incoming message). Stored now; they start runs in a later phase.
+//   or an incoming message). A check names its own code step, which reads
+//   the value and says whether the condition holds.
 // - settings: what each renter answers when they set it up.
 // - rules: the limits a renter may adjust (a spend cap, an approval
 //   threshold, an allowed list), each with the maker's default.
@@ -66,7 +67,10 @@ export const Job = z.object({ does: text(400), done: text(400) });
 
 export const Trigger = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("schedule"), every: z.enum(["hour", "day", "week"]), at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(), description: text(200) }),
-  z.object({ kind: z.literal("check"), everyMinutes: z.number().int().min(5).max(1440), watch: text(200), when: text(200) }),
+  // step: the code step that checks, outside the run's own steps. It reads
+  // the watched value and returns { holds } (and optionally { value }); the
+  // run starts when holds turns true, not on every check while it stays true.
+  z.object({ kind: z.literal("check"), everyMinutes: z.number().int().min(5).max(1440), watch: text(200), when: text(200), step: key.optional() }),
   z.object({ kind: z.literal("message"), from: z.enum(["telegram"]), description: text(200) }),
 ]);
 
@@ -231,6 +235,22 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
     }
   });
 
+  // A check trigger's step reads and says whether the condition holds; it
+  // isn't one of the run's steps.
+  const checks = new Set<string>();
+  d.triggers.forEach((t, i) => {
+    if (t.kind !== "check") return;
+    if (!t.step) return say("a check trigger names the code step that reads the value and returns { holds }", ["triggers", i, "step"]);
+    const st = d.steps.find((x) => x.id === t.step);
+    if (!st) return say(`the check trigger's step "${t.step}" is not a step`, ["triggers", i, "step"]);
+    checks.add(st.id);
+    if (st.kind !== "code") return say(`the check trigger's step "${st.id}" must be a code step`, ["triggers", i, "step"]);
+    if (!st.outputs.includes("holds")) say(`the check step "${st.id}" must output holds (true when the condition is met)`, ["triggers", i, "step"]);
+    if (st.next !== null) say(`the check step "${st.id}" only checks: its next must be empty`, ["triggers", i, "step"]);
+    for (const tool of st.tools) if (SIDE_EFFECT_TOOLS.includes(tool) || tool === "memory.set") say(`the check step "${st.id}" only reads, so it can't use ${tool}`, ["triggers", i, "step"]);
+    for (const input of st.inputs) if (!(RUN_VALUES as readonly string[]).includes(input) || input === "trigger") say(`the check step "${st.id}" can only read settings, rules and memory, not "${input}"`, ["triggers", i, "step"]);
+  });
+
   // Every step can be reached from the first.
   const seen = new Set<string>();
   const queue = d.steps.length ? [d.steps[0]!.id] : [];
@@ -242,7 +262,9 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
     for (const n of nextOf(byId.get(id)!)) if (n !== null && byId.has(n)) queue.push(n);
   }
   d.steps.forEach((s, i) => {
-    if (!seen.has(s.id)) say(`step "${s.id}" can't be reached from the first step`, ["steps", i]);
+    if (checks.has(s.id)) {
+      if (seen.has(s.id)) say(`the check step "${s.id}" can't also be a step of the run`, ["steps", i]);
+    } else if (!seen.has(s.id)) say(`step "${s.id}" can't be reached from the first step`, ["steps", i]);
   });
 
   // Every way into a step must have made what it reads: a value made only on

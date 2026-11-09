@@ -8,6 +8,7 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
-  const list = await installationsOf(serverRuntime(), user.id);
-  return Response.json({ installations: list.map(installationDTO) });
+  const rt = serverRuntime();
+  const list = await installationsOf(rt, user.id);
+  return Response.json({ installations: await Promise.all(list.map((l) => installationDTO(rt, l))) });
 }

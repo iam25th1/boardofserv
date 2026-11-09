@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
 import { TopBar, TopLink } from "@/components/chat/TopBar";
+import { InstallationView, type InstallationApi } from "@/components/agents/InstallationView";
 import { privyAppId } from "@/lib/privy-config";
 import type { InstallationDTO } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
@@ -35,27 +36,18 @@ function Detail({ id }: { id: string }) {
   const api = useApi();
   const [data, setData] = useState<InstallationDTO | null>(null);
   const [missing, setMissing] = useState(false);
+  const view = useMemo<InstallationApi>(
+    () => ({
+      load: () => api.getInstallation(id),
+      messages: () => api.listAgentMessages(id),
+      send: (text) => api.messageAgent(id, text),
+    }),
+    [api, id],
+  );
   useEffect(() => {
-    api.getInstallation(id).then(setData, () => setMissing(true));
-  }, [api, id]);
+    view.load().then(setData, () => setMissing(true));
+  }, [view]);
   if (missing) return <p className={styles.quiet}>Nothing here.</p>;
   if (!data) return <p className={styles.loading}>getting it</p>;
-  return (
-    <>
-      <header className={styles.head}>
-        <h1>{data.name}</h1>
-        <p className={styles.quiet}>
-          version {data.version}, {data.status}, times in {data.timezone}
-        </p>
-      </header>
-      <ul className={styles.list}>
-        {data.settings.map((s) => (
-          <li key={s.key} className={styles.card}>
-            <strong>{s.label}</strong>
-            <span className={styles.meta}>{Array.isArray(s.value) ? s.value.join(", ") : String(s.value ?? "")}</span>
-          </li>
-        ))}
-      </ul>
-    </>
-  );
+  return <InstallationView initial={data} api={view} />;
 }

@@ -1,11 +1,13 @@
 import "server-only";
 import { and, desc, eq } from "drizzle-orm";
-import { agentInstallations, agents, agentVersions, type Agent, type AgentInstallation, type AgentVersion } from "../../db/schema";
+import { agentInstallations, agents, agentTriggers, agentVersions, type Agent, type AgentInstallation, type AgentVersion } from "../../db/schema";
 import type { InstallationDTO } from "../../types";
 import type { AgentDefinition } from "../definition";
+import { describeTriggers } from "../schedule";
 import { checkAnswers, type InstallAnswers } from "../settingsForm";
 import { emptyBench } from "../types";
 import type { Runtime } from "./context";
+import { setUpTriggers } from "./triggers";
 
 // Installations: one owner's running copy of a published agent version.
 // Anyone can be an owner: for now a maker installs their own agent from the
@@ -57,6 +59,7 @@ export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agen
       updatedAt: now,
     })
     .returning();
+  await setUpTriggers(rt, row!, d);
   return row!;
 }
 
@@ -100,8 +103,11 @@ export async function installationsOf(rt: Runtime, ownerUserId: string): Promise
 }
 
 // What its owner sees of an installation.
-export function installationDTO(l: Loaded): InstallationDTO {
+export async function installationDTO(rt: Runtime, l: Loaded): Promise<InstallationDTO> {
   const { installation: i, definition: d } = l;
+  const triggers = await rt.db.select().from(agentTriggers).where(eq(agentTriggers.installationId, i.id));
+  const next = triggers.filter((t) => t.kind === "schedule" || t.kind === "check").map((t) => t.nextAt.getTime());
+  const failing = triggers.find((t) => t.note);
   return {
     id: i.id,
     agentId: l.agent.id,
@@ -114,5 +120,9 @@ export function installationDTO(l: Loaded): InstallationDTO {
     minGapMinutes: i.minGapMinutes,
     dailySpendUsd: Number(i.dailySpendUsd),
     createdAt: i.createdAt.toISOString(),
+    runs: describeTriggers(d, i.schedule),
+    nextRunAt: i.status === "active" && next.length ? new Date(Math.min(...next)).toISOString() : null,
+    takesMessages: d.triggers.some((t) => t.kind === "message"),
+    checkNote: failing?.note ?? null,
   };
 }

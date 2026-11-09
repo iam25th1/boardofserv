@@ -137,6 +137,22 @@ export interface InstallationDTO {
   minGapMinutes: number;
   dailySpendUsd: number;
   createdAt: string;
+  // When it runs, in plain words ("Runs every day at 7:00"), and the next
+  // time it is due (null while it isn't active, or for messages only).
+  runs: string[];
+  nextRunAt: string | null;
+  takesMessages: boolean;
+  // Why its last value check failed, if it did.
+  checkNote: string | null;
+}
+
+// A message in an installation's in-app message box.
+export interface AgentMessageDTO {
+  id: string;
+  from: "owner" | "agent";
+  text: string;
+  jobId: string | null;
+  createdAt: string;
 }
 
 // A published helper as anyone may see it: never its instructions.
