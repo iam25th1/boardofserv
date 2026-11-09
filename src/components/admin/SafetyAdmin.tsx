@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Button, SkeletonPanel, TextInput, Textarea } from "@/components/ui";
 import { ReviewPanel } from "@/components/agents/ReviewPanel";
 import { AuditLog } from "@/components/agents/AuditLog";
+import { ReppoCredits } from "./ReppoCredits";
 import { formatAmount } from "@/lib/money";
 import type { AdminSafetyDTO, AuditPageDTO, FreezeDTO } from "@/lib/types";
 import styles from "./SafetyAdmin.module.css";
@@ -29,6 +30,7 @@ export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
   if (data === null) return <p className={styles.quiet}>This page could not load. Try again in a moment.</p>;
   return (
     <div className={styles.page}>
+      <ReppoCredits r={data.reppo} />
       <section className={styles.section} aria-labelledby="queue-h">
         <h2 id="queue-h">Queue</h2>
         {data.queue.reports.length + data.queue.held.length === 0 ? (

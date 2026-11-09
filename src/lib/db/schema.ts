@@ -634,6 +634,10 @@ export const agentJobs = pgTable(
     modelSettledAt: timestamp("model_settled_at", { withTimezone: true }),
     // Actions it took (anything that writes, sends or spends), for its limit.
     actions: integer("actions").notNull().default(0),
+    // Whether Reppo's sampling took this finished job for a quality score
+    // ("sampled"), or passed it by ("skipped", "cap", "budget"); null until
+    // the sampler has looked.
+    reppoSample: text("reppo_sample"),
     // What started it: { kind: "schedule" | "check" | "message" | "manual" | "test", ... }.
     trigger: jsonb("trigger").$type<Record<string, unknown>>().notNull(),
     // json, not jsonb: kept exactly as written, keys in their order, so a
@@ -657,6 +661,8 @@ export const agentJobs = pgTable(
     byOwner: index("agent_jobs_owner_idx").on(t.ownerUserId, t.createdAt),
     // One running job per installation, whoever claims it.
     oneRunning: uniqueIndex("agent_jobs_one_running_idx").on(t.installationId).where(sql`${t.status} = 'running'`),
+    // Finished jobs the Reppo sampler hasn't looked at yet.
+    toSample: index("agent_jobs_to_sample_idx").on(t.finishedAt).where(sql`${t.reppoSample} is null`),
     knownStatus: check("agent_jobs_status", sql`${t.status} in ('queued', 'running', 'waiting_for_owner', 'done', 'failed', 'cancelled')`),
   }),
 );

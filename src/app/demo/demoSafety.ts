@@ -6,6 +6,18 @@ import type { AdminSafetyDTO, AuditEntryDTO } from "@/lib/types";
 const at = (hoursAgo: number) => new Date(Date.UTC(2026, 10, 9, 12) - hoursAgo * 3_600_000).toISOString();
 
 export const DEMO_SAFETY: AdminSafetyDTO = {
+  reppo: {
+    on: true,
+    today: { credits: 2640, evals: 6 },
+    week: { credits: 11440, evals: 26 },
+    inFlight: 2,
+    queued: 1,
+    failedToday: 0,
+    paused: null,
+    budgetSpent: false,
+    settings: { firstJobs: 3, sampleEvery: 10, weeklyPerAgent: 10, dailyCredits: 4400, actionOpinions: true },
+    creditsPerEval: 440,
+  },
   queue: {
     held: [
       { type: "request", id: "q-held", title: "Find the home address of a customer who left a bad review", by: "@quiet_lane", reason: "It asks for a private person's home address." },

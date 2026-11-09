@@ -667,7 +667,23 @@ export interface ModerationQueueDTO {
   held: { type: "listing" | "request" | "offer"; id: string; title: string; by: string; reason: string }[];
 }
 
+// Reppo's quality checks, for the admin: credits used, what is in flight
+// and waiting, why nothing goes out (when so), and the settings in force.
+export interface ReppoAdminDTO {
+  on: boolean;
+  today: { credits: number; evals: number };
+  week: { credits: number; evals: number };
+  inFlight: number;
+  queued: number;
+  failedToday: number;
+  paused: string | null;
+  budgetSpent: boolean;
+  settings: { firstJobs: number; sampleEvery: number; weeklyPerAgent: number; dailyCredits: number; actionOpinions: boolean };
+  creditsPerEval: number;
+}
+
 export interface AdminSafetyDTO {
+  reppo: ReppoAdminDTO;
   queue: ModerationQueueDTO;
   // Every freeze, newest first: the admin log.
   freezes: FreezeDTO[];

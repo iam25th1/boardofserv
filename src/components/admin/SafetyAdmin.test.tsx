@@ -40,7 +40,8 @@ describe("the admin queue", () => {
       throw new Error("It isn't waiting in the queue.");
     });
     render(<SafetyAdmin api={{ load: async () => DEMO_SAFETY, moderate }} />);
-    const first = (await screen.findAllByRole("listitem"))[0]!;
+    const queue = (await screen.findByRole("heading", { name: "Queue" })).closest("section")!;
+    const first = within(queue).getAllByRole("listitem")[0]!;
     fireEvent.change(within(first).getByLabelText("Why"), { target: { value: "Looks fine." } });
     fireEvent.click(within(first).getByRole("button", { name: "Approve" }));
     expect(await within(first).findByRole("alert")).toHaveTextContent("It isn't waiting in the queue.");
