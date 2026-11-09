@@ -43,7 +43,7 @@ export const TOOLS: Record<ToolName, ToolInfo> = {
     sideEffect: true,
   },
   "web.fetch": {
-    summary: "Fetch a web page's text.",
+    summary: "Fetch a public web page's readable text (GET, http or https).",
     signature: "tools.web.fetch({ url: string }): Promise<{ status: number, text: string }>",
     sideEffect: false,
   },

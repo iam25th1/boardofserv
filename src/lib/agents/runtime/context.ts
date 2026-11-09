@@ -7,6 +7,14 @@ import { refusal } from "../../spend";
 import { recordAgentCall, servOnly } from "../build";
 import type { DecisionStepDef } from "../definition";
 import type { Decided } from "../runner";
+import type { WebPolicy } from "./webFetch";
+
+export const DEFAULT_FETCHES_PER_DAY = 100;
+
+export function fetchesPerDay(env: Record<string, string | undefined> = process.env): number {
+  const n = Number(env.AGENT_FETCHES_PER_DAY);
+  return Number.isInteger(n) && n > 0 ? n : DEFAULT_FETCHES_PER_DAY;
+}
 
 // What the runtime works with: the database, the clock and SERV. The
 // server's runtime uses the real ones; tests and the development demo pass
@@ -27,6 +35,11 @@ export interface Runtime {
   record: (owner: User, call: JsonResult, ownKey: boolean) => Promise<void>;
   // In place of SERV (the development demo only).
   decide?: (step: DecisionStepDef, input: Record<string, unknown>) => Promise<Decided>;
+  // web.fetch's rules: never any exceptions on the server; tests and the
+  // development demo let through a page they serve themselves.
+  web: WebPolicy;
+  // Pages an installation may fetch a day.
+  fetchesPerDay: number;
   log: (line: string) => void;
 }
 
@@ -41,6 +54,8 @@ export function serverRuntime(): Runtime {
     },
     siteRefusal: async (owner, ownKey) => (await refusal(owner.id, { ownKey }))?.error ?? null,
     record: (owner, call, ownKey) => recordAgentCall({ userId: owner.id, conversationId: null, ownKey }, "agent_decision", call),
+    web: {},
+    fetchesPerDay: fetchesPerDay(),
     log: (line) => console.info(line),
   };
 }

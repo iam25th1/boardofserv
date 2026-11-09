@@ -122,10 +122,10 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
   };
   const log = stepLog(rt, job, state);
   const serv = rt.serv(owner);
-  const decide = async (step: DecisionStepDef, input: Record<string, unknown>): Promise<Decided> => {
+  const decide = async (step: DecisionStepDef, input: Record<string, unknown>, untrusted: string[]): Promise<Decided> => {
     if (rt.decide) return rt.decide(step, input);
     if (!serv) return { ok: false, note: "SERV isn't set up here.", reason: "SERV isn't set up, so its decisions can't be made.", costUsd: 0, infra: true };
-    const call = await askServ(step, input, serv.config, { fetchImpl: rt.fetchImpl });
+    const call = await askServ(step, input, serv.config, { fetchImpl: rt.fetchImpl, untrusted });
     await rt.record(owner, call, serv.ownKey);
     return readDecision(step, call);
   };

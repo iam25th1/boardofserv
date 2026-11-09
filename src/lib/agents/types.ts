@@ -69,6 +69,8 @@ export interface RunState {
   // The current step has started already (it runs again after a pause or a
   // restart, and isn't counted twice).
   resumed: boolean;
+  // Values in the bag made from web pages: untrusted data.
+  untrusted?: string[];
 }
 
 export interface JournalEntry {

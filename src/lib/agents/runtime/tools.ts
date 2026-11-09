@@ -1,11 +1,12 @@
 import "server-only";
 import { eq, sql } from "drizzle-orm";
-import { agentInstallations, agentMessages, type AgentInstallation, type AgentJob } from "../../db/schema";
+import { agentFetchDays, agentInstallations, agentMessages, type AgentInstallation, type AgentJob } from "../../db/schema";
 import type { AgentDefinition, AgentStep, ToolName } from "../definition";
-import { Declined, Paused, typedRules, type ToolHost } from "../runner";
+import { Declined, InfraError, Paused, typedRules, type ToolHost } from "../runner";
 import { MAX_MEMORY_BYTES, memoryProblem, MockTools, TOOL_ARGS, ToolError } from "../toolbox";
 import { emptyBench } from "../types";
 import type { Runtime } from "./context";
+import { fetchPage, WebUnreachable } from "./webFetch";
 
 // A job's tools (and a value check's, with no job). The ones that are
 // still stand-ins (sheets, search, the wallet) answer like the test bench's
@@ -13,7 +14,8 @@ import type { Runtime } from "./context";
 // they change is kept on the installation for its next job. A message to
 // the owner (telegram.send) goes to the installation's in-app message box.
 // Memory is real: what the agent remembers for this owner, on their
-// installation alone.
+// installation alone. So is web.fetch (webFetch.ts), within a number of
+// pages a day for each installation.
 
 export const isYes = (answer: string | null) => answer !== null && /^\s*(yes|y|ok|okay|approve|approved|go ahead)\b/i.test(answer);
 
@@ -63,6 +65,7 @@ export class JobTools implements ToolHost {
       if (over && !isYes(approval!.answer)) throw new Declined(approval!.answer);
     }
     if (tool === "memory.get" || tool === "memory.set") return this.memory(tool, args);
+    if (tool === "web.fetch") return this.fetch(args);
     if (tool === "telegram.send") {
       const parsed = TOOL_ARGS["telegram.send"].safeParse(args);
       if (!parsed.success) throw new ToolError(tool, "telegram.send was called wrongly: it takes { text }.");
@@ -78,6 +81,27 @@ export class JobTools implements ToolHost {
         .where(eq(agentInstallations.id, this.installation.id));
     }
     return result;
+  }
+
+  // A real page, within the installation's pages a day. A page that can't
+  // be reached is worth another try later; one the agent may not have isn't.
+  private async fetch(args: unknown): Promise<unknown> {
+    const parsed = TOOL_ARGS["web.fetch"].safeParse(args);
+    if (!parsed.success) throw new ToolError("web.fetch", "web.fetch was called wrongly: it takes { url }, a full http or https address.");
+    const day = this.rt.now().toISOString().slice(0, 10);
+    const limit = this.rt.fetchesPerDay;
+    const taken = await this.rt.db
+      .insert(agentFetchDays)
+      .values({ installationId: this.installation.id, day, fetches: 1 })
+      .onConflictDoUpdate({ target: [agentFetchDays.installationId, agentFetchDays.day], set: { fetches: sql`${agentFetchDays.fetches} + 1` }, setWhere: sql`${agentFetchDays.fetches} < ${limit}` })
+      .returning({ fetches: agentFetchDays.fetches });
+    if (!taken.length) throw new ToolError("web.fetch", `It reached its limit of ${limit} pages today.`);
+    try {
+      return await fetchPage(parsed.data.url, this.rt.web);
+    } catch (err) {
+      if (err instanceof WebUnreachable) throw new InfraError(err.message);
+      throw new ToolError("web.fetch", err instanceof Error ? err.message : "The page couldn't be fetched.");
+    }
   }
 
   // What the agent remembers for this owner: on this installation's row

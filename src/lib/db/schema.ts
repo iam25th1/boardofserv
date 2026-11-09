@@ -725,6 +725,20 @@ export const agentApprovals = pgTable(
   }),
 );
 
+// Pages an installation's agent fetched (web.fetch) each day (UTC), for
+// its daily limit.
+export const agentFetchDays = pgTable(
+  "agent_fetch_days",
+  {
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => agentInstallations.id, { onDelete: "cascade" }),
+    day: text("day").notNull(),
+    fetches: integer("fetches").notNull().default(0),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.installationId, t.day] }) }),
+);
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
