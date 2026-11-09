@@ -1,9 +1,11 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { TopBar, TopLink } from "@/components/chat/TopBar";
 import { AgentBuilder, type BuilderApi } from "@/components/agents/AgentBuilder";
+import { AgentRuns } from "@/components/agents/AgentRuns";
 import { privyAppId } from "@/lib/privy-config";
 import type { AgentBuilderDTO } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
@@ -34,6 +36,7 @@ function SignedIn({ id }: { id: string }) {
 
 function Builder({ id }: { id: string }) {
   const api = useApi();
+  const router = useRouter();
   const [data, setData] = useState<AgentBuilderDTO | null>(null);
   const [missing, setMissing] = useState(false);
   const builderApi = useMemo<BuilderApi>(
@@ -43,13 +46,23 @@ function Builder({ id }: { id: string }) {
       fix: (message) => api.fixAgent(id, message),
       saveBench: (bench) => api.saveAgentBench(id, bench),
       publish: () => api.publishAgent(id),
+      install: async (answers) => {
+        const installed = await api.installAgent(id, answers);
+        router.push(`/installations/${installed.id}`);
+      },
     }),
-    [api, id],
+    [api, id, router],
   );
+  const loadRuns = useCallback(() => api.listAgentJobs(id), [api, id]);
   useEffect(() => {
     builderApi.load().then(setData, () => setMissing(true));
   }, [builderApi]);
   if (missing) return <p className={styles.quiet}>Nothing here.</p>;
   if (!data) return <p className={styles.loading}>getting the agent</p>;
-  return <AgentBuilder initial={data} api={builderApi} />;
+  return (
+    <>
+      <AgentBuilder initial={data} api={builderApi} />
+      <AgentRuns load={loadRuns} />
+    </>
+  );
 }

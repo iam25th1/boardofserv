@@ -1,0 +1,167 @@
+/* A job as a chalk timeline: a line down the side, a mark per step. */
+.job {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+}
+.head h1 {
+  font-weight: var(--w-semibold);
+  font-size: var(--t-xl);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.02em;
+}
+.quiet {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.status {
+  padding: 4px 12px;
+  border-radius: var(--r-full);
+  border: 1px dashed var(--chalk-3);
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+}
+.status[data-status="done"],
+.status[data-status="waiting_for_owner"] {
+  border-style: solid;
+  border-color: var(--chalk);
+  color: var(--chalk);
+}
+.totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-6);
+  margin: 0;
+}
+.totals dt {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.totals dd {
+  margin: 0;
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-lg);
+}
+.reason {
+  padding: var(--s-2) var(--s-3);
+  border: var(--stroke) dashed var(--chalk);
+  border-radius: var(--r-md);
+  font-size: var(--t-sm);
+  overflow-wrap: anywhere;
+}
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.step {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: var(--s-3);
+  align-items: start;
+}
+.mark {
+  overflow: visible;
+  fill: none;
+  stroke: var(--chalk);
+  stroke-width: var(--stroke);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.step[data-status="running"] .mark,
+.step[data-status="waiting"] .mark {
+  stroke-dasharray: none;
+}
+.fill {
+  fill: var(--chalk);
+  stroke: none;
+  transform: scale(0);
+}
+.step[data-status="ok"] .fill {
+  transform: scale(1);
+}
+.step[data-status="running"] .fill {
+  transform: scale(0.5);
+  opacity: 0.5;
+}
+.cross {
+  stroke: var(--chalk);
+  stroke-width: var(--stroke-bold);
+}
+.words {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 0 var(--s-3);
+  min-width: 0;
+}
+.title {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--chalk);
+  font: inherit;
+  font-size: var(--t-base);
+  font-weight: var(--w-medium);
+  text-align: left;
+  cursor: pointer;
+}
+.title:disabled {
+  cursor: default;
+}
+.title:not(:disabled):hover {
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+}
+.title:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.meta {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+  overflow-wrap: anywhere;
+}
+.note {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  overflow-wrap: anywhere;
+}
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-top: var(--s-2);
+}
+.value pre {
+  margin: 2px 0 0;
+  padding: var(--s-2) var(--s-3);
+  max-height: 16rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--slate);
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.valueLabel {
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+}
+.untrusted {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk);
+}

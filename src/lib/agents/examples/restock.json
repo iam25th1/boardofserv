@@ -1,6 +1,6 @@
 {
   "note": "Built by scripts/seed-restock.ts: planned by SERV, code written by Dolphin and reviewed by SERV, decisions recorded from one live run.",
-  "builtAt": "2026-11-09T11:51:00.907Z",
+  "builtAt": "2026-11-09T13:24:24.054Z",
   "interview": {
     "name": "Fabric restock",
     "kind": "agent",
@@ -12,12 +12,12 @@
     "does": null,
     "gives": null,
     "wakes": "every morning at 08:00",
-    "looks": "the Stock sheet (columns fabric, metres, minimum) and the Suppliers sheet, where three suppliers list each fabric with price_usdc per metre and delivery_days",
+    "looks": "the Stock sheet (columns fabric, metres, minimum) and the suppliers' price list web page, whose address the owner gives: after a header line, each line is 'supplier | fabric | price_usdc | delivery_days', price_usdc per metre",
     "handles": "for each fabric below its minimum, pick the cheapest supplier that delivers within the longest delivery the owner allows, and order enough metres to reach twice the minimum",
     "finish": "every low fabric has an order row in the Orders sheet, or the owner said no",
     "asks": "never place an order whose total is over the approval limit in USDC without asking the owner on Telegram first",
-    "setup": "the names of the stock, suppliers and orders sheets, the approval limit (250 USDC) and the longest delivery (7 days)",
-    "remembers": "the last order it placed",
+    "setup": "the names of the stock and orders sheets, the address of the suppliers' price page, the approval limit (250 USDC) and the longest delivery (7 days)",
+    "remembers": "the last order it placed, as a record { placed_at, lines }",
     "asking": null,
     "live": false
   },
@@ -45,10 +45,10 @@
         "choices": []
       },
       {
-        "key": "suppliers_sheet",
-        "label": "Name of the Suppliers sheet",
-        "type": "text",
-        "help": "Sheet where each supplier lists fabrics with price_usdc per metre and delivery_days",
+        "key": "suppliers_page",
+        "label": "Address of the suppliers' price list page",
+        "type": "url",
+        "help": "Page with one header line, then supplier | fabric | price_usdc | delivery_days per line",
         "choices": []
       },
       {
@@ -108,8 +108,9 @@
           "orders_to_place"
         ],
         "kind": "code",
-        "description": "Read all fabrics from the Stock sheet and filter those below minimum. For each low fabric, read all suppliers and pick the cheapest one delivering within max_delivery_days. Build orders list with {fabric, supplier, metres_to_order, total_cost_usdc}. Return orders_to_place.",
+        "description": "Fetch suppliers' price page and parse lines after header. Read all fabrics from the Stock sheet and filter those below minimum. For each low fabric, parse supplier data and pick the cheapest supplier delivering within max_delivery_days. Build orders list with {fabric, supplier, metres_to_order, total_cost_usdc}. Return orders_to_place.",
         "tools": [
+          "web.fetch",
           "sheets.read"
         ],
         "next": "check_approval"
@@ -148,7 +149,8 @@
         ],
         "kind": "action",
         "action": "ask_approval",
-        "next": "approval_decision"
+        "next": "approval_decision",
+        "otherwise": "approval_decision"
       },
       {
         "id": "approval_decision",
@@ -202,7 +204,7 @@
       },
       {
         "id": "prepare_memory_arg",
-        "title": "Prepare memory.set argument",
+        "title": "Prepare memory argument",
         "inputs": [
           "orders_to_place",
           "memory"
@@ -211,7 +213,7 @@
           "memory_arg"
         ],
         "kind": "code",
-        "description": "Transform orders_to_place into {key: 'last_order', value: orders_to_place}. Return memory_arg.",
+        "description": "Transform orders_to_place into {key: 'last_order', value: {placed_at, lines: orders_to_place}}. Return memory_arg.",
         "tools": [],
         "next": "save_order_memory_action"
       },
@@ -250,14 +252,15 @@
       "maxSteps": 20,
       "maxRunSeconds": 60,
       "maxSpendUsd": 0.5
-    }
+    },
+    "approvalHours": 24
   },
   "code": {
     "read_stock_and_suppliers": {
       "status": "approved",
-      "source": "async function run(input, tools) {\n  const settings = (input && input.settings) || {};\n  const rules = (input && input.rules) || {};\n  const maxDays = Number(rules.max_delivery_days ?? settings.max_delivery_days);\n  const orders_to_place = [];\n\n  let stockRows = [], supplierRows = [];\n  try {\n    const s = await tools.sheets.read({ sheet: settings.stock_sheet });\n    stockRows = (s && Array.isArray(s.rows)) ? s.rows : [];\n  } catch (e) { stockRows = []; }\n  try {\n    const p = await tools.sheets.read({ sheet: settings.suppliers_sheet });\n    supplierRows = (p && Array.isArray(p.rows)) ? p.rows : [];\n  } catch (e) { supplierRows = []; }\n\n  const low = [];\n  for (const row of stockRows) {\n    if (!row) continue;\n    const fabric = row.fabric;\n    const metres = Number(row.metres);\n    const minimum = Number(row.minimum);\n    if (!fabric || !isFinite(metres) || !isFinite(minimum)) continue;\n    if (metres < minimum) low.push({ fabric: String(fabric), metres, minimum });\n  }\n\n  for (const item of low) {\n    const need = item.minimum - item.metres;\n    if (!(need > 0)) continue;\n    let best = null;\n    for (const row of supplierRows) {\n      if (!row) continue;\n      if (String(row.fabric) !== item.fabric) continue;\n      const price = Number(row.price_usdc);\n      const days = Number(row.delivery_days);\n      if (!isFinite(price) || !isFinite(days)) continue;\n      if (isFinite(maxDays) && days > maxDays) continue;\n      if (!best || price < best.price) {\n        best = { supplier: String(row.supplier ?? \"\"), price };\n      }\n    }\n    if (!best) continue;\n    orders_to_place.push({\n      fabric: item.fabric,\n      supplier: best.supplier,\n      metres_to_order: need,\n      total_cost_usdc: Math.round(need * best.price * 100) / 100\n    });\n  }\n\n  return { orders_to_place };\n}",
+      "source": "async function run(input, tools) {\n  const settings = (input && input.settings) || {};\n  const rules = (input && input.rules) || {};\n  const maxDays = Number(rules.max_delivery_days ?? settings.max_delivery_days);\n  const ordersToPlace = [];\n\n  let stockRows = [];\n  try {\n    const res = await tools.sheets.read({ sheet: settings.stock_sheet });\n    stockRows = (res && res.rows) || [];\n  } catch (e) {\n    return { orders_to_place: [] };\n  }\n\n  const low = stockRows.filter(r => {\n    const m = Number(r.metres);\n    const min = Number(r.minimum);\n    return !isNaN(m) && !isNaN(min) && m < min;\n  });\n  if (!low.length || !settings.suppliers_page) {\n    return { orders_to_place: [] };\n  }\n\n  let offers = [];\n  try {\n    const page = await tools.web.fetch({ url: settings.suppliers_page });\n    const text = (page && page.text) || '';\n    const lines = String(text).split(/\\r?\\n/);\n    for (let i = 1; i < lines.length; i++) {\n      const line = lines[i].trim();\n      if (!line) continue;\n      const parts = line.split('|').map(p => p.trim());\n      if (parts.length < 4) continue;\n      const [supplier, fabric, priceStr, daysStr] = parts;\n      const price = Number(priceStr);\n      const days = Number(daysStr);\n      if (!supplier || !fabric || isNaN(price) || isNaN(days)) continue;\n      offers.push({ supplier, fabric, price, days });\n    }\n  } catch (e) {\n    return { orders_to_place: [] };\n  }\n\n  for (const row of low) {\n    const fabric = String(row.fabric);\n    const metres = Number(row.metres);\n    const minimum = Number(row.minimum);\n    const need = minimum - metres;\n    if (!(need > 0)) continue;\n\n    const candidates = offers.filter(o =>\n      o.fabric.toLowerCase() === fabric.toLowerCase() &&\n      (isNaN(maxDays) || o.days <= maxDays)\n    );\n    if (!candidates.length) continue;\n    candidates.sort((a, b) => a.price - b.price);\n    const best = candidates[0];\n\n    ordersToPlace.push({\n      fabric,\n      supplier: best.supplier,\n      metres_to_order: Math.round(need * 100) / 100,\n      total_cost_usdc: Math.round(best.price * need * 100) / 100\n    });\n  }\n\n  return { orders_to_place: ordersToPlace };\n}",
       "rounds": 1,
-      "note": "The code correctly reads stock and supplier data, filters fabrics below minimum, selects the cheapest supplier within delivery constraints, and builds the required orders list using only the listed tool with no unsafe operations."
+      "note": "The code correctly fetches supplier data and stock, filters fabrics below minimum, selects the cheapest qualifying supplier within delivery constraints, and returns the properly formatted orders list using only the specified tools."
     },
     "prepare_write_orders": {
       "status": "approved",
@@ -267,15 +270,15 @@
     },
     "prepare_memory_arg": {
       "status": "approved",
-      "source": "async function run(input, tools) {\n  const orders = Array.isArray(input.orders_to_place) ? input.orders_to_place : [];\n  return { memory_arg: { key: 'last_order', value: orders } };\n}",
+      "source": "async function run(input) {\n  const orders = Array.isArray(input && input.orders_to_place) ? input.orders_to_place : [];\n  const now = new Date().toISOString();\n  const value = { placed_at: now, lines: orders };\n  return { memory_arg: { key: 'last_order', value } };\n}",
       "rounds": 1,
-      "note": "The code correctly transforms orders_to_place into the required {key, value} structure, returns only the specified output, reads only its inputs, and performs no unsafe operations."
+      "note": "The code correctly transforms orders_to_place into the required memory argument structure, reads only its inputs, returns exactly the specified output, calls no tools, and avoids unsafe behavior."
     }
   },
   "bench": {
     "settings": {
       "stock_sheet": "Stock",
-      "suppliers_sheet": "Suppliers",
+      "suppliers_page": "https://suppliers.example/prices",
       "orders_sheet": "Orders",
       "approval_limit": 250,
       "max_delivery_days": 7
@@ -305,65 +308,11 @@
           "minimum": 15
         }
       ],
-      "Suppliers": [
-        {
-          "supplier": "Northmill Textiles",
-          "fabric": "Linen, natural",
-          "price_usdc": 6.5,
-          "delivery_days": 3
-        },
-        {
-          "supplier": "Harbor Cloth Co.",
-          "fabric": "Linen, natural",
-          "price_usdc": 5.9,
-          "delivery_days": 9
-        },
-        {
-          "supplier": "Weftworks",
-          "fabric": "Linen, natural",
-          "price_usdc": 6.1,
-          "delivery_days": 5
-        },
-        {
-          "supplier": "Northmill Textiles",
-          "fabric": "Wool felt",
-          "price_usdc": 11,
-          "delivery_days": 4
-        },
-        {
-          "supplier": "Harbor Cloth Co.",
-          "fabric": "Wool felt",
-          "price_usdc": 9.8,
-          "delivery_days": 12
-        },
-        {
-          "supplier": "Weftworks",
-          "fabric": "Wool felt",
-          "price_usdc": 10.5,
-          "delivery_days": 6
-        },
-        {
-          "supplier": "Northmill Textiles",
-          "fabric": "Canvas, heavy",
-          "price_usdc": 7.2,
-          "delivery_days": 2
-        },
-        {
-          "supplier": "Harbor Cloth Co.",
-          "fabric": "Canvas, heavy",
-          "price_usdc": 6.8,
-          "delivery_days": 5
-        },
-        {
-          "supplier": "Weftworks",
-          "fabric": "Canvas, heavy",
-          "price_usdc": 7.5,
-          "delivery_days": 3
-        }
-      ],
       "Orders": []
     },
-    "pages": {},
+    "pages": {
+      "https://suppliers.example/prices": "Supplier prices\n\nSupplier prices\n\nPrices per metre in USDC, and how many days delivery takes.\n\nsupplier | fabric | price_usdc | delivery_days\nNorthmill Textiles | Linen, natural | 6.50 | 3\nHarbor Cloth Co. | Linen, natural | 5.90 | 9\nWeftworks | Linen, natural | 6.10 | 5\nNorthmill Textiles | Wool felt | 11.00 | 4\nHarbor Cloth Co. | Wool felt | 9.80 | 12\nWeftworks | Wool felt | 10.50 | 6\nNorthmill Textiles | Canvas, heavy | 7.20 | 2\nHarbor Cloth Co. | Canvas, heavy | 6.80 | 5\nWeftworks | Canvas, heavy | 7.50 | 3"
+    },
     "search": {},
     "telegram": {
       "answers": [
@@ -378,5 +327,5 @@
       "check_approval": "no_approval_needed"
     }
   },
-  "planTries": 5
+  "planTries": 7
 }

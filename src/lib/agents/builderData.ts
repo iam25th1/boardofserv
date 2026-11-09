@@ -8,6 +8,7 @@ import { emptyBench } from "./types";
 // The maker's builder: never sent to anyone else (the routes check).
 export async function builderOf(agent: Agent, version: AgentVersion): Promise<AgentBuilderDTO> {
   const versions = await versionsOf(agent.id);
+  const published = versions.find((v) => v.state === "published");
   return {
     agent: summaryOf(agent, version),
     name: version.definition?.name ?? agent.name,
@@ -16,5 +17,6 @@ export async function builderOf(agent: Agent, version: AgentVersion): Promise<Ag
     code: Object.fromEntries(Object.entries(version.code).map(([id, c]) => [id, { status: c.status, source: c.source, rounds: c.rounds, note: c.note }])),
     bench: version.bench ?? emptyBench(),
     versions: versions.map((v) => ({ number: v.number, state: v.state, createdAt: v.createdAt.toISOString(), publishedAt: v.publishedAt?.toISOString() ?? null })),
+    runnable: published?.definition ? { version: published.number, definition: published.definition, defaults: published.bench?.settings ?? {} } : null,
   };
 }

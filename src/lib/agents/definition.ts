@@ -7,7 +7,8 @@ import { z } from "zod";
 //
 // - job: what it does and what counts as done.
 // - triggers: what wakes it up (a schedule, a value checked on an interval,
-//   or an incoming message). Stored now; they start runs in a later phase.
+//   or an incoming message). A check names its own code step, which reads
+//   the value and says whether the condition holds.
 // - settings: what each renter answers when they set it up.
 // - rules: the limits a renter may adjust (a spend cap, an approval
 //   threshold, an allowed list), each with the maker's default.
@@ -66,7 +67,10 @@ export const Job = z.object({ does: text(400), done: text(400) });
 
 export const Trigger = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("schedule"), every: z.enum(["hour", "day", "week"]), at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable(), description: text(200) }),
-  z.object({ kind: z.literal("check"), everyMinutes: z.number().int().min(5).max(1440), watch: text(200), when: text(200) }),
+  // step: the code step that checks, outside the run's own steps. It reads
+  // the watched value and returns { holds } (and optionally { value }); the
+  // run starts when holds turns true, not on every check while it stays true.
+  z.object({ kind: z.literal("check"), everyMinutes: z.number().int().min(5).max(1440), watch: text(200), when: text(200), step: key.optional() }),
   z.object({ kind: z.literal("message"), from: z.enum(["telegram"]), description: text(200) }),
 ]);
 
@@ -92,7 +96,9 @@ export const Rule = z.object({
 
 export const Memory = z.object({ key, description: text(200), type: z.enum(["text", "number", "list", "record"]) });
 
-export const Action = z.object({ id: key, tool: z.enum(TOOL_NAMES), description: text(200) });
+// askOver: a usdc or number rule; a payment (wallet.pay) over its value
+// waits for the owner's yes, wherever it is made.
+export const Action = z.object({ id: key, tool: z.enum(TOOL_NAMES), description: text(200), askOver: key.optional() });
 // (Its tool must be one of ACTION_TOOLS: checked with the rest, in checkGraph.)
 
 const stepBase = { id: key, title: text(80), inputs: z.array(key).max(12), outputs: z.array(key).max(12) };
@@ -122,6 +128,10 @@ export const ActionStep = z.object({
   // One of the agent's declared actions, taken with the step's inputs.
   action: key,
   next: key.nullable(),
+  // For an action that waits for the owner (a question, or a payment over a
+  // rule's limit): where to go when no answer comes in time, or the owner
+  // says no to the payment. Without it the job stops there.
+  otherwise: key.nullable().optional(),
 });
 
 export const Step = z.discriminatedUnion("kind", [CodeStep, DecisionStep, ActionStep]);
@@ -143,7 +153,11 @@ const Shape = z.object({
   steps: z.array(Step).min(1).max(30),
   actions: z.array(Action).max(12),
   limits: Limits,
+  // How long the owner has to answer before it counts as no answer.
+  approvalHours: z.number().int().min(1).max(168).optional(),
 });
+
+export const DEFAULT_APPROVAL_HOURS = 24;
 
 export type AgentDefinition = z.infer<typeof Shape>;
 export type AgentStep = z.infer<typeof Step>;
@@ -152,9 +166,12 @@ export type DecisionStepDef = z.infer<typeof DecisionStep>;
 export type ActionStepDef = z.infer<typeof ActionStep>;
 export type StepKind = AgentStep["kind"];
 
-// Where a step can go next: one step, or one per outcome.
+// Where a step can go next: one step, or one per outcome, and for an action
+// that waits for the owner, where it goes without an answer.
 export function nextOf(step: AgentStep): (string | null)[] {
-  return step.kind === "decision" ? step.outcomes.map((o) => o.next) : [step.next];
+  if (step.kind === "decision") return step.outcomes.map((o) => o.next);
+  if (step.kind === "action" && step.otherwise) return [step.next, step.otherwise];
+  return [step.next];
 }
 
 function duplicates(values: string[]): string[] {
@@ -178,6 +195,12 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
   }
   d.actions.forEach((a, i) => {
     if (!ACTION_TOOLS.includes(a.tool)) say(`action "${a.id}" uses ${a.tool}, which only reads: reading happens in code steps, and actions only change things`, ["actions", i, "tool"]);
+    if (a.askOver) {
+      const rule = d.rules.find((r) => r.key === a.askOver);
+      if (a.tool !== "wallet.pay") say(`action "${a.id}" asks over a limit, which only a payment (wallet.pay) can`, ["actions", i, "askOver"]);
+      else if (!rule) say(`action "${a.id}" asks over "${a.askOver}", which is not a rule`, ["actions", i, "askOver"]);
+      else if (rule.type !== "usdc" && rule.type !== "number") say(`action "${a.id}" asks over "${a.askOver}", which must be a usdc or number rule`, ["actions", i, "askOver"]);
+    }
   });
   const known = new Set(ids);
   const produced = new Set<string>([...RUN_VALUES, ...d.steps.flatMap((s) => s.outputs)]);
@@ -224,11 +247,31 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
     }
     if (s.kind === "decision") for (const id of duplicates(s.outcomes.map((o) => o.id))) say(`step "${s.id}" has two outcomes called "${id}"`, ["steps", i, "outcomes"]);
     if (s.kind === "action" && !declared.has(s.action)) say(`step "${s.id}" takes "${s.action}", which is not a declared action`, ["steps", i, "action"]);
+    if (s.kind === "action" && s.otherwise) {
+      const action = declared.get(s.action);
+      if (action && action.tool !== "telegram.ask" && !action.askOver) say(`step "${s.id}" has somewhere to go without an answer, but its action never waits for one`, ["steps", i, "otherwise"]);
+    }
     if (s.kind === "code") {
       for (const tool of s.tools) {
         if (SIDE_EFFECT_TOOLS.includes(tool) && !declaredTools.has(tool)) say(`step "${s.id}" uses ${tool}, but no declared action uses it`, ["steps", i, "tools"]);
       }
     }
+  });
+
+  // A check trigger's step reads and says whether the condition holds; it
+  // isn't one of the run's steps.
+  const checks = new Set<string>();
+  d.triggers.forEach((t, i) => {
+    if (t.kind !== "check") return;
+    if (!t.step) return say("a check trigger names the code step that reads the value and returns { holds }", ["triggers", i, "step"]);
+    const st = d.steps.find((x) => x.id === t.step);
+    if (!st) return say(`the check trigger's step "${t.step}" is not a step`, ["triggers", i, "step"]);
+    checks.add(st.id);
+    if (st.kind !== "code") return say(`the check trigger's step "${st.id}" must be a code step`, ["triggers", i, "step"]);
+    if (!st.outputs.includes("holds")) say(`the check step "${st.id}" must output holds (true when the condition is met)`, ["triggers", i, "step"]);
+    if (st.next !== null) say(`the check step "${st.id}" only checks: its next must be empty`, ["triggers", i, "step"]);
+    for (const tool of st.tools) if (SIDE_EFFECT_TOOLS.includes(tool) || tool === "memory.set") say(`the check step "${st.id}" only reads, so it can't use ${tool}`, ["triggers", i, "step"]);
+    for (const input of st.inputs) if (!(RUN_VALUES as readonly string[]).includes(input) || input === "trigger") say(`the check step "${st.id}" can only read settings, rules and memory, not "${input}"`, ["triggers", i, "step"]);
   });
 
   // Every step can be reached from the first.
@@ -242,7 +285,9 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
     for (const n of nextOf(byId.get(id)!)) if (n !== null && byId.has(n)) queue.push(n);
   }
   d.steps.forEach((s, i) => {
-    if (!seen.has(s.id)) say(`step "${s.id}" can't be reached from the first step`, ["steps", i]);
+    if (checks.has(s.id)) {
+      if (seen.has(s.id)) say(`the check step "${s.id}" can't also be a step of the run`, ["steps", i]);
+    } else if (!seen.has(s.id)) say(`step "${s.id}" can't be reached from the first step`, ["steps", i]);
   });
 
   // Every way into a step must have made what it reads: a value made only on

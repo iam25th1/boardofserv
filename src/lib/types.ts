@@ -105,6 +105,10 @@ export interface AgentBuilderDTO {
   code: Record<string, { status: CodeStatus; source: string | null; rounds: number; note: string | null }>;
   bench: BenchData;
   versions: { number: number; state: "draft" | "published"; createdAt: string; publishedAt: string | null }[];
+  // The newest published version, which "Run it for real" installs: its
+  // definition (for the settings form) and the bench's sample settings to
+  // start the answers from. Null before the first is published.
+  runnable: { version: number; definition: AgentDefinition; defaults: Record<string, unknown> } | null;
 }
 
 // One of the maker's agents on their own agents page.
@@ -117,6 +121,112 @@ export interface AgentListItemDTO {
   draft: boolean;
   steps: number;
   updatedAt: string;
+}
+
+// One owner's running copy of an agent, as its owner sees it. Only ever
+// sent to that owner.
+export interface InstallationDTO {
+  id: string;
+  agentId: string;
+  name: string;
+  version: number;
+  status: "active" | "paused" | "stopped";
+  timezone: string;
+  settings: { key: string; label: string; value: unknown }[];
+  rules: { key: string; label: string; type: string; value: string }[];
+  minGapMinutes: number;
+  dailySpendUsd: number;
+  createdAt: string;
+  // When it runs, in plain words ("Runs every day at 7:00"), and the next
+  // time it is due (null while it isn't active, or for messages only).
+  runs: string[];
+  nextRunAt: string | null;
+  takesMessages: boolean;
+  // Why its last value check failed, if it did.
+  checkNote: string | null;
+  // What the agent remembers for this owner (theirs alone).
+  memory: { key: string; description: string; value: unknown }[];
+  spendTodayUsd: number;
+  recentJobs: JobSummaryDTO[];
+  // The questions its jobs wait on.
+  approvals: ApprovalDTO[];
+}
+
+// A job, in a list: how it started and ended, its time and cost. reason
+// (which can quote the owner's data) is the owner's alone.
+export interface JobSummaryDTO {
+  id: string;
+  installationId: string;
+  agentName: string;
+  status: "queued" | "running" | "waiting_for_owner" | "done" | "failed" | "cancelled";
+  reason: string | null;
+  // In words: "on its schedule", "by your message".
+  started: string;
+  createdAt: string;
+  finishedAt: string | null;
+  costUsd: number;
+  ms: number;
+  stepCount: number;
+  // The viewer's own installation's job.
+  mine: boolean;
+}
+
+// One step a job ran. The owner gets everything; the maker of someone
+// else's installation only which step, how it went, its time, model, cost
+// and which tools it called.
+export interface JobStepDTO {
+  seq: number;
+  stepId: string;
+  title: string;
+  kind: "code" | "decision" | "action";
+  status: "running" | "ok" | "failed" | "waiting";
+  ms: number;
+  model: string | null;
+  costUsd: number;
+  tools: { tool: string; failed: boolean }[];
+  input?: unknown;
+  output?: unknown;
+  outcome?: string | null;
+  note?: string | null;
+  calls?: { tool: string; args: unknown; result: unknown; error: string | null }[];
+}
+
+export interface JobDTO extends JobSummaryDTO {
+  viewer: "owner" | "maker";
+  version: number;
+  // Which values came from web pages (the owner's view).
+  untrusted: string[];
+  steps: JobStepDTO[];
+  // The agent's steps, for the timeline's names.
+  plan: { id: string; title: string; kind: "code" | "decision" | "action" }[];
+  approvals: ApprovalDTO[];
+}
+
+// A question a job waits on, as its owner sees it: what it asks, the
+// answers they can give and what happens on each, and with none.
+export interface ApprovalDTO {
+  id: string;
+  jobId: string;
+  installationId: string;
+  agentName: string;
+  stepTitle: string;
+  kind: "ask" | "over_limit";
+  question: string;
+  options: { label: string; effect: string }[];
+  noAnswer: string;
+  status: "pending" | "answered" | "expired" | "cancelled";
+  answer: string | null;
+  expiresAt: string;
+  createdAt: string;
+}
+
+// A message in an installation's in-app message box.
+export interface AgentMessageDTO {
+  id: string;
+  from: "owner" | "agent";
+  text: string;
+  jobId: string | null;
+  createdAt: string;
 }
 
 // A published helper as anyone may see it: never its instructions.

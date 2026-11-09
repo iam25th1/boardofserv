@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX IF NOT EXISTS "agent_jobs_one_running_idx" ON "agent_jobs" USING btree ("installation_id") WHERE "agent_jobs"."status" = 'running';

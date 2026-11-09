@@ -1,0 +1,54 @@
+/* A question waiting for its owner: solid chalk while it waits, dashed after. */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: var(--stroke) solid var(--chalk);
+  border-radius: var(--r-xl);
+  background: var(--slate-2);
+}
+.card[data-status]:not([data-status="pending"]) {
+  border: 1px dashed var(--line);
+}
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-1) var(--s-3);
+}
+.meta {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.question {
+  font-size: var(--t-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.options li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+}
+.effect {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.ended {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}
+.said {
+  font-size: var(--t-xs);
+}

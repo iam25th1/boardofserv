@@ -103,7 +103,8 @@ export function extractCode(content: string): string | null {
 const REACHES = [
   [/\brequire\s*\(/, "it calls require"],
   [/\bimport\s*\(|^\s*import\s/m, "it imports a module"],
-  [/\bfetch\s*\(/, "it calls fetch"],
+  // The global fetch, not the web.fetch tool (tools.web.fetch).
+  [/(?<!\.\s*)\bfetch\s*\(/, "it calls fetch"],
   [/\b(?:XMLHttpRequest|WebSocket|EventSource)\b/, "it reaches for the network"],
   [/\b(?:process|globalThis|window|self|global)\s*[.[]/, "it reaches for globals"],
   [/\beval\s*\(|\bnew\s+Function\b|\bFunction\s*\(/, "it builds code at run time"],

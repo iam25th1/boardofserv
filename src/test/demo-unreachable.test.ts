@@ -60,6 +60,8 @@ describe("the demo model", () => {
     const root = join(__dirname, "..", "..", ".next");
     const markers = Object.values(restock.code).flatMap((c) => (c.source && c.source.length > 60 ? [c.source.slice(0, 60)] : []));
     expect(markers.length).toBeGreaterThan(0);
+    // Nor the live demo that runs it on an in-memory database.
+    markers.push("__bosDemoLive", "demo stand-in");
     const offenders: string[] = [];
     for (const dir of ["server", "static"]) {
       for (const d of readdirSync(join(root, dir), { recursive: true, withFileTypes: true })) {

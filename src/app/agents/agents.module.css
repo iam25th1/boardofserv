@@ -71,3 +71,21 @@
   border-color: var(--chalk);
   color: var(--chalk);
 }
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--slate-2);
+}
+.panelHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2) var(--s-4);
+}
+.panelHead a {
+  color: var(--chalk);
+}

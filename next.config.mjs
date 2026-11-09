@@ -74,10 +74,13 @@ const nextConfig = {
   // the browser bundle, and those are enumerated in .env.example.
   poweredByHeader: false,
   experimental: {
-    // Loaded from node_modules at run time, not bundled: pg, and the agent
-    // sandbox's QuickJS, which reads its WebAssembly file from its package.
-    serverComponentsExternalPackages: ["pg", "quickjs-emscripten-core", "@jitl/quickjs-wasmfile-release-sync"],
-    // src/instrumentation.ts: payments boot when the server starts.
+    // Loaded from node_modules at run time, not bundled: pg, the agent
+    // sandbox's QuickJS, which reads its WebAssembly file from its package,
+    // and PGlite, the in-memory Postgres of the development-only live demo
+    // (never imported by a production build).
+    serverComponentsExternalPackages: ["pg", "quickjs-emscripten-core", "@jitl/quickjs-wasmfile-release-sync", "@electric-sql/pglite"],
+    // src/instrumentation.ts: payments and the agents' job worker boot when
+    // the server starts.
     instrumentationHook: true,
   },
   async headers() {

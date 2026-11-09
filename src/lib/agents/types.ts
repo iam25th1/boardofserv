@@ -1,3 +1,5 @@
+import type { ToolName } from "./definition";
+
 // What a version stores beside its definition, shared by the server and the
 // builder. No dependencies, so the database schema can name these types.
 
@@ -53,10 +55,43 @@ export function emptyBench(): BenchData {
   return { settings: {}, rules: {}, trigger: null, sheets: {}, pages: {}, search: {}, telegram: { answers: [] }, memory: {}, wallet: { balanceUsdc: 0 }, decisions: {} };
 }
 
+// Where a run is, saved so it can pick up from here.
+export interface RunState {
+  // The step to run next; null once the run has ended.
+  at: string | null;
+  bag: Record<string, unknown>;
+  // Steps started, time spent running (never waiting), model spend.
+  steps: number;
+  ms: number;
+  costUsd: number;
+  // The current step's tool calls so far, in order.
+  journal: JournalEntry[];
+  // The current step has started already (it runs again after a pause or a
+  // restart, and isn't counted twice).
+  resumed: boolean;
+  // Values in the bag made from web pages: untrusted data.
+  untrusted?: string[];
+}
+
+export interface JournalEntry {
+  tool: ToolName;
+  args: unknown;
+  // What it answered, or the error it gave (absent while it waits).
+  result?: unknown;
+  error?: string | null;
+  // The error was outside the agent: a retry makes this call again.
+  infra?: boolean;
+  // Waiting for the owner, or their answer (null when none came in time).
+  waiting?: boolean;
+  approval?: { answer: string | null };
+}
+
 // What a test bench run reports, step by step, as it happens.
 export type RunEvent =
   | { type: "start"; dryRun: boolean }
   | { type: "step"; stepId: string; input: unknown }
   | { type: "tool"; stepId: string; tool: string; args: unknown; result: unknown; error: string | null }
-  | { type: "step_done"; stepId: string; status: "ok" | "failed"; output: unknown; outcome: string | null; note: string | null; ms: number; costUsd: number }
+  | { type: "step_done"; stepId: string; status: "ok" | "failed"; output: unknown; outcome: string | null; note: string | null; ms: number; costUsd: number; model?: string | null }
+  // A job (never the bench) waiting for its owner's answer at this step.
+  | { type: "wait"; stepId: string; question: string; choices: string[] }
   | { type: "end"; status: "done" | "failed" | "stopped"; reason: string; steps: number; ms: number; costUsd: number; memory: Record<string, unknown>; sheets: BenchData["sheets"] };

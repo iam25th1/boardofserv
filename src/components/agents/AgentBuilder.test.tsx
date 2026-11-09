@@ -26,6 +26,7 @@ const data = (o: Partial<AgentBuilderDTO> = {}): AgentBuilderDTO => ({
   },
   bench: restockBench(),
   versions: [{ number: 1, state: "draft", createdAt: "2026-11-09T08:00:00.000Z", publishedAt: null }],
+  runnable: null,
   ...o,
 });
 

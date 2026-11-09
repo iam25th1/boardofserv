@@ -40,11 +40,32 @@ describe("the agent format", () => {
     expect(stepContract(d.steps[1]!)).toBe("input { low, rules, settings } -> output { order, order_rows }");
   });
 
+  const isLow = { kind: "code" as const, id: "is_low", title: "Is anything low?", inputs: ["settings"], outputs: ["holds"], description: "Read the sheet in settings.stock_sheet and return holds: true when any row is below its minimum.", tools: ["sheets.read" as const], next: null };
+
   it("takes each trigger kind, and refuses a bad time or interval", () => {
-    expect(errorsOf((d) => void (d.triggers = [{ kind: "check", everyMinutes: 30, watch: "stock", when: "below minimum" }, { kind: "message", from: "telegram", description: "a message" }]))).toEqual([]);
+    expect(
+      errorsOf((d) => {
+        d.triggers = [{ kind: "check", everyMinutes: 30, watch: "stock", when: "below minimum", step: "is_low" }, { kind: "message", from: "telegram", description: "a message" }];
+        d.steps.push(isLow);
+      }),
+    ).toEqual([]);
     expect(errorsOf((d) => void ((d.triggers[0] as { at: string | null }).at = "25:00"))).not.toEqual([]);
     expect(errorsOf((d) => void (d.triggers = [{ kind: "check", everyMinutes: 1, watch: "x", when: "y" }]))).not.toEqual([]);
     expect(errorsOf((d) => void (d.triggers = []))).not.toEqual([]);
+  });
+
+  it("gives a value check its own code step, which only reads and says whether the condition holds", () => {
+    const check = (step?: string) => ({ kind: "check" as const, everyMinutes: 30, watch: "stock", when: "below minimum", ...(step ? { step } : {}) });
+    expect(errorsOf((d) => void (d.triggers = [check()]))).toContain("a check trigger names the code step that reads the value and returns { holds }");
+    expect(errorsOf((d) => void (d.triggers = [check("ghost")]))).toContain('the check trigger\'s step "ghost" is not a step');
+    expect(
+      errorsOf((d) => {
+        d.triggers = [check("is_low")];
+        d.steps.push({ ...isLow, outputs: ["low"], tools: ["sheets.read", "sheets.write"] });
+      }),
+    ).toEqual(expect.arrayContaining(['the check step "is_low" must output holds (true when the condition is met)', 'the check step "is_low" only reads, so it can\'t use sheets.write']));
+    // A run's own step can't be the check.
+    expect(errorsOf((d) => void (d.triggers = [check("find_low")]))).toContain('the check step "find_low" can\'t also be a step of the run');
   });
 
   it("names every way a plan doesn't hold together", () => {

@@ -141,6 +141,48 @@
       "when": 1794193687819,
       "tag": "0019_agent_interview",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794227649280,
+      "tag": "0020_agent_installations",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794228110797,
+      "tag": "0021_agent_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1794228503208,
+      "tag": "0022_agent_triggers",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794228900966,
+      "tag": "0023_agent_approvals",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794229265451,
+      "tag": "0024_agent_fetch_days",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794231101281,
+      "tag": "0025_agent_jobs_one_running",
+      "breakpoints": true
     }
   ]
 }

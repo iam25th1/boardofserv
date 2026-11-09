@@ -1,0 +1,31 @@
+.runs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--slate-2);
+}
+.runs h2 {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+}
+.runs ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.runs li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  font-size: var(--t-sm);
+}
+.runs li span {
+  color: var(--chalk-3);
+  font-size: var(--t-xs);
+}

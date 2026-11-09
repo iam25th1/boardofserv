@@ -2,7 +2,8 @@
 import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent } from "./agents/types";
-import type { AccountDTO, AdminDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
+import type { InstallAnswers } from "./agents/settingsForm";
+import type { AccountDTO, AdminDTO, AgentMessageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
 
 // When the server sends no sentence of its own: never a status code.
 const SOMETHING_WRONG = "Something went wrong. Try again in a few minutes.";
@@ -49,6 +50,28 @@ export function useApi() {
       saveAgentBench: (id: string, bench: BenchData) =>
         json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}/bench`, { method: "PUT", body: JSON.stringify({ bench }) }).then((d) => d.builder),
       publishAgent: (id: string) => json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}/publish`, { method: "POST" }).then((d) => d.builder),
+      // Run the newest published version for real. A refusal carries the
+      // answers that need another look, by field.
+      installAgent: async (id: string, answers: InstallAnswers): Promise<InstallationDTO> => {
+        const res = await authed(`/api/agents/${encodeURIComponent(id)}/installations`, { method: "POST", body: JSON.stringify(answers) });
+        const data = (await res.json().catch(() => ({}))) as { installation?: InstallationDTO; error?: string; errors?: Record<string, string> };
+        if (res.ok && data.installation) return data.installation;
+        throw Object.assign(new Error(data.error ?? SOMETHING_WRONG), { errors: data.errors });
+      },
+      listInstallations: () => json<{ installations: InstallationDTO[] }>("/api/installations").then((d) => d.installations),
+      getInstallation: (id: string) => json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}`).then((d) => d.installation),
+      getJob: (id: string) => json<{ job: JobDTO }>(`/api/jobs/${encodeURIComponent(id)}`).then((d) => d.job),
+      listInstallationJobs: (id: string) => json<{ jobs: JobSummaryDTO[] }>(`/api/installations/${encodeURIComponent(id)}/jobs`).then((d) => d.jobs),
+      listAgentJobs: (id: string) => json<{ jobs: JobSummaryDTO[] }>(`/api/agents/${encodeURIComponent(id)}/jobs`).then((d) => d.jobs),
+      listApprovals: () => json<{ approvals: ApprovalDTO[] }>("/api/approvals").then((d) => d.approvals),
+      countApprovals: () => json<{ pending: number }>("/api/approvals?count=1").then((d) => d.pending),
+      answerApproval: (id: string, answer: string) =>
+        json<{ approval: ApprovalDTO }>(`/api/approvals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ answer }) }).then((d) => d.approval),
+      controlInstallation: (id: string, action: "pause" | "resume" | "stop" | "run") =>
+        json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}/control`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.installation),
+      listAgentMessages: (id: string) => json<{ messages: AgentMessageDTO[] }>(`/api/installations/${encodeURIComponent(id)}/messages`).then((d) => d.messages),
+      messageAgent: (id: string, text: string) =>
+        json<{ message: AgentMessageDTO }>(`/api/installations/${encodeURIComponent(id)}/messages`, { method: "POST", body: JSON.stringify({ text }) }).then((d) => d.message),
       // Change the plan from what the maker says; it rebuilds in the background.
       fixAgent: (id: string, message: string) =>
         json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/fix`, { method: "POST", body: JSON.stringify({ message }) }).then((d) => d.agent),

@@ -610,6 +610,56 @@ published version shows as "in testing" on the maker's own agents page,
 on the board for renting yet. Changing the plan or saving the bench after
 publishing starts a new draft copied from it.
 
+### Running for real
+
+An installation (`src/lib/agents/runtime/`) is one owner's running copy of a
+published version: their answers to its settings questions (a form made
+from the questions, checked in the browser and on the server), their rule
+values over the maker's defaults, what it remembers for them, its time zone,
+schedule time, minimum gap between jobs and daily model spend cap, and its
+status. For now a maker installs their own agent from the builder with "Run
+it for real" (`POST /api/agents/:id/installations`); `install()` takes any
+owner, for renting later. Sheets, Telegram, search and the wallet are still
+stand-ins (copied from the version's test bench, kept per installation);
+memory and `web.fetch` are real.
+
+- Triggers: a schedule fires in the owner's time zone ("every day at 7:00",
+  daylight saving kept to the wall clock); a value check runs its own code
+  step every so many minutes and starts a job only when its condition turns
+  true; a message from the installation's in-app message box starts a job
+  with the message as its input.
+- Jobs are rows (`agent_jobs`): queued, running, waiting_for_owner, done,
+  failed or cancelled. The worker runs in the server process (`boot.ts` says
+  why) under its own Postgres advisory lock, the payments worker's way, and
+  claims jobs atomically, one running per installation (the database holds
+  to that too). A job saves where it is after every step and tool call, so
+  after a pause or a restart the step runs again with its earlier tool calls
+  replayed from its journal, never made twice. Failures outside the agent
+  are tried again after 30 seconds, 2 minutes and 10 minutes; the agent's own
+  logic failing is not. A job keeps its version to the end.
+- Approvals: `telegram.ask`, and a payment over an action's `askOver` rule,
+  pause the job and open a question with each answer's effect (a count in
+  the top bar, `/approvals`). It expires after the maker's `approvalHours`
+  (24 by default) and the job takes the step's `otherwise` path, or stops.
+- Memory is kept on the installation, only the declared fields and types.
+- `web.fetch` (`webFetch.ts`) is GET only, http and https, 1 MB, 10 seconds,
+  text types, HTML read as text, and refuses private, loopback, link-local,
+  metadata and reserved addresses, after DNS and every redirect too. Its text
+  is marked untrusted, and decisions show it to SERV as data, never
+  instructions.
+- Every step is logged with its input, output, tool calls, time, model and
+  cost (`/jobs/:id`, drawn step by step). The owner sees everything; the
+  maker sees how it ran on someone else's copy and none of their data.
+  Limits per job (steps, seconds, spend) and the installation's daily cap
+  fail a job with a plain reason, and its spend counts towards the site's
+  daily limit.
+- `/installations` gives the owner status, next run, recent jobs, waiting
+  questions, spend today, and run now, pause, resume and stop (queued jobs
+  cancelled, a running job stopped after its current step).
+
+`BOS_AGENT_WORKER=0` turns the worker off in a process, and
+`AGENT_FETCHES_PER_DAY` (default 100) caps each installation's pages a day.
+
 ### The example agent
 
 `src/lib/agents/examples/restock.json` is a fabric shop's restock agent,
@@ -620,8 +670,9 @@ built through the real pipeline by `scripts/seed-restock.ts` with live calls
 npx vite-node --config vitest.config.ts scripts/seed-restock.ts
 ```
 
-It reads the Stock sheet and three suppliers' prices and delivery times,
-picks the cheapest supplier within the longest delivery the owner allows,
+It reads the Stock sheet and the suppliers' price page
+(`examples/supplierPage.ts`) with `web.fetch`, picks the cheapest supplier
+within the longest delivery the owner allows,
 asks the owner on Telegram when the order is over the approval limit (and
 stops if they say no), records the order in the Orders sheet and remembers
 it. The script needs `SERV_API_KEY` and `DOLPHIN_API_KEY`, touches no
@@ -635,9 +686,15 @@ recorded on its bench, so dry runs replay them with no model call.
 `/demo?agent=restock` (development only, no sign-in) shows its builder and
 test bench: a run is a dry run on the server (`POST /api/demo/agent`, a 404
 outside development), every tool a mock and every decision recorded, so it
-never calls a model. Save draft and Publish only change that page. A
-production build has neither the example nor its code
-(`src/test/demo-unreachable.test.ts` checks the build).
+never calls a model. Save draft and Publish only change that page.
+`/demo?agent=restock&live=1` runs it for real on the real runtime, in an
+in-memory Postgres inside the development server: installed for a test
+owner, every 90 seconds, against the stand-in sheets and a suppliers' page
+the demo serves itself, with a stand-in for SERV, so it needs no database and
+no keys. `scripts/live-restock.ts` runs it as a job with SERV deciding for
+real (`SERV_API_KEY`, `LIVE_SERV_BUDGET`, default 6 calls). A production
+build has none of this (`src/test/demo-unreachable.test.ts` checks the
+build).
 
 ## Payments
 

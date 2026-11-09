@@ -45,6 +45,7 @@ export const AGENT_PLAN_SCHEMA = {
         everyMinutes: { type: "number", description: "check: minutes between checks, else 0" },
         watch: str("check: the value it watches, else empty"),
         when: str("check: when it acts, else empty"),
+        step: str("check: the id of its own code step that reads the value and returns { holds }, else empty"),
         description: str("in plain words"),
       }),
       "what wakes it up",
@@ -58,7 +59,15 @@ export const AGENT_PLAN_SCHEMA = {
       "limits a renter may adjust",
     ),
     memory: list(obj({ key: str("snake_case"), description: str("what it keeps"), type: { type: "string", enum: ["text", "number", "list", "record"] } }), "what it keeps between jobs"),
-    actions: list(obj({ id: str("snake_case"), tool: { type: "string", enum: [...ACTION_TOOLS] }, description: str("what this action does") }), "the only actions it may ever take"),
+    actions: list(
+      obj({
+        id: str("snake_case"),
+        tool: { type: "string", enum: [...ACTION_TOOLS] },
+        description: str("what this action does"),
+        askOver: str("wallet.pay only: the usdc rule whose value a payment over waits for the owner's yes, else empty"),
+      }),
+      "the only actions it may ever take",
+    ),
     steps: list(
       obj({
         id: str("snake_case"),
@@ -72,10 +81,12 @@ export const AGENT_PLAN_SCHEMA = {
         prompt: str("decision: what to judge, else empty"),
         outcomes: list(obj({ id: str("snake_case"), label: str("a few words"), next: str('the step it leads to, or ""') }), "decision: 2 to 6 outcomes, else []"),
         action: str("action: a declared action id, else empty"),
+        otherwise: str('action that waits for the owner (telegram.ask, or a payment over a limit): the step to go to when no answer comes in time, or "" to stop'),
       }),
       "the steps; a run starts at the first",
     ),
     limits: obj({ maxSteps: { type: "number" }, maxRunSeconds: { type: "number" }, maxSpendUsd: { type: "number" } }),
+    approvalHours: { type: "number", description: "hours the owner has to answer a question before it counts as no answer: 24 unless the maker said otherwise" },
   }),
 };
 
@@ -119,13 +130,13 @@ export function wireToDefinition(w: Wire): unknown {
     if (st.kind === "decision") {
       return { ...base, kind: "decision", prompt: s(st.prompt), outcomes: arr(st.outcomes).map((o) => ({ id: s((o as Wire).id), label: s((o as Wire).label), next: nextOrNull((o as Wire).next) })) };
     }
-    if (st.kind === "action") return { ...base, kind: "action", action: s(st.action), next: nextOrNull(st.next) };
+    if (st.kind === "action") return { ...base, kind: "action", action: s(st.action), next: nextOrNull(st.next), ...(s(st.otherwise) ? { otherwise: s(st.otherwise) } : {}) };
     return { ...base, kind: "code", description: s(st.description), tools: arr(st.tools).map(s), next: nextOrNull(st.next) };
   });
   readBags(steps as { inputs: string[]; outputs: string[]; description?: string; prompt?: string }[], w);
   const triggers = arr(w.triggers).map((x) => {
     const t = x as Wire;
-    if (t.kind === "check") return { kind: "check", everyMinutes: Math.round(n(t.everyMinutes)), watch: s(t.watch), when: s(t.when) };
+    if (t.kind === "check") return { kind: "check", everyMinutes: Math.round(n(t.everyMinutes)), watch: s(t.watch), when: s(t.when), ...(s(t.step) ? { step: s(t.step) } : {}) };
     if (t.kind === "message") return { kind: "message", from: "telegram", description: s(t.description) };
     return { kind: "schedule", every: t.every === "none" || !t.every ? "day" : t.every, at: s(t.at) || null, description: s(t.description) };
   });
@@ -145,9 +156,10 @@ export function wireToDefinition(w: Wire): unknown {
       return { key: s(t.key), label: s(t.label), type: t.type, value: s(t.value), help: s(t.help) };
     }),
     memory: arr(w.memory).map((x) => ({ key: s((x as Wire).key), description: s((x as Wire).description), type: (x as Wire).type })),
-    actions: arr(w.actions).map((x) => ({ id: s((x as Wire).id), tool: (x as Wire).tool, description: s((x as Wire).description) })),
+    actions: arr(w.actions).map((x) => ({ id: s((x as Wire).id), tool: (x as Wire).tool, description: s((x as Wire).description), ...(s((x as Wire).askOver) ? { askOver: s((x as Wire).askOver) } : {}) })),
     steps,
     limits: { maxSteps: Math.round(n(limits.maxSteps)), maxRunSeconds: Math.round(n(limits.maxRunSeconds)), maxSpendUsd: n(limits.maxSpendUsd) },
+    ...(n(w.approvalHours) > 0 ? { approvalHours: Math.round(n(w.approvalHours)) } : {}),
   };
 }
 
@@ -157,10 +169,12 @@ export const PLAN_AGENT_PROMPT = [
   "decision: a judgement made by a model, with 2 to 6 outcomes, each naming the step it leads to.",
   "action: takes one declared action, which only changes things (sheets.write, telegram.send, telegram.ask, wallet.pay, memory.set); never use an action to read. For sheets.write, wallet.pay and memory.set its first input must already be that tool's arguments ({ sheet, rows }, { to, amountUsdc, memo } or { key, value }), a value of its own made by a code step before it for that action alone; telegram.send and telegram.ask make their message from any inputs. The step's first output holds the tool's result (telegram.ask gives { answer }).",
   'A run starts at the first step. next is the next step\'s id, or "" when the run ends there.',
+  'A check trigger names its own code step (step), listed with the steps but outside the run: it reads the watched value with tools that only read, from settings, rules and memory, and returns { holds } (true when the condition is met, and optionally value). The run starts when holds turns true. Its next is "" and no step leads to it.',
   'Inputs name values a step reads: settings, rules, memory, trigger, or an output of an earlier step. Outputs name what it adds. A setting is read as settings.<key>: a step that uses one lists "settings" in its inputs, never the key itself; the same for rules and memory.',
   "In code step descriptions, name the exact sheets, columns and fields the maker gave, and the shape of what the step returns.",
   `Tools: ${TOOL_NAMES.map((t) => `${t} (${TOOLS[t].summary})`).join("; ")}.`,
   "Every side effect (sheets.write, telegram.send, telegram.ask, wallet.pay) must be a declared action. Anything the maker said it must never do without asking goes through telegram.ask first.",
+  "A question to the owner (telegram.ask) waits for their answer for approvalHours; an action step that asks can name otherwise, the step to go to when no answer comes, or leave it empty to stop. A payment action (wallet.pay) can name askOver, a usdc rule: payments over it wait for the owner's yes.",
   "Settings are what each renter answers at setup; rules are limits a renter may adjust, with the maker's default as text; memory is what it keeps between jobs.",
   "Keys and ids are snake_case. Money is in USDC. Use as few steps as do the job. Limits: maxSteps at most 50, maxRunSeconds at most 300, maxSpendUsd at most 0.5.",
   "Never use em dashes.",

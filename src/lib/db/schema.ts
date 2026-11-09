@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, json, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
 import type { AgentDefinition } from "../agents/definition";
-import type { BenchData, StepCode } from "../agents/types";
+import type { BenchData, RunState, StepCode } from "../agents/types";
 import { CURRENCIES } from "../money";
 
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
@@ -517,6 +517,230 @@ export const agentVersions = pgTable(
   }),
 );
 
+// One owner's running copy of a published agent version: the owner's answers
+// to the agent's settings questions, their rule values (text, over the
+// maker's defaults), what the agent remembers for them, and its status.
+// active runs; paused runs nothing new until resumed; stopped is for good.
+// mocks holds what the tools that are still stand-ins answer from (the
+// sheets, search results and wallet balance, copied from the version's test
+// bench when it is installed). schedule is the owner's time of day ("HH:MM")
+// and weekday (0 is Sunday) for a scheduled agent, over the maker's. Only the
+// owner ever sees settings, rules, memory or mocks.
+export const agentInstallations = pgTable(
+  "agent_installations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => agentVersions.id, { onDelete: "cascade" }),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["active", "paused", "stopped"] }).notNull().default("active"),
+    settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+    rules: jsonb("rules").$type<Record<string, string>>().notNull().default({}),
+    memory: jsonb("memory").$type<Record<string, unknown>>().notNull().default({}),
+    mocks: jsonb("mocks").$type<Pick<BenchData, "sheets" | "search" | "wallet">>().notNull(),
+    timezone: text("timezone").notNull().default("UTC"),
+    schedule: jsonb("schedule").$type<{ at: string | null; day: number | null }>(),
+    minGapMinutes: integer("min_gap_minutes").notNull().default(5),
+    dailySpendUsd: numeric("daily_spend_usd", { precision: 10, scale: 4 }).notNull().default("0.5"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+  },
+  (t) => ({
+    byOwner: index("agent_installations_owner_idx").on(t.ownerUserId, t.createdAt),
+    byAgent: index("agent_installations_agent_idx").on(t.agentId),
+    knownStatus: check("agent_installations_status", sql`${t.status} in ('active', 'paused', 'stopped')`),
+    gap: check("agent_installations_gap", sql`${t.minGapMinutes} between 0 and 1440`),
+  }),
+);
+
+// A job: one run of an installation, started by one of its triggers. It
+// runs the version it was started on to the end, whatever the installation
+// moves to meanwhile. status: queued (waiting to be claimed, at run_after),
+// running (claimed_by a worker, which beats heartbeat_at while it runs),
+// waiting_for_owner (an approval is open), then done, failed or cancelled.
+// state is where the run is (agents/runner.ts RunState): the step, the
+// values so far and the current step's journal of tool calls, so a job can
+// pick up after a pause or a restart without doing anything twice.
+// attempts counts tries after failures outside the agent, each after a
+// longer wait. stop_asked: the owner stopped the installation, and the job
+// stops after its current step.
+export const JOB_STATUSES = ["queued", "running", "waiting_for_owner", "done", "failed", "cancelled"] as const;
+export const agentJobs = pgTable(
+  "agent_jobs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => agentInstallations.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => agentVersions.id, { onDelete: "cascade" }),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status", { enum: JOB_STATUSES }).notNull().default("queued"),
+    // What started it: { kind: "schedule" | "check" | "message" | "manual", ... }.
+    trigger: jsonb("trigger").$type<Record<string, unknown>>().notNull(),
+    // json, not jsonb: kept exactly as written, keys in their order, so a
+    // step that runs again sees the very same values.
+    state: json("state").$type<RunState>(),
+    reason: text("reason"),
+    attempts: integer("attempts").notNull().default(0),
+    runAfter: timestamp("run_after", { withTimezone: true }).defaultNow().notNull(),
+    claimedBy: text("claimed_by"),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    stopAsked: boolean("stop_asked").notNull().default(false),
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }).notNull().default("0"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    due: index("agent_jobs_due_idx").on(t.status, t.runAfter),
+    byInstallation: index("agent_jobs_installation_idx").on(t.installationId, t.createdAt),
+    byOwner: index("agent_jobs_owner_idx").on(t.ownerUserId, t.createdAt),
+    // One running job per installation, whoever claims it.
+    oneRunning: uniqueIndex("agent_jobs_one_running_idx").on(t.installationId).where(sql`${t.status} = 'running'`),
+    knownStatus: check("agent_jobs_status", sql`${t.status} in ('queued', 'running', 'waiting_for_owner', 'done', 'failed', 'cancelled')`),
+  }),
+);
+
+// Each step a job ran, in order (seq): what went in and came out, its tool
+// calls, how long it took, which model decided and what that cost. A step
+// that paused for its owner is "waiting" until it runs again and finishes.
+// Only the job's owner sees inputs, outputs, tool calls and notes.
+export const agentJobSteps = pgTable(
+  "agent_job_steps",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => agentJobs.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    stepId: text("step_id").notNull(),
+    status: text("status", { enum: ["running", "ok", "failed", "waiting"] }).notNull(),
+    input: jsonb("input"),
+    output: jsonb("output"),
+    tools: jsonb("tools").$type<{ tool: string; args: unknown; result: unknown; error: string | null }[]>().notNull().default([]),
+    outcome: text("outcome"),
+    note: text("note"),
+    model: text("model"),
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }).notNull().default("0"),
+    ms: integer("ms").notNull().default(0),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => ({
+    bySeq: uniqueIndex("agent_job_steps_seq_idx").on(t.jobId, t.seq),
+  }),
+);
+
+// When each of an installation's triggers is due next, by its place in the
+// version's triggers. A schedule fires at next_at and moves on; a value
+// check runs its check step at next_at and keeps what it found (holds), so
+// it starts a job only when the condition turns true. note says why the
+// last check failed, in plain words. Messages have no row: they start a job
+// when they come.
+export const agentTriggers = pgTable(
+  "agent_triggers",
+  {
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => agentInstallations.id, { onDelete: "cascade" }),
+    index: integer("index").notNull(),
+    kind: text("kind", { enum: ["schedule", "check"] }).notNull(),
+    nextAt: timestamp("next_at", { withTimezone: true }).notNull(),
+    holds: boolean("holds"),
+    lastAt: timestamp("last_at", { withTimezone: true }),
+    note: text("note"),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.installationId, t.index] }),
+    due: index("agent_triggers_due_idx").on(t.nextAt),
+  }),
+);
+
+// The in-app message box of an installation (Telegram comes later): what
+// its owner sends it, each starting a job with the message as its input,
+// and what the agent sends its owner (telegram.send).
+export const agentMessages = pgTable(
+  "agent_messages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => agentInstallations.id, { onDelete: "cascade" }),
+    from: text("from", { enum: ["owner", "agent"] }).notNull(),
+    text: text("text").notNull(),
+    jobId: uuid("job_id").references(() => agentJobs.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byInstallation: index("agent_messages_installation_idx").on(t.installationId, t.createdAt),
+  }),
+);
+
+// A question a job waits on: its owner's yes or no to an action over a
+// rule's limit, or an answer to the agent's own question (telegram.ask).
+// options are the answers they can give, each with what happens then;
+// no_answer says what happens if none comes by expires_at (the maker sets
+// how long, 24 hours unless they said otherwise). call_index is the tool
+// call in the paused step's journal that the answer belongs to.
+export const agentApprovals = pgTable(
+  "agent_approvals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => agentJobs.id, { onDelete: "cascade" }),
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => agentInstallations.id, { onDelete: "cascade" }),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    stepId: text("step_id").notNull(),
+    callIndex: integer("call_index").notNull(),
+    kind: text("kind", { enum: ["ask", "over_limit"] }).notNull(),
+    question: text("question").notNull(),
+    options: jsonb("options").$type<{ label: string; effect: string }[]>().notNull(),
+    noAnswer: text("no_answer").notNull(),
+    status: text("status", { enum: ["pending", "answered", "expired", "cancelled"] }).notNull().default("pending"),
+    answer: text("answer"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byOwner: index("agent_approvals_owner_idx").on(t.ownerUserId, t.status),
+    due: index("agent_approvals_due_idx").on(t.status, t.expiresAt),
+    byJob: index("agent_approvals_job_idx").on(t.jobId),
+    knownStatus: check("agent_approvals_status", sql`${t.status} in ('pending', 'answered', 'expired', 'cancelled')`),
+  }),
+);
+
+// Pages an installation's agent fetched (web.fetch) each day (UTC), for
+// its daily limit.
+export const agentFetchDays = pgTable(
+  "agent_fetch_days",
+  {
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => agentInstallations.id, { onDelete: "cascade" }),
+    day: text("day").notNull(),
+    fetches: integer("fetches").notNull().default(0),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.installationId, t.day] }) }),
+);
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
@@ -524,3 +748,9 @@ export type AgentSketchRow = typeof agentSketches.$inferSelect;
 export type PublishedHelper = typeof publishedHelpers.$inferSelect;
 export type Agent = typeof agents.$inferSelect;
 export type AgentVersion = typeof agentVersions.$inferSelect;
+export type AgentInstallation = typeof agentInstallations.$inferSelect;
+export type AgentJob = typeof agentJobs.$inferSelect;
+export type AgentJobStep = typeof agentJobSteps.$inferSelect;
+export type AgentTrigger = typeof agentTriggers.$inferSelect;
+export type AgentMessage = typeof agentMessages.$inferSelect;
+export type AgentApproval = typeof agentApprovals.$inferSelect;
