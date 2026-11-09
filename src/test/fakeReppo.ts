@@ -5,6 +5,7 @@ import type { FakeNet, NetRequest } from "./fakeNet";
 // back 201 QUEUED with an id; reading it back answers PROCESSING a few
 // times, then COMPLETED with a score, a route and a result, charging 440
 // credits. Every submission is kept with the authorization it carried.
+// The fields match a recorded live answer (src/test/fixtures/reppo-eval.json).
 
 type Route = "ship" | "review" | "block";
 
@@ -46,6 +47,8 @@ function shape(e: FakeEval, r: ReturnType<FakeReppo["verdict"]> | null) {
     source: "API",
     input: e.input,
     status: e.status,
+    attempts: 0,
+    policy: null,
     score: done ? r!.score : null,
     route: done ? r!.route : null,
     creditsCharged: done ? 440 : 0,
@@ -64,6 +67,8 @@ function shape(e: FakeEval, r: ReturnType<FakeReppo["verdict"]> | null) {
           consensus: { method: "median" },
           gates: [],
           explain: { confidence_checks: [], route_reasons: [r!.reason] },
+          task_type: e.taskType,
+          trace_id: `tr_${e.id}`,
         }
       : null,
     trace: done ? { evaluators: [] } : null,

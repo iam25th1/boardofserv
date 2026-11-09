@@ -2,7 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { PgliteDatabase } from "drizzle-orm/pglite";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import * as schema from "@/lib/db/schema";
@@ -92,6 +92,8 @@ import * as installationAudit from "@/app/api/installations/[id]/audit/route";
 import * as agentAudit from "@/app/api/agents/[id]/audit/route";
 import * as adminAudit from "@/app/api/admin/audit/route";
 import { fakeNet, fakeSheetUrl } from "./fakeNet";
+import { queueJobEval } from "@/lib/reppo/redact";
+import { submitDue } from "@/lib/reppo/evals";
 import { keep } from "@/lib/connections/vault";
 
 // A published helper's system prompt and canary never leave the server. This
@@ -214,6 +216,10 @@ const DEV_HOOK_SECRET = "bosDevHookMarker45";
 
 // What one owner gave their copy of an agent: never shown to its maker.
 const SAM_PRIVATE = "SamPrivateStockSheet";
+// Reppo's key, and every request sent to Reppo (submissions may be public).
+const REPPO_KEY = "secrecy-reppo-key-5c1e9a";
+const reppoSent: { url: string; auth: string | null; body: string | null }[] = [];
+const keyElsewhere: string[] = [];
 
 // An agent's code, and its plan's prompts: only its maker's builder may show
 // them.
@@ -340,7 +346,15 @@ beforeAll(async () => {
   vi.stubEnv("SERV_API_KEY", "test-serv-key");
   vi.stubEnv("FALLBACK_API_KEY", "");
   vi.stubEnv("HELPER_DAILY_USES", "6");
+  vi.stubEnv("REPPO_API_KEY", REPPO_KEY);
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    // Reppo's key goes to Reppo's own address and nowhere else.
+    if (JSON.stringify(init.headers ?? {}).includes(REPPO_KEY) && !url.startsWith("https://eval.reppo.xyz/")) keyElsewhere.push(url);
+    if (url.startsWith("https://eval.reppo.xyz/")) {
+      reppoSent.push({ url, auth: new Headers(init.headers).get("authorization"), body: init.body ? String(init.body) : null });
+      const id = `ev_secrecy_${reppoSent.length}`;
+      return Response.json({ id, taskType: "action", source: "API", input: "", status: "QUEUED", score: null, route: null, creditsCharged: 0, result: null, error: null }, { status: 201 });
+    }
     // Google: the sheets and the token endpoint (their bodies aren't JSON).
     if (url.startsWith("https://sheets.googleapis.com/") || url === "https://oauth2.googleapis.com/token") return google.fetch(url, init);
     const body = JSON.parse(String(init.body)) as { stream: boolean; tools?: unknown; response_format?: { json_schema?: { name?: string; schema?: { properties?: { outcome?: { enum?: string[] } } } } } };
@@ -594,6 +608,7 @@ describe("a helper's instructions stay on the server", () => {
       vi.stubEnv("SERV_API_KEY", "test-serv-key");
       vi.stubEnv("FALLBACK_API_KEY", "");
       vi.stubEnv("HELPER_DAILY_USES", "6");
+      vi.stubEnv("REPPO_API_KEY", REPPO_KEY);
       resetPaymentsConfig();
       setChainClient(null);
     }
@@ -806,6 +821,9 @@ describe("a helper's instructions stay on the server", () => {
       const sj = { params: { id: samsJob.id } };
       await hit("agent: maker sees sam's job", jobRoute.GET(req(`/api/jobs/${samsJob.id}`), sj));
       await hit("agent: maker's jobs with sam's", agentJobs.GET(req(`/api/agents/${id}/jobs`), p));
+      // Reppo scores both owners' finished jobs from a redacted summary.
+      for (const j of await db.select({ id: schema.agentJobs.id }).from(schema.agentJobs).where(inArray(schema.agentJobs.status, ["done", "failed", "waiting_for_owner"]))) await queueJobEval(rt, j.id);
+      await submitDue(rt, { limit: 50 });
       state.user = sam;
       await hit("agent: sam's own job", jobRoute.GET(req(`/api/jobs/${samsJob.id}`), sj));
       await hit("agent: sam sees maya's job", jobRoute.GET(req(`/api/jobs/${jp.params.id}`), jp));
@@ -1025,6 +1043,21 @@ describe("a helper's instructions stay on the server", () => {
     // No job ever carries a connection secret in what it saved.
     const saved = JSON.stringify(await db.select({ state: schema.agentJobs.state }).from(schema.agentJobs));
     for (const secret of [String(VAULT_CHAT), VAULT_REFRESH, VAULT_ACCESS, "sam-refresh", "sam-access"]) expect(saved.includes(secret), secret).toBe(false);
+    // Reppo: every payload is a redacted summary, with no renter data, code,
+    // prompts, ids, links or connection secrets, sent with Reppo's key to
+    // Reppo alone; the key is in no response and no log line.
+    expect(reppoSent.filter((r) => r.body).length).toBeGreaterThan(1);
+    for (const r of reppoSent) {
+      expect(r.url.startsWith("https://eval.reppo.xyz/api/v1/agents/evals")).toBe(true);
+      expect(r.auth).toBe(`Bearer ${REPPO_KEY}`);
+      for (const bad of [SAM_PRIVATE, SAM_SHEET, MAYA_SHEET, CODE_MARKER, PROMPT_MARKER, String(VAULT_CHAT), VAULT_REFRESH, VAULT_ACCESS, maya.id, sam.id, maya.handle!, sam.handle!, "docs.google.com", "@sam", "@maya"]) {
+        expect(r.body?.includes(bad), `a Reppo payload carries ${bad}`).toBe(false);
+      }
+      expect(emailIn(r.body ?? "", [maya, sam])).toBeNull();
+    }
+    expect(keyElsewhere).toEqual([]);
+    for (const { label, body, head } of bodies) expect(body.includes(REPPO_KEY) || head.includes(REPPO_KEY), `${label} carries Reppo's key`).toBe(false);
+    for (const line of logged) expect(line.includes(REPPO_KEY), line).toBe(false);
     expect(bodies.find((b) => b.label === "connections: list")!.body).toContain("@maya");
     expect(bodies.find((b) => b.label === "connections: list")!.body).toContain("maya@sheets.test");
     expect(bodies.find((b) => b.label === "connections: sam list")!.body).not.toContain("@maya");

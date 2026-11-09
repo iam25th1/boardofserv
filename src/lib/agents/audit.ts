@@ -99,3 +99,16 @@ export async function auditForAdmin(rt: Runtime, o: { installationId?: string | 
   const where = and(isId(o.installationId) ? eq(agentAudit.installationId, o.installationId) : undefined, isId(o.agentId) ? eq(agentAudit.agentId, o.agentId) : undefined);
   return paged(await page(rt, where, o.before), (r) => full(r, r.renter ? `@${r.renter}` : "an account"));
 }
+
+// One job's guarded actions in the order they happened, with nothing the
+// renter's data could show: which step, tool and risk, what happened, what
+// SERV's check said and who let it run. For Reppo's job summary.
+export async function jobActions(rt: Runtime, jobId: string): Promise<Pick<AuditEntryDTO, "step" | "tool" | "risk" | "outcome" | "guard" | "approvedBy">[]> {
+  const rows = await rt.db
+    .select({ step: agentAudit.step, tool: agentAudit.tool, risk: agentAudit.risk, outcome: agentAudit.outcome, guard: agentAudit.guard, approvedBy: agentAudit.approvedBy })
+    .from(agentAudit)
+    .where(eq(agentAudit.jobId, jobId))
+    .orderBy(asc(agentAudit.seq))
+    .limit(60);
+  return rows.map((r) => ({ ...r, risk: r.risk as AuditEntryDTO["risk"] }));
+}

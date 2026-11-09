@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { fakeNet } from "@/test/fakeNet";
 import { fakeReppo } from "@/test/fakeReppo";
+import recorded from "@/test/fixtures/reppo-eval.json";
 import { evaluate, nextPollMs, readEval, readResult, reppoFrom, ReppoError, REPPO_URL, submitEval } from "./client";
 
 // Reppo's client: the shape its docs give, a time limit on every call,
@@ -25,6 +26,14 @@ describe("Reppo's client", () => {
     expect(r.submitted).toEqual([{ taskType: "action", input: "What the renter asked for: a restock.", auth: "Bearer test-reppo-key" }]);
     // Every call went to Reppo, and only there.
     expect(new Set(net.calls.map((c) => c.url.origin))).toEqual(new Set([REPPO_URL]));
+  });
+
+  it("reads the answers Reppo really gave (recorded from a live evaluation)", () => {
+    expect(readEval(recorded.queued)).toMatchObject({ status: "QUEUED", score: null, route: null, creditsCharged: 0 });
+    const done = readEval(recorded.completed);
+    expect(done).toMatchObject({ status: "COMPLETED", score: 95, route: "ship", decision: "accept", confidence: "high", creditsCharged: 440 });
+    expect(done.rubric).toEqual({ scope: 100, safety: 97, correctness: 100, reversibility: 75 });
+    expect(done.reason).toMatch(/accepted/);
   });
 
   it("reads an answer defensively, and refuses one with no id or status", () => {
