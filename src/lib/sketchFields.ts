@@ -29,6 +29,17 @@ export function fieldsOf(kind: SketchDTO["kind"]): readonly SketchFieldKey[] {
   return AGENT_FIELDS;
 }
 
+// An agent's interview, as the dock and the planner name its answers.
+export const INTERVIEW_LABELS: Record<(typeof INTERVIEW_FIELDS)[number], string> = {
+  wakes: "Wakes up",
+  looks: "Looks at",
+  handles: "With what it finds",
+  finish: "Done when",
+  asks: "Asks you before",
+  setup: "You set up",
+  remembers: "Remembers",
+};
+
 // The kinds the plan may choose: the older agent kinds stay for sketches
 // that have them, but new ones are planned as agents.
 export const PLAN_KINDS = ["answer", "agent"] as const;

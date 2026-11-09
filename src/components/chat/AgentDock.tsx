@@ -4,7 +4,7 @@ import Link from "next/link";
 import { animate } from "animejs";
 import { StepDiagram, type DiagramStep, type NodeState } from "@/components/agents/StepDiagram";
 import { animatePop, ease, prefersReducedMotion } from "@/lib/motion";
-import { INTERVIEW_FIELDS, type SketchKind } from "@/lib/sketchFields";
+import { INTERVIEW_FIELDS, INTERVIEW_LABELS, type SketchKind } from "@/lib/sketchFields";
 import type { AgentSummaryDTO, SketchDTO } from "@/lib/types";
 import { KindSwitch } from "./KindSwitch";
 import styles from "./AgentDock.module.css";
@@ -18,16 +18,6 @@ import frame from "./SketchDock.module.css";
 // Open goes to the builder and its test bench.
 
 type Field = (typeof INTERVIEW_FIELDS)[number];
-
-export const INTERVIEW_LABELS: Record<Field, string> = {
-  wakes: "Wakes up",
-  looks: "Looks at",
-  handles: "With what it finds",
-  finish: "Done when",
-  asks: "Asks you before",
-  setup: "You set up",
-  remembers: "Remembers",
-};
 
 const DOT_WORD: Record<Field, string> = { wakes: "wakes", looks: "looks", handles: "acts", finish: "done", asks: "asks", setup: "setup", remembers: "keeps" };
 

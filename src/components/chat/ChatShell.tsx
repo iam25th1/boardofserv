@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useApi } from "@/lib/useApi";
-import type { AccountDTO, ConversationDTO } from "@/lib/types";
+import type { AccountDTO, AgentSummaryDTO, ConversationDTO } from "@/lib/types";
 import { Button, Dialog, TextInput, useToast } from "@/components/ui";
 import { AgentsPill, type AgentsPillHandle } from "./AgentsPill";
 import { AccountMenu } from "./AccountMenu";
@@ -52,6 +52,9 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
   // The helper published from the active conversation, while it is on the
   // board, and the confirm sheet that publishes one.
   const [published, setPublished] = useState<PublicHelperDTO | null>(null);
+  // The agent built from the active conversation, as its dock shows it.
+  const [agent, setAgent] = useState<AgentSummaryDTO | null>(null);
+  const [planning, setPlanning] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
@@ -148,18 +151,20 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
       activeRef.current = id;
       setError(null);
       try {
-        const { messages: rows, sketch: stored, published: helper } = await api.getConversation(id);
+        const { messages: rows, sketch: stored, published: helper, agent: builtAgent } = await api.getConversation(id);
         // Another conversation was opened while this one loaded.
         if (activeRef.current !== id) return;
         setMessages(rows.map((m) => ({ id: m.id, role: m.role, content: m.content, source: m.source, sourceLabel: m.sourceLabel })));
         setSketch(stored);
         setPublished(helper ?? null);
+        setAgent(builtAgent ?? null);
         setChips(null);
       } catch {
         if (activeRef.current !== id) return;
         setMessages([]);
         setSketch(null);
         setPublished(null);
+        setAgent(null);
       }
     },
     [api, abortReply],
@@ -172,6 +177,7 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
     setMessages([]);
     setSketch(null);
     setPublished(null);
+    setAgent(null);
     setChips(null);
     setError(null);
     setTimeout(() => (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus(), 30);
@@ -401,6 +407,35 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
     [api, activeId, sketch, toast],
   );
 
+  // Plan the active conversation's agent. It builds in the background; the
+  // dock follows it until it settles.
+  const doPlan = useCallback(async () => {
+    const id = activeId;
+    if (!id) return;
+    setPlanning(true);
+    try {
+      const planned = await api.planAgent(id);
+      if (activeRef.current === id) setAgent(planned);
+    } catch (err) {
+      toast.show({ title: err instanceof Error ? err.message : "It could not be planned. Try again.", tone: "danger" });
+    } finally {
+      setPlanning(false);
+    }
+  }, [api, activeId, toast]);
+
+  const building = agent !== null && ["planning", "writing", "fixing"].includes(agent.buildState);
+  const agentId = agent?.id ?? null;
+  useEffect(() => {
+    if (!building || !agentId) return;
+    const timer = setInterval(() => {
+      api.getAgent(agentId).then(
+        (a) => setAgent((now) => (now?.id === agentId ? a : now)),
+        () => {},
+      );
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [api, building, agentId]);
+
   const doUnpublish = useCallback(async () => {
     const c = conversations.find((x) => x.id === unpublishId);
     setUnpublishId(null);
@@ -549,7 +584,15 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
           fixture ? (
             <SketchDock sketch={fixture} canSwitch onToggle={(live) => setFixture({ ...fixture, live })} />
           ) : sketch?.name && sketch.kind === "agent" ? (
-            <AgentDock key={activeId ?? "new"} sketch={sketch} agent={null} sketching={sketchingTurn !== null} onKind={(kind) => void doKind(kind)} />
+            <AgentDock
+              key={activeId ?? "new"}
+              sketch={sketch}
+              agent={agent}
+              sketching={sketchingTurn !== null}
+              onKind={(kind) => void doKind(kind)}
+              onPlan={() => void doPlan()}
+              planning={planning}
+            />
           ) : sketch?.name ? (
             // Keyed by conversation: opening another one brings its dock in fresh.
             <SketchDock

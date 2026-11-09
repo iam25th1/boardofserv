@@ -484,6 +484,32 @@ per outcome from a decision. New steps are chalked on one after another and
 their links drawn with anime.js; a step whose code is approved fills in.
 Helpers keep their takes / does / gives dock.
 
+### Planning
+
+Plan on the agent's dock (`POST /api/agents` with the conversation) makes the
+agent and its first draft, or plans its draft afresh, once the interview is
+complete. SERV, and only SERV, turns the interview and the conversation
+behind it into a whole definition (`src/lib/agents/plan.ts`, max tokens
+`AGENT_PLAN_MAX_TOKENS`, default 3500). Its answer is the format flattened
+for SERV's strict json_schema (every field present, "" or [] where it doesn't
+apply, no unions, no numeric range keywords), turned back into the format
+and checked. A plan that doesn't check out goes back to SERV with the
+reasons, up to three tries in all. Decision steps carry a prompt and their
+outcomes, action steps one declared action, code steps a plain description
+of what the code must do with its inputs and outputs.
+
+Planning, and the code after it, runs in the background
+(`src/lib/agents/build.ts`), one job per draft, since it can outlast a
+request (Cloudflare closes a request after 100 seconds). The draft's
+`build_state` says where it is (`planning`, `writing`, `fixing`, `idle` or
+`failed` with a plain note), the dock polls `GET /api/agents/:id` every two
+seconds while it builds, and a state no job in this process owns (the
+server restarted) is called failed so the maker can plan again. Every model
+call writes a `reply_usage` row (`agent_plan`, `agent_code`, `agent_review`,
+`agent_decision`), so building counts towards the day's spend, and planning
+is refused like a chat turn when the day's limit is reached or the account
+isn't let in yet.
+
 ## Payments
 
 Users top up a balance in USDC or $SERV, pay for helper uses from it, and

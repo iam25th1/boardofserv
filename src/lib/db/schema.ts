@@ -90,7 +90,9 @@ export const messages = pgTable(
 // user_id (null on rows from before it was kept) is who the turn was for, so
 // the daily limit survives a deleted conversation. kind is "reply" for a
 // chat turn, "compile" for the call that writes a published helper's
-// instructions (its tokens in the reply columns). own_key marks a call made
+// instructions, and agent_plan, agent_code, agent_review or agent_decision
+// for building and testing an agent (each with its tokens in the reply
+// columns). own_key marks a call made
 // on the person's own SERV key: it is not counted against anything.
 export const replyUsage = pgTable(
   "reply_usage",
@@ -98,7 +100,7 @@ export const replyUsage = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
-    kind: text("kind", { enum: ["reply", "compile"] }).notNull().default("reply"),
+    kind: text("kind", { enum: ["reply", "compile", "agent_plan", "agent_code", "agent_review", "agent_decision"] }).notNull().default("reply"),
     ownKey: boolean("own_key").notNull().default(false),
     provider: text("provider"),
     model: text("model"),
