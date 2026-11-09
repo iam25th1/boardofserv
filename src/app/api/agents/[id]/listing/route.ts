@@ -5,6 +5,7 @@ import { ownedAgent } from "@/lib/agents/owned";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { currentVersion } from "@/lib/agents/store";
 import { setListing } from "@/lib/market/listings";
+import { activeFreeze } from "@/lib/safety/freeze";
 import { paymentsConfig } from "@/lib/payments/config";
 import { priceProblem } from "@/lib/payments/uses";
 
@@ -39,6 +40,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (problem) return Response.json({ error: problem }, { status: 400 });
   }
   const rt = serverRuntime();
+  const frozen = await activeFreeze(rt, { agentId: who.agent.id, makerId: who.user.id });
+  if (frozen && parsed.data.listed) return Response.json({ error: `It can't go on the board now: boardofserv froze it. ${frozen.reason}` }, { status: 409 });
   const listing = await setListing(rt, who.agent, { weeklyPrice, jobFee, listed: parsed.data.listed, modelBudget: parsed.data.modelBudget ? BigInt(parsed.data.modelBudget) : undefined, modelShare: parsed.data.modelShare });
   if (!listing) return Response.json({ error: "Publish a version first: renters get a published version, which never changes." }, { status: 409 });
   return Response.json({ builder: await builderOf(who.agent, (await currentVersion(who.agent.id))!) });

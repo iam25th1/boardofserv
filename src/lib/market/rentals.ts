@@ -8,6 +8,7 @@ import { control, install, installationDTO, loadInstallation } from "../agents/r
 import type { Runtime } from "../agents/runtime/context";
 import type { InstallAnswers } from "../agents/settingsForm";
 import { capture, holdFor, usdc, USDC_DECIMALS } from "./charges";
+import { agentHeld, userHeld } from "../safety/freeze";
 
 // Renting an agent by the week.
 //
@@ -80,6 +81,8 @@ export async function rent(rt: Runtime, o: { renterUserId: string; agentId: stri
   }
   if (!row) throw new RentRefused("It isn't on the board to rent.", 404);
   if (row.makerId === o.renterUserId) throw new RentRefused("It's yours: run it from its builder, with Run it for real.", 409);
+  const held = (await agentHeld(rt, o.agentId, row.versionId)) ?? (await userHeld(rt, o.renterUserId, "renter"));
+  if (held) throw new RentRefused(`It can't be rented now. ${held}`, 409);
   const [already] = await rt.db
     .select({ id: rentals.id })
     .from(rentals)
@@ -163,6 +166,9 @@ export async function renewDue(rt: Runtime, limit = 50): Promise<number> {
     .limit(limit);
   let changed = 0;
   for (const r of due) {
+    // Stopped everywhere or frozen: its renewal waits (the time is given
+    // back when it starts again).
+    if (await agentHeld(rt, r.agentId, r.versionId)) continue;
     if (!r.renews) {
       if (await endRental(rt, r)) changed += 1;
       continue;

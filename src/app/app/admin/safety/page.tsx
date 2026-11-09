@@ -19,7 +19,7 @@ export default function AdminSafetyPage() {
 function SignedIn() {
   const { ready, authenticated } = usePrivy();
   const api = useApi();
-  const safetyApi = useMemo<SafetyAdminApi>(() => ({ load: api.getAdminSafety }), [api]);
+  const safetyApi = useMemo<SafetyAdminApi>(() => ({ load: api.getAdminSafety, freeze: api.adminFreeze, lift: api.adminLift }), [api]);
   if (ready && authenticated) return <SafetyAdmin api={safetyApi} />;
   return (
     <p>

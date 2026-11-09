@@ -1,6 +1,6 @@
 import "server-only";
-import { and, desc, eq, gte, ilike, inArray, lte, ne, or, sql } from "drizzle-orm";
-import { agentListings, agents, agentVersions, rentals, users, type Agent, type AgentListing } from "../db/schema";
+import { and, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { agentListings, agents, agentVersions, freezes, rentals, users, type Agent, type AgentListing } from "../db/schema";
 import type { AgentListingDTO, AgentPageDTO, MakerListingDTO } from "../types";
 import { connectionsNeeded, spends, type AgentDefinition, type ToolName } from "../agents/definition";
 import { describeTriggers } from "../agents/schedule";
@@ -74,6 +74,11 @@ function listingDTO(r: Row, renters: number): AgentListingDTO {
   };
 }
 
+// Nothing frozen shows on the board: the agent, its listed version or its
+// maker.
+const notFrozen = () =>
+  sql`not exists (select 1 from ${freezes} f where f.lifted_at is null and ((f.kind = 'agent' and f.target_id = ${agents.id}) or (f.kind = 'version' and f.target_id = ${agentListings.versionId}) or (f.kind = 'maker' and f.target_id = ${agents.ownerUserId})))`;
+
 const select = (rt: Runtime) =>
   rt.db
     .select({ listing: agentListings, name: agents.name, definition: agentVersions.definition, version: agentVersions.number, maker: users.handle, makerId: users.id })
@@ -90,6 +95,8 @@ export async function boardAgents(rt: Runtime, f: BoardFilters = {}): Promise<Ag
       and(
         eq(agentListings.listed, true),
         eq(agentVersions.state, "published"),
+        isNull(agents.stoppedAt),
+        notFrozen(),
         q ? or(ilike(agents.name, `%${q}%`), sql`${agentVersions.definition} -> 'job' ->> 'does' ilike ${`%${q}%`}`) : undefined,
         f.min !== undefined && f.min !== null ? gte(agentListings.weeklyPrice, f.min.toString()) : undefined,
         f.max !== undefined && f.max !== null ? lte(agentListings.weeklyPrice, f.max.toString()) : undefined,
@@ -109,7 +116,7 @@ export async function boardAgents(rt: Runtime, f: BoardFilters = {}): Promise<Ag
 // An agent's own page, for anyone, or null when it isn't on the board.
 export async function agentPage(rt: Runtime, agentId: string, viewerId: string | null = null): Promise<AgentPageDTO | null> {
   if (!/^[0-9a-f-]{36}$/i.test(agentId)) return null;
-  const [row] = (await select(rt).where(and(eq(agentListings.agentId, agentId), eq(agentListings.listed, true), eq(agentVersions.state, "published")))) as Row[];
+  const [row] = (await select(rt).where(and(eq(agentListings.agentId, agentId), eq(agentListings.listed, true), eq(agentVersions.state, "published"), isNull(agents.stoppedAt), notFrozen()))) as Row[];
   if (!row?.definition) return null;
   const d = row.definition;
   const renters = (await renterCounts(rt, [row])).get(agentId) ?? 0;

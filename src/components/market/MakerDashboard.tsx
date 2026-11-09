@@ -7,6 +7,7 @@ import { AgentRuns } from "@/components/agents/AgentRuns";
 import type { JobSummaryDTO, MakerDashboardDTO } from "@/lib/types";
 import { price } from "./BoardView";
 import { EarningsChart } from "./EarningsChart";
+import { KillSwitch } from "./KillSwitch";
 import { day, RENTAL_WORD } from "./RentalView";
 import styles from "./MakerDashboard.module.css";
 
@@ -19,6 +20,8 @@ import styles from "./MakerDashboard.module.css";
 export interface MakerDashboardApi {
   load: () => Promise<MakerDashboardDTO>;
   runs: () => Promise<JobSummaryDTO[]>;
+  // The kill switch: stop it everywhere, or start it again.
+  kill?: (action: "stop" | "start", note?: string) => Promise<MakerDashboardDTO>;
 }
 
 export function MakerDashboard({ id, api }: { id: string; api: MakerDashboardApi }) {
@@ -45,7 +48,8 @@ export function MakerDashboard({ id, api }: { id: string; api: MakerDashboardApi
   const finished = d.jobs.done + d.jobs.failed;
   const rate = finished ? Math.round((d.jobs.done / finished) * 100) : null;
   return (
-    <Page title={d.name} note="on the board" width="wide" asideSide="right" asideNarrow="below" aside={<Side d={d} />}>
+    <Page title={d.name} note={d.stopped ? "stopped everywhere" : "on the board"} width="wide" asideSide="right" asideNarrow="below" aside={<Side d={d} />}>
+      {api.kill && <KillSwitch d={d} kill={async (action, note) => setData(await api.kill!(action, note))} />}
       <dl className={styles.stats}>
         <div>
           <dt>Earned so far</dt>

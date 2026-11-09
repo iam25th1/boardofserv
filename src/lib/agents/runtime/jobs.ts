@@ -8,6 +8,7 @@ import { pauseForOwner } from "./approvals";
 import { screenText } from "../screen";
 import { budgetGate, meter, type Scope } from "../metering";
 import { pauseOnRepeatedFailure, rateLimits } from "./rates";
+import { holdOn } from "../../safety/freeze";
 import type { Runtime } from "./context";
 import { JobTools } from "./tools";
 import { spendToday } from "./views";
@@ -131,6 +132,15 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
   const definition = row?.version.definition;
   if (!row || !definition) return finish(rt, job, worker, null, { status: "failed", reason: "Its agent version isn't there any more." });
   const { installation, version, owner } = row;
+  // Stopped everywhere by its maker, or frozen: nothing runs.
+  const held = await holdOn(rt, installation);
+  if (held) {
+    await rt.db
+      .update(agentInstallations)
+      .set({ status: "paused", pausedReason: held, updatedAt: rt.now() })
+      .where(and(eq(agentInstallations.id, installation.id), eq(agentInstallations.status, "active")));
+    return finish(rt, job, worker, job.state ?? null, { status: "cancelled", reason: held });
+  }
   // A rented agent's fee for this job, held from its renter before the job
   // first starts (settled when it ends: see market/charges.ts).
   if (!job.state) {
@@ -169,9 +179,15 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
       decide,
       onEvent: log.on,
       save,
+      // Before each step: stopped by its owner, or its installation paused
+      // (by its renter, its maker's kill switch or a freeze): the step it
+      // was on finished, and nothing after it runs.
       shouldStop: async () => {
         const [j] = await rt.db.select({ stop: agentJobs.stopAsked }).from(agentJobs).where(eq(agentJobs.id, job.id));
-        return j?.stop ? "Stopped by its owner." : null;
+        if (j?.stop) return "Stopped by its owner.";
+        const [i] = await rt.db.select({ status: agentInstallations.status, why: agentInstallations.pausedReason }).from(agentInstallations).where(eq(agentInstallations.id, installation.id));
+        if (i && i.status !== "active") return i.why ?? "Paused by you: it stopped after the step it was on.";
+        return null;
       },
       // Before each model call: the installation's daily cap, then the
       // site's (this spend counts towards it like any other).

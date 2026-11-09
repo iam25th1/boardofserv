@@ -94,6 +94,8 @@ export function useApi() {
       },
       answerVersion: (id: string, choice: "update" | "stay") =>
         json<{ rental: RentalDetailDTO; setupAgain: boolean }>(`/api/rentals/${encodeURIComponent(id)}/version`, { method: "POST", body: JSON.stringify({ choice }) }),
+      killAgent: (id: string, action: "stop" | "start", note?: string) =>
+        json<{ dashboard: MakerDashboardDTO }>(`/api/agents/${encodeURIComponent(id)}/kill`, { method: "POST", body: JSON.stringify({ action, note }) }).then((d) => d.dashboard),
       getMakerDashboard: (id: string) => json<{ dashboard: MakerDashboardDTO }>(`/api/agents/${encodeURIComponent(id)}/dashboard`).then((d) => d.dashboard),
       // The request board, as the signed-in viewer sees it (their own, and
       // their "me too").
@@ -197,6 +199,10 @@ export function useApi() {
       checkDeposits: () => json<{ wallet: WalletDTO }>("/api/deposits/check", { method: "POST" }).then((d) => d.wallet),
       getAdmin: () => json<{ admin: AdminDTO }>("/api/admin").then((d) => d.admin),
       getAdminSafety: () => json<{ safety: AdminSafetyDTO }>("/api/admin/safety").then((d) => d.safety),
+      adminFreeze: (body: { kind: "agent" | "version" | "maker" | "renter"; target: string; reason: string }) =>
+        json<{ safety: AdminSafetyDTO }>("/api/admin/freezes", { method: "POST", body: JSON.stringify(body) }).then((d) => d.safety),
+      adminLift: (id: string, reason: string) =>
+        json<{ safety: AdminSafetyDTO }>(`/api/admin/freezes/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ reason }) }).then((d) => d.safety),
       adminPause: (paused: boolean) => json<{ admin: AdminDTO }>("/api/admin/pause", { method: "POST", body: JSON.stringify({ paused }) }).then((d) => d.admin),
       adminDecide: (id: string, action: "approve" | "reject" | "fail") =>
         json<{ admin: AdminDTO }>(`/api/admin/withdrawals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.admin),

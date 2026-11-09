@@ -281,6 +281,13 @@
       "when": 1794256891139,
       "tag": "0039_job_actions",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1794257077238,
+      "tag": "0040_freezes",
+      "breakpoints": true
     }
   ]
 }

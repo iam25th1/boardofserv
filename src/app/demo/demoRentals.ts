@@ -155,6 +155,8 @@ export const demoJob = (id: string): JobDTO =>
 // The maker's side: Enquiry follow-up on the board, eight weeks of it.
 const monday = (weeksAgo: number) => new Date(Date.UTC(2026, 10, 9) - weeksAgo * 7 * 86_400_000).toISOString();
 export const DEMO_DASHBOARD: MakerDashboardDTO = {
+  stopped: null,
+  frozen: null,
   agentId: "00000000-0000-4000-8000-000000000003",
   name: "Enquiry follow-up",
   listing: { weeklyPrice: usdc(9), jobFee: usdc(0.25), decimals: 6, listed: true, version: 2, modelBudget: "1000000", modelBudgetCeiling: "5000000", modelShare: false },

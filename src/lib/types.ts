@@ -592,6 +592,11 @@ export interface MakerDashboardDTO {
   jobs: { done: number; failed: number };
   failures: { step: string; count: number }[];
   versions: { number: number; publishedAt: string | null; renters: number; offered: number }[];
+  // Stopped everywhere by its maker (the kill switch), since when and what
+  // they told renters.
+  stopped: { at: string; note: string | null } | null;
+  // An admin's freeze on it or its maker, if any.
+  frozen: string | null;
 }
 
 // A request on the request board, for anyone: what someone wants an agent
@@ -637,7 +642,20 @@ export interface RequestPageDTO {
 }
 
 // The admin's safety page.
+export interface FreezeDTO {
+  id: string;
+  kind: "agent" | "version" | "maker" | "renter";
+  target: string;
+  targetId: string;
+  reason: string;
+  by: string;
+  createdAt: string;
+  lifted: { at: string; by: string; reason: string } | null;
+}
+
 export interface AdminSafetyDTO {
+  // Every freeze, newest first: the admin log.
+  freezes: FreezeDTO[];
   // The installations whose model calls cost the most this week (USDC
   // minor units), and what of that the site paid.
   costs: { installationId: string; name: string; owner: string; maker: string; week: string; sitePaid: string; calls: number; decimals: number }[];

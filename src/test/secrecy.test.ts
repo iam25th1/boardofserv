@@ -83,6 +83,9 @@ import * as requestRoute from "@/app/api/requests/[id]/route";
 import * as requestOffersRoute from "@/app/api/requests/[id]/offers/route";
 import * as offerRoute from "@/app/api/offers/[id]/route";
 import * as adminSafetyRoute from "@/app/api/admin/safety/route";
+import * as agentKill from "@/app/api/agents/[id]/kill/route";
+import * as adminFreezes from "@/app/api/admin/freezes/route";
+import * as adminFreeze from "@/app/api/admin/freezes/[id]/route";
 import { fakeNet, fakeSheetUrl } from "./fakeNet";
 import { keep } from "@/lib/connections/vault";
 
@@ -176,6 +179,9 @@ const ROUTES: Record<string, object> = {
   "requests/[id]/offers": requestOffersRoute,
   "offers/[id]": offerRoute,
   "admin/safety": adminSafetyRoute,
+  "agents/[id]/kill": agentKill,
+  "admin/freezes": adminFreezes,
+  "admin/freezes/[id]": adminFreeze,
 };
 
 // Google, for this test: Maya's and Sam's own spreadsheets, and the token
@@ -845,6 +851,23 @@ describe("a helper's instructions stay on the server", () => {
       await hit("requests: maya withdraws", offerRoute.POST(req(`/api/offers/${op.params.id}`, "POST", { action: "withdraw" }), op));
       state.user = sam;
       await hit("requests: sam closes", requestRoute.POST(req(`/api/requests/${asked.id}`, "POST", { action: "close" }), qp));
+      // The kill switch is its maker's alone; freezes are admins' alone.
+      await hit("safety: sam stops maya's agent", agentKill.POST(req(`/api/agents/${id}/kill`, "POST", { action: "stop" }), p));
+      await hit("safety: sam freezes", adminFreezes.POST(req("/api/admin/freezes", "POST", { kind: "maker", target: "@shopkeeper", reason: "Testing a refusal." })));
+      state.user = maya;
+      await hit("safety: maya stops her agent", agentKill.POST(req(`/api/agents/${id}/kill`, "POST", { action: "stop", note: "Back soon." }), p));
+      await hit("safety: maya starts it again", agentKill.POST(req(`/api/agents/${id}/kill`, "POST", { action: "start" }), p));
+      vi.stubEnv("ADMIN_USER_IDS", maya.id);
+      resetPaymentsConfig();
+      const frozen = JSON.parse(await (await hit("safety: admin freezes sam", adminFreezes.POST(req("/api/admin/freezes", "POST", { kind: "renter", target: `@${sam.handle}`, reason: "Reported for spam." })))).clone().text()) as { safety: { freezes: { id: string }[] } };
+      const fp = { params: { id: frozen.safety.freezes[0]!.id } };
+      await hit("safety: admin lifts it", adminFreeze.POST(req(`/api/admin/freezes/${fp.params.id}`, "POST", { reason: "Checked: not spam." }), fp));
+      await hit("safety: admin lifts it again", adminFreeze.POST(req(`/api/admin/freezes/${fp.params.id}`, "POST", { reason: "Again." }), fp));
+      vi.stubEnv("ADMIN_USER_IDS", "");
+      resetPaymentsConfig();
+      await hit("safety: not an admin lifts", adminFreeze.POST(req(`/api/admin/freezes/${fp.params.id}`, "POST", { reason: "Mine." }), fp));
+      state.user = null;
+      await hit("safety: signed out stops", agentKill.POST(req(`/api/agents/${id}/kill`, "POST", { action: "stop" }), p));
       for (const who of [maya, null]) {
         state.user = who;
         const tag = who ? "maya" : "signed out";
@@ -968,6 +991,16 @@ describe("a helper's instructions stay on the server", () => {
     for (const label of ["agent: maker sees sam's job", "agent: maker's jobs with sam's", "agent: installation after a job", "agent: questions"]) expect(said(label), label).not.toContain(SAM_PRIVATE);
     expect(said("agent: sam sees maya's job")).toBe('{"error":"Not found"}');
     expect(said("agent: sam answers maya's question")).toBe('{"error":"Not found"}');
+    // The kill switch and freezes.
+    expect(said("safety: sam stops maya's agent")).toBe('{"error":"Not found"}');
+    expect(said("safety: sam freezes")).toBe('{"error":"Not found"}');
+    expect(JSON.parse(said("safety: maya stops her agent")).dashboard.stopped.note).toBe("Back soon.");
+    expect(JSON.parse(said("safety: maya starts it again")).dashboard.stopped).toBeNull();
+    expect(JSON.parse(said("safety: admin freezes sam")).safety.freezes[0]).toMatchObject({ kind: "renter", target: `@${sam.handle}`, reason: "Reported for spam.", by: "@shopkeeper", lifted: null });
+    expect(JSON.parse(said("safety: admin lifts it")).safety.freezes[0].lifted).toMatchObject({ by: "@shopkeeper", reason: "Checked: not spam." });
+    expect(said("safety: admin lifts it again")).toBe('{"error":"It isn\'t frozen."}');
+    expect(said("safety: not an admin lifts")).toBe('{"error":"Not found"}');
+    expect(said("safety: signed out stops")).toBe('{"error":"Not signed in"}');
     // The admin's safety page lists the review in plain words.
     expect(JSON.parse(said("safety: admin")).safety.reviews[0].review.findings).toEqual([{ step: "Find low stock", severity: "warning", finding: "It reads the whole stock tab every time." }]);
     expect(said("safety: not an admin")).toBe('{"error":"Not found"}');

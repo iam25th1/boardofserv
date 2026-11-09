@@ -17,6 +17,7 @@ import { approvalsOf } from "./approvals";
 import { enqueue } from "./jobs";
 import { setUpTriggers } from "./triggers";
 import { jobRoom, rateLimits } from "./rates";
+import { holdOn } from "../../safety/freeze";
 import { jobsOfInstallation, spendToday } from "./views";
 
 // Installations: one owner's running copy of a published agent version.
@@ -284,6 +285,8 @@ export async function control(rt: Runtime, l: Loaded, action: Control): Promise<
   }
   if (action === "resume") {
     if (i.status !== "paused") throw new ControlRefused("It isn't paused.");
+    const held = await holdOn(rt, i);
+    if (held) throw new ControlRefused(held);
     // A rented one whose week went unpaid resumes from Rented, which pays it.
     const [unpaid] = await rt.db.select({ id: rentals.id }).from(rentals).where(and(eq(rentals.installationId, i.id), eq(rentals.status, "unpaid")));
     if (unpaid) throw new ControlRefused("This week's rent isn't paid. Top up your wallet, then resume it from Rented: that pays the week.");

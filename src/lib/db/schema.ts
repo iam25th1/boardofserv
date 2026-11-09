@@ -488,6 +488,10 @@ export const agents = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     sourceConversationId: uuid("source_conversation_id").references(() => conversations.id, { onDelete: "set null" }),
     name: text("name").notNull(),
+    // Its maker stopped it everywhere (the kill switch): every installation
+    // paused, renewals held, nothing new rented, until they start it again.
+    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+    stopNote: text("stop_note"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -1170,6 +1174,32 @@ export const agentModelUsage = pgTable(
     byDay: index("agent_model_usage_day_idx").on(t.day),
   }),
 );
+
+// An admin's freeze of an agent, a version, a maker or a renter, with a
+// reason. A frozen thing can't run, be rented, publish or offer. Lifting
+// one keeps the row (lifted_at and why): together they are the admin log.
+export const FREEZE_KINDS = ["agent", "version", "maker", "renter"] as const;
+export const freezes = pgTable(
+  "freezes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    kind: text("kind", { enum: FREEZE_KINDS }).notNull(),
+    targetId: uuid("target_id").notNull(),
+    reason: text("reason").notNull(),
+    byUserId: uuid("by_user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    liftedAt: timestamp("lifted_at", { withTimezone: true }),
+    liftedBy: uuid("lifted_by").references(() => users.id),
+    liftReason: text("lift_reason"),
+  },
+  (t) => ({
+    active: index("freezes_target_idx").on(t.kind, t.targetId, t.liftedAt),
+    knownKind: check("freezes_kind", sql`${t.kind} in ('agent', 'version', 'maker', 'renter')`),
+  }),
+);
+export type Freeze = typeof freezes.$inferSelect;
 
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;

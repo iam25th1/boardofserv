@@ -1,16 +1,18 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import Link from "next/link";
-import { SkeletonPanel } from "@/components/ui";
+import { Button, SkeletonPanel, TextInput, Textarea } from "@/components/ui";
 import { ReviewPanel } from "@/components/agents/ReviewPanel";
 import { formatAmount } from "@/lib/money";
-import type { AdminSafetyDTO } from "@/lib/types";
+import type { AdminSafetyDTO, FreezeDTO } from "@/lib/types";
 import styles from "./SafetyAdmin.module.css";
 
 // The admin's safety page: every version's code review, newest first.
 
 export interface SafetyAdminApi {
   load: () => Promise<AdminSafetyDTO>;
+  freeze?: (body: { kind: FreezeDTO["kind"]; target: string; reason: string }) => Promise<AdminSafetyDTO>;
+  lift?: (id: string, reason: string) => Promise<AdminSafetyDTO>;
 }
 
 export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
@@ -23,6 +25,36 @@ export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
   if (data === null) return <p className={styles.quiet}>This page could not load. Try again in a moment.</p>;
   return (
     <div className={styles.page}>
+      {api.freeze && <FreezeForm freeze={api.freeze} onDone={setData} />}
+      <section className={styles.section} aria-labelledby="freezes-h">
+        <h2 id="freezes-h">Freezes</h2>
+        {data.freezes.length ? (
+          <ol className={styles.log}>
+            {data.freezes.map((f) => (
+              <li key={f.id} data-lifted={f.lifted ? "true" : undefined}>
+                <div className={styles.logHead}>
+                  <strong>{f.target}</strong>
+                  <span className={styles.chip}>{f.kind}</span>
+                  <span className={styles.quiet}>
+                    {f.lifted ? "lifted" : "frozen"} {new Date(f.lifted?.at ?? f.createdAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+                  </span>
+                </div>
+                <p>
+                  Frozen by {f.by}: {f.reason}
+                </p>
+                {f.lifted && (
+                  <p className={styles.quiet}>
+                    Lifted by {f.lifted.by}: {f.lifted.reason}
+                  </p>
+                )}
+                {!f.lifted && api.lift && <LiftButton id={f.id} lift={api.lift} onDone={setData} />}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className={styles.quiet}>Nothing has been frozen.</p>
+        )}
+      </section>
       <section className={styles.section} aria-labelledby="costs-h">
         <h2 id="costs-h">Model cost this week</h2>
         {data.costs.length ? (
@@ -74,6 +106,103 @@ export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
       <Link href="/app/admin" className={styles.back}>
         Payments and accounts
       </Link>
+    </div>
+  );
+}
+
+const KINDS: { kind: FreezeDTO["kind"]; label: string; hint: string }[] = [
+  { kind: "agent", label: "An agent", hint: "its id" },
+  { kind: "version", label: "A version", hint: "its id" },
+  { kind: "maker", label: "A maker", hint: "@handle" },
+  { kind: "renter", label: "A renter", hint: "@handle" },
+];
+
+function FreezeForm({ freeze, onDone }: { freeze: NonNullable<SafetyAdminApi["freeze"]>; onDone: (d: AdminSafetyDTO) => void }) {
+  const [kind, setKind] = useState<FreezeDTO["kind"]>("agent");
+  const [target, setTarget] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<{ text: string; bad?: boolean } | null>(null);
+  const targetId = useId();
+  const reasonId = useId();
+  const send = async () => {
+    setBusy(true);
+    setSaid(null);
+    try {
+      onDone(await freeze({ kind, target: target.trim(), reason: reason.trim() }));
+      setTarget("");
+      setReason("");
+      setSaid({ text: "Frozen. What it covered is paused." });
+    } catch (err) {
+      setSaid({ text: err instanceof Error ? err.message : "It couldn't be frozen. Try again.", bad: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form
+      className={styles.freeze}
+      onSubmit={(e) => {
+        e.preventDefault();
+        void send();
+      }}
+    >
+      <h2>Freeze</h2>
+      <p className={styles.quiet}>A frozen agent, version, maker or renter can&apos;t run, be rented, publish or offer. Every freeze needs a reason and shows in the log below.</p>
+      <div className={styles.kinds} role="radiogroup" aria-label="What to freeze">
+        {KINDS.map((k) => (
+          <label key={k.kind} data-on={kind === k.kind ? "true" : undefined}>
+            <input type="radio" name="freeze-kind" checked={kind === k.kind} onChange={() => setKind(k.kind)} />
+            {k.label}
+          </label>
+        ))}
+      </div>
+      <label htmlFor={targetId}>Which one ({KINDS.find((k) => k.kind === kind)!.hint})</label>
+      <TextInput id={targetId} value={target} onChange={(e) => setTarget(e.target.value)} required />
+      <label htmlFor={reasonId}>Why</label>
+      <Textarea id={reasonId} rows={2} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} required />
+      <Button type="submit" disabled={busy || !target.trim() || reason.trim().length < 3}>
+        {busy ? "Freezing..." : "Freeze it"}
+      </Button>
+      {said && (
+        <p className={styles.quiet} role={said.bad ? "alert" : "status"}>
+          {said.text}
+        </p>
+      )}
+    </form>
+  );
+}
+
+function LiftButton({ id, lift, onDone }: { id: string; lift: NonNullable<SafetyAdminApi["lift"]>; onDone: (d: AdminSafetyDTO) => void }) {
+  const [open, setOpen] = useState(false);
+  const [why, setWhy] = useState("");
+  const [busy, setBusy] = useState(false);
+  const whyId = useId();
+  if (!open) {
+    return (
+      <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+        Lift it
+      </Button>
+    );
+  }
+  return (
+    <div className={styles.lift}>
+      <label htmlFor={whyId}>Why it&apos;s lifted</label>
+      <TextInput id={whyId} value={why} onChange={(e) => setWhy(e.target.value)} />
+      <Button
+        size="sm"
+        disabled={busy || why.trim().length < 3}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            onDone(await lift(id, why.trim()));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "Lifting..." : "Lift the freeze"}
+      </Button>
     </div>
   );
 }

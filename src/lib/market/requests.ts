@@ -6,6 +6,7 @@ import type { Runtime } from "../agents/runtime/context";
 import { USDC_DECIMALS } from "./charges";
 import { connectsOf, type Connects } from "./listings";
 import { rent, RentRefused } from "./rentals";
+import { agentHeld, userHeld } from "../safety/freeze";
 import type { Rental } from "../db/schema";
 
 // The request board. Anyone signed in and let in asks for an agent: what
@@ -183,6 +184,8 @@ export async function makeOffer(rt: Runtime, makerUserId: string, id: string, o:
   const [agent] = isId(o.agentId) ? await rt.db.select().from(agents).where(eq(agents.id, o.agentId)) : [];
   if (!agent || agent.ownerUserId !== makerUserId) throw new RequestRefused("Offer one of your own agents.", 404);
   if (!(await newestPublished(rt, [agent.id])).size) throw new RequestRefused("Publish a version of it first: renters get a published version, which never changes.", 409);
+  const held = (await agentHeld(rt, agent.id)) ?? (await userHeld(rt, makerUserId, "maker"));
+  if (held) throw new RequestRefused(`It can't be offered now. ${held}`, 409);
   const now = rt.now();
   const [row] = await rt.db
     .insert(requestOffers)
