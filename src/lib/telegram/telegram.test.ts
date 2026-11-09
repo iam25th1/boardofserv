@@ -193,6 +193,23 @@ describe("what agents send", () => {
   });
 });
 
+describe("delivery that keeps failing", () => {
+  it("tries five times in all, then gives up and leaves it in the app", async () => {
+    const u = await addUser(db, "tg.broken");
+    await linkConnections(rt, u, 8800);
+    const inst = await installed(rt, u, await notifierAgent(u, "Broken"));
+    await enqueue(rt, inst, { kind: "message", text: "x" });
+    await runOnce();
+    rt.net.on(/sendMessage$/, () => Response.json({ ok: false, description: "Bad Gateway" }, { status: 502 }));
+    for (let i = 0; i < 6; i++) await deliverTelegram(rt);
+    expect(rt.net.telegram("sendMessage").filter((m) => m.chat_id === 8800)).toHaveLength(5);
+    const [m] = await db.select().from(schema.agentMessages).where(eq(schema.agentMessages.installationId, inst.id));
+    expect(m).toMatchObject({ tgState: "failed", tgAttempts: 5 });
+    expect(rt.logged.some((l) => l.includes("123456:test-bot-token") || l.includes("test-bot-token"))).toBe(false);
+    rt.net.on(/sendMessage$/, () => Response.json({ ok: true, result: { message_id: 11 } }));
+  });
+});
+
 describe("questions with buttons", () => {
   async function asked() {
     await linkConnections(rt, owner, TEST_CHAT_ID).catch(() => undefined);

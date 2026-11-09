@@ -161,6 +161,12 @@ const SAM_SHEET = "SamOwnShopSheet0123456789abcdef";
 const VAULT_CHAT = 918273645;
 const VAULT_REFRESH = "bosVaultRefreshMarker5";
 const VAULT_ACCESS = "bosVaultAccessMarker6";
+// The server's own keys for the services: in no response, no header and
+// no log line either.
+const BOT_TOKEN = "123:bosBotTokenMarker42";
+const GOOGLE_SECRET = "bosGoogleSecretMarker43";
+const BRAVE_KEY = "bosBraveKeyMarker44";
+const DEV_HOOK_SECRET = "bosDevHookMarker45";
 
 // What one owner gave their copy of an agent: never shown to its maker.
 const SAM_PRIVATE = "SamPrivateStockSheet";
@@ -189,7 +195,7 @@ let sam: schema.User;
 let jo: schema.User | null = null;
 // What the mocked model streams for a use.
 let useChunks: string[] = [];
-const bodies: { label: string; body: string; who: schema.User | null }[] = [];
+const bodies: { label: string; body: string; who: schema.User | null; head: string }[] = [];
 const logged: string[] = [];
 
 function stream(parts: string[]): Response {
@@ -212,7 +218,7 @@ const sketchJson = JSON.stringify({ name: "", kind: "none", watches: "", when: "
 async function hit(label: string, res: Response | Promise<Response>): Promise<Response> {
   const who = state.user as schema.User | null;
   const r = await res;
-  bodies.push({ label, body: await r.clone().text(), who });
+  bodies.push({ label, body: await r.clone().text(), who, head: JSON.stringify([...r.headers.entries()]) });
   return r;
 }
 
@@ -657,7 +663,8 @@ describe("a helper's instructions stay on the server", () => {
       // opens her sheet to pick its tabs.
       vi.stubEnv("OPENSERV_KEY_ENC_KEY", randomBytes(32).toString("base64"));
       vi.stubEnv("GOOGLE_CLIENT_ID", "secrecy-client");
-      vi.stubEnv("GOOGLE_CLIENT_SECRET", "secrecy-google-secret");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", GOOGLE_SECRET);
+      vi.stubEnv("BRAVE_SEARCH_API_KEY", BRAVE_KEY);
       google.addSheet(MAYA_SHEET, "Maya's fabric shop", restockBench().sheets);
       google.on("https://oauth2.googleapis.com/token", () =>
         Response.json({ access_token: VAULT_ACCESS, refresh_token: VAULT_REFRESH, expires_in: 3600, scope: "openid email https://www.googleapis.com/auth/spreadsheets", id_token: `x.${Buffer.from(JSON.stringify({ email: "maya@sheets.test" })).toString("base64url")}.y` }),
@@ -675,8 +682,8 @@ describe("a helper's instructions stay on the server", () => {
       await hit("sheets: a link that isn't a sheet", sheetsInspect.POST(req("/api/sheets/inspect", "POST", { url: "https://example.com/x" })));
       // Maya links Telegram (a code, sent to the bot from her chat): the
       // vault holds it with her Google tokens.
-      vi.stubEnv("TELEGRAM_BOT_TOKEN", "123:secrecy-bot-token");
-      vi.stubEnv("TELEGRAM_DEV_WEBHOOK_SECRET", "secrecy-dev-secret");
+      vi.stubEnv("TELEGRAM_BOT_TOKEN", BOT_TOKEN);
+      vi.stubEnv("TELEGRAM_DEV_WEBHOOK_SECRET", DEV_HOOK_SECRET);
       const linkCode = JSON.parse(await (await hit("connections: telegram code", telegramCode.POST(req("/api/connections/telegram/code", "POST")))).clone().text()) as { code: string };
       const hook = (secret: string | null, update: unknown) =>
         telegramWebhook.POST(
@@ -685,7 +692,7 @@ describe("a helper's instructions stay on the server", () => {
       const fromMaya = (update_id: number, text: string) => ({ update_id, message: { message_id: 1, from: { id: VAULT_CHAT, first_name: "Maya", username: "maya" }, chat: { id: VAULT_CHAT, type: "private" }, text } });
       await hit("telegram: webhook without its secret", hook(null, fromMaya(1, `/start ${linkCode.code}`)));
       await hit("telegram: webhook with a wrong secret", hook("not-it", fromMaya(2, `/start ${linkCode.code}`)));
-      await hit("telegram: maya links her chat", hook("secrecy-dev-secret", fromMaya(3, `/start ${linkCode.code}`)));
+      await hit("telegram: maya links her chat", hook(DEV_HOOK_SECRET, fromMaya(3, `/start ${linkCode.code}`)));
       const tab = (t: string) => ({ url: fakeSheetUrl(MAYA_SHEET), tab: t });
       const installed = JSON.parse(
         await (
@@ -799,11 +806,31 @@ describe("a helper's instructions stay on the server", () => {
     for (const line of logged) {
       expect(line.includes(CODE_MARKER) || line.includes(PROMPT_MARKER), line).toBe(false);
     }
-    // The vault's secrets: in no response and no log line, ever. Maya sees
-    // her connections by their labels alone.
-    for (const { label, body } of [...bodies, ...logged.map((body) => ({ label: "log", body }))]) {
-      for (const secret of [String(VAULT_CHAT), VAULT_REFRESH, VAULT_ACCESS]) expect(body.includes(secret), `${label} carries a connection secret`).toBe(false);
+    // The vault's secrets and the server's own keys for the services: in no
+    // response, no header and no log line, ever. Maya sees her connections
+    // by their labels alone.
+    for (const { label, body, head } of [...bodies, ...logged.map((body) => ({ label: "log", body, head: "" }))]) {
+      for (const secret of [String(VAULT_CHAT), VAULT_REFRESH, VAULT_ACCESS, BOT_TOKEN, BOT_TOKEN.split(":")[1]!, GOOGLE_SECRET, BRAVE_KEY, DEV_HOOK_SECRET]) {
+        expect(body.includes(secret), `${label} carries a connection secret`).toBe(false);
+        expect(head.includes(secret), `${label}'s headers carry a connection secret`).toBe(false);
+      }
     }
+    // A one-time link code goes only to the owner who asked for it; a
+    // Google sign-in's state only to the browser that started it.
+    const code = (JSON.parse(bodies.find((b) => b.label === "connections: telegram code")!.body) as { code: string }).code;
+    expect(bodies.filter((b) => b.body.includes(code)).map((b) => b.label)).toEqual(["connections: telegram code"]);
+    const started = bodies.find((b) => b.label === "connections: google start")!;
+    const googleState = new URL((JSON.parse(started.body) as { url: string }).url).searchParams.get("state")!;
+    expect(bodies.filter((b) => b.body.includes(googleState) || (b.head.includes(googleState) && b !== started)).map((b) => b.label)).toEqual(["connections: google start"]);
+    // Each owner's spreadsheet: never in the other's responses, nor in the
+    // maker's view of someone else's job.
+    for (const b of bodies) {
+      if (b.who?.id === sam.id) expect(b.body.includes(MAYA_SHEET), `${b.label} shows sam maya's sheet`).toBe(false);
+      if (b.who?.id === maya.id) expect(b.body.includes(SAM_SHEET), `${b.label} shows maya sam's sheet`).toBe(false);
+    }
+    // No job ever carries a connection secret in what it saved.
+    const saved = JSON.stringify(await db.select({ state: schema.agentJobs.state }).from(schema.agentJobs));
+    for (const secret of [String(VAULT_CHAT), VAULT_REFRESH, VAULT_ACCESS, "sam-refresh", "sam-access"]) expect(saved.includes(secret), secret).toBe(false);
     expect(bodies.find((b) => b.label === "connections: list")!.body).toContain("@maya");
     expect(bodies.find((b) => b.label === "connections: list")!.body).toContain("maya@sheets.test");
     expect(bodies.find((b) => b.label === "connections: sam list")!.body).not.toContain("@maya");
