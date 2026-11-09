@@ -3,7 +3,8 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent } from "./agents/types";
 import type { InstallAnswers } from "./agents/settingsForm";
-import type { AccountDTO, AdminDTO, ConnectionDTO, AgentMessageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, QuotaDTO, RentalDTO, SketchDTO, WalletDTO } from "./types";
+import type { SetupShape } from "./agents/definition";
 
 // When the server sends no sentence of its own: never a status code.
 const SOMETHING_WRONG = "Something went wrong. Try again in a few minutes.";
@@ -58,6 +59,39 @@ export function useApi() {
       listAgents: () => json<{ agents: AgentListItemDTO[] }>("/api/agents").then((d) => d.agents),
       saveAgentBench: (id: string, bench: BenchData) =>
         json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}/bench`, { method: "PUT", body: JSON.stringify({ bench }) }).then((d) => d.builder),
+      // Put the agent on the board for rent (USDC minor units), or change it.
+      setListing: (id: string, body: { weeklyPrice: string; jobFee: string; listed: boolean }) =>
+        json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}/listing`, { method: "POST", body: JSON.stringify(body) }).then((d) => d.builder),
+      // An agent's page on the board, as the signed-in viewer sees it (theirs,
+      // or rented by them). Null when it isn't on the board.
+      getAgentPage: async (id: string): Promise<AgentPageDTO | null> => {
+        const res = await authed(`/api/market/agents/${encodeURIComponent(id)}`);
+        if (res.status === 404) return null;
+        if (!res.ok) throw new Error(SOMETHING_WRONG);
+        return ((await res.json()) as { agent: AgentPageDTO }).agent;
+      },
+      // Rent it: the first week is charged now. A refusal carries its status
+      // (402: the balance doesn't cover it).
+      rentAgent: async (id: string): Promise<RentalDTO> => {
+        const res = await authed(`/api/market/agents/${encodeURIComponent(id)}/rent`, { method: "POST" });
+        const data = (await res.json().catch(() => ({}))) as { rental?: RentalDTO; error?: string };
+        if (res.ok && data.rental) return data.rental;
+        throw Object.assign(new Error(data.error ?? SOMETHING_WRONG), { status: res.status });
+      },
+      listRentals: () => json<{ rentals: RentalDTO[] }>("/api/rentals").then((d) => d.rentals),
+      getRental: (id: string) => json<{ rental: RentalDTO; setup: SetupShape | null }>(`/api/rentals/${encodeURIComponent(id)}`),
+      installRental: async (id: string, answers: InstallAnswers): Promise<InstallationDTO> => {
+        const res = await authed(`/api/rentals/${encodeURIComponent(id)}/install`, { method: "POST", body: JSON.stringify(answers) });
+        const data = (await res.json().catch(() => ({}))) as { installation?: InstallationDTO; error?: string; errors?: Record<string, string> };
+        if (res.ok && data.installation) return data.installation;
+        throw Object.assign(new Error(data.error ?? SOMETHING_WRONG), { errors: data.errors });
+      },
+      controlRental: async (id: string, action: "pause" | "resume" | "cancel" | "renew"): Promise<RentalDTO> => {
+        const res = await authed(`/api/rentals/${encodeURIComponent(id)}/control`, { method: "POST", body: JSON.stringify({ action }) });
+        const data = (await res.json().catch(() => ({}))) as { rental?: RentalDTO; error?: string };
+        if (res.ok && data.rental) return data.rental;
+        throw Object.assign(new Error(data.error ?? SOMETHING_WRONG), { status: res.status });
+      },
       publishAgent: (id: string) => json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}/publish`, { method: "POST" }).then((d) => d.builder),
       // Run the newest published version for real. A refusal carries the
       // answers that need another look, by field.

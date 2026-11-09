@@ -3,10 +3,11 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { Button, Textarea } from "@/components/ui";
 import { animateEnter } from "@/lib/motion";
-import { nextOf, type AgentDefinition, type AgentStep } from "@/lib/agents/definition";
+import { nextOf, setupShapeOf, type AgentDefinition, type AgentStep } from "@/lib/agents/definition";
 import type { BenchData, RunEvent } from "@/lib/agents/types";
 import { TOOLS } from "@/lib/agents/toolbox";
 import type { AgentBuilderDTO, AgentSummaryDTO } from "@/lib/types";
+import { ListingPanel, type ListingBody } from "@/components/market/ListingPanel";
 import { SetupFlow, type SetupApi } from "./SetupFlow";
 import { StepDiagram, type NodeState } from "./StepDiagram";
 import styles from "./AgentBuilder.module.css";
@@ -29,6 +30,8 @@ export interface BuilderApi {
   // Set the newest published version up to run for real, for the maker:
   // the guided setup, a test run, then live (and the page moves on).
   setup?: SetupApi & { done: (installationId: string) => void };
+  // Put the newest published version on the board for rent, or change it.
+  list?: (body: ListingBody) => Promise<AgentBuilderDTO>;
 }
 
 const SECTIONS = [
@@ -171,7 +174,7 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
     setHeadSaid(null);
     try {
       setData(await api.publish());
-      setHeadSaid("Published. It's in testing on your agents page; it doesn't go on the board yet.");
+      setHeadSaid(api.list ? "Published. Put it on the board for rent below when you're ready." : "Published. It's in testing on your agents page.");
     } catch (err) {
       setHeadSaid(err instanceof Error ? err.message : "It could not be published. Try again.");
     } finally {
@@ -241,6 +244,9 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
           )}
         </div>
       </header>
+      {api.list && data.runnable && (
+        <ListingPanel agentId={data.agent.id} version={data.runnable.version} listing={data.listing} save={async (body) => setData(await api.list!(body))} />
+      )}
       {installing && api.setup && data.runnable && (
         <section className={styles.section} aria-label="Run it for real">
           <h2>Run version {data.runnable.version} for real</h2>
@@ -250,7 +256,7 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
           </p>
           <SetupFlow
             agentId={data.agent.id}
-            definition={data.runnable.definition}
+            setup={setupShapeOf(data.runnable.definition)}
             defaults={data.runnable.defaults}
             api={api.setup}
             returnTo={`/app/agents/${data.agent.id}?setup=1`}

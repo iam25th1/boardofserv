@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import type { AgentDefinition } from "@/lib/agents/definition";
+import { setupShapeOf, type AgentDefinition } from "@/lib/agents/definition";
 import type { InstallAnswers } from "@/lib/agents/settingsForm";
 import restock from "@/lib/agents/examples/restock.json";
 import type { ConnectionDTO, InstallationDTO, JobDTO } from "@/lib/types";
@@ -79,7 +79,7 @@ describe("setting an agent up", () => {
   it("goes through its questions, Telegram, its sheets and its rules, then a test run, then live", async () => {
     const api = makeApi();
     const done = vi.fn();
-    render(<SetupFlow agentId="a1" definition={definition} defaults={restock.bench.settings} api={api} returnTo="/app/agents/a1?setup=1" onDone={done} />);
+    render(<SetupFlow agentId="a1" setup={setupShapeOf(definition)} defaults={restock.bench.settings} api={api} returnTo="/app/agents/a1?setup=1" onDone={done} />);
     expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["1Its questions", "2Link Telegram", "3Your sheets", "4Rules and limits", "5Test run"]);
 
     // 1. Its questions, checked before going on.
@@ -134,12 +134,12 @@ describe("setting an agent up", () => {
 
   it("picks up where it was after the way to Google and back", async () => {
     const api = makeApi();
-    const first = render(<SetupFlow agentId="a1" definition={definition} defaults={restock.bench.settings} api={api} returnTo="/app/agents/a1?setup=1" onDone={() => {}} />);
+    const first = render(<SetupFlow agentId="a1" setup={setupShapeOf(definition)} defaults={restock.bench.settings} api={api} returnTo="/app/agents/a1?setup=1" onDone={() => {}} />);
     fireEvent.change(screen.getByLabelText(/Address of the suppliers' price list page/), { target: { value: "https://suppliers.example/prices" } });
     next();
     await waitFor(() => expect(here()).toBe("2Link Telegram"));
     first.unmount();
-    render(<SetupFlow agentId="a1" definition={definition} defaults={restock.bench.settings} api={api} returnTo="/app/agents/a1?setup=1" onDone={() => {}} />);
+    render(<SetupFlow agentId="a1" setup={setupShapeOf(definition)} defaults={restock.bench.settings} api={api} returnTo="/app/agents/a1?setup=1" onDone={() => {}} />);
     await waitFor(() => expect(here()).toBe("2Link Telegram"));
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.getByLabelText(/Address of the suppliers' price list page/)).toHaveValue("https://suppliers.example/prices");

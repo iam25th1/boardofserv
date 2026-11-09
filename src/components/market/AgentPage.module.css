@@ -152,3 +152,27 @@
   font-size: var(--t-hand);
   color: var(--chalk-2);
 }
+.rentNote {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.rentLink {
+  align-self: flex-start;
+  font-weight: var(--w-medium);
+}
+.terms {
+  margin: 0;
+  padding-left: 1.1em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  color: var(--chalk-2);
+  max-width: 52ch;
+}
+.terms li::marker {
+  color: var(--chalk-3);
+}
+.refused {
+  margin-top: var(--s-3);
+  color: var(--chalk);
+}

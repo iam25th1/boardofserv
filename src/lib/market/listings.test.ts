@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import { addUser, testDb } from "@/test/helperDb";
 import { installed, publishedAgent, restockDefinition, testRuntime, type TestRuntime } from "@/test/runtimeFixtures";
-import { agentPage, boardAgents, connectsOf } from "./listings";
+import { agentPage, boardAgents, connectsOf, makerListing, setListing } from "./listings";
 
 // Agents on the board: listed published versions with their prices,
 // filtered by what they connect to and by price, most rented first; an
@@ -39,8 +39,12 @@ describe("agents on the board", () => {
     const cheap = await listed("Cheap restock", 2);
     const dear = await listed("Dear restock", 40, { jobFee: 0.5 });
     await listed("Hidden restock", 5, { listed: false });
-    // Two people rent the dear one; the maker's own copy doesn't count.
-    for (const who of ["renter.a", "renter.b"]) await installed(rt, await addUser(db, who), dear);
+    // Two people rent the dear one; a rental that ended and the maker's own
+    // copy don't count.
+    const rental = (renter: schema.User, status: "active" | "ended" = "active") =>
+      db.insert(schema.rentals).values({ agentId: dear.agent.id, versionId: dear.version.id, renterUserId: renter.id, makerUserId: maker.id, weeklyPrice: usdc(40), status, paidUntil: new Date() });
+    for (const who of ["renter.a", "renter.b"]) await rental(await addUser(db, who));
+    await rental(await addUser(db, "renter.gone"), "ended");
     await installed(rt, maker, cheap);
     const board = await boardAgents(rt);
     expect(board.map((a) => [a.name, a.renters])).toEqual([
@@ -88,12 +92,25 @@ describe("an agent's page", () => {
       if (s.kind === "decision") expect(shown).not.toContain(s.prompt);
     }
     expect(shown).not.toMatch(/async function|sheets\.read|"source"|"bench"/);
-    expect((await agentPage(rt, p.agent.id, maker.id))!.mine).toBe(true);
+    expect(await agentPage(rt, p.agent.id, maker.id)).toMatchObject({ mine: true, rentalId: null });
   });
 
   it("is not there for an agent off the board, or a bad id", async () => {
     const off = await listed("Off restock", 3, { listed: false });
     expect(await agentPage(rt, off.agent.id)).toBeNull();
     expect(await agentPage(rt, "not-an-id")).toBeNull();
+  });
+});
+
+describe("its maker's listing", () => {
+  it("puts the newest published version on the board at a price, changes it, and takes it off", async () => {
+    const [draftOnly] = await db.insert(schema.agents).values({ ownerUserId: maker.id, name: "Unpublished" }).returning();
+    expect(await setListing(rt, draftOnly!, { weeklyPrice: 1n, jobFee: 0n, listed: true })).toBeNull();
+    const p = await publishedAgent(db, maker);
+    expect(await setListing(rt, p.agent, { weeklyPrice: BigInt(usdc(5)), jobFee: 0n, listed: true })).toEqual({ weeklyPrice: usdc(5), jobFee: "0", decimals: 6, listed: true, version: 1 });
+    expect((await agentPage(rt, p.agent.id))!.weeklyPrice).toBe(usdc(5));
+    expect(await setListing(rt, p.agent, { weeklyPrice: BigInt(usdc(6)), jobFee: BigInt(usdc(0.1)), listed: false })).toMatchObject({ weeklyPrice: usdc(6), jobFee: usdc(0.1), listed: false });
+    expect(await agentPage(rt, p.agent.id)).toBeNull();
+    expect(await makerListing(rt, p.agent.id)).toMatchObject({ listed: false });
   });
 });

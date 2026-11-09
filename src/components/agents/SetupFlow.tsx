@@ -4,7 +4,7 @@ import { animate, svg } from "animejs";
 import { Button, TextInput } from "@/components/ui";
 import { GoogleConnect } from "@/components/connections/GoogleConnect";
 import { TelegramLink, type LinkCode } from "@/components/connections/TelegramLink";
-import { connectionsNeeded, type AgentDefinition } from "@/lib/agents/definition";
+import type { SetupShape } from "@/lib/agents/definition";
 import { checkAnswers, DEFAULT_DAILY_SPEND_USD, DEFAULT_MIN_GAP_MINUTES, MAX_DAILY_SPEND_USD, type InstallAnswers } from "@/lib/agents/settingsForm";
 import { isSheetAnswer } from "@/lib/google/sheetLink";
 import { dustIn, ease, prefersReducedMotion } from "@/lib/motion";
@@ -82,7 +82,7 @@ function save(key: string, s: Saved | null): void {
 
 export function SetupFlow({
   agentId,
-  definition: d,
+  setup: d,
   defaults,
   api,
   returnTo,
@@ -90,7 +90,8 @@ export function SetupFlow({
   onCancel,
 }: {
   agentId: string;
-  definition: AgentDefinition;
+  // What setting it up needs of the agent (never its code or prompts).
+  setup: SetupShape;
   defaults: Record<string, unknown>;
   api: SetupApi;
   // This page, for coming back from Google.
@@ -99,7 +100,7 @@ export function SetupFlow({
   onCancel?: () => void;
 }) {
   const key = `bos-setup:${agentId}`;
-  const needs = connectionsNeeded(d);
+  const needs = d.needs;
   const plainSettings = d.settings.filter((s) => s.type !== "sheet");
   const sheetSettings = d.settings.filter((s) => s.type === "sheet");
   const schedule = d.triggers.find((t) => t.kind === "schedule");

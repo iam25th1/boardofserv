@@ -70,6 +70,12 @@ import * as googleStart from "@/app/api/connections/google/start/route";
 import * as googleCallback from "@/app/api/connections/google/callback/route";
 import * as sheetsInspect from "@/app/api/sheets/inspect/route";
 import * as marketAgent from "@/app/api/market/agents/[id]/route";
+import * as marketRent from "@/app/api/market/agents/[id]/rent/route";
+import * as agentListing from "@/app/api/agents/[id]/listing/route";
+import * as rentalsRoute from "@/app/api/rentals/route";
+import * as rentalRoute from "@/app/api/rentals/[id]/route";
+import * as rentalInstall from "@/app/api/rentals/[id]/install/route";
+import * as rentalControl from "@/app/api/rentals/[id]/control/route";
 import { fakeNet, fakeSheetUrl } from "./fakeNet";
 import { keep } from "@/lib/connections/vault";
 
@@ -150,6 +156,12 @@ const ROUTES: Record<string, object> = {
   "connections/google/callback": googleCallback,
   "sheets/inspect": sheetsInspect,
   "market/agents/[id]": marketAgent,
+  "market/agents/[id]/rent": marketRent,
+  "agents/[id]/listing": agentListing,
+  "rentals": rentalsRoute,
+  "rentals/[id]": rentalRoute,
+  "rentals/[id]/install": rentalInstall,
+  "rentals/[id]/control": rentalControl,
 };
 
 // Google, for this test: Maya's and Sam's own spreadsheets, and the token
@@ -754,6 +766,40 @@ describe("a helper's instructions stay on the server", () => {
       await jobFor((await draftOf(id))!.id);
       await hit("agent: board", board.GET(req("/api/board")));
       await hit("market: an agent that isn't on the board", marketAgent.GET(req(`/api/market/agents/${id}`), { params: { id } }));
+
+      // Maya puts it on the board; Sam rents it and sets it up with his own
+      // sheet. The listing, its page and Sam's rental never carry its code
+      // or prompts, and Maya never sees Sam's sheet or his rental.
+      await hit("market: list it", agentListing.POST(req(`/api/agents/${id}/listing`, "POST", { weeklyPrice: "0", jobFee: "0", listed: true }), p));
+      await hit("market: board with it", board.GET(req("/api/board")));
+      await hit("market: maya's own page", marketAgent.GET(req(`/api/market/agents/${id}`), p));
+      await hit("market: maya rents her own", marketRent.POST(req(`/api/market/agents/${id}/rent`, "POST"), p));
+      state.user = sam;
+      await hit("market: sam's page", marketAgent.GET(req(`/api/market/agents/${id}`), p));
+      const rented = JSON.parse(await (await hit("market: sam rents", marketRent.POST(req(`/api/market/agents/${id}/rent`, "POST"), p))).clone().text()).rental as { id: string };
+      const rp = { params: { id: rented.id } };
+      await hit("market: sam's rentals", rentalsRoute.GET(req("/api/rentals")));
+      await hit("market: sam's rental", rentalRoute.GET(req(`/api/rentals/${rented.id}`), rp));
+      await hit(
+        "market: sam sets it up",
+        rentalInstall.POST(req(`/api/rentals/${rented.id}/install`, "POST", { settings: { stock_sheet: samTab(SAM_PRIVATE), orders_sheet: samTab("Orders"), suppliers_sheet: samTab("Suppliers") }, rules: {}, timezone: "UTC" }), rp),
+      );
+      await hit("market: sam's rental set up", rentalRoute.GET(req(`/api/rentals/${rented.id}`), rp));
+      await hit("market: sam's page renting", marketAgent.GET(req(`/api/market/agents/${id}`), p));
+      await hit("market: sam pauses", rentalControl.POST(req(`/api/rentals/${rented.id}/control`, "POST", { action: "pause" }), rp));
+      await hit("market: sam cancels", rentalControl.POST(req(`/api/rentals/${rented.id}/control`, "POST", { action: "cancel" }), rp));
+      await hit("market: sam lists maya's agent", agentListing.POST(req(`/api/agents/${id}/listing`, "POST", { weeklyPrice: "0", jobFee: "0", listed: false }), p));
+      for (const who of [maya, null]) {
+        state.user = who;
+        const tag = who ? "maya" : "signed out";
+        await hit(`market: ${tag} opens sam's rental`, rentalRoute.GET(req(`/api/rentals/${rented.id}`), rp));
+        await hit(`market: ${tag} sets up sam's rental`, rentalInstall.POST(req(`/api/rentals/${rented.id}/install`, "POST", { settings: {}, rules: {}, timezone: "UTC" }), rp));
+        await hit(`market: ${tag} cancels sam's rental`, rentalControl.POST(req(`/api/rentals/${rented.id}/control`, "POST", { action: "cancel" }), rp));
+        await hit(`market: ${tag} rentals`, rentalsRoute.GET(req("/api/rentals")));
+      }
+      await hit("market: signed out rents", marketRent.POST(req(`/api/market/agents/${id}/rent`, "POST"), p));
+      await hit("market: signed out lists", agentListing.POST(req(`/api/agents/${id}/listing`, "POST", { weeklyPrice: "0", jobFee: "0", listed: false }), p));
+      state.user = maya;
       // Someone else, and nobody.
       for (const who of [sam, null]) {
         state.user = who;
@@ -793,7 +839,7 @@ describe("a helper's instructions stay on the server", () => {
     }
 
     // The maker's own builder does show the code and the prompts.
-    const builder = new Set(["agent: builder", "agent: save", "agent: publish"]);
+    const builder = new Set(["agent: builder", "agent: save", "agent: publish", "market: list it"]);
     for (const label of builder) {
       const body = bodies.find((b) => b.label === label)!.body;
       expect(body, label).toContain(CODE_MARKER);
@@ -854,6 +900,17 @@ describe("a helper's instructions stay on the server", () => {
     for (const label of ["agent: maker sees sam's job", "agent: maker's jobs with sam's", "agent: installation after a job", "agent: questions"]) expect(said(label), label).not.toContain(SAM_PRIVATE);
     expect(said("agent: sam sees maya's job")).toBe('{"error":"Not found"}');
     expect(said("agent: sam answers maya's question")).toBe('{"error":"Not found"}');
+    // Renting: Sam's rental is his alone, and the maker can't rent her own.
+    expect(said("market: maya rents her own")).toContain("It's yours");
+    expect(said("market: sam rents")).toContain('"status":"setup"');
+    expect(said("market: sam's rental")).toContain('"setup":{');
+    expect(said("market: sam sets it up")).toContain(SAM_PRIVATE);
+    expect(said("market: sam's page renting")).toContain(`"rentalId":"${JSON.parse(said("market: sam rents")).rental.id}"`);
+    expect(said("market: sam cancels")).toContain('"status":"cancelling"');
+    expect(said("market: sam lists maya's agent")).toBe('{"error":"Not found"}');
+    for (const label of ["market: maya opens sam's rental", "market: maya sets up sam's rental", "market: maya cancels sam's rental"]) expect(said(label), label).toBe('{"error":"Not found"}');
+    expect(said("market: maya rentals")).toBe('{"rentals":[]}');
+    expect(said("market: signed out rentals")).toBe('{"error":"Not signed in"}');
     // Sam's list has his own copy only, never Maya's.
     const mayas = JSON.parse(bodies.find((b) => b.label === "agent: installation")!.body).installation.id as string;
     expect((JSON.parse(bodies.find((b) => b.label === "agent: sam installations")!.body).installations as { id: string }[]).map((i) => i.id)).not.toContain(mayas);

@@ -232,6 +232,13 @@
       "when": 1794247807873,
       "tag": "0032_agent_listings",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1794248016060,
+      "tag": "0033_rentals",
+      "breakpoints": true
     }
   ]
 }

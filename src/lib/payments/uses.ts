@@ -126,12 +126,14 @@ export async function release(holdId: string): Promise<boolean> {
 
 export const HOLD_TTL_MS = 10 * 60_000;
 
-// Release every hold older than ten minutes. Returns how many.
+// Release every helper use's hold older than ten minutes. Returns how
+// many. (Rent is captured at once, and a rented agent's fee per job waits
+// for its job, however long: neither is swept.)
 export async function sweepHolds(now: Date = new Date()): Promise<number> {
   const stale = await db
     .select({ id: holds.id })
     .from(holds)
-    .where(and(eq(holds.status, "held"), lt(holds.createdAt, new Date(now.getTime() - HOLD_TTL_MS))));
+    .where(and(eq(holds.status, "held"), eq(holds.kind, "use"), lt(holds.createdAt, new Date(now.getTime() - HOLD_TTL_MS))));
   let released = 0;
   for (const { id } of stale) if (await release(id)) released++;
   return released;

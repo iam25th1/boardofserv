@@ -100,6 +100,7 @@ export const DEMO_PAGE: AgentPageDTO = {
   neverWithoutAsking: ['Spend more in one job than your limit "Order approval limit" (250 USDC unless you change it).'],
   canOnly: ["Tell you stock is fine today", "Write new order rows to the Orders sheet", "Remember the last order placed"],
   mine: false,
+  rentalId: null,
 };
 
 export function DemoMarket({ view }: { view: string }) {

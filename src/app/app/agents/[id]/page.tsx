@@ -44,6 +44,7 @@ function Builder({ id }: { id: string }) {
       fix: (message) => api.fixAgent(id, message),
       saveBench: (bench) => api.saveAgentBench(id, bench),
       publish: () => api.publishAgent(id),
+      list: (body) => api.setListing(id, body),
       setup: {
         connections: api.listConnections,
         telegramCode: api.telegramCode,

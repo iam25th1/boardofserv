@@ -36,6 +36,7 @@ function dto(e: Example, state: "draft" | "published" = "draft"): AgentBuilderDT
     bench: e.bench,
     versions: [{ number: 1, state, createdAt: e.builtAt, publishedAt: state === "published" ? new Date().toISOString() : null }],
     runnable: state === "published" ? { version: 1, definition: e.definition, defaults: e.bench.settings } : null,
+    listing: null,
   };
 }
 

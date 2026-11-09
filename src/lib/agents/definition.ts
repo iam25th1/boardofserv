@@ -194,6 +194,16 @@ export function connectionsNeeded(d: AgentDefinition): { telegram: boolean; goog
   };
 }
 
+// What the guided setup needs of an agent, and no more: its name, the
+// questions it asks, its rules, its schedule and the connections it needs.
+// A renter's setup gets this, never the definition (its steps hold the
+// code steps' descriptions and the decisions' prompts).
+export type SetupShape = Pick<AgentDefinition, "name" | "settings" | "rules" | "triggers"> & { needs: { telegram: boolean; google: boolean } };
+
+export function setupShapeOf(d: AgentDefinition): SetupShape {
+  return { name: d.name, settings: d.settings, rules: d.rules, triggers: d.triggers.filter((t) => t.kind === "schedule"), needs: connectionsNeeded(d) };
+}
+
 // Where a step can go next: one step, or one per outcome, and for an action
 // that waits for the owner, where it goes without an answer.
 export function nextOf(step: AgentStep): (string | null)[] {

@@ -1,6 +1,7 @@
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { boardHelpers } from "@/lib/helpers";
-import { boardAgents, USDC_DECIMALS, type Connects } from "@/lib/market/listings";
+import { boardAgents, type Connects } from "@/lib/market/listings";
+import { USDC_DECIMALS } from "@/lib/market/charges";
 import { parseAmount } from "@/lib/money";
 
 export const runtime = "nodejs";

@@ -1,11 +1,12 @@
 import "server-only";
 import { and, desc, eq, gte, ilike, inArray, lte, ne, or, sql } from "drizzle-orm";
-import { agentInstallations, agentListings, agents, agentVersions, users, type AgentListing } from "../db/schema";
-import type { AgentListingDTO, AgentPageDTO } from "../types";
+import { agentListings, agents, agentVersions, rentals, users, type Agent, type AgentListing } from "../db/schema";
+import type { AgentListingDTO, AgentPageDTO, MakerListingDTO } from "../types";
 import { connectionsNeeded, spends, type AgentDefinition, type ToolName } from "../agents/definition";
 import { describeTriggers } from "../agents/schedule";
 import { typedRules } from "../agents/runner";
 import type { Runtime } from "../agents/runtime/context";
+import { USDC_DECIMALS } from "./charges";
 
 // Agents on the board. Each listed agent shows what it does, what it
 // connects to, its weekly price (and fee per job), how many people rent
@@ -14,7 +15,6 @@ import type { Runtime } from "../agents/runtime/context";
 // does without asking, and all it may ever do. Never its code, its
 // prompts, its test bench or anyone's data.
 
-export const USDC_DECIMALS = 6;
 const BOARD_LIMIT = 60;
 
 export type Connects = AgentListingDTO["connects"][number];
@@ -42,15 +42,14 @@ interface Row {
   makerId: string;
 }
 
-// How many people other than its maker run a copy of it now.
+// How many people rent it now.
 async function renterCounts(rt: Runtime, rows: Row[]): Promise<Map<string, number>> {
   if (!rows.length) return new Map();
   const counted = await rt.db
-    .select({ agentId: agentInstallations.agentId, n: sql<number>`count(distinct ${agentInstallations.ownerUserId})::int` })
-    .from(agentInstallations)
-    .innerJoin(agents, eq(agents.id, agentInstallations.agentId))
-    .where(and(inArray(agentInstallations.agentId, rows.map((r) => r.listing.agentId)), ne(agentInstallations.status, "stopped"), ne(agentInstallations.ownerUserId, agents.ownerUserId)))
-    .groupBy(agentInstallations.agentId);
+    .select({ agentId: rentals.agentId, n: sql<number>`count(distinct ${rentals.renterUserId})::int` })
+    .from(rentals)
+    .where(and(inArray(rentals.agentId, rows.map((r) => r.listing.agentId)), ne(rentals.status, "ended")))
+    .groupBy(rentals.agentId);
   return new Map(counted.map((c) => [c.agentId, c.n]));
 }
 
@@ -136,11 +135,50 @@ export async function agentPage(rt: Runtime, agentId: string, viewerId: string |
     neverWithoutAsking,
     canOnly: d.actions.map((a) => a.description),
     mine: viewerId !== null && viewerId === row.makerId,
+    rentalId: viewerId ? await rentalIdOf(rt, agentId, viewerId) : null,
   };
+}
+
+async function rentalIdOf(rt: Runtime, agentId: string, renterUserId: string): Promise<string | null> {
+  const [r] = await rt.db
+    .select({ id: rentals.id })
+    .from(rentals)
+    .where(and(eq(rentals.agentId, agentId), eq(rentals.renterUserId, renterUserId), ne(rentals.status, "ended")));
+  return r?.id ?? null;
 }
 
 // The listing of an agent, for its maker.
 export async function listingOf(rt: Runtime, agentId: string): Promise<AgentListing | null> {
   const [row] = await rt.db.select().from(agentListings).where(eq(agentListings.agentId, agentId));
   return row ?? null;
+}
+
+export async function makerListing(rt: Runtime, agentId: string): Promise<MakerListingDTO | null> {
+  const [row] = await rt.db
+    .select({ listing: agentListings, version: agentVersions.number })
+    .from(agentListings)
+    .innerJoin(agentVersions, eq(agentVersions.id, agentListings.versionId))
+    .where(eq(agentListings.agentId, agentId));
+  return row ? { weeklyPrice: row.listing.weeklyPrice, jobFee: row.listing.jobFee, decimals: USDC_DECIMALS, listed: row.listing.listed, version: row.version } : null;
+}
+
+// Its maker puts an agent on the board for rent (or changes its price, or
+// takes it off): the newest published version, at a weekly price and an
+// optional fee per job, in USDC minor units. A new price is for new
+// renters; those renting now keep the price they rented at.
+export async function setListing(rt: Runtime, agent: Agent, o: { weeklyPrice: bigint; jobFee: bigint; listed: boolean }): Promise<MakerListingDTO | null> {
+  const [version] = await rt.db
+    .select({ id: agentVersions.id })
+    .from(agentVersions)
+    .where(and(eq(agentVersions.agentId, agent.id), eq(agentVersions.state, "published")))
+    .orderBy(desc(agentVersions.number))
+    .limit(1);
+  if (!version) return null;
+  const now = rt.now();
+  const values = { versionId: version.id, weeklyPrice: o.weeklyPrice.toString(), jobFee: o.jobFee.toString(), listed: o.listed, updatedAt: now };
+  await rt.db
+    .insert(agentListings)
+    .values({ agentId: agent.id, ...values, createdAt: now })
+    .onConflictDoUpdate({ target: agentListings.agentId, set: values });
+  return makerListing(rt, agent.id);
 }

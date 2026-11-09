@@ -110,6 +110,8 @@ export interface AgentBuilderDTO {
   // definition (for the settings form) and the bench's sample settings to
   // start the answers from. Null before the first is published.
   runnable: { version: number; definition: AgentDefinition; defaults: Record<string, unknown> } | null;
+  // Its place on the board for rent, once its maker put it there.
+  listing: MakerListingDTO | null;
 }
 
 // One of the maker's agents on their own agents page.
@@ -194,6 +196,42 @@ export interface AgentPageDTO extends AgentListingDTO {
   canOnly: string[];
   // The viewer made it (they run it from their builder, not by renting).
   mine: boolean;
+  // The viewer's rental of it, while it lasts.
+  rentalId: string | null;
+}
+
+// An agent its maker has put on the board for rent: the price (USDC minor
+// units), and the published version renters get.
+export interface MakerListingDTO {
+  weeklyPrice: string;
+  jobFee: string;
+  decimals: number;
+  listed: boolean;
+  version: number;
+}
+
+// One of the renter's rentals, as only they see it. status: "setup" until
+// they set it up, "testing" until they make it live, then "active" or
+// "paused"; "unpaid" when a week's rent couldn't be paid (paused until
+// they top up and resume); "cancelling" when it stops at paidUntil;
+// "ended" after.
+export interface RentalDTO {
+  id: string;
+  agentId: string;
+  name: string;
+  does: string;
+  maker: string;
+  version: number;
+  status: "setup" | "testing" | "active" | "paused" | "unpaid" | "cancelling" | "ended";
+  pausedReason: string | null;
+  weeklyPrice: string;
+  jobFee: string;
+  decimals: number;
+  paidUntil: string;
+  renews: boolean;
+  weeksPaid: number;
+  installationId: string | null;
+  createdAt: string;
 }
 
 // One of the owner's connections, as only they see it: the service, the

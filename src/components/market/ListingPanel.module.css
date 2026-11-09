@@ -1,0 +1,78 @@
+/* The builder's panel for the board: a price tag drawn in chalk. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: 1.5px dashed var(--chalk-3);
+  border-radius: var(--r-xl);
+}
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+}
+.head h2 {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+}
+.see {
+  font-size: var(--t-sm);
+}
+.quiet {
+  color: var(--chalk-2);
+  font-size: var(--t-sm);
+  max-width: 64ch;
+}
+.fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-4);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.field label {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.money {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--chalk);
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+}
+.money input {
+  width: 9rem;
+  font-family: var(--font-body);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.said {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.said[data-bad] {
+  color: var(--chalk);
+  text-decoration: underline wavy var(--chalk-3);
+  text-underline-offset: 4px;
+}
+@media (max-width: 640px) {
+  .panel {
+    padding: var(--s-4);
+  }
+  .field,
+  .money,
+  .money input {
+    width: 100%;
+  }
+}

@@ -6,6 +6,8 @@ import { beat, claimJob, HEARTBEAT_MS, requeueStale, runJob } from "./jobs";
 import { expireDue } from "./approvals";
 import { fireDue } from "./triggers";
 import { deliverTelegram, tidyTelegram } from "../../telegram/deliver";
+import { settleJobFees } from "../../market/charges";
+import { renewDue } from "../../market/rentals";
 
 // The agents' job worker: one cycle every few seconds, in the server
 // process (see boot.ts for why), under its own Postgres advisory lock taken
@@ -14,7 +16,8 @@ import { deliverTelegram, tidyTelegram } from "../../telegram/deliver";
 //
 // 1. puts jobs whose worker stopped beating back in the queue,
 // 2. fires the triggers that are due (triggers.ts), expires the approvals
-//    nobody answered in time (approvals.ts), and sends what waits to go
+//    nobody answered in time (approvals.ts), renews rented agents' weeks
+//    and settles their fees per job (market/), and sends what waits to go
 //    out to owners' Telegram chats (telegram/deliver.ts),
 // 3. starts claimed jobs up to the worker's capacity, without waiting for
 //    them: they run on, beating, while the next cycles go by.
@@ -50,6 +53,10 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
       await fireDue(rt);
       const expired = await expireDue(rt);
       if (expired) rt.log(`jobs: ${expired} ${expired === 1 ? "approval" : "approvals"} expired with no answer.`);
+      // Rented agents: weeks renewed (or paused when unpaid, or ended when
+      // cancelled), and the fees of jobs that ended settled.
+      await renewDue(rt).catch((err: unknown) => rt.log(`rentals: renewal broke off: ${err instanceof Error ? err.name : "unknown error"}`));
+      await settleJobFees(rt).catch((err: unknown) => rt.log(`rentals: settling fees broke off: ${err instanceof Error ? err.name : "unknown error"}`));
       // Questions and messages out to owners' Telegram chats, and answered
       // questions' messages settled there.
       await deliverTelegram(rt).catch((err: unknown) => rt.log(`telegram: delivery broke off: ${err instanceof Error ? err.name : "unknown error"}`));
