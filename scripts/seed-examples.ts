@@ -8,8 +8,9 @@
 //      each, and the answers are recorded so dry runs replay them.
 //
 //   SEED_EXAMPLE=sheet-report    a morning summary of a sheet, on Telegram
-//   SEED_EXAMPLE=lead-followup   drafts a reply to the oldest new enquiry in
-//                                a sheet and asks before recording it as ready
+//   SEED_EXAMPLE=lead-followup   every 15 minutes, drafts a reply to the
+//                                oldest new enquiry in a sheet and asks
+//                                before recording it as ready
 //
 // It writes src/lib/agents/examples/<example>.json and touches no database
 // (scripts/import-examples.ts puts the examples on the board). It needs
@@ -87,7 +88,7 @@ const EXAMPLES: Record<string, Example> = {
       ...blank,
       name: "Enquiry follow-up",
       kind: "agent",
-      wakes: "on a schedule, every hour",
+      wakes: "every 15 minutes",
       looks: "the Enquiries sheet (columns name, contact, interest, message) and the Replies sheet; an enquiry is new when its contact isn't in the Replies sheet yet",
       handles:
         "take the oldest new enquiry, if there is one, and draft a short friendly reply from the owner's reply template, filling in the person's name and what they asked about; then ask the owner on Telegram, showing the draft, whether to use it",
@@ -100,7 +101,7 @@ const EXAMPLES: Record<string, Example> = {
     history: [
       { role: "user", content: "People send enquiries through a form that fills a Google Sheet. I want a reply drafted for each new one, but I approve every reply before it counts." },
       { role: "assistant", content: "Where should approved replies go?" },
-      { role: "user", content: "Into a Replies tab, marked ready to send, or skipped if I say no. One enquiry an hour is fine. Keep it to a few steps." },
+      { role: "user", content: "Into a Replies tab, marked ready to send, or skipped if I say no. Check every 15 minutes, one enquiry at a time. Keep it to a few steps." },
     ],
     sheets: {
       Enquiries: [

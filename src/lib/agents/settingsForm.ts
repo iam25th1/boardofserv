@@ -1,3 +1,4 @@
+import { minIntervalMinutes } from "./interval";
 import type { AgentDefinition, Rule, Setting } from "./definition";
 import { isSheetAnswer, parseSheetLink } from "../google/sheetLink";
 import { z } from "zod";
@@ -20,8 +21,9 @@ export interface InstallAnswers {
   // Rule values as text, as the form holds them; empty keeps the default.
   rules: Record<string, string>;
   timezone: string;
-  // The time of day ("HH:MM") and weekday (0 is Sunday) for a scheduled agent.
-  schedule?: { at: string | null; day: number | null } | null;
+  // The time of day ("HH:MM"), weekdays (0 is Sunday) and interval (minutes
+  // or hours, as the schedule counts) for a scheduled agent.
+  schedule?: { at: string | null; day: number | null; days?: number[] | null; interval?: number | null } | null;
   minGapMinutes?: number;
   dailySpendUsd?: number;
   // How much it may spend per call without asking (USDC); none is 0.
@@ -29,7 +31,7 @@ export interface InstallAnswers {
 }
 
 export type CheckedAnswers =
-  | { ok: true; settings: Record<string, unknown>; rules: Record<string, string>; timezone: string; schedule: { at: string | null; day: number | null } | null; minGapMinutes: number; dailySpendUsd: number }
+  | { ok: true; settings: Record<string, unknown>; rules: Record<string, string>; timezone: string; schedule: { at: string | null; day: number | null; days: number[] | null; interval: number | null } | null; minGapMinutes: number; dailySpendUsd: number }
   | { ok: false; errors: Record<string, string> };
 
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -127,13 +129,20 @@ export function checkAnswers(d: Pick<AgentDefinition, "settings" | "rules" | "tr
   }
   if (!validTimezone(a.timezone)) errors.timezone = "Pick a time zone.";
   const scheduled = d.triggers.find((t) => t.kind === "schedule");
-  let schedule: { at: string | null; day: number | null } | null = null;
-  if (scheduled && a.schedule) {
+  let schedule: { at: string | null; day: number | null; days: number[] | null; interval: number | null } | null = null;
+  if (scheduled?.kind === "schedule" && a.schedule) {
     const at = a.schedule.at?.trim() || null;
     const day = a.schedule.day ?? null;
+    const days = a.schedule.days ?? null;
+    const interval = a.schedule.interval ?? null;
+    const least = minIntervalMinutes();
+    const isDay = (x: unknown) => Number.isInteger(x) && (x as number) >= 0 && (x as number) <= 6;
     if (at !== null && !TIME.test(at)) errors.schedule = "Give a time like 07:30.";
-    else if (day !== null && !(Number.isInteger(day) && day >= 0 && day <= 6)) errors.schedule = "Pick a day of the week.";
-    else schedule = { at, day };
+    else if (day !== null && !isDay(day)) errors.schedule = "Pick a day of the week.";
+    else if (days !== null && (!Array.isArray(days) || !days.length || !days.every(isDay))) errors.schedule = "Pick at least one day of the week.";
+    else if (interval !== null && scheduled.every === "minutes" && !(Number.isInteger(interval) && interval >= least && interval <= 1440)) errors.schedule = `Give whole minutes, at least ${least}.`;
+    else if (interval !== null && scheduled.every === "hours" && !(Number.isInteger(interval) && interval >= 1 && interval <= 24)) errors.schedule = "Give whole hours, from 1 to 24.";
+    else schedule = { at, day, days: days ? [...new Set(days)].sort((x, y) => x - y) : null, interval: scheduled.every === "minutes" || scheduled.every === "hours" ? interval : null };
   }
   const gap = a.minGapMinutes ?? DEFAULT_MIN_GAP_MINUTES;
   if (!Number.isInteger(gap) || gap < 0 || gap > 1440) errors.minGapMinutes = "Give whole minutes, up to a day (1440).";

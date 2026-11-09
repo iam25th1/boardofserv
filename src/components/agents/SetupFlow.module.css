@@ -165,3 +165,29 @@
     display: block;
   }
 }
+.days {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  align-items: center;
+}
+.days legend {
+  flex-basis: 100%;
+  margin-bottom: var(--s-1);
+}
+.day {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-height: 36px;
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+.day input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--chalk);
+}

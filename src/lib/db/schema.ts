@@ -575,7 +575,7 @@ export const agentInstallations = pgTable(
     memory: jsonb("memory").$type<Record<string, unknown>>().notNull().default({}),
     mocks: jsonb("mocks").$type<Pick<BenchData, "sheets" | "search" | "wallet">>().notNull(),
     timezone: text("timezone").notNull().default("UTC"),
-    schedule: jsonb("schedule").$type<{ at: string | null; day: number | null }>(),
+    schedule: jsonb("schedule").$type<{ at: string | null; day: number | null; days?: number[] | null; interval?: number | null }>(),
     minGapMinutes: integer("min_gap_minutes").notNull().default(5),
     dailySpendUsd: numeric("daily_spend_usd", { precision: 10, scale: 4 }).notNull().default("0.5"),
     // What the renter lets it do on its own (agents/risk.ts): tools that

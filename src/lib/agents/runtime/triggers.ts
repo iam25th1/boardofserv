@@ -4,7 +4,7 @@ import { agentInstallations, agentJobs, agentTriggers, agentVersions, type Agent
 import type { AgentDefinition } from "../definition";
 import { typedRules } from "../runner";
 import { runInSandbox } from "../sandbox";
-import { nextRun, scheduleSpec } from "../schedule";
+import { checkInterval, nextRun, scheduleSpec } from "../schedule";
 import type { Runtime } from "./context";
 import { enqueue } from "./jobs";
 import { JobTools } from "./tools";
@@ -85,7 +85,7 @@ export async function fireDue(rt: Runtime, limit = 20): Promise<number> {
     const d = version.definition;
     const t = d?.triggers[row.index];
     if (!d || !t || t.kind === "message") continue;
-    const next = t.kind === "schedule" ? nextRun(scheduleSpec(t, i.schedule), i.timezone, now) : new Date(now.getTime() + t.everyMinutes * 60_000);
+    const next = t.kind === "schedule" ? nextRun(scheduleSpec(t, i.schedule), i.timezone, now) : new Date(now.getTime() + checkInterval(t.everyMinutes) * 60_000);
     // The claim: only one looker moves it on.
     const won = await rt.db
       .update(agentTriggers)
