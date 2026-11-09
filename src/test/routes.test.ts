@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 type Redirect = { source: string; destination: string; permanent: boolean };
@@ -32,5 +32,23 @@ describe("routes", () => {
     for (const route of ["api/telegram/webhook/route.ts", "api/connections/google/callback/route.ts", "api/health/route.ts", "api/openserv/link/finish/route.ts", "h/[slug]/page.tsx", "login/page.tsx", "page.tsx"]) {
       expect(existsSync(join(APP, route)), route).toBe(true);
     }
+  });
+
+  it("puts every app page in the one shell, the market's included", () => {
+    expect(readFileSync(join(APP, "app/layout.tsx"), "utf8")).toMatch(/<AppShell>/);
+    expect(readFileSync(join(APP, "h/layout.tsx"), "utf8")).toMatch(/<AppShell>/);
+    const pages: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.isDirectory()) walk(join(dir, e.name));
+        else if (e.name === "page.tsx") pages.push(join(dir, e.name).slice(APP.length + 1));
+      }
+    };
+    walk(join(APP, "app"));
+    for (const page of ["app/board/agents/[id]/page.tsx", "app/rentals/page.tsx", "app/rentals/[id]/page.tsx", "app/rentals/[id]/setup/page.tsx", "app/agents/[id]/dashboard/page.tsx", "app/requests/page.tsx", "app/requests/[id]/page.tsx"]) {
+      expect(pages, page).toContain(page);
+    }
+    // No page brings a top bar of its own.
+    for (const page of pages) expect(readFileSync(join(APP, page), "utf8"), page).not.toMatch(/TopBar/);
   });
 });

@@ -920,11 +920,18 @@ describe("a helper's instructions stay on the server", () => {
     const googleState = new URL((JSON.parse(started.body) as { url: string }).url).searchParams.get("state")!;
     expect(bodies.filter((b) => b.body.includes(googleState) || (b.head.includes(googleState) && b !== started)).map((b) => b.label)).toEqual(["connections: google start"]);
     // Each owner's spreadsheet: never in the other's responses, nor in the
-    // maker's view of someone else's job.
+    // maker's view of someone else's job. What Sam gave the agent he rents
+    // (his tab, his sheet) reaches nobody but Sam: not its maker, not the
+    // board, its page, its listing or the request board, and nobody signed
+    // out.
     for (const b of bodies) {
       if (b.who?.id === sam.id) expect(b.body.includes(MAYA_SHEET), `${b.label} shows sam maya's sheet`).toBe(false);
-      if (b.who?.id === maya.id) expect(b.body.includes(SAM_SHEET), `${b.label} shows maya sam's sheet`).toBe(false);
+      if (b.who?.id !== sam.id) {
+        expect(b.body.includes(SAM_SHEET), `${b.label} shows sam's sheet`).toBe(false);
+        expect(b.body.includes(SAM_PRIVATE), `${b.label} shows sam's tab`).toBe(false);
+      }
     }
+    expect(bodies.filter((b) => b.label.startsWith("market:") || b.label.startsWith("requests:")).length).toBeGreaterThan(30);
     // No job ever carries a connection secret in what it saved.
     const saved = JSON.stringify(await db.select({ state: schema.agentJobs.state }).from(schema.agentJobs));
     for (const secret of [String(VAULT_CHAT), VAULT_REFRESH, VAULT_ACCESS, "sam-refresh", "sam-access"]) expect(saved.includes(secret), secret).toBe(false);
