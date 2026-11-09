@@ -1,5 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { animate } from "animejs";
+import { REDUCED_MOTION, ease } from "@/lib/motion";
 import Link from "next/link";
 import { Button } from "@/components/ui";
 import type { ApprovalDTO } from "@/lib/types";
@@ -7,7 +9,9 @@ import styles from "./ApprovalCard.module.css";
 
 // One question a job waits on: what it asks, an answer button for each
 // option with what happens then, and what happens with no answer. Once
-// answered (or expired) it says how it ended.
+// answered (or expired) it says how it ended. For a payment or a new
+// contact, Reppo's second opinion sits beside it: "still being checked"
+// until it comes, never in the way of answering.
 
 const ENDED: Record<Exclude<ApprovalDTO["status"], "pending">, string> = {
   answered: "Answered",
@@ -55,6 +59,7 @@ export function ApprovalCard({ approval, onAnswer, jobHref }: { approval: Approv
           {a.reason}
         </p>
       )}
+      {a.opinion && <Opinion o={a.opinion} />}
       {pending ? (
         <ul className={styles.options}>
           {a.options.map((o) => (
@@ -83,5 +88,35 @@ export function ApprovalCard({ approval, onAnswer, jobHref }: { approval: Approv
         </p>
       )}
     </article>
+  );
+}
+
+const ROUTE_WORDS = { ship: "looks fine to it", review: "it suggests a closer look", block: "it advises against it" } as const;
+
+function Opinion({ o }: { o: NonNullable<ApprovalDTO["opinion"]> }) {
+  const said = useRef<HTMLSpanElement>(null);
+  // The score arriving: it settles into place (not with reduced motion).
+  useLayoutEffect(() => {
+    const el = said.current;
+    if (!el || o.state !== "ready" || window.matchMedia(REDUCED_MOTION).matches) return;
+    const a = animate(el, { opacity: { from: 0, to: 1 }, translateY: { from: 4, to: 0 }, duration: 420, ease: ease.arrive });
+    return () => {
+      a.revert();
+    };
+  }, [o.state]);
+  return (
+    <div className={styles.opinion} data-state={o.state} aria-live="polite">
+      <span className={styles.reasonLabel}>Second opinion from Reppo</span>
+      {o.state === "checking" ? (
+        <span>Still being checked. You can answer now.</span>
+      ) : o.state === "ready" ? (
+        <span ref={said}>
+          <strong>{o.score === null ? "No score" : `${o.score} out of 100`}</strong>, {o.route ? ROUTE_WORDS[o.route] : "no recommendation"}.{o.reason ? ` ${o.reason}` : ""}
+        </span>
+      ) : (
+        <span>Reppo couldn&apos;t give one this time.</span>
+      )}
+      <small>Your answer decides: Reppo never approves or blocks anything.</small>
+    </div>
   );
 }

@@ -392,6 +392,10 @@ export interface ApprovalDTO {
   question: string;
   // Why the platform asks (a safety check), shown beside the question.
   reason: string | null;
+  // Reppo's second opinion, for payments and new contacts: still being
+  // checked, ready (a score, a route and why), or none this time. Absent
+  // when none was asked for. Never the decision: the answer is.
+  opinion?: { state: "checking" | "ready" | "none"; score: number | null; route: "ship" | "review" | "block" | null; reason: string | null } | null;
   options: { label: string; effect: string }[];
   noAnswer: string;
   status: "pending" | "answered" | "expired" | "cancelled";

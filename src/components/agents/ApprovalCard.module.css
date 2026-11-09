@@ -70,3 +70,24 @@
   font-size: var(--t-hand-sm);
   color: var(--chalk-2);
 }
+.opinion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  font-size: var(--t-sm);
+  max-width: 64ch;
+}
+.opinion[data-state="checking"] {
+  border-style: dashed;
+  color: var(--chalk-2);
+}
+.opinion[data-state="ready"] {
+  border-color: var(--chalk-3);
+}
+.opinion small {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
