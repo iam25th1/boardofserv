@@ -64,6 +64,9 @@ in the `boardofserv_boardofserv_pgdata` volume either way.
   first set.
 - `INVITE_ONLY` (optional, on unless `0`, `false`, `no` or `off`): accounts
   wait for an admin's approval before they can chat (see "Invite-only").
+- `AGENT_PLAN_MAX_TOKENS` (optional, default 3500), `AGENT_PLAN_TIMEOUT_MS`
+  (120000) and `DOLPHIN_CODE_TIMEOUT_MS` (240000): how long SERV's plan of an
+  agent may be and take, and how long Dolphin may take to write one code step.
 - `CHAT_DAILY_LIMIT` (optional, default 30): messages each person may send a
   day. `DAILY_SPEND_LIMIT_USD` (optional, default 5): the most the site
   spends a day on the operator's model keys (see "Spend limits" below).
