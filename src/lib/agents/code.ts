@@ -1,7 +1,8 @@
 import "server-only";
 import { Script } from "node:vm";
 import { completeJson, DOLPHIN_LABEL, modelConfig, type ChatMessage, type JsonResult, type ModelConfig, type Provider } from "../model";
-import type { AgentDefinition, CodeStepDef } from "./definition";
+import { ARGS_TOOLS, type AgentDefinition, type CodeStepDef } from "./definition";
+import { TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
 import type { StepCode } from "./types";
 
@@ -25,6 +26,8 @@ export const MAX_CODE_ROUNDS = 3;
 const CODE_MAX_TOKENS = 4000;
 const DEFAULT_CODE_TIMEOUT_MS = 240_000;
 const REVIEW_MAX_TOKENS = 300;
+// A review isn't streamed: it gets a minute, not a reply's first-token wait.
+const REVIEW_TIMEOUT_MS = 60_000;
 
 export const CODE_PROMPT = [
   "You write one JavaScript function for one step of an automated agent. Reply with only the code, in one ```js block, nothing else.",
@@ -58,14 +61,23 @@ const RULE_AS: Record<string, string> = { number: "a number", usdc: "a number of
 // hold, what it returns and the declarations of the tools it may call.
 export function codeRequest(step: CodeStepDef, d: AgentDefinition): string {
   const holds = (name: string): string => {
-    if (name === "settings") return `the renter's setup: { ${d.settings.map((s) => `${s.key}: ${s.type} (${s.label})`).join(", ") || "nothing"} }`;
+    if (name === "settings") return `the renter's setup: { ${d.settings.map((s) => `${s.key}: ${s.type} (${s.label}; ${s.help})`).join(", ") || "nothing"} }`;
     if (name === "rules") return `the renter's limits: { ${d.rules.map((r) => `${r.key}: ${RULE_AS[r.type]} (${r.label})`).join(", ") || "nothing"} }`;
     if (name === "memory") return `what was kept from the last job: { ${d.memory.map((m) => `${m.key}: ${m.type}`).join(", ") || "nothing"} }`;
     if (name === "trigger") return "what woke the agent up (null on a schedule)";
     const from = d.steps.find((s) => s.outputs.includes(name));
     return from ? `from the step "${from.title}"${from.kind === "code" ? `: ${from.description}` : ""}` : "a value from an earlier step";
   };
+  // An output an action takes as its tool's arguments must be exactly those.
+  const shapes = step.outputs.flatMap((o) => {
+    const user = d.steps.find((s) => s.kind === "action" && s.inputs[0] === o);
+    const action = user?.kind === "action" ? d.actions.find((a) => a.id === user.action) : undefined;
+    if (!action || !ARGS_TOOLS.includes(action.tool)) return [];
+    const sig = TOOLS[action.tool].signature;
+    return [`- ${o} must be exactly the arguments of ${sig.slice(0, sig.lastIndexOf("): Promise") + 1)}, which the step "${user!.title}" calls with it.`];
+  });
   return [
+    `This agent: ${d.job.does}`,
     `Step: ${step.title}`,
     `What it must do: ${step.description}`,
     "",
@@ -73,6 +85,7 @@ export function codeRequest(step: CodeStepDef, d: AgentDefinition): string {
     ...(step.inputs.length ? step.inputs.map((i) => `- ${i}: ${holds(i)}`) : ["- (nothing)"]),
     "",
     `Return: { ${step.outputs.join(", ") || "nothing"} }`,
+    ...shapes,
     "",
     "Tools it may call:",
     toolTypes(step.tools),
@@ -212,7 +225,8 @@ export async function reviewCode(source: string, step: CodeStepDef, serv: ModelC
       ].join("\n"),
     },
   ];
-  const result = await completeJson(messages, { config: serv, schema: REVIEW_SCHEMA, maxTokens: REVIEW_MAX_TOKENS, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
+  const config = { ...serv, firstTokenTimeoutMs: Math.max(serv.firstTokenTimeoutMs, REVIEW_TIMEOUT_MS) };
+  const result = await completeJson(messages, { config, schema: REVIEW_SCHEMA, maxTokens: REVIEW_MAX_TOKENS, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
   if (!result.content) return null;
   try {
     const parsed = JSON.parse(result.content) as { verdict?: string; reason?: string };

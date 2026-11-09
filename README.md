@@ -420,17 +420,31 @@ checked with zod.
   the tools it may call; a decision step carries a prompt for SERV and two to
   six outcomes, each with its own next step; an action step takes one
   declared action. A run starts at the first step.
-- `actions`: the only actions the agent may ever take. A step may use a
-  tool with a side effect (`sheets.write`, `telegram.send`, `telegram.ask`,
-  `wallet.pay`) only when an action declares it.
+- `actions`: the only actions the agent may ever take, each with a tool that
+  changes something (`sheets.write`, `telegram.send`, `telegram.ask`,
+  `wallet.pay`, `memory.set`); reading and working things out happen in code
+  steps. A code step may use a tool with a side effect only when an action
+  declares it.
 - `limits`: the most steps, seconds and model spend (US dollars) one job
   may use.
 
 Steps pass values through one bag per run: `settings`, `rules`, `memory`
 and `trigger` are in it from the start, and each step adds its outputs. The
-checks beyond the shape: names are unique, every next step exists and every
-step can be reached from the first, every input comes from somewhere, action
-steps take declared actions, and side effects are declared.
+checks beyond the shape:
+
+- names are unique, every next step exists and every step can be reached
+  from the first;
+- every input comes from somewhere, and is made on every way to the step (a
+  value made on only one branch of a decision can't be read where the
+  branches meet);
+- a step whose words name a setting, rule or memory key reads that bag;
+- action steps take declared actions, and side effects are declared;
+- an action whose tool needs exact arguments (`sheets.write`, `wallet.pay`,
+  `memory.set`) takes them as its first input, a value of its own made by a
+  code step for it alone.
+
+Most of these came from building the example agent live (see below): each
+is a way a plan from SERV passed the shape and still couldn't run.
 
 Agents live in `agents` (owner, the conversation it was built in, name) and
 `agent_versions` (number, state, definition, code, bench data, build state).
@@ -494,7 +508,12 @@ behind it into a whole definition (`src/lib/agents/plan.ts`, max tokens
 for SERV's strict json_schema (every field present, "" or [] where it doesn't
 apply, no unions, no numeric range keywords), turned back into the format
 and checked. A plan that doesn't check out goes back to SERV with the
-reasons, up to three tries in all. Decision steps carry a prompt and their
+reasons, up to three tries in all. One mistake with only one meaning is
+repaired on the way in: a step that lists a setting, rule or memory key as
+an input (or names one in its words) reads the bag it lives in. A whole plan
+is one answer of a few thousand tokens, not streamed, so it waits up to
+`AGENT_PLAN_TIMEOUT_MS` (default 120000) rather than a reply's 20 seconds;
+a review waits a minute and a decision half a minute. Decision steps carry a prompt and their
 outcomes, action steps one declared action, code steps a plain description
 of what the code must do with its inputs and outputs.
 
@@ -518,7 +537,9 @@ Once a plan is saved, each code step without approved code is written
 1. Dolphin, and only Dolphin, writes it as `async function run(input,
    tools)` against the toolbox's declarations for the step's own tools,
    told what each input holds (the renter's settings and rules by key and
-   type, or the earlier step it comes from) and what to return. Settings
+   type, or the earlier step it comes from), what the agent is for, what
+   to return, and the exact arguments any output must be when an action
+   takes it as its tool's arguments. Settings
    from recon on Dolphin's API: `max_tokens` 4000, its reasoning off for
    the first draft (`chat_template_kwargs: { thinking: false }`, which it
    accepts though its docs don't list it) and on for a rewrite. If Dolphin

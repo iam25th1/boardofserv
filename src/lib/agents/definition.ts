@@ -16,8 +16,9 @@ import { z } from "zod";
 //   with a fixed set of outcomes) or action (one declared action). A run
 //   starts at the first step; each step names the next, a decision one per
 //   outcome, and "null" ends the run.
-// - actions: the only actions the agent may ever take. Every tool with a
-//   side effect a step uses must be declared here.
+// - actions: the only actions the agent may ever take, each with a tool that
+//   changes something (reading happens in code steps). Every tool with a
+//   side effect a code step uses must be declared here too.
 // - limits: the most steps, seconds and model spend one job may use.
 //
 // Steps pass values through one bag per run: settings, rules, memory and
@@ -42,6 +43,15 @@ export type ToolName = (typeof TOOL_NAMES)[number];
 // Tools that change something outside the run: a step may use one only when
 // the agent declares an action with it.
 export const SIDE_EFFECT_TOOLS: readonly ToolName[] = ["sheets.write", "telegram.send", "telegram.ask", "wallet.pay"];
+
+// What a declared action may use: tools that change something. Reading and
+// working things out happen in code steps.
+export const ACTION_TOOLS: readonly ToolName[] = [...SIDE_EFFECT_TOOLS, "memory.set"];
+
+// Actions whose tool needs exact arguments: the step's first input must be
+// those arguments, made by a code step. A message to the owner can be made
+// from anything.
+export const ARGS_TOOLS: readonly ToolName[] = ["sheets.write", "wallet.pay", "memory.set"];
 
 // Always in the bag when a run starts.
 export const RUN_VALUES = ["settings", "rules", "memory", "trigger"] as const;
@@ -83,6 +93,7 @@ export const Rule = z.object({
 export const Memory = z.object({ key, description: text(200), type: z.enum(["text", "number", "list", "record"]) });
 
 export const Action = z.object({ id: key, tool: z.enum(TOOL_NAMES), description: text(200) });
+// (Its tool must be one of ACTION_TOOLS: checked with the rest, in checkGraph.)
 
 const stepBase = { id: key, title: text(80), inputs: z.array(key).max(12), outputs: z.array(key).max(12) };
 
@@ -165,16 +176,52 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
   ] as const) {
     for (const k of duplicates(list.map((x) => ("key" in x ? x.key : x.id)))) say(`two ${name} are called "${k}"`, [name]);
   }
+  d.actions.forEach((a, i) => {
+    if (!ACTION_TOOLS.includes(a.tool)) say(`action "${a.id}" uses ${a.tool}, which only reads: reading happens in code steps, and actions only change things`, ["actions", i, "tool"]);
+  });
   const known = new Set(ids);
   const produced = new Set<string>([...RUN_VALUES, ...d.steps.flatMap((s) => s.outputs)]);
   const declared = new Map(d.actions.map((a) => [a.id, a]));
   const declaredTools = new Set(d.actions.map((a) => a.tool));
 
+  // Which code step makes each value.
+  const madeBy = new Map<string, AgentStep>();
+  for (const s of d.steps) for (const o of s.outputs) if (!madeBy.has(o)) madeBy.set(o, s);
+  const bags = [
+    ["settings", d.settings.map((x) => x.key)],
+    ["rules", d.rules.map((x) => x.key)],
+    ["memory", d.memory.map((x) => x.key)],
+  ] as const;
+
   d.steps.forEach((s, i) => {
+    // A step whose words name a setting, rule or memory key must read it.
+    const words = s.kind === "code" ? s.description : s.kind === "decision" ? s.prompt : "";
+    for (const [bag, keys] of bags) {
+      const named = keys.find((k) => new RegExp(`\\b${k}\\b`).test(words));
+      if (named && !s.inputs.includes(bag)) say(`step "${s.id}" uses ${bag}.${named} but doesn't read ${bag}: add "${bag}" to its inputs`, ["steps", i, "inputs"]);
+    }
+    if (s.kind === "action") {
+      const action = declared.get(s.action);
+      const first = s.inputs[0];
+      if (action && ARGS_TOOLS.includes(action.tool) && (!first || madeBy.get(first)?.kind !== "code")) {
+        say(`step "${s.id}" takes ${s.action} (${action.tool}), so its first input must be ${action.tool}'s arguments, made by a code step before it`, ["steps", i, "inputs"]);
+      } else if (action && ARGS_TOOLS.includes(action.tool) && first && d.steps.some((o) => o.id !== s.id && o.inputs.includes(first))) {
+        say(`step "${s.id}" takes ${s.action} (${action.tool}) with "${first}", which other steps read too: give it a value of its own, made by a code step as ${action.tool}'s arguments`, ["steps", i, "inputs"]);
+      }
+    }
     nextOf(s).forEach((n) => {
       if (n !== null && !known.has(n)) say(`step "${s.id}" goes to "${n}", which is not a step`, ["steps", i]);
     });
-    for (const input of s.inputs) if (!produced.has(input)) say(`step "${s.id}" reads "${input}", which no step outputs and is not one of ${RUN_VALUES.join(", ")}`, ["steps", i, "inputs"]);
+    for (const input of s.inputs) {
+      if (produced.has(input)) continue;
+      const bag = bags.find(([, keys]) => (keys as readonly string[]).includes(input))?.[0];
+      say(
+        bag
+          ? `step "${s.id}" reads "${input}", which is one of the ${bag}: list "${bag}" in its inputs and use ${bag}.${input}`
+          : `step "${s.id}" reads "${input}", which no step outputs and is not one of ${RUN_VALUES.join(", ")}`,
+        ["steps", i, "inputs"],
+      );
+    }
     if (s.kind === "decision") for (const id of duplicates(s.outcomes.map((o) => o.id))) say(`step "${s.id}" has two outcomes called "${id}"`, ["steps", i, "outcomes"]);
     if (s.kind === "action" && !declared.has(s.action)) say(`step "${s.id}" takes "${s.action}", which is not a declared action`, ["steps", i, "action"]);
     if (s.kind === "code") {
@@ -196,6 +243,33 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
   }
   d.steps.forEach((s, i) => {
     if (!seen.has(s.id)) say(`step "${s.id}" can't be reached from the first step`, ["steps", i]);
+  });
+
+  // Every way into a step must have made what it reads: a value made only on
+  // one branch of a decision can't be read where the branches meet.
+  const all = new Set<string>([...RUN_VALUES, ...d.steps.flatMap((s) => s.outputs)]);
+  const into = new Map<string, Set<string>>(d.steps.map((s, i) => [s.id, new Set(i === 0 ? RUN_VALUES : all)]));
+  const preds = new Map<string, AgentStep[]>(d.steps.map((s) => [s.id, []]));
+  for (const s of d.steps) for (const n of nextOf(s)) if (n && preds.has(n)) preds.get(n)!.push(s);
+  for (let changed = true, rounds = 0; changed && rounds < 100; rounds++) {
+    changed = false;
+    d.steps.forEach((s, i) => {
+      if (i === 0 || !seen.has(s.id)) return;
+      const from = preds.get(s.id)!.filter((p) => seen.has(p.id));
+      const next = new Set([...all].filter((v) => from.every((p) => into.get(p.id)!.has(v) || p.outputs.includes(v))));
+      if (next.size !== into.get(s.id)!.size) {
+        into.set(s.id, next);
+        changed = true;
+      }
+    });
+  }
+  d.steps.forEach((s, i) => {
+    if (!seen.has(s.id)) return;
+    for (const input of s.inputs) {
+      if (produced.has(input) && !into.get(s.id)!.has(input)) {
+        say(`step "${s.id}" reads "${input}", but not every way to it makes "${input}" first`, ["steps", i, "inputs"]);
+      }
+    }
   });
 }
 

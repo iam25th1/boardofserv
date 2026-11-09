@@ -86,7 +86,9 @@ async function decide(step: DecisionStepDef, input: Record<string, unknown>, ser
       properties: { outcome: { type: "string", enum: step.outcomes.map((o) => o.id) }, reason: { type: "string", description: "one short sentence" } },
     },
   };
-  return completeJson(messages, { config: serv, schema, maxTokens: 200, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
+  // Not streamed: half a minute, not a reply's first-token wait.
+  const config = { ...serv, firstTokenTimeoutMs: Math.max(serv.firstTokenTimeoutMs, 30_000) };
+  return completeJson(messages, { config, schema, maxTokens: 200, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
 }
 
 function costOf(call: JsonResult): number {

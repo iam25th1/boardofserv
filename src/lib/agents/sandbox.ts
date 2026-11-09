@@ -47,8 +47,9 @@ function explain(dumped: unknown, timeMs: number): string {
   return `${e.name ?? "Error"}: ${e.message ?? "it failed"}`.slice(0, 500);
 }
 
-// The prelude: builds the frozen `tools` object around the bridge, then
-// takes the bridge off the global object.
+// The prelude: builds the frozen `tools` object around the bridge, takes the
+// bridge off the global object, and keeps its own JSON functions, so code
+// that replaces JSON's can't change what crosses.
 function prelude(allowed: readonly ToolName[]): string {
   return `(() => {
   const bridge = globalThis.__bridge;
@@ -63,6 +64,7 @@ function prelude(allowed: readonly ToolName[]): string {
   }
   for (const group of Object.keys(tools)) Object.freeze(tools[group]);
   Object.defineProperty(globalThis, "__tools", { value: Object.freeze(tools) });
+  Object.defineProperty(globalThis, "__json", { value: Object.freeze({ parse, stringify }) });
 })();`;
 }
 
@@ -143,8 +145,8 @@ export async function runInSandbox(source: string, input: unknown, opts: Sandbox
     const wrapped = `${source}
 ;(async () => {
   if (typeof run !== "function") throw new Error("There is no run function.");
-  const out = await run(JSON.parse(__input), __tools);
-  return JSON.stringify(out === undefined ? null : out);
+  const out = await run(__json.parse(__input), __tools);
+  return __json.stringify(out === undefined ? null : out);
 })()`;
     const started2 = vm.evalCode(wrapped, "step.js");
     if (started2.error) {
