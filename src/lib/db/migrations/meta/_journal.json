@@ -148,6 +148,13 @@
       "when": 1794227649280,
       "tag": "0020_agent_installations",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794228110797,
+      "tag": "0021_agent_jobs",
+      "breakpoints": true
     }
   ]
 }

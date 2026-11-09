@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
 import type { AgentDefinition } from "../agents/definition";
-import type { BenchData, StepCode } from "../agents/types";
+import type { BenchData, RunState, StepCode } from "../agents/types";
 import { CURRENCIES } from "../money";
 
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
@@ -560,6 +560,85 @@ export const agentInstallations = pgTable(
   }),
 );
 
+// A job: one run of an installation, started by one of its triggers. It
+// runs the version it was started on to the end, whatever the installation
+// moves to meanwhile. status: queued (waiting to be claimed, at run_after),
+// running (claimed_by a worker, which beats heartbeat_at while it runs),
+// waiting_for_owner (an approval is open), then done, failed or cancelled.
+// state is where the run is (agents/runner.ts RunState): the step, the
+// values so far and the current step's journal of tool calls, so a job can
+// pick up after a pause or a restart without doing anything twice.
+// attempts counts tries after failures outside the agent, each after a
+// longer wait. stop_asked: the owner stopped the installation, and the job
+// stops after its current step.
+export const JOB_STATUSES = ["queued", "running", "waiting_for_owner", "done", "failed", "cancelled"] as const;
+export const agentJobs = pgTable(
+  "agent_jobs",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => agentInstallations.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => agentVersions.id, { onDelete: "cascade" }),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status", { enum: JOB_STATUSES }).notNull().default("queued"),
+    // What started it: { kind: "schedule" | "check" | "message" | "manual", ... }.
+    trigger: jsonb("trigger").$type<Record<string, unknown>>().notNull(),
+    state: jsonb("state").$type<RunState>(),
+    reason: text("reason"),
+    attempts: integer("attempts").notNull().default(0),
+    runAfter: timestamp("run_after", { withTimezone: true }).defaultNow().notNull(),
+    claimedBy: text("claimed_by"),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+    stopAsked: boolean("stop_asked").notNull().default(false),
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }).notNull().default("0"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    due: index("agent_jobs_due_idx").on(t.status, t.runAfter),
+    byInstallation: index("agent_jobs_installation_idx").on(t.installationId, t.createdAt),
+    byOwner: index("agent_jobs_owner_idx").on(t.ownerUserId, t.createdAt),
+    knownStatus: check("agent_jobs_status", sql`${t.status} in ('queued', 'running', 'waiting_for_owner', 'done', 'failed', 'cancelled')`),
+  }),
+);
+
+// Each step a job ran, in order (seq): what went in and came out, its tool
+// calls, how long it took, which model decided and what that cost. A step
+// that paused for its owner is "waiting" until it runs again and finishes.
+// Only the job's owner sees inputs, outputs, tool calls and notes.
+export const agentJobSteps = pgTable(
+  "agent_job_steps",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => agentJobs.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    stepId: text("step_id").notNull(),
+    status: text("status", { enum: ["running", "ok", "failed", "waiting"] }).notNull(),
+    input: jsonb("input"),
+    output: jsonb("output"),
+    tools: jsonb("tools").$type<{ tool: string; args: unknown; result: unknown; error: string | null }[]>().notNull().default([]),
+    outcome: text("outcome"),
+    note: text("note"),
+    model: text("model"),
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }).notNull().default("0"),
+    ms: integer("ms").notNull().default(0),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (t) => ({
+    bySeq: uniqueIndex("agent_job_steps_seq_idx").on(t.jobId, t.seq),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
@@ -568,3 +647,5 @@ export type PublishedHelper = typeof publishedHelpers.$inferSelect;
 export type Agent = typeof agents.$inferSelect;
 export type AgentVersion = typeof agentVersions.$inferSelect;
 export type AgentInstallation = typeof agentInstallations.$inferSelect;
+export type AgentJob = typeof agentJobs.$inferSelect;
+export type AgentJobStep = typeof agentJobSteps.$inferSelect;

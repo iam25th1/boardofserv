@@ -131,6 +131,11 @@ export class MockTools {
     return this.data.sheets;
   }
 
+  // What the stand-in tools hold now, to keep for a job's next run.
+  get kept(): Pick<BenchData, "sheets" | "search" | "wallet"> {
+    return { sheets: this.data.sheets, search: this.data.search, wallet: this.data.wallet };
+  }
+
   async call(tool: ToolName, rawArgs: unknown): Promise<unknown> {
     const parsed = TOOL_ARGS[tool].safeParse(rawArgs);
     if (!parsed.success) {

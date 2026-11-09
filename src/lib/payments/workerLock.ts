@@ -36,6 +36,9 @@ export interface WorkerOptions {
   hold: boolean;
   key?: bigint;
   log?: (line: string) => void;
+  // What the log says when this process starts running the cycles, and when
+  // it starts skipping them (the agents' job worker says its own).
+  lines?: { ran: string; skipped: string };
 }
 
 export interface PaymentsWorker {
@@ -51,7 +54,12 @@ export interface PaymentsWorker {
   stop(): Promise<void>;
 }
 
-export function paymentsWorker({ connect, cycle, hold, key = PAYMENTS_WORKER_LOCK, log = (l) => console.info(l) }: WorkerOptions): PaymentsWorker {
+const PAYMENTS_LINES = {
+  ran: "payments: this process holds the worker lock and runs the payments cycles.",
+  skipped: "payments: another process holds the worker lock, so this one skips its payments cycles while it does.",
+};
+
+export function paymentsWorker({ connect, cycle, hold, key = PAYMENTS_WORKER_LOCK, log = (l) => console.info(l), lines = PAYMENTS_LINES }: WorkerOptions): PaymentsWorker {
   const k = key.toString();
   let held: LockConnection | null = null;
   let role: "ran" | "skipped" | null = null;
@@ -60,11 +68,7 @@ export function paymentsWorker({ connect, cycle, hold, key = PAYMENTS_WORKER_LOC
   const say = (now: "ran" | "skipped") => {
     if (role === now) return;
     role = now;
-    log(
-      now === "ran"
-        ? "payments: this process holds the worker lock and runs the payments cycles."
-        : "payments: another process holds the worker lock, so this one skips its payments cycles while it does.",
-    );
+    log(now === "ran" ? lines.ran : lines.skipped);
   };
 
   // Holds the lock after this, or says why not.

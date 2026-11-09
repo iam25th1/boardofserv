@@ -27,7 +27,8 @@ const quickjs = () => (instance ??= newQuickJSWASMModuleFromVariant(variant));
 // it, as a plain error, long before the host's stack.
 const STACK_BYTES = 96 * 1024;
 
-export type SandboxResult = { ok: true; output: unknown; ms: number } | { ok: false; error: string; ms: number };
+// halted: stopped from outside, through the signal, before it finished.
+export type SandboxResult = { ok: true; output: unknown; ms: number } | { ok: false; error: string; ms: number; halted?: true };
 
 export interface SandboxOptions {
   // The step's tools: the only names the bridge lets through.
@@ -36,6 +37,10 @@ export interface SandboxOptions {
   call: (tool: ToolName, args: unknown) => Promise<unknown>;
   timeMs?: number;
   memoryBytes?: number;
+  // Ends the step at once from outside: a tool call that has to wait for
+  // the owner halts it, and the step runs again from the start once the
+  // answer is in (its tool calls replayed, not repeated).
+  signal?: AbortSignal;
 }
 
 // What a QuickJS error says, in plain words.
@@ -161,7 +166,15 @@ export async function runInSandbox(source: string, input: unknown, opts: Sandbox
     const outOfTime = new Promise<"timeout">((resolve) => {
       timer = setTimeout(() => resolve("timeout"), Math.max(0, deadline - Date.now()));
     });
-    const settled = await Promise.race([native, outOfTime]);
+    const halt = new Promise<"halted">((resolve) => {
+      if (opts.signal?.aborted) resolve("halted");
+      opts.signal?.addEventListener("abort", () => resolve("halted"), { once: true });
+    });
+    const settled = await Promise.race([native, outOfTime, halt]);
+    if (settled === "halted" || opts.signal?.aborted) {
+      if (settled !== "halted" && settled !== "timeout") (settled.error ?? settled.value).dispose();
+      return { ok: false, error: "Halted.", ms: ms(), halted: true };
+    }
     if (settled === "timeout") return { ok: false, error: `It ran out of time (${timeMs / 1000} seconds).`, ms: ms() };
     if (settled.error) {
       const why = explain(vm.dump(settled.error), timeMs);
