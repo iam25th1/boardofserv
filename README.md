@@ -708,7 +708,9 @@ can't resume until the connection is back.
   the webhook: `scripts/telegram-webhook.ts` does, run by the owner after a
   deploy (it only shows the current webhook without `--apply`). In
   development, `scripts/telegram-fake-update.ts` posts made-up updates to a
-  local server with `TELEGRAM_DEV_WEBHOOK_SECRET` (ignored in production).
+  local server with `TELEGRAM_DEV_WEBHOOK_SECRET` (ignored in production),
+  or, with `forward`, the bot's real updates (read with `getUpdates`, which
+  Telegram answers only while the bot has no webhook).
 - Google Sheets (`src/lib/google/`): the OAuth web server flow, scope
   `spreadsheets` (a pasted link isn't covered by `drive.file`), with
   `access_type=offline` and `prompt=consent` for a refresh token. The state
