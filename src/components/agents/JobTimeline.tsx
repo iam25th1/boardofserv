@@ -158,7 +158,7 @@ export function JobTimeline({ initial, api }: { initial: JobDTO; api: JobApi }) 
                   {s.tools.length ? `, ${s.tools.map((t) => t.tool + (t.failed ? " (failed)" : "")).join(", ")}` : ""}
                   {s.outcome ? `: ${plan.get(s.stepId)?.kind === "decision" ? s.outcome.replace(/_/g, " ") : s.outcome}` : ""}
                 </span>
-                {s.note && <span className={styles.note}>{s.note}</span>}
+                {s.note && s.status !== "waiting" && <span className={styles.note}>{s.note}</span>}
                 {isOpen && job.viewer === "owner" && (
                   <div className={styles.detail}>
                     <Value label="What went in" value={s.input} />

@@ -30,7 +30,7 @@ export function when(iso: string | null, timezone: string): string {
   }
 }
 
-export function Glance({ data }: { data: InstallationDTO }) {
+export function Glance({ data, jobHref = (id) => `/jobs/${id}` }: { data: InstallationDTO; jobHref?: (jobId: string) => string }) {
   return (
     <dl className={styles.glance}>
       <div>
@@ -45,7 +45,7 @@ export function Glance({ data }: { data: InstallationDTO }) {
       </div>
       <div>
         <dt>Waiting for you</dt>
-        <dd>{data.approvals.length ? <Link href="/approvals">{data.approvals.length} {data.approvals.length === 1 ? "question" : "questions"}</Link> : "nothing"}</dd>
+        <dd>{data.approvals.length ? `${data.approvals.length} ${data.approvals.length === 1 ? "question" : "questions"}` : "nothing"}</dd>
       </div>
       <div>
         <dt>Recent jobs</dt>
@@ -54,7 +54,7 @@ export function Glance({ data }: { data: InstallationDTO }) {
             <ol className={styles.jobs}>
               {data.recentJobs.map((j) => (
                 <li key={j.id}>
-                  <Link href={`/jobs/${j.id}`} title={j.reason ?? undefined}>
+                  <Link href={jobHref(j.id)} title={j.reason ?? undefined}>
                     {JOB_WORD[j.status]}
                   </Link>
                 </li>

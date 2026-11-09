@@ -87,6 +87,8 @@ describe("the plain checks", () => {
   it("pass code that parses, defines run and calls only its step's tools", () => {
     expect(checkCode(FIND_LOW, findLow)).toBeNull();
     expect(checkCode(COMPARE, compare)).toBeNull();
+    // The web.fetch tool is not the global fetch.
+    expect(checkCode("async function run(i, tools) { const p = await tools.web\n  .fetch({ url: i.u }); return { low: p.text }; }", { ...findLow, tools: ["web.fetch"] })).toBeNull();
   });
 
   it("refuse code that won't parse, has no run, or reaches outside its step", () => {

@@ -68,6 +68,14 @@ describe("the example agent", () => {
     const res = await POST(new Request("http://localhost/api/demo/agent", { method: "POST", body: "{}" }));
     expect(res.status).toBe(404);
   });
+
+  it("runs for real in the live demo only in development: a 404 anywhere else", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const live = await import("@/app/api/demo/agent/live/route");
+    expect((await live.GET(new Request("http://localhost/api/demo/agent/live"))).status).toBe(404);
+    expect((await live.GET(new Request("http://localhost/api/demo/agent/live?page=prices"))).status).toBe(404);
+    expect((await live.POST(new Request("http://localhost/api/demo/agent/live", { method: "POST", body: '{"action":"run"}' }))).status).toBe(404);
+  });
 });
 
 describe("GET /api/health", () => {

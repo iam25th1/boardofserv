@@ -22,7 +22,7 @@
   color: var(--chalk-3);
 }
 .question {
-  font-size: var(--t-base);
+  font-size: var(--t-sm);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }

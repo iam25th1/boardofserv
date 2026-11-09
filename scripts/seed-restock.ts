@@ -2,7 +2,8 @@
 // pipeline, and saves it for the demo and the tests:
 //
 //   1. SERV plans it from a fixed interview (planAgent, checked, up to three
-//      tries),
+//      tries): stock from a sheet, supplier prices from the suppliers' price
+//      page (examples/supplierPage.ts) with web.fetch,
 //   2. Dolphin writes each code step and SERV reviews it (writeStep),
 //   3. one live run on the test bench lets SERV make each decision, and the
 //      answers are recorded, so the demo's dry runs replay them with no model
@@ -29,6 +30,8 @@ import { dolphinProvider, writeStep } from "@/lib/agents/code";
 import { checkDefinition, codeSpec, type AgentDefinition, type CodeStepDef } from "@/lib/agents/definition";
 import { planAgent, wireToDefinition } from "@/lib/agents/plan";
 import { runAgent } from "@/lib/agents/runner";
+import { pageText } from "@/lib/agents/runtime/webFetch";
+import { SUPPLIERS_HTML, SUPPLIERS_URL } from "@/lib/agents/examples/supplierPage";
 import type { BenchData, RunEvent, StepCode } from "@/lib/agents/types";
 import { modelConfig, type ChatMessage } from "@/lib/model";
 import type { SketchDTO } from "@/lib/types";
@@ -89,12 +92,13 @@ const INTERVIEW: SketchDTO = {
   does: null,
   gives: null,
   wakes: "every morning at 08:00",
-  looks: "the Stock sheet (columns fabric, metres, minimum) and the Suppliers sheet, where three suppliers list each fabric with price_usdc per metre and delivery_days",
+  looks:
+    "the Stock sheet (columns fabric, metres, minimum) and the suppliers' price list web page, whose address the owner gives: after a header line, each line is 'supplier | fabric | price_usdc | delivery_days', price_usdc per metre",
   handles: "for each fabric below its minimum, pick the cheapest supplier that delivers within the longest delivery the owner allows, and order enough metres to reach twice the minimum",
   finish: "every low fabric has an order row in the Orders sheet, or the owner said no",
   asks: "never place an order whose total is over the approval limit in USDC without asking the owner on Telegram first",
-  setup: "the names of the stock, suppliers and orders sheets, the approval limit (250 USDC) and the longest delivery (7 days)",
-  remembers: "the last order it placed",
+  setup: "the names of the stock and orders sheets, the address of the suppliers' price page, the approval limit (250 USDC) and the longest delivery (7 days)",
+  remembers: "the last order it placed, as a record { placed_at, lines }",
   asking: null,
   live: false,
 };
@@ -110,17 +114,6 @@ const STOCK = [
   { fabric: "Cotton twill", metres: 55, minimum: 30 },
   { fabric: "Wool felt", metres: 6, minimum: 10 },
   { fabric: "Canvas, heavy", metres: 12, minimum: 15 },
-];
-const SUPPLIERS = [
-  { supplier: "Northmill Textiles", fabric: "Linen, natural", price_usdc: 6.5, delivery_days: 3 },
-  { supplier: "Harbor Cloth Co.", fabric: "Linen, natural", price_usdc: 5.9, delivery_days: 9 },
-  { supplier: "Weftworks", fabric: "Linen, natural", price_usdc: 6.1, delivery_days: 5 },
-  { supplier: "Northmill Textiles", fabric: "Wool felt", price_usdc: 11, delivery_days: 4 },
-  { supplier: "Harbor Cloth Co.", fabric: "Wool felt", price_usdc: 9.8, delivery_days: 12 },
-  { supplier: "Weftworks", fabric: "Wool felt", price_usdc: 10.5, delivery_days: 6 },
-  { supplier: "Northmill Textiles", fabric: "Canvas, heavy", price_usdc: 7.2, delivery_days: 2 },
-  { supplier: "Harbor Cloth Co.", fabric: "Canvas, heavy", price_usdc: 6.8, delivery_days: 5 },
-  { supplier: "Weftworks", fabric: "Canvas, heavy", price_usdc: 7.5, delivery_days: 3 },
 ];
 
 function report() {
@@ -208,14 +201,16 @@ async function main() {
     if (rule) settings[s.key] = s.type === "number" ? Number(rule.value) : rule.value;
     else if (s.type === "number") settings[s.key] = 0;
     else if (s.type === "boolean") settings[s.key] = false;
-    else settings[s.key] = /supplier/.test(k) ? "Suppliers" : /order/.test(k) ? "Orders" : /stock/.test(k) ? "Stock" : "";
+    else if (s.type === "url") settings[s.key] = SUPPLIERS_URL;
+    else settings[s.key] = /order/.test(k) ? "Orders" : /stock/.test(k) ? "Stock" : "";
   }
   const bench: BenchData = {
     settings,
     rules: {},
     trigger: null,
-    sheets: { Stock: STOCK, Suppliers: SUPPLIERS, Orders: [] },
-    pages: {},
+    sheets: { Stock: STOCK, Orders: [] },
+    // The price page's text, as web.fetch gives it.
+    pages: { [SUPPLIERS_URL]: pageText(SUPPLIERS_HTML) },
     search: {},
     telegram: { answers: ["Yes, go ahead"] },
     memory: {},

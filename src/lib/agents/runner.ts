@@ -133,10 +133,19 @@ function pick(bag: Record<string, unknown>, names: readonly string[]): Record<st
   return Object.fromEntries(names.map((n) => [n, bag[n] ?? null]));
 }
 
+// A value in words: a list of records one per line, a record as its fields.
+function words(v: unknown): string {
+  if (typeof v === "string") return v;
+  const record = (x: unknown): x is Record<string, unknown> => Boolean(x) && typeof x === "object" && !Array.isArray(x);
+  if (Array.isArray(v)) return v.length && v.every(record) ? v.map((x) => `\n- ${words(x)}`).join("") : v.map(words).join(", ");
+  if (record(v)) return Object.entries(v).map(([k, x]) => `${k.replace(/_/g, " ")} ${x !== null && typeof x === "object" ? JSON.stringify(x) : String(x)}`).join(", ");
+  return String(v);
+}
+
 // Words for a message to the owner, from whatever the step reads.
 function summary(input: Record<string, unknown>): string {
   return Object.entries(input)
-    .map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`)
+    .map(([k, v]) => `${k.replace(/_/g, " ")}: ${words(v)}`)
     .join("\n")
     .slice(0, 3000);
 }
@@ -350,7 +359,10 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         done("failed", null, null, args.why);
         return end("failed", "logic", `"${step.title}" failed: ${args.why}`);
       }
-      const r = await invoke(action.tool, args.args);
+      // Running again, an action takes the very arguments it was first
+      // taken with, whatever the words for them would be now.
+      const prior = state.journal[0];
+      const r = await invoke(action.tool, prior?.tool === action.tool ? prior.args : args.args);
       if (r.kind === "paused") return pause(r.ask, 0);
       if (r.kind === "diverged") {
         done("failed", null, null, DIVERGED);
@@ -469,7 +481,7 @@ export interface RunOptions {
 
 export async function runAgent(o: RunOptions): Promise<Extract<RunEvent, { type: "end" }>> {
   const { definition: d } = o;
-  const mock = new MockTools(o.bench);
+  const mock = new MockTools(o.bench, d.memory);
   const state = startState(d, { settings: { ...o.bench.settings }, rules: typedRules(d, o.bench.rules), memory: mock.memory, trigger: o.bench.trigger });
   o.onEvent({ type: "start", dryRun: o.dryRun });
   const decide = async (step: DecisionStepDef, input: Record<string, unknown>, untrusted: string[]): Promise<Decided> => {

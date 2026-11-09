@@ -59,6 +59,7 @@ import * as installationJobs from "@/app/api/installations/[id]/jobs/route";
 import * as agentJobs from "@/app/api/agents/[id]/jobs/route";
 import * as installationControl from "@/app/api/installations/[id]/control/route";
 import * as demoAgent from "@/app/api/demo/agent/route";
+import * as demoLive from "@/app/api/demo/agent/live/route";
 
 // A published helper's system prompt and canary never leave the server. This
 // drives every API route (and fails if a route is added without being driven
@@ -129,6 +130,7 @@ const ROUTES: Record<string, object> = {
   "agents/[id]/jobs": agentJobs,
   "installations/[id]/control": installationControl,
   "demo/agent": demoAgent,
+  "demo/agent/live": demoLive,
 };
 
 // An agent's code, and its plan's prompts: only its maker's builder may show
@@ -321,6 +323,8 @@ describe("a helper's instructions stay on the server", () => {
     await hit("publish an agent that isn't there", agentPublish.POST(req(`/api/agents/${cid}/publish`, "POST"), { params: { id: cid } }));
     await hit("my agents", agentsRoute.GET(req("/api/agents")));
     await hit("demo agent outside development", demoAgent.POST(req("/api/demo/agent", "POST", { bench: {} })));
+    await hit("live demo outside development", demoLive.GET(req("/api/demo/agent/live")));
+    await hit("live demo action outside development", demoLive.POST(req("/api/demo/agent/live", "POST", { action: "run" })));
     await hit("handle check", handle.GET(req("/api/account/handle?handle=shopkeeper")));
     await hit("handle set", handle.PATCH(req("/api/account/handle", "PATCH", { handle: "shopkeeper" })));
     await hit("wallet", wallet.GET(req("/api/wallet")));

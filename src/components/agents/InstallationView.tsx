@@ -61,7 +61,7 @@ export function InstallationView({ initial, api, children }: { initial: Installa
             <li key={r}>{r}</li>
           ))}
         </ul>
-        <Glance data={data} />
+        <Glance data={data} jobHref={api.jobHref} />
         <Controls data={data} onControl={async (action) => setData(await api.control(action))} />
         {data.checkNote && <p className={styles.note}>{data.checkNote}</p>}
       </section>
