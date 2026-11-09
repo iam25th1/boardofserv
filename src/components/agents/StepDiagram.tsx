@@ -69,7 +69,8 @@ export function layoutSteps(steps: DiagramStep[], size: keyof typeof SIZES = "co
     }
   }
   const rows = new Map<number, number>();
-  const pad = s.r + 30;
+  // Room for half a label either side of the first and last columns.
+  const pad = Math.max(s.r + 30, s.col / 2 + 4);
   const nodes = order.map((id) => {
     const d = depth.get(id)!;
     const row = rows.get(d) ?? 0;
@@ -204,6 +205,9 @@ export function StepDiagram({
         viewBox={`0 0 ${layout.width} ${layout.height}`}
         width={layout.width}
         height={layout.height}
+        // Shrinks to fit its panel, down to a size still easy to read; past
+        // that the panel scrolls.
+        style={{ width: "100%", height: "auto", maxWidth: layout.width, minWidth: Math.min(layout.width, 520) }}
         role="img"
         aria-label={`${label}: ${steps.length} ${steps.length === 1 ? "step" : "steps"}`}
       >

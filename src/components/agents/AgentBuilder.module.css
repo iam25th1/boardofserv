@@ -25,9 +25,9 @@
 }
 .headSide {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: var(--s-2);
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
 }
 .badge {
   flex: none;
