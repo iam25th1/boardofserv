@@ -3,7 +3,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent } from "./agents/types";
 import type { InstallAnswers } from "./agents/settingsForm";
-import type { AccountDTO, AdminDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, QuotaDTO, RentalDetailDTO, RentalDTO, SketchDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, QuotaDTO, RentalDetailDTO, RentalDTO, RequestDTO, RequestPageDTO, SketchDTO, WalletDTO } from "./types";
 import type { SetupShape } from "./agents/definition";
 
 // When the server sends no sentence of its own: never a status code.
@@ -95,6 +95,27 @@ export function useApi() {
       answerVersion: (id: string, choice: "update" | "stay") =>
         json<{ rental: RentalDetailDTO; setupAgain: boolean }>(`/api/rentals/${encodeURIComponent(id)}/version`, { method: "POST", body: JSON.stringify({ choice }) }),
       getMakerDashboard: (id: string) => json<{ dashboard: MakerDashboardDTO }>(`/api/agents/${encodeURIComponent(id)}/dashboard`).then((d) => d.dashboard),
+      // The request board, as the signed-in viewer sees it (their own, and
+      // their "me too").
+      listRequests: (sort: "wanted" | "newest") => json<{ requests: RequestDTO[] }>(`/api/requests?sort=${sort}`).then((d) => d.requests),
+      myRequests: () => json<{ requests: RequestDTO[] }>("/api/requests?mine=1").then((d) => d.requests),
+      postRequest: (body: { need: string; detail: string; connects: string[]; budget: string }) => json<{ id: string }>("/api/requests", { method: "POST", body: JSON.stringify(body) }),
+      getRequest: async (id: string): Promise<RequestPageDTO | null> => {
+        const res = await authed(`/api/requests/${encodeURIComponent(id)}`);
+        if (res.status === 404) return null;
+        if (!res.ok) throw new Error(SOMETHING_WRONG);
+        return (await res.json()) as RequestPageDTO;
+      },
+      requestAction: (id: string, action: "metoo" | "unmetoo" | "close") => json<RequestPageDTO>(`/api/requests/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action }) }),
+      offerAgent: (id: string, body: { agentId: string; note: string; weeklyPrice: string; jobFee: string }) =>
+        json<RequestPageDTO>(`/api/requests/${encodeURIComponent(id)}/offers`, { method: "POST", body: JSON.stringify(body) }),
+      acceptOffer: async (offerId: string): Promise<RentalDTO> => {
+        const res = await authed(`/api/offers/${encodeURIComponent(offerId)}`, { method: "POST", body: JSON.stringify({ action: "accept" }) });
+        const data = (await res.json().catch(() => ({}))) as { rental?: RentalDTO; error?: string };
+        if (res.ok && data.rental) return data.rental;
+        throw Object.assign(new Error(data.error ?? SOMETHING_WRONG), { status: res.status });
+      },
+      withdrawOffer: (offerId: string) => json<{ ok: boolean }>(`/api/offers/${encodeURIComponent(offerId)}`, { method: "POST", body: JSON.stringify({ action: "withdraw" }) }).then(() => undefined),
       publishAgent: (id: string) => json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}/publish`, { method: "POST" }).then((d) => d.builder),
       // Run the newest published version for real. A refusal carries the
       // answers that need another look, by field.

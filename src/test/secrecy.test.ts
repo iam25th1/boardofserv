@@ -78,6 +78,10 @@ import * as rentalInstall from "@/app/api/rentals/[id]/install/route";
 import * as rentalControl from "@/app/api/rentals/[id]/control/route";
 import * as rentalVersion from "@/app/api/rentals/[id]/version/route";
 import * as agentDashboard from "@/app/api/agents/[id]/dashboard/route";
+import * as requestsRoute from "@/app/api/requests/route";
+import * as requestRoute from "@/app/api/requests/[id]/route";
+import * as requestOffersRoute from "@/app/api/requests/[id]/offers/route";
+import * as offerRoute from "@/app/api/offers/[id]/route";
 import { fakeNet, fakeSheetUrl } from "./fakeNet";
 import { keep } from "@/lib/connections/vault";
 
@@ -166,6 +170,10 @@ const ROUTES: Record<string, object> = {
   "rentals/[id]/control": rentalControl,
   "rentals/[id]/version": rentalVersion,
   "agents/[id]/dashboard": agentDashboard,
+  "requests": requestsRoute,
+  "requests/[id]": requestRoute,
+  "requests/[id]/offers": requestOffersRoute,
+  "offers/[id]": offerRoute,
 };
 
 // Google, for this test: Maya's and Sam's own spreadsheets, and the token
@@ -795,6 +803,35 @@ describe("a helper's instructions stay on the server", () => {
       await hit("market: sam answers no offer", rentalVersion.POST(req(`/api/rentals/${rented.id}/version`, "POST", { choice: "update" }), rp));
       await hit("market: sam's dashboard of maya's agent", agentDashboard.GET(req(`/api/agents/${id}/dashboard`), p));
       await hit("market: sam lists maya's agent", agentListing.POST(req(`/api/agents/${id}/listing`, "POST", { weeklyPrice: "0", jobFee: "0", listed: false }), p));
+      // The request board: Sam asks, Maya offers the agent; nobody's offer
+      // or request carries its code, its prompts or anyone's email.
+      const asked = JSON.parse(await (await hit("requests: sam asks", requestsRoute.POST(req("/api/requests", "POST", { need: "Reorder fabric when it runs low", detail: "From my stock tab", connects: ["sheets"], budget: "6" })))).clone().text()) as { id: string };
+      const qp = { params: { id: asked.id } };
+      await hit("requests: sam's own", requestsRoute.GET(req("/api/requests?mine=1")));
+      await hit("requests: sam says me too to his own", requestRoute.POST(req(`/api/requests/${asked.id}`, "POST", { action: "metoo" }), qp));
+      state.user = maya;
+      await hit("requests: maya's board", requestsRoute.GET(req("/api/requests")));
+      await hit("requests: maya says me too", requestRoute.POST(req(`/api/requests/${asked.id}`, "POST", { action: "metoo" }), qp));
+      const offered = JSON.parse(await (await hit("requests: maya offers", requestOffersRoute.POST(req(`/api/requests/${asked.id}/offers`, "POST", { agentId: id, note: "It does this.", weeklyPrice: "0" }), qp))).clone().text()) as { offers: { id: string }[] };
+      const op = { params: { id: offered.offers[0]!.id } };
+      await hit("requests: maya accepts her own offer", offerRoute.POST(req(`/api/offers/${op.params.id}`, "POST", { action: "accept" }), op));
+      await hit("requests: maya closes sam's", requestRoute.POST(req(`/api/requests/${asked.id}`, "POST", { action: "close" }), qp));
+      state.user = sam;
+      await hit("requests: sam's page", requestRoute.GET(req(`/api/requests/${asked.id}`), qp));
+      await hit("requests: sam accepts while renting it", offerRoute.POST(req(`/api/offers/${op.params.id}`, "POST", { action: "accept" }), op));
+      await hit("requests: sam withdraws maya's offer", offerRoute.POST(req(`/api/offers/${op.params.id}`, "POST", { action: "withdraw" }), op));
+      await hit("requests: sam offers maya's agent", requestOffersRoute.POST(req(`/api/requests/${asked.id}/offers`, "POST", { agentId: id, weeklyPrice: "0" }), qp));
+      state.user = null;
+      await hit("requests: signed out board", requestsRoute.GET(req("/api/requests?sort=newest")));
+      await hit("requests: signed out page", requestRoute.GET(req(`/api/requests/${asked.id}`), qp));
+      await hit("requests: signed out asks", requestsRoute.POST(req("/api/requests", "POST", { need: "x" })));
+      await hit("requests: signed out me too", requestRoute.POST(req(`/api/requests/${asked.id}`, "POST", { action: "metoo" }), qp));
+      await hit("requests: signed out offers", requestOffersRoute.POST(req(`/api/requests/${asked.id}/offers`, "POST", { agentId: id, weeklyPrice: "0" }), qp));
+      await hit("requests: signed out accepts", offerRoute.POST(req(`/api/offers/${op.params.id}`, "POST", { action: "accept" }), op));
+      state.user = maya;
+      await hit("requests: maya withdraws", offerRoute.POST(req(`/api/offers/${op.params.id}`, "POST", { action: "withdraw" }), op));
+      state.user = sam;
+      await hit("requests: sam closes", requestRoute.POST(req(`/api/requests/${asked.id}`, "POST", { action: "close" }), qp));
       for (const who of [maya, null]) {
         state.user = who;
         const tag = who ? "maya" : "signed out";
@@ -925,6 +962,17 @@ describe("a helper's instructions stay on the server", () => {
     expect(said("market: maya answers sam's offer")).toBe('{"error":"Not found"}');
     expect(said("market: sam's dashboard of maya's agent")).toBe('{"error":"Not found"}');
     expect(said("market: signed out dashboard")).toBe('{"error":"Not signed in"}');
+    // The request board.
+    expect(said("requests: sam says me too to his own")).toBe('{"error":"It\'s your own request."}');
+    expect(said("requests: maya offers")).toContain('"note":"It does this."');
+    expect(said("requests: maya accepts her own offer")).toBe('{"error":"Not found"}');
+    expect(said("requests: maya closes sam's")).toBe('{"error":"Not found"}');
+    expect(said("requests: sam accepts while renting it")).toContain("You rent it already");
+    expect(said("requests: sam withdraws maya's offer")).toBe('{"error":"Not found"}');
+    expect(said("requests: sam offers maya's agent")).toBe('{"error":"It\'s your own request: build it, and run it from its builder."}');
+    expect(said("requests: signed out page")).toContain('"meToo":1');
+    for (const label of ["requests: signed out asks", "requests: signed out me too", "requests: signed out offers", "requests: signed out accepts"]) expect(said(label), label).toBe('{"error":"Not signed in"}');
+    expect(said("requests: sam closes")).toContain('"status":"closed"');
     // Maya's dashboard knows Sam by his handle, and nothing of his own.
     expect(said("market: maya's dashboard")).toContain('"handle":"maker_1234"');
     for (const secret of [SAM_PRIVATE, SAM_SHEET, sam.email]) expect(said("market: maya's dashboard")).not.toContain(secret);

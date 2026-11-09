@@ -258,6 +258,10 @@
 .para {
   color: var(--chalk-2);
 }
+.partLink {
+  align-self: flex-start;
+  font-weight: var(--w-medium);
+}
 .steps {
   list-style: none;
   margin: 0;

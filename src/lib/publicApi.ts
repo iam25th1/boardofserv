@@ -1,4 +1,4 @@
-import type { AgentListingDTO, AgentPageDTO, PaymentsDTO, PublicHelperDTO } from "./types";
+import type { AgentListingDTO, AgentPageDTO, PaymentsDTO, PublicHelperDTO, RequestDTO, RequestPageDTO } from "./types";
 
 // Calls that need no sign-in: the board and a helper's public page.
 
@@ -48,4 +48,17 @@ export async function fetchPayments(signal?: AbortSignal): Promise<PaymentsDTO> 
   const res = await fetch("/api/payments", { signal });
   if (!res.ok) throw new Error(`Request failed (${res.status})`);
   return ((await res.json()) as { payments: PaymentsDTO }).payments;
+}
+
+export async function fetchRequests(sort: "wanted" | "newest", signal?: AbortSignal): Promise<RequestDTO[]> {
+  const res = await fetch(`/api/requests?sort=${sort}`, { signal });
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  return ((await res.json()) as { requests: RequestDTO[] }).requests;
+}
+
+export async function fetchRequest(id: string): Promise<RequestPageDTO | null> {
+  const res = await fetch(`/api/requests/${encodeURIComponent(id)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  return (await res.json()) as RequestPageDTO;
 }

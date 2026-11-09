@@ -53,33 +53,48 @@ export interface RentTerms {
   jobFee: string;
 }
 
-// Rents an agent on the board for someone: the first week charged now.
-// terms: a price agreed on the request board, else the listing's.
-export async function rent(rt: Runtime, o: { renterUserId: string; agentId: string; terms?: RentTerms }): Promise<Rental> {
+// Rents an agent for someone: the first week charged now. On the board,
+// at its listing's price and version; or, with `offer`, at the price a
+// maker offered on the request board, on its newest published version
+// (listed or not).
+export async function rent(rt: Runtime, o: { renterUserId: string; agentId: string; offer?: RentTerms }): Promise<Rental> {
   if (!/^[0-9a-f-]{36}$/i.test(o.agentId)) throw new RentRefused("It isn't on the board to rent.", 404);
-  const [row] = await rt.db
-    .select({ listing: agentListings, makerId: agents.ownerUserId, state: agentVersions.state })
-    .from(agentListings)
-    .innerJoin(agents, eq(agents.id, agentListings.agentId))
-    .innerJoin(agentVersions, eq(agentVersions.id, agentListings.versionId))
-    .where(eq(agentListings.agentId, o.agentId));
-  if (!row || !row.listing.listed || row.state !== "published") throw new RentRefused("It isn't on the board to rent.", 404);
+  let row: { versionId: string; makerId: string; terms: RentTerms } | null = null;
+  if (o.offer) {
+    const [v] = await rt.db
+      .select({ versionId: agentVersions.id, makerId: agents.ownerUserId })
+      .from(agentVersions)
+      .innerJoin(agents, eq(agents.id, agentVersions.agentId))
+      .where(and(eq(agentVersions.agentId, o.agentId), eq(agentVersions.state, "published")))
+      .orderBy(desc(agentVersions.number))
+      .limit(1);
+    if (v) row = { ...v, terms: o.offer };
+  } else {
+    const [l] = await rt.db
+      .select({ listing: agentListings, makerId: agents.ownerUserId, state: agentVersions.state })
+      .from(agentListings)
+      .innerJoin(agents, eq(agents.id, agentListings.agentId))
+      .innerJoin(agentVersions, eq(agentVersions.id, agentListings.versionId))
+      .where(eq(agentListings.agentId, o.agentId));
+    if (l?.listing.listed && l.state === "published") row = { versionId: l.listing.versionId, makerId: l.makerId, terms: { weeklyPrice: l.listing.weeklyPrice, jobFee: l.listing.jobFee } };
+  }
+  if (!row) throw new RentRefused("It isn't on the board to rent.", 404);
   if (row.makerId === o.renterUserId) throw new RentRefused("It's yours: run it from its builder, with Run it for real.", 409);
   const [already] = await rt.db
     .select({ id: rentals.id })
     .from(rentals)
     .where(and(eq(rentals.agentId, o.agentId), eq(rentals.renterUserId, o.renterUserId), ne(rentals.status, "ended")));
   if (already) throw new RentRefused("You rent it already: it's under Rented.", 409);
-  const terms = o.terms ?? { weeklyPrice: row.listing.weeklyPrice, jobFee: row.listing.jobFee };
+  const { terms, versionId, makerId } = row;
   const now = rt.now();
   return rt.db.transaction(async (tx) => {
     const [r] = await tx
       .insert(rentals)
       .values({
         agentId: o.agentId,
-        versionId: row.listing.versionId,
+        versionId,
         renterUserId: o.renterUserId,
-        makerUserId: row.makerId,
+        makerUserId: makerId,
         weeklyPrice: terms.weeklyPrice,
         jobFee: terms.jobFee,
         paidUntil: new Date(now.getTime() + WEEK_MS),

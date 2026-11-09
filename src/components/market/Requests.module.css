@@ -1,0 +1,354 @@
+/* The request board: notes pinned up, each with its me-too tally. */
+.quiet {
+  font-size: var(--t-sm);
+  color: var(--chalk-3);
+}
+.small {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.hand {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}
+.lede {
+  font-size: var(--t-md);
+  line-height: var(--lh-body);
+  max-width: 64ch;
+  white-space: pre-line;
+}
+.empty {
+  color: var(--chalk-2);
+  max-width: 52ch;
+}
+.sort {
+  position: relative;
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  padding: 2px;
+}
+.sort label {
+  display: grid;
+  place-items: center;
+  min-height: 34px;
+  padding: 0 var(--s-4);
+  border-radius: var(--r-full);
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.sort label[data-on="true"] {
+  background: var(--chalk);
+  color: var(--slate);
+  font-weight: var(--w-medium);
+}
+.sort input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.sort label:has(input:focus-visible) {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--slate-2);
+}
+.need {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+  color: var(--chalk);
+  text-decoration: none;
+  line-height: var(--lh-snug);
+}
+.need:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.detail {
+  color: var(--chalk-2);
+  font-size: var(--t-sm);
+  max-width: 70ch;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-4);
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.connects {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+}
+.connects li {
+  padding: 1px 10px;
+  border: 1px dashed var(--chalk-3);
+  border-radius: var(--r-full);
+  font-size: var(--t-xs);
+}
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2) var(--s-4);
+  padding-top: var(--s-2);
+  border-top: 1px dashed var(--line);
+}
+.meToo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+}
+.tally {
+  flex: none;
+}
+.tally path {
+  fill: none;
+  stroke: var(--chalk);
+  stroke-width: var(--stroke);
+  stroke-linecap: round;
+}
+.count {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk-2);
+}
+
+/* Asking: a form beside the board. */
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-5);
+  border: 1.5px dashed var(--chalk-3);
+  border-radius: var(--r-xl);
+}
+.ask h2,
+.offerForm h2,
+.block h2 {
+  font-size: var(--t-lg);
+  font-weight: var(--w-semibold);
+  letter-spacing: -0.01em;
+}
+.ask label,
+.offerForm label {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.fieldset {
+  border: 0;
+  padding: 0;
+  margin: var(--s-2) 0;
+}
+.fieldset legend {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  margin-bottom: var(--s-1);
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 34px;
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+.check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--chalk);
+}
+.money {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  margin-bottom: var(--s-2);
+}
+.money input {
+  width: 9rem;
+  font-family: var(--font-body);
+}
+.said {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+
+/* A request's page. */
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding-top: var(--s-4);
+  border-top: 1px dashed var(--line);
+}
+.offers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.offer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+}
+.offer[data-status="accepted"] {
+  border: var(--stroke) solid var(--chalk);
+}
+.offerHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2) var(--s-4);
+}
+.offerHead strong {
+  font-size: var(--t-md);
+}
+.offerPrice {
+  font-weight: var(--w-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.note {
+  margin: 0;
+  padding-left: var(--s-3);
+  border-left: 0;
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk);
+  max-width: 60ch;
+}
+.note::before {
+  content: "\201C";
+}
+.note::after {
+  content: "\201D";
+}
+.accepted {
+  padding: 1px 10px;
+  border: 1px solid var(--chalk);
+  border-radius: var(--r-full);
+  color: var(--chalk);
+  font-size: var(--t-xs);
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.terms {
+  margin: 0;
+  padding-left: 1.1em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  color: var(--chalk-2);
+  max-width: 52ch;
+}
+.facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-5);
+  border: var(--stroke) solid var(--chalk);
+  border-radius: var(--r-xl);
+}
+.facts dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.facts dt {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.facts dd {
+  margin: 0;
+}
+.offerForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-5);
+  border: 1.5px dashed var(--chalk-3);
+  border-radius: var(--r-xl);
+}
+.select {
+  width: 100%;
+  font: inherit;
+  font-size: var(--t-input);
+  color: var(--chalk);
+  background-color: var(--slate-2);
+  border: thin solid var(--line);
+  border-radius: var(--r-md);
+  padding: var(--s-2) var(--s-3);
+  margin-bottom: var(--s-2);
+}
+.select:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.prices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-4);
+}
+.prices > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+@media (max-width: 640px) {
+  .card,
+  .offer,
+  .ask,
+  .offerForm,
+  .facts {
+    padding: var(--s-4);
+  }
+  .money,
+  .money input,
+  .prices > div {
+    width: 100%;
+  }
+}

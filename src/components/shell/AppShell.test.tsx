@@ -39,7 +39,7 @@ describe("the app shell", () => {
     net.account = ACCOUNT;
     await show("/app/installations/abc");
     const nav = screen.getAllByRole("navigation", { name: "The app" })[0]!;
-    expect(within(nav).getAllByRole("link").map((a) => a.textContent)).toEqual(["Chat", "Board", "Your agents"]);
+    expect(within(nav).getAllByRole("link").map((a) => a.textContent)).toEqual(["Chat", "Board", "Requests", "Your agents"]);
     expect(within(nav).getByRole("link", { name: "Your agents" })).toHaveAttribute("aria-current", "page");
     expect(within(nav).getByRole("link", { name: "Board" })).not.toHaveAttribute("aria-current");
     expect(screen.getByText("the page")).toBeInTheDocument();

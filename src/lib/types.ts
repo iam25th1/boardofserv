@@ -535,3 +535,45 @@ export interface MakerDashboardDTO {
   failures: { step: string; count: number }[];
   versions: { number: number; publishedAt: string | null; renters: number; offered: number }[];
 }
+
+// A request on the request board, for anyone: what someone wants an agent
+// for, what it should connect to and what they'd pay a week (USDC minor
+// units, or null), how many said "me too" and how many offers it has.
+export interface RequestDTO {
+  id: string;
+  need: string;
+  detail: string;
+  connects: ("telegram" | "sheets" | "web")[];
+  budget: string | null;
+  decimals: number;
+  by: string;
+  status: "open" | "accepted" | "closed";
+  meToo: number;
+  offers: number;
+  createdAt: string;
+  // The viewer's own request, and whether they said "me too".
+  mine: boolean;
+  votedByMe: boolean;
+}
+
+// A maker's offer on a request: one of their published agents, as the
+// board shows it, with a note and the price they offer it at.
+export interface OfferDTO {
+  id: string;
+  agent: { id: string; name: string; does: string; connects: ("telegram" | "sheets" | "web")[]; version: number; listed: boolean };
+  maker: string;
+  note: string;
+  weeklyPrice: string;
+  jobFee: string;
+  decimals: number;
+  status: "open" | "accepted" | "withdrawn";
+  createdAt: string;
+  // The viewer made this offer.
+  mine: boolean;
+}
+
+// A request on its own page, with its offers (withdrawn ones left out).
+export interface RequestPageDTO {
+  request: RequestDTO;
+  offers: OfferDTO[];
+}

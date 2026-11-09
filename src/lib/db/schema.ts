@@ -1023,6 +1023,83 @@ export const rentalCharges = pgTable(
   (t) => ({ pk: primaryKey({ columns: [t.rentalId, t.week] }) }),
 );
 
+// The request board: someone asks for an agent (what it should do, what
+// it should connect to, what they'd pay a week), others say "me too", and
+// makers offer one of their published agents with a note and a price.
+// Accepting an offer rents that agent at the offer's price.
+export const REQUEST_STATUSES = ["open", "accepted", "closed"] as const;
+export const requests = pgTable(
+  "requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    need: text("need").notNull(),
+    detail: text("detail").notNull().default(""),
+    connects: jsonb("connects").$type<("telegram" | "sheets" | "web")[]>().notNull().default([]),
+    // What they'd pay a week, USDC minor units; null when they didn't say.
+    budget: numeric("budget", { precision: 78, scale: 0 }),
+    status: text("status", { enum: REQUEST_STATUSES }).notNull().default("open"),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byStatus: index("requests_status_idx").on(t.status, t.createdAt),
+    byUser: index("requests_user_idx").on(t.userId),
+    knownStatus: check("requests_status", sql`${t.status} in ('open', 'accepted', 'closed')`),
+    budgeted: check("requests_budget", sql`${t.budget} is null or ${t.budget} >= 0`),
+  }),
+);
+
+export const requestVotes = pgTable(
+  "request_votes",
+  {
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.requestId, t.userId] }) }),
+);
+
+export const OFFER_STATUSES = ["open", "accepted", "withdrawn"] as const;
+export const requestOffers = pgTable(
+  "request_offers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" }),
+    makerUserId: uuid("maker_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    note: text("note").notNull().default(""),
+    weeklyPrice: numeric("weekly_price", { precision: 78, scale: 0 }).notNull(),
+    jobFee: numeric("job_fee", { precision: 78, scale: 0 }).notNull().default("0"),
+    status: text("status", { enum: OFFER_STATUSES }).notNull().default("open"),
+    rentalId: uuid("rental_id").references(() => rentals.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byRequest: index("request_offers_request_idx").on(t.requestId, t.createdAt),
+    oncePerAgent: uniqueIndex("request_offers_agent_once").on(t.requestId, t.agentId),
+    knownStatus: check("request_offers_status", sql`${t.status} in ('open', 'accepted', 'withdrawn')`),
+    priced: check("request_offers_prices", sql`${t.weeklyPrice} >= 0 and ${t.jobFee} >= 0`),
+  }),
+);
+
+export type Request = typeof requests.$inferSelect;
+export type RequestOffer = typeof requestOffers.$inferSelect;
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;

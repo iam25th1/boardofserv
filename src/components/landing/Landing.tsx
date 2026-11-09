@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Drawing, SpineMark } from "./Drawing";
 import { HeroMachine } from "./HeroMachine";
 import { OpenApp } from "./OpenApp";
@@ -94,6 +95,9 @@ export function Landing() {
               Post what you need on the request board: what it should do, what it should connect to and what you&apos;d pay a week. Others add &ldquo;me
               too&rdquo;. Makers offer agents they&apos;ve built; accept one and it&apos;s yours to rent.
             </p>
+            <Link className={styles.partLink} href="/app/requests">
+              See the request board
+            </Link>
           </Part>
 
           <Part mark="square" id="safety" title="Your rules, your data" art={<SafetyArt />}>

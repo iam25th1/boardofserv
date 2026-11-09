@@ -23,8 +23,9 @@ import styles from "./AppShell.module.css";
 export const NAV: { href: string; label: string; match: readonly string[] }[] = [
   { href: "/app/chat", label: "Chat", match: ["/app/chat"] },
   { href: "/app/board", label: "Board", match: ["/app/board"] },
+  { href: "/app/requests", label: "Requests", match: ["/app/requests"] },
   { href: "/app/installations", label: "Your agents", match: ["/app/installations", "/app/rentals", "/app/agents", "/app/approvals", "/app/jobs", "/app/connections"] },
-]; // (Requests joins with the request board.)
+];
 
 export const isHere = (path: string, match: readonly string[]) => match.some((m) => path === m || path.startsWith(`${m}/`));
 
