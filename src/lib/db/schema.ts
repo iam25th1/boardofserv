@@ -607,6 +607,8 @@ export const agentJobs = pgTable(
     due: index("agent_jobs_due_idx").on(t.status, t.runAfter),
     byInstallation: index("agent_jobs_installation_idx").on(t.installationId, t.createdAt),
     byOwner: index("agent_jobs_owner_idx").on(t.ownerUserId, t.createdAt),
+    // One running job per installation, whoever claims it.
+    oneRunning: uniqueIndex("agent_jobs_one_running_idx").on(t.installationId).where(sql`${t.status} = 'running'`),
     knownStatus: check("agent_jobs_status", sql`${t.status} in ('queued', 'running', 'waiting_for_owner', 'done', 'failed', 'cancelled')`),
   }),
 );

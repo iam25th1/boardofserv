@@ -51,7 +51,8 @@ export async function enqueue(rt: Runtime, installation: AgentInstallation, trig
 // come, its installation active, nothing else of that installation running,
 // and (for a job not yet started) the installation's minimum gap passed
 // since its last job started. One at a time, so two due jobs of one
-// installation never both start.
+// installation never both start; the database holds to one running job per
+// installation even when two processes claim at the same moment.
 export async function claimJob(rt: Runtime, worker: string): Promise<AgentJob | null> {
   const now = rt.now();
   const pick = sql`(
@@ -65,12 +66,26 @@ export async function claimJob(rt: Runtime, worker: string): Promise<AgentJob | 
     order by j.run_after, j.created_at
     limit 1
     for update of j skip locked)`;
-  const [job] = await rt.db
-    .update(agentJobs)
-    .set({ status: "running", claimedBy: worker, heartbeatAt: now, startedAt: sql`coalesce(${agentJobs.startedAt}, ${ts(now)})`, updatedAt: now })
-    .where(and(eq(agentJobs.status, "queued"), sql`${agentJobs.id} = ${pick}`))
-    .returning();
-  return job ?? null;
+  try {
+    const [job] = await rt.db
+      .update(agentJobs)
+      .set({ status: "running", claimedBy: worker, heartbeatAt: now, startedAt: sql`coalesce(${agentJobs.startedAt}, ${ts(now)})`, updatedAt: now })
+      .where(and(eq(agentJobs.status, "queued"), sql`${agentJobs.id} = ${pick}`))
+      .returning();
+    return job ?? null;
+  } catch (err) {
+    // Another worker started a job of the same installation in the same
+    // moment: the database allows one running at a time, so this one waits.
+    if (pgCode(err) === "23505") return null;
+    throw err;
+  }
+}
+
+function pgCode(err: unknown): string | undefined {
+  for (let e = err as { code?: unknown; cause?: unknown } | undefined, depth = 0; e && depth < 4; e = e.cause as typeof e, depth++) {
+    if (typeof e.code === "string") return e.code;
+  }
+  return undefined;
 }
 
 // Jobs left running by a worker that stopped beating: back to the queue,

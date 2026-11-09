@@ -176,6 +176,13 @@
       "when": 1794229265451,
       "tag": "0024_agent_fetch_days",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794231101281,
+      "tag": "0025_agent_jobs_one_running",
+      "breakpoints": true
     }
   ]
 }

@@ -7,7 +7,7 @@ import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import * as schema from "@/lib/db/schema";
 import { addHelper, addUser, testDb } from "./helperDb";
-import { FIND_LOW, RESTOCK_WIRE, restockBench } from "./agentFixtures";
+import { COMPARE, FIND_LOW, RESTOCK_WIRE, restockBench } from "./agentFixtures";
 import { jobFor } from "@/lib/agents/build";
 import { draftOf } from "@/lib/agents/store";
 import { FakeChain, addr } from "./fakeChain";
@@ -59,6 +59,9 @@ import * as installationJobs from "@/app/api/installations/[id]/jobs/route";
 import * as agentJobs from "@/app/api/agents/[id]/jobs/route";
 import * as installationControl from "@/app/api/installations/[id]/control/route";
 import * as demoAgent from "@/app/api/demo/agent/route";
+import { serverRuntime } from "@/lib/agents/runtime/context";
+import { install } from "@/lib/agents/runtime/installations";
+import { claimJob, enqueue, runJob } from "@/lib/agents/runtime/jobs";
 import * as demoLive from "@/app/api/demo/agent/live/route";
 
 // A published helper's system prompt and canary never leave the server. This
@@ -132,6 +135,9 @@ const ROUTES: Record<string, object> = {
   "demo/agent": demoAgent,
   "demo/agent/live": demoLive,
 };
+
+// What one owner gave their copy of an agent: never shown to its maker.
+const SAM_PRIVATE = "SamPrivateStockSheet";
 
 // An agent's code, and its plan's prompts: only its maker's builder may show
 // them.
@@ -261,7 +267,10 @@ beforeAll(async () => {
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body)) as { stream: boolean; tools?: unknown; response_format?: { json_schema?: { name?: string; schema?: { properties?: { outcome?: { enum?: string[] } } } } } };
     // An agent's build: Dolphin's code and SERV's plan carry markers.
-    if (url.includes("dphn.ai")) return Response.json({ choices: [{ message: { content: "```js\n" + AGENT_CODE + "\n```" } }] });
+    if (url.includes("dphn.ai")) {
+      const ask = JSON.stringify(body);
+      return Response.json({ choices: [{ message: { content: "```js\n" + (ask.includes("Step: Compare suppliers") ? `// ${CODE_MARKER}\n${COMPARE}` : AGENT_CODE) + "\n```" } }] });
+    }
     if (body.response_format?.json_schema?.name === "agent_plan") return Response.json({ choices: [{ message: { content: JSON.stringify(AGENT_PLAN) } }] });
     if (body.response_format?.json_schema?.name === "code_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "approve", reason: "Fine." }) } }] });
     if (body.response_format?.json_schema?.name === "decision") {
@@ -627,6 +636,35 @@ describe("a helper's instructions stay on the server", () => {
       await hit("agent: maker's jobs", agentJobs.GET(req(`/api/agents/${id}/jobs`), p));
       await hit("agent: pause", installationControl.POST(req(`/api/installations/${ip.params.id}/control`, "POST", { action: "pause" }), ip));
       await hit("agent: resume", installationControl.POST(req(`/api/installations/${ip.params.id}/control`, "POST", { action: "resume" }), ip));
+
+      // A job runs for real: its log and its question, to its owner.
+      const rt = serverRuntime();
+      await hit("agent: run now", installationControl.POST(req(`/api/installations/${ip.params.id}/control`, "POST", { action: "run" }), ip));
+      await runJob(rt, (await claimJob(rt, "secrecy"))!, "secrecy");
+      const pending = JSON.parse(await (await hit("agent: questions", approvalsRoute.GET(req("/api/approvals")))).clone().text()).approvals as { id: string; jobId: string }[];
+      expect(pending.length).toBeGreaterThan(0);
+      const jp = { params: { id: pending[0]!.jobId } };
+      await hit("agent: job waiting", jobRoute.GET(req(`/api/jobs/${jp.params.id}`), jp));
+      await hit("agent: answer", approvalRoute.POST(req(`/api/approvals/${pending[0]!.id}`, "POST", { answer: "Yes" }), { params: { id: pending[0]!.id } }));
+      await runJob(rt, (await claimJob(rt, "secrecy"))!, "secrecy");
+      await hit("agent: job done", jobRoute.GET(req(`/api/jobs/${jp.params.id}`), jp));
+      await hit("agent: installation after a job", installationRoute.GET(req(`/api/installations/${ip.params.id}`), ip));
+
+      // Sam runs his own copy of Maya's agent, with his own settings.
+      const agentRow = (await db.query.agents.findFirst({ where: eq(schema.agents.id, id) }))!;
+      const published = (await db.query.agentVersions.findFirst({ where: eq(schema.agentVersions.state, "published") }))!;
+      const samsCopy = await install(rt, { ownerUserId: sam.id, agent: agentRow, version: published, answers: { settings: { stock_sheet: SAM_PRIVATE, orders_sheet: "Orders" }, rules: {}, timezone: "UTC" } });
+      await enqueue(rt, samsCopy, { kind: "manual" });
+      await runJob(rt, (await claimJob(rt, "secrecy"))!, "secrecy");
+      const samsJob = (await db.query.agentJobs.findFirst({ where: eq(schema.agentJobs.installationId, samsCopy.id) }))!;
+      const sj = { params: { id: samsJob.id } };
+      await hit("agent: maker sees sam's job", jobRoute.GET(req(`/api/jobs/${samsJob.id}`), sj));
+      await hit("agent: maker's jobs with sam's", agentJobs.GET(req(`/api/agents/${id}/jobs`), p));
+      state.user = sam;
+      await hit("agent: sam's own job", jobRoute.GET(req(`/api/jobs/${samsJob.id}`), sj));
+      await hit("agent: sam sees maya's job", jobRoute.GET(req(`/api/jobs/${jp.params.id}`), jp));
+      await hit("agent: sam answers maya's question", approvalRoute.POST(req(`/api/approvals/${pending[0]!.id}`, "POST", { answer: "No" }), { params: { id: pending[0]!.id } }));
+      state.user = maya;
       await hit("agent: job that isn't there", jobRoute.GET(req(`/api/jobs/${cid}`), { params: { id: cid } }));
       await hit("agent: fix", agentFix.POST(req(`/api/agents/${id}/fix`, "POST", { message: "it ignored delivery time" }), p));
       await jobFor((await draftOf(id))!.id);
@@ -676,7 +714,20 @@ describe("a helper's instructions stay on the server", () => {
     }
     expect(bodies.find((b) => b.label === "agent: sam builder")!.body).toBe('{"error":"Not found"}');
     expect(bodies.find((b) => b.label === "agent: sam installation")!.body).toBe('{"error":"Not found"}');
-    expect(JSON.parse(bodies.find((b) => b.label === "agent: sam installations")!.body)).toEqual({ installations: [] });
+    // Job logs and questions: the owner sees their own data, the maker of
+    // the agent sees how it ran on someone else's copy and nothing of
+    // theirs, and nobody else sees anything.
+    const said = (label: string) => bodies.find((b) => b.label === label)!.body;
+    expect(said("agent: job waiting")).toContain('"viewer":"owner"');
+    expect(said("agent: job done")).toContain('"status":"done"');
+    expect(said("agent: sam's own job")).toContain(SAM_PRIVATE);
+    expect(said("agent: maker sees sam's job")).toContain('"viewer":"maker"');
+    for (const label of ["agent: maker sees sam's job", "agent: maker's jobs with sam's", "agent: installation after a job", "agent: questions"]) expect(said(label), label).not.toContain(SAM_PRIVATE);
+    expect(said("agent: sam sees maya's job")).toBe('{"error":"Not found"}');
+    expect(said("agent: sam answers maya's question")).toBe('{"error":"Not found"}');
+    // Sam's list has his own copy only, never Maya's.
+    const mayas = JSON.parse(bodies.find((b) => b.label === "agent: installation")!.body).installation.id as string;
+    expect((JSON.parse(bodies.find((b) => b.label === "agent: sam installations")!.body).installations as { id: string }[]).map((i) => i.id)).not.toContain(mayas);
   });
 
   it("never sends any part of anyone's email, except the account menu's own to its owner", async () => {
