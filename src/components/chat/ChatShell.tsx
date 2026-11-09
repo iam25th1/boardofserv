@@ -18,6 +18,7 @@ import { PublishSheet, type PublishEdits } from "./PublishSheet";
 import { PriceFields, draftsOf, readPrices, type PriceDrafts } from "./PriceFields";
 import { fetchHelper, fetchPayments } from "@/lib/publicApi";
 import { sketchFromDTO, type AgentSketch } from "@/lib/agentSketch";
+import { chatLimitMessage, FEW_MESSAGES, LIMIT_MESSAGE, messagesLeft } from "@/lib/limits";
 import type { CurrencyDTO, PublicHelperDTO, SketchDTO } from "@/lib/types";
 import type { MessageView } from "./Message";
 import styles from "./ChatShell.module.css";
@@ -67,6 +68,10 @@ export function ChatShell() {
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  // A turn the day's limits refused before it was stored, until the account
+  // says so too; and its text, put back in the composer.
+  const [refused, setRefused] = useState<string | null>(null);
+  const [putBack, setPutBack] = useState<{ text: string; nonce: number } | null>(null);
 
   const stopRef = useRef<(() => void) | null>(null);
   // Deltas are gathered and applied once per animation frame, so a fast
@@ -86,6 +91,7 @@ export function ChatShell() {
   const refreshAccount = useCallback(async () => {
     try {
       setAccount(await api.getAccount());
+      setRefused(null);
     } catch {
       setAccount(null);
     }
@@ -174,7 +180,7 @@ export function ChatShell() {
   }, [abortReply]);
 
   const run = useCallback(
-    (body: { conversationId?: string; content?: string; regenerate?: boolean; editMessageId?: string }) => {
+    (body: { conversationId?: string; content?: string; regenerate?: boolean; editMessageId?: string }, sent?: { id: string; text: string }) => {
       const turn = ++turnRef.current;
       setBusy(true);
       setError(null);
@@ -261,6 +267,17 @@ export function ChatShell() {
           setStreaming(null);
           setBusy(false);
           if (stopRef.current === stopThis) stopRef.current = null;
+          if (e.limit) {
+            // Nothing was stored: the message goes back into the composer and
+            // the limit shows under it.
+            setRefused(e.message);
+            if (sent) {
+              setMessages((prev) => prev.filter((m) => m.id !== sent.id));
+              setPutBack({ text: sent.text, nonce: Date.now() });
+            }
+            void refreshAccount();
+            return;
+          }
           setError(e.message);
         }
       });
@@ -273,7 +290,7 @@ export function ChatShell() {
     (text: string) => {
       const optimistic: MessageView = { id: crypto.randomUUID(), role: "user", content: text };
       setMessages((prev) => [...prev, optimistic]);
-      run({ conversationId: activeId ?? undefined, content: text });
+      run({ conversationId: activeId ?? undefined, content: text }, { id: optimistic.id, text });
     },
     [activeId, run],
   );
@@ -443,6 +460,10 @@ export function ChatShell() {
   }, [startNew]);
 
 
+  // The day's limits, from the account: own-key accounts have none.
+  const blocked = refused ?? (account?.paused ? LIMIT_MESSAGE : account?.chat?.remaining === 0 ? chatLimitMessage(account.chat) : null);
+  const notice = blocked ?? (account?.chat && account.chat.remaining < FEW_MESSAGES ? messagesLeft(account.chat.remaining) : null);
+
   return (
     <div className={styles.app}>
       <TopBar
@@ -478,7 +499,7 @@ export function ChatShell() {
       />
 
       {messages.length === 0 && !streaming ? (
-        <EmptyState onPick={send} disabled={busy} />
+        <EmptyState onPick={send} disabled={busy || Boolean(blocked)} />
       ) : (
         <MessageList
           messages={messages}
@@ -497,6 +518,11 @@ export function ChatShell() {
       <Composer
         conversationKey={activeId ?? "new"}
         busy={busy}
+        disabled={Boolean(blocked) && !busy}
+        placeholder={blocked ? "Back after midnight UTC" : undefined}
+        notice={notice}
+        prefill={putBack?.text}
+        prefillNonce={putBack?.nonce}
         onSend={send}
         onStop={stop}
         dock={

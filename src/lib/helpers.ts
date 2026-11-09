@@ -239,7 +239,14 @@ export async function startUse(helperId: string, userId: string, holdId: string 
 
 export async function finishUse(
   id: string | null,
-  row: { promptTokens: number | null; completionTokens: number | null; latencyMs: number; outcome: "ok" | "blocked" | "failed" },
+  row: {
+    promptTokens: number | null;
+    completionTokens: number | null;
+    provider: string | null;
+    model: string | null;
+    latencyMs: number;
+    outcome: "ok" | "blocked" | "failed";
+  },
 ): Promise<void> {
   if (!id) return;
   try {

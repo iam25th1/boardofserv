@@ -4,6 +4,7 @@ import { base, baseSepolia } from "viem/chains";
 import { db } from "../db";
 import { balances, deposits, ledgerEntries, users, withdrawals, type User } from "../db/schema";
 import type { Currency } from "../money";
+import { dailySpendLimitUsd, nextReset, spendToday } from "../spend";
 import type { AdminDTO, AdminWithdrawalDTO } from "../types";
 import { chainError, type ChainClient } from "./chain";
 import { enabledCurrencies, paymentsConfig, type PaymentsConfig } from "./config";
@@ -12,7 +13,8 @@ import { treasurySigner } from "./signer";
 import { isStuck, payoutsPaused, type Withdrawal } from "./withdrawals";
 
 // The admin page, for the users named in ADMIN_USER_IDS (by boardofserv user
-// id or Privy user id). It shows the treasury against what is owed: every
+// id or Privy user id). It shows today's model spend against the daily limit,
+// and the treasury against what is owed: every
 // user's balance (available and held) plus withdrawals asked for and not yet
 // paid out. The difference is the platform's fees and anything unmatched,
 // and must never go below zero. Users appear by handle only.
@@ -100,7 +102,9 @@ export async function adminDTO(chain: ChainClient, config: PaymentsConfig = paym
     .limit(100);
 
   const signer = treasurySigner(config);
+  const now = new Date();
   return {
+    spend: { today: await spendToday(now), limit: dailySpendLimitUsd(), resetsAt: nextReset(now).toISOString() },
     network: config.network,
     networkLabel: config.networkLabel,
     chainId: config.chainId,

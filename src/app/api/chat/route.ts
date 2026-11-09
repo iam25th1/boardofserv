@@ -7,6 +7,7 @@ import { contextFor, CUT_OFF_SUFFIX, modelConfig, streamReply, type ChatMessage,
 import { mergeSketch, SketchSplitter } from "@/lib/sketchBlock";
 import { planTurn } from "@/lib/sketchPlan";
 import { loadSketch, saveSketch } from "@/lib/sketchStore";
+import { refusal } from "@/lib/spend";
 import { replySystemPrompt, type TurnPlan } from "@/lib/systemPrompt";
 
 export const runtime = "nodejs";
@@ -35,6 +36,12 @@ export async function POST(req: Request) {
   if (!parsed.success) return Response.json({ error: "A message is required" }, { status: 400 });
   const { regenerate, editMessageId } = parsed.data;
   const content = parsed.data.content;
+
+  // Every turn is a reply: refuse it before anything is stored when the day's
+  // limits are reached.
+  const config = modelConfig();
+  const no = await refusal(user.id, { ownKey: false, chat: true });
+  if (no) return Response.json(no, { status: 429 });
 
   // Resolve the conversation, creating one on the first message.
   let conversationId = parsed.data.conversationId;
@@ -75,7 +82,6 @@ export async function POST(req: Request) {
     .from(messages)
     .where(eq(messages.conversationId, cid))
     .orderBy(asc(messages.createdAt));
-  const config = modelConfig();
   const context = contextFor(
     history.map((m) => ({ role: m.role, content: m.content })),
     config.historyMessages,
@@ -98,6 +104,7 @@ export async function POST(req: Request) {
 
   const controller = new AbortController();
   req.signal.addEventListener("abort", () => controller.abort());
+  const usageId = await startUsage(cid, user.id, false);
 
   const stream = new ReadableStream<Uint8Array>({
     async start(ctrl) {
@@ -163,7 +170,7 @@ export async function POST(req: Request) {
       }
 
       if (!full.trim()) {
-        await recordUsage(cid, result, plan.result, plan.sketch !== null);
+        await finishUsage(usageId, result, plan.result, plan.sketch !== null);
         send("error", { message: result?.error ?? "The reply could not be completed. You can retry." });
         if (open) ctrl.close();
         return;
@@ -177,7 +184,7 @@ export async function POST(req: Request) {
       // The reply is finished and saved: the browser unlocks the composer and
       // shows the plan's answers under it.
       send("reply_end", { messageId: saved?.id, source, label, choices: turnPlan?.choices ?? [] });
-      await recordUsage(cid, result, plan.result, plan.sketch !== null);
+      await finishUsage(usageId, result, plan.result, plan.sketch !== null);
       send("done", { messageId: saved?.id, source, label });
       if (open) ctrl.close();
     },
@@ -195,26 +202,45 @@ export async function POST(req: Request) {
   });
 }
 
-// One usage row per reply, with the plan call's next to it. A failure
-// to record must never break the reply.
-async function recordUsage(conversationId: string, r: ReplyResult | null, x: JsonResult | null, sketchOk: boolean | null): Promise<void> {
-  if (!r) return;
+// One usage row per reply, with the plan call's next to it. The row is
+// written as the turn starts, so turns running at the same time all count
+// against the day's limit, and finished when the reply ends. A failure to
+// record must never break the reply.
+async function startUsage(conversationId: string, userId: string, ownKey: boolean): Promise<string | null> {
   try {
-    await db.insert(replyUsage).values({
-      conversationId,
-      provider: r.provider,
-      model: r.model,
-      promptTokens: r.promptTokens,
-      completionTokens: r.completionTokens,
-      firstTokenMs: r.firstTokenMs,
-      totalMs: r.totalMs,
-      outcome: r.outcome,
-      sketchOk,
-      extractPromptTokens: x?.promptTokens ?? null,
-      extractCompletionTokens: x?.completionTokens ?? null,
-      extractMs: x?.totalMs ?? null,
-      extractOutcome: x?.outcome ?? null,
-    });
+    const [row] = await db
+      .insert(replyUsage)
+      .values({ conversationId, userId, ownKey, kind: "reply", totalMs: 0, outcome: "ok" })
+      .returning({ id: replyUsage.id });
+    return row?.id ?? null;
+  } catch (err) {
+    console.error("reply usage not recorded", err instanceof Error ? err.message : "unknown error");
+    return null;
+  }
+}
+
+async function finishUsage(id: string | null, r: ReplyResult | null, x: JsonResult | null, sketchOk: boolean | null): Promise<void> {
+  if (!id) return;
+  try {
+    await db
+      .update(replyUsage)
+      .set({
+        provider: r?.provider ?? null,
+        model: r?.model ?? null,
+        promptTokens: r?.promptTokens ?? null,
+        completionTokens: r?.completionTokens ?? null,
+        firstTokenMs: r?.firstTokenMs ?? null,
+        totalMs: r?.totalMs ?? 0,
+        outcome: r?.outcome ?? "failed",
+        sketchOk,
+        extractPromptTokens: x?.promptTokens ?? null,
+        extractCompletionTokens: x?.completionTokens ?? null,
+        extractMs: x?.totalMs ?? null,
+        extractOutcome: x?.outcome ?? null,
+        extractProvider: x?.provider ?? null,
+        extractModel: x?.model ?? null,
+      })
+      .where(eq(replyUsage.id, id));
   } catch (err) {
     console.error("reply usage not recorded", err instanceof Error ? err.message : "unknown error");
   }

@@ -70,6 +70,14 @@
   cursor: default;
 }
 
+/* Messages left today, or the day's limit: chalk, never an alarm. */
+.notice {
+  text-align: center;
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+  margin-top: var(--s-2);
+}
+
 .foot {
   text-align: center;
   font-size: var(--t-2xs);

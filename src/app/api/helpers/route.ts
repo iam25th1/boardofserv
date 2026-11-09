@@ -2,7 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { db } from "@/lib/db";
-import { conversations, messages, publishedHelpers, users } from "@/lib/db/schema";
+import { conversations, messages, publishedHelpers, replyUsage, users } from "@/lib/db/schema";
 import { compileHelper, freeSlug, guardLine, liveHelperFor, newCanary, PUBLIC_COLUMNS, withPrices } from "@/lib/helpers";
 import { PricesBody, readPrices } from "@/lib/payments/prices";
 import { setPrices } from "@/lib/payments/uses";
@@ -10,6 +10,7 @@ import { isUniqueViolation } from "@/lib/users";
 import { modelConfig } from "@/lib/model";
 import { fieldsOf } from "@/lib/sketchFields";
 import { loadSketch } from "@/lib/sketchStore";
+import { refusal } from "@/lib/spend";
 
 export const runtime = "nodejs";
 
@@ -53,16 +54,35 @@ export async function POST(req: Request) {
   }
   const live = await liveHelperFor(conversationId);
   if (live) return Response.json({ error: "This helper is already on the board.", helper: live }, { status: 409 });
+  const config = modelConfig();
+  const no = await refusal(user.id, { ownKey: false });
+  if (no) return Response.json(no, { status: 429 });
 
   const history = await db
     .select({ role: messages.role, content: messages.content })
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(asc(messages.createdAt));
-  const config = modelConfig();
   const controller = new AbortController();
   req.signal.addEventListener("abort", () => controller.abort());
-  const { prompt } = await compileHelper(sketch, history, { config, signal: controller.signal });
+  const { prompt, result } = await compileHelper(sketch, history, { config, signal: controller.signal });
+  // The compile call's tokens count towards the day's spend.
+  try {
+    await db.insert(replyUsage).values({
+      conversationId,
+      userId: user.id,
+      kind: "compile",
+      ownKey: false,
+      provider: result.provider,
+      model: result.model,
+      promptTokens: result.promptTokens,
+      completionTokens: result.completionTokens,
+      totalMs: result.totalMs,
+      outcome: result.outcome,
+    });
+  } catch (err) {
+    console.error("compile usage not recorded", err instanceof Error ? err.message : "unknown error");
+  }
   if (!prompt) {
     const error = config.providers.length
       ? "Its instructions could not be written just now. Try again in a minute."

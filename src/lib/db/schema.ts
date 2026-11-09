@@ -61,6 +61,8 @@ export const messages = pgTable(
 );
 
 // One row per reply, to keep model usage visible. Never any message text.
+// The row is written as the turn starts (so turns running at the same time
+// all count against the person's daily limit) and finished when it ends.
 // provider is "serv", "dolphin", "fallback" or "demo", or null when nothing
 // answered.
 // outcome: "ok" (the first provider answered), "fell_back" (a later one did)
@@ -70,11 +72,19 @@ export const messages = pgTable(
 // reply then failed (older rows, from before the plan ran first, have null
 // when no reply was given).
 // Rows outlive their conversation, which is set to null when it is deleted.
+// user_id (null on rows from before it was kept) is who the turn was for, so
+// the daily limit survives a deleted conversation. kind is "reply" for a
+// chat turn, "compile" for the call that writes a published helper's
+// instructions (its tokens in the reply columns). own_key marks a call made
+// on the person's own SERV key: it is not counted against anything.
 export const replyUsage = pgTable(
   "reply_usage",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    kind: text("kind", { enum: ["reply", "compile"] }).notNull().default("reply"),
+    ownKey: boolean("own_key").notNull().default(false),
     provider: text("provider"),
     model: text("model"),
     promptTokens: integer("prompt_tokens"),
@@ -90,9 +100,16 @@ export const replyUsage = pgTable(
     extractCompletionTokens: integer("extract_completion_tokens"),
     extractMs: integer("extract_ms"),
     extractOutcome: text("extract_outcome", { enum: ["ok", "fell_back", "failed"] }),
+    // Which provider and model the plan call ran on (null on older rows, from
+    // before Dolphin, when it could only be SERV or the backup).
+    extractProvider: text("extract_provider"),
+    extractModel: text("extract_model"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => ({ byCreated: index("reply_usage_created_idx").on(t.createdAt) }),
+  (t) => ({
+    byCreated: index("reply_usage_created_idx").on(t.createdAt),
+    byUserDay: index("reply_usage_user_idx").on(t.userId, t.createdAt),
+  }),
 );
 
 // The agent being sketched in a conversation, one row per conversation. Each
@@ -151,6 +168,8 @@ export const publishedHelpers = pgTable(
 // latency and outcome ("ok", "blocked" when the answer was stopped for
 // leaking its instructions, "failed" when no answer came). Never the input or
 // the answer. The rows also count each user's uses for the daily limit.
+// provider and model say what answered (null on older rows, which were all
+// SERV); own_key marks a use made on the person's own SERV key.
 export const helperUses = pgTable(
   "helper_uses",
   {
@@ -161,6 +180,9 @@ export const helperUses = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     promptTokens: integer("prompt_tokens"),
     completionTokens: integer("completion_tokens"),
+    provider: text("provider"),
+    model: text("model"),
+    ownKey: boolean("own_key").notNull().default(false),
     latencyMs: integer("latency_ms").notNull(),
     outcome: text("outcome", { enum: ["ok", "blocked", "failed"] }).notNull(),
     // The hold that pays for a paid use; null for a free one. Only free uses

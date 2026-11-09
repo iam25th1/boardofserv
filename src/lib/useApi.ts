@@ -100,7 +100,8 @@ export function useApi() {
           try {
             const res = await authed("/api/chat", { method: "POST", body: JSON.stringify(body), signal: controller.signal });
             if (!res.ok || !res.body) {
-              on({ type: "error", message: "The reply could not start. You can retry." });
+              const refused = (await res.json().catch(() => ({}))) as { error?: string; limit?: "site" | "chat" };
+              on({ type: "error", message: refused.limit && refused.error ? refused.error : "The reply could not start. You can retry.", limit: refused.limit });
               return;
             }
             await readEvents(res.body, (type, data) => on({ type, ...data } as ChatEvent));

@@ -62,6 +62,9 @@ in the `boardofserv_boardofserv_pgdata` volume either way.
 - `FALLBACK_BASE_URL`, `FALLBACK_API_KEY`, `FALLBACK_MODEL`, `FALLBACK_LABEL`:
   an OpenAI-compatible backup, tried last, and only with all three of the
   first set.
+- `CHAT_DAILY_LIMIT` (optional, default 30): messages each person may send a
+  day. `DAILY_SPEND_LIMIT_USD` (optional, default 5): the most the site
+  spends a day on the operator's model keys (see "Spend limits" below).
 - `SERV_PRICE_INPUT_PER_M`, `SERV_PRICE_OUTPUT_PER_M` (defaults 1.25 and
   6.5), `DOLPHIN_PRICE_INPUT_PER_M`, `DOLPHIN_PRICE_OUTPUT_PER_M` (0.01 and
   0.07) and `FALLBACK_PRICE_INPUT_PER_M`, `FALLBACK_PRICE_OUTPUT_PER_M`
@@ -180,9 +183,30 @@ reports usage when asked (`stream_options.include_usage`).
 
 Usage stays low: one short system prompt (`src/lib/systemPrompt.ts`) plus the
 last 12 messages (older history is dropped, not summarised), and replies capped
-at 700 tokens. Each reply writes one `reply_usage` row: conversation, provider,
-model, prompt and completion tokens when reported, time to first token, total
-time and outcome (ok, fell back, failed). It never stores message text.
+at 700 tokens. Each reply writes one `reply_usage` row: conversation, the
+person it was for, provider, model, prompt and completion tokens when
+reported, the plan call's tokens, provider and model, time to first token,
+total time and outcome (ok, fell back, failed). Publishing writes one for its
+compile call (kind `compile`), and each helper use one `helper_uses` row with
+its provider and model. None of them stores message text.
+
+### Spend limits
+
+`src/lib/spend.ts`. Days run midnight to midnight UTC.
+
+- Each person may send `CHAT_DAILY_LIMIT` messages a day (default 30): every
+  chat turn counts (a new message, an edit or a regenerate) unless it failed,
+  counted from `reply_usage`, so deleting a conversation gives none back. Under
+  10 left, a quiet line under the composer says how many; at none, the composer
+  says when they come back.
+- The site may spend `DAILY_SPEND_LIMIT_USD` a day (default 5) on the
+  operator's keys. Spend is an estimate: the tokens every reply, plan call,
+  compile call and helper use recorded, priced per model by `*_PRICE_*`.
+  Once it is reached, chat, publishing and helper uses pause for everyone with
+  "boardofserv has hit today's limit. It resets at midnight UTC." /admin shows
+  today's spend against the limit.
+- A refused turn is refused before anything is stored, and its text goes back
+  into the composer.
 
 ## Design
 

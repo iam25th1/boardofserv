@@ -7,6 +7,7 @@ import { CURRENCIES, formatAmount, type Currency } from "@/lib/money";
 import { paymentsConfig } from "@/lib/payments/config";
 import { balancesOf } from "@/lib/payments/ledger";
 import { capture, pricesOf, release, reserve, type Hold } from "@/lib/payments/uses";
+import { refusal } from "@/lib/spend";
 import type { BalanceDTO, PriceDTO, QuotaDTO } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -49,6 +50,8 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
   const helper = await helperSecret(params.slug);
   if (!helper) return Response.json({ error: "Not found" }, { status: 404 });
   if (helper.unpublishedAt) return Response.json({ error: "This helper was taken down." }, { status: 410 });
+  const no = await refusal(user.id, { ownKey: false });
+  if (no) return Response.json(no, { status: 429 });
 
   const prices = (await pricesOf([helper.id])).get(helper.id) ?? [];
   let hold: Hold | null = null;
@@ -130,6 +133,8 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
       await finishUse(useId, {
         promptTokens: result?.promptTokens ?? null,
         completionTokens: result?.completionTokens ?? null,
+        provider: result?.provider ?? null,
+        model: result?.model ?? null,
         latencyMs: Date.now() - started,
         outcome,
       });

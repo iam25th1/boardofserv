@@ -15,11 +15,14 @@ interface Props {
   onStop: () => void;
   // The agent sketch dock, drawn on top of the input inside the same box.
   dock?: React.ReactNode;
+  // A quiet line under the box: messages left today, or why it is paused.
+  notice?: string | null;
+  placeholder?: string;
 }
 
 const MAX_H = 180;
 
-export function Composer({ conversationKey, busy, disabled, prefill, prefillNonce, onSend, onStop, dock }: Props) {
+export function Composer({ conversationKey, busy, disabled, prefill, prefillNonce, onSend, onStop, dock, notice, placeholder }: Props) {
   const area = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
 
@@ -85,7 +88,7 @@ export function Composer({ conversationKey, busy, disabled, prefill, prefillNonc
               onKeyDown={onKeyDown}
               disabled={disabled}
               rows={1}
-              placeholder={disabled ? "Finish signing in to start" : "Describe what you want an agent to do"}
+              placeholder={placeholder ?? (disabled ? "Finish signing in to start" : "Describe what you want an agent to do")}
               aria-label="Message boardofserv"
               data-composer-input
             />
@@ -104,6 +107,11 @@ export function Composer({ conversationKey, busy, disabled, prefill, prefillNonc
             )}
           </form>
         </div>
+        {notice && (
+          <p className={styles.notice} role="status">
+            {notice}
+          </p>
+        )}
         <p className={styles.foot}>
           <span className={styles.keys}>Enter to send, Shift and Enter for a new line. </span>
           Runs on SERV Reasoning.

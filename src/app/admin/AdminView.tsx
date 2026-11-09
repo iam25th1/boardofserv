@@ -19,6 +19,11 @@ const STATUS_TEXT: Record<AdminWithdrawalDTO["status"], string> = {
   failed: "failed, given back",
 };
 
+// Dollars to the cent, or to a hundredth of a cent below one cent.
+function usd(n: number): string {
+  return n > 0 && n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`;
+}
+
 // What the admin page asks of the server. The page passes the real calls;
 // the development demo passes canned ones.
 export type AdminApi = Pick<ReturnType<typeof useApi>, "getAdmin" | "adminPause" | "adminDecide">;
@@ -68,8 +73,20 @@ export function AdminBody({ api }: { api: AdminApi }) {
       </a>
     ) : null;
 
+  const spent = data.spend.today >= data.spend.limit;
   return (
     <>
+      <section className={styles.section} aria-labelledby="spend-h">
+        <h2 id="spend-h">Model spend today</h2>
+        <p className={styles.spend}>
+          <strong>{usd(data.spend.today)}</strong> of {usd(data.spend.limit)}
+        </p>
+        <p className={styles.quiet}>
+          Estimated from the tokens each model reported, at the prices set for it. Own-key use is not counted. The day ends at midnight UTC.
+        </p>
+        {spent && <p className={styles.alert}>The limit is reached: chat, publishing and helper uses are paused until midnight UTC, except for people using their own SERV key.</p>}
+      </section>
+
       <p className={styles.quiet}>
         {data.networkLabel} (chain {data.chainId}). Treasury <span className={styles.mono}>{data.treasury ?? "not set"}</span>
       </p>

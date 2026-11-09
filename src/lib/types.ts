@@ -32,6 +32,10 @@ export interface AccountDTO {
   balance: "ok" | "low" | "unknown";
   // Named in ADMIN_USER_IDS: the account menu links to /admin.
   admin?: boolean;
+  // Messages left today, or null when there is no daily limit.
+  chat?: QuotaDTO | null;
+  // The day's spend limit is reached: chat and helper uses wait for midnight UTC.
+  paused?: boolean;
 }
 
 // The agent sketch for one conversation, as the server stores and sends it.
@@ -72,8 +76,8 @@ export interface PriceDTO {
   decimals: number;
 }
 
-// A signed-in user's uses of published helpers today. Uses run on the
-// operator's key until payments exist, so each user has a daily limit.
+// A signed-in user's uses of published helpers (or chat messages) today.
+// They run on the operator's key, so each user has a daily limit.
 export interface QuotaDTO {
   limit: number;
   remaining: number;
@@ -149,6 +153,9 @@ export interface AdminWithdrawalDTO extends WithdrawalDTO {
 }
 
 export interface AdminDTO {
+  // Today's estimated model spend on the operator's keys against the daily
+  // limit, in US dollars, and when the day ends (midnight UTC).
+  spend: { today: number; limit: number; resetsAt: string };
   network: "base-sepolia" | "base";
   networkLabel: string;
   chainId: number;
@@ -206,4 +213,5 @@ export type ChatEvent =
   // as buttons (none when the plan failed); done follows.
   | { type: "reply_end"; messageId?: string; source: string; label: string; choices: string[] }
   | { type: "done"; messageId?: string; source: string; label: string }
-  | { type: "error"; message: string };
+  // `limit` when a day's limit refused the turn before anything was stored.
+  | { type: "error"; message: string; limit?: "site" | "chat" };

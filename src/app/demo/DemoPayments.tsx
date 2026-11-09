@@ -78,6 +78,7 @@ function walletApi(): WalletApi {
 }
 
 const adminFor = (treasury: string): AdminDTO => ({
+  spend: { today: 0.4213, limit: 2, resetsAt: new Date(Date.UTC(2026, 10, 9)).toISOString() },
   network: "base-sepolia",
   networkLabel: "Base Sepolia",
   chainId: 84532,
