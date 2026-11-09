@@ -133,6 +133,9 @@ export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, 
               <Link className={styles.topup} href="/agents">
                 Agents you&apos;re building
               </Link>
+              <Link className={styles.topup} href="/connections">
+                Connections: Telegram and Google
+              </Link>
               {account?.admin && (
                 <Link className={styles.topup} href="/admin">
                   Admin

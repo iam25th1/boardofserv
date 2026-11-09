@@ -21,7 +21,7 @@ const data = (o: Partial<AgentBuilderDTO> = {}): AgentBuilderDTO => ({
   conversationId: null,
   definition,
   code: {
-    find_low: { status: "approved", source: FIND_LOW, rounds: 1, note: null },
+    find_low: { status: "approved", source: FIND_LOW, rounds: 1, note: null, writer: "serv" },
     compare: { status: "needs_attention", source: COMPARE, rounds: 3, note: "It ignores delivery time." },
   },
   bench: restockBench(),
@@ -59,6 +59,8 @@ describe("the agent builder", () => {
     expect(screen.getByText("Draft, version 1")).toBeInTheDocument();
     expect(screen.getByText("Code approved")).toBeInTheDocument();
     expect(screen.getByText("Code needs your attention: It ignores delivery time.")).toBeInTheDocument();
+    // SERV wrote the first step's code (Dolphin failed twice); Dolphin the other.
+    expect(screen.getAllByText("written by SERV")).toHaveLength(1);
     expect(screen.getByText("Over the limit, then Ask the owner")).toBeInTheDocument();
     fireEvent.click(screen.getAllByRole("button", { name: "Show the code" })[0]!);
     expect(screen.getByText(/tools\.sheets\.read\(\{ sheet: input\.settings\.stock_sheet \}\)/)).toBeInTheDocument();

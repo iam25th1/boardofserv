@@ -15,8 +15,8 @@ import { join } from "node:path";
 const ROOT = join(__dirname, "..", "..");
 const SRC = join(ROOT, "src");
 
-const SERVER_MODULES = ["lib/crypto", "lib/openserv", "lib/model", "lib/demoModel", "lib/sketchStore", "lib/helpers", "lib/leakGuard", "lib/privy", "lib/db", "lib/session", "lib/auth-route", "lib/users", "lib/payments/boot", "lib/payments/ledger", "lib/payments/chain", "lib/payments/deposits", "lib/payments/dto", "lib/payments/wallets", "lib/payments/uses", "lib/payments/prices", "lib/payments/signer", "lib/payments/withdrawals", "lib/payments/admin", "lib/payments/worker", "lib/qr"];
-const SERVER_SECRET_ENVS = ["PRIVY_APP_SECRET", "OPENSERV_KEY_ENC_KEY", "SERV_API_KEY", "FALLBACK_API_KEY", "DATABASE_URL", "TREASURY_PRIVATE_KEY"];
+const SERVER_MODULES = ["lib/crypto", "lib/openserv", "lib/model", "lib/demoModel", "lib/sketchStore", "lib/helpers", "lib/leakGuard", "lib/privy", "lib/db", "lib/session", "lib/auth-route", "lib/users", "lib/payments/boot", "lib/payments/ledger", "lib/payments/chain", "lib/payments/deposits", "lib/payments/dto", "lib/payments/wallets", "lib/payments/uses", "lib/payments/prices", "lib/payments/signer", "lib/payments/withdrawals", "lib/payments/admin", "lib/payments/worker", "lib/qr", "lib/connections/vault", "lib/telegram/api", "lib/telegram/link", "lib/telegram/deliver", "lib/telegram/updates", "lib/google/oauth", "lib/google/sheets", "lib/search/brave"];
+const SERVER_SECRET_ENVS = ["PRIVY_APP_SECRET", "OPENSERV_KEY_ENC_KEY", "SERV_API_KEY", "FALLBACK_API_KEY", "DATABASE_URL", "TREASURY_PRIVATE_KEY", "TELEGRAM_BOT_TOKEN", "TELEGRAM_DEV_WEBHOOK_SECRET", "GOOGLE_CLIENT_SECRET", "BRAVE_SEARCH_API_KEY"];
 
 function walk(dir: string): string[] {
   return readdirSync(dir, { recursive: true, withFileTypes: true })

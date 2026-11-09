@@ -8,7 +8,8 @@ import styles from "../agents/agents.module.css";
 // /demo?agent=restock&live=1, development only: the example agent installed
 // for a test owner and running for real on an in-memory database inside the
 // development server (lib/agents/demoLive.ts), every 90 seconds, against
-// stand-in sheets and a suppliers' page the demo serves itself. Its
+// a Google Sheet held in memory and a suppliers' page the demo serves
+// itself. Its
 // installation's page, and its latest job drawn step by step with the
 // question to answer.
 
@@ -80,11 +81,12 @@ export function DemoLive({ jobId }: { jobId?: string }) {
   return (
     <>
       <p className={styles.note}>
-        Development demo: the example agent runs for a test owner every {Math.round(state.everyMs / 1000)} seconds (not while it waits for you), against stand-in sheets and{" "}
+        Development demo: the example agent runs for a test owner every {Math.round(state.everyMs / 1000)} seconds (not while it waits for you), against a Google Sheet held in memory (Google&apos;s API answered by the demo) and{" "}
         <a href={`${BASE}?page=prices`} target="_blank" rel="noreferrer">
           a suppliers&apos; page
         </a>{" "}
-        it fetches for real. A stand-in for SERV makes its decisions, so no model is called.
+        it fetches for real. Orders over the owner&apos;s limit of 50 USDC (the order&apos;s total, not each line) wait for a yes. A stand-in for SERV makes its
+        decision, so no model is called.
       </p>
       <InstallationView initial={state.installation} api={installApi} />
       {state.job ? (

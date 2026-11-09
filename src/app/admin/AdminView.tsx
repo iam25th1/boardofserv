@@ -88,6 +88,14 @@ export function AdminBody({ api }: { api: AdminApi }) {
         {spent && <p className={styles.alert}>The limit is reached: chat, publishing and helper uses are paused until midnight UTC, except for people using their own SERV key.</p>}
       </section>
 
+      <section className={styles.section} aria-labelledby="fallback-h">
+        <h2 id="fallback-h">Code written by SERV</h2>
+        <p className={styles.spend}>
+          <strong>{data.codeFallbacks.last30Days}</strong> in the last 30 days, {data.codeFallbacks.total} in all
+        </p>
+        <p className={styles.quiet}>Dolphin writes agents&apos; code steps. When it fails or times out twice on a step, SERV writes that step instead, and still reviews it in a call of its own.</p>
+      </section>
+
       <section className={styles.section} aria-labelledby="access-h">
         <h2 id="access-h">Waiting to get in</h2>
         <p className={styles.quiet}>

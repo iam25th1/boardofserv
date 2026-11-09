@@ -110,6 +110,16 @@
 .meta[data-code="needs_attention"] {
   color: var(--chalk);
 }
+/* SERV wrote this step's code when Dolphin failed twice: a chalk tag. */
+.writer {
+  align-self: flex-start;
+  padding: 1px 10px;
+  border: 1px dashed var(--chalk-2);
+  border-radius: var(--r-full);
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk);
+}
 .outcomes {
   margin: 0;
   padding-left: var(--s-4);

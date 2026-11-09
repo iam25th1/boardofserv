@@ -5,6 +5,7 @@ import type { Runtime } from "./context";
 import { beat, claimJob, HEARTBEAT_MS, requeueStale, runJob } from "./jobs";
 import { expireDue } from "./approvals";
 import { fireDue } from "./triggers";
+import { deliverTelegram, tidyTelegram } from "../../telegram/deliver";
 
 // The agents' job worker: one cycle every few seconds, in the server
 // process (see boot.ts for why), under its own Postgres advisory lock taken
@@ -12,8 +13,9 @@ import { fireDue } from "./triggers";
 // only one process on a database runs the cycles. A cycle:
 //
 // 1. puts jobs whose worker stopped beating back in the queue,
-// 2. fires the triggers that are due (triggers.ts) and expires the
-//    approvals nobody answered in time (approvals.ts),
+// 2. fires the triggers that are due (triggers.ts), expires the approvals
+//    nobody answered in time (approvals.ts), and sends what waits to go
+//    out to owners' Telegram chats (telegram/deliver.ts),
 // 3. starts claimed jobs up to the worker's capacity, without waiting for
 //    them: they run on, beating, while the next cycles go by.
 //
@@ -34,6 +36,7 @@ export interface JobWorker {
 export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
   const id = `${hostname()}:${process.pid}:${randomBytes(4).toString("hex")}`;
   const running = new Map<string, Promise<void>>();
+  let cycles = 0;
   const heart = setInterval(() => {
     beat(rt, id, [...running.keys()]).catch(() => undefined);
   }, HEARTBEAT_MS);
@@ -47,6 +50,10 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
       await fireDue(rt);
       const expired = await expireDue(rt);
       if (expired) rt.log(`jobs: ${expired} ${expired === 1 ? "approval" : "approvals"} expired with no answer.`);
+      // Questions and messages out to owners' Telegram chats, and answered
+      // questions' messages settled there.
+      await deliverTelegram(rt).catch((err: unknown) => rt.log(`telegram: delivery broke off: ${err instanceof Error ? err.name : "unknown error"}`));
+      if (++cycles % 720 === 1) await tidyTelegram(rt).catch(() => undefined);
       while (running.size < capacity) {
         const job = await claimJob(rt, id);
         if (!job) break;

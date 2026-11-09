@@ -8,9 +8,10 @@ import styles from "./InstallationControls.module.css";
 
 // What an owner needs at a glance about an agent running for them, and
 // their controls: run it now, pause or resume it, stop it for good (after
-// a yes, since stopping can't be undone).
+// a yes, since stopping can't be undone). While it is being set up: run a
+// test, then make it live.
 
-export type ControlAction = "pause" | "resume" | "stop" | "run";
+export type ControlAction = "pause" | "resume" | "stop" | "run" | "test" | "golive";
 
 const JOB_WORD: Record<JobSummaryDTO["status"], string> = {
   queued: "waiting to start",
@@ -35,7 +36,17 @@ export function Glance({ data, jobHref = (id) => `/jobs/${id}` }: { data: Instal
     <dl className={styles.glance}>
       <div>
         <dt>Next run</dt>
-        <dd>{data.status === "active" ? (data.nextRunAt ? when(data.nextRunAt, data.timezone) : "when you message it") : data.status === "paused" ? "paused" : "stopped"}</dd>
+        <dd>
+          {data.status === "active"
+            ? data.nextRunAt
+              ? when(data.nextRunAt, data.timezone)
+              : "when you message it"
+            : data.status === "testing"
+              ? "not live yet"
+              : data.status === "paused"
+                ? "paused"
+                : "stopped"}
+        </dd>
       </div>
       <div>
         <dt>Spent today</dt>
@@ -79,7 +90,8 @@ export function Controls({ data, onControl }: { data: InstallationDTO; onControl
     setSaid(null);
     try {
       await onControl(action);
-      if (action === "run") setSaid("A job is queued: it starts as soon as it may.");
+      if (action === "run" || action === "test") setSaid(action === "test" ? "A test run is queued: it does everything for real, once." : "A job is queued: it starts as soon as it may.");
+      if (action === "golive") setSaid("It's live: it runs on its own from now on.");
     } catch (err) {
       setSaid(err instanceof Error ? err.message : "That didn't work. Try again.");
     } finally {
@@ -90,12 +102,27 @@ export function Controls({ data, onControl }: { data: InstallationDTO; onControl
   if (data.status === "stopped") return <p className={styles.said}>Stopped for good.</p>;
   return (
     <div className={styles.controls}>
+      {data.pausedReason && (
+        <p className={styles.reason} role="status">
+          {data.pausedReason}
+        </p>
+      )}
+      {data.status === "testing" && (
+        <>
+          <Button size="sm" onClick={() => void act("test")} disabled={busy !== null}>
+            {busy === "test" ? "Starting..." : "Run a test"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => void act("golive")} disabled={busy !== null}>
+            {busy === "golive" ? "Going live..." : "Make it live"}
+          </Button>
+        </>
+      )}
       {data.status === "active" && (
         <Button size="sm" onClick={() => void act("run")} disabled={busy !== null}>
           {busy === "run" ? "Starting..." : "Run now"}
         </Button>
       )}
-      {data.status === "active" ? (
+      {data.status === "testing" ? null : data.status === "active" ? (
         <Button size="sm" variant="ghost" onClick={() => void act("pause")} disabled={busy !== null}>
           {busy === "pause" ? "Pausing..." : "Pause"}
         </Button>

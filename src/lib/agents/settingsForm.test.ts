@@ -52,7 +52,7 @@ describe("the settings form", () => {
     expect(r).toEqual({
       ok: false,
       errors: {
-        stock_sheet: "Give the sheet's name.",
+        stock_sheet: "Paste the link of a Google Sheet, then pick its tab.",
         page: "Give a web address starting with http:// or https://.",
         fabrics: "Give at least one, separated by commas.",
         size: "Pick one of: Small, Large.",

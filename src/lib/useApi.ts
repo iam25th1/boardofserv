@@ -3,7 +3,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent } from "./agents/types";
 import type { InstallAnswers } from "./agents/settingsForm";
-import type { AccountDTO, AdminDTO, AgentMessageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, ConnectionDTO, AgentMessageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
 
 // When the server sends no sentence of its own: never a status code.
 const SOMETHING_WRONG = "Something went wrong. Try again in a few minutes.";
@@ -32,6 +32,15 @@ export function useApi() {
       return res.json() as Promise<T>;
     };
     return {
+      // The owner's connections, and which services can be connected here.
+      listConnections: () => json<{ connections: ConnectionDTO[]; available: { telegram: boolean; google: boolean } }>("/api/connections"),
+      disconnect: (provider: ConnectionDTO["provider"]) => json<{ revoked: boolean | null; paused: number }>(`/api/connections?provider=${provider}`, { method: "DELETE" }),
+      // A one-time code to send the bot from the chat to link.
+      telegramCode: () => json<{ code: string; link: string; bot: string; expiresAt: string }>("/api/connections/telegram/code", { method: "POST" }),
+      // A Google Sheet's name and tabs, opened on the owner's Google access.
+      inspectSheet: (url: string) => json<{ title: string; tabs: { id: number; title: string }[] }>("/api/sheets/inspect", { method: "POST", body: JSON.stringify({ url }) }),
+      // Where to go to connect Google (the browser goes there next).
+      googleStart: (returnTo: string) => json<{ url: string }>("/api/connections/google/start", { method: "POST", body: JSON.stringify({ returnTo }) }),
       listConversations: () => json<{ conversations: ConversationDTO[] }>("/api/conversations").then((d) => d.conversations),
       createConversation: () => json<{ conversation: ConversationDTO }>("/api/conversations", { method: "POST" }).then((d) => d.conversation),
       renameConversation: (id: string, title: string) =>
@@ -52,8 +61,8 @@ export function useApi() {
       publishAgent: (id: string) => json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}/publish`, { method: "POST" }).then((d) => d.builder),
       // Run the newest published version for real. A refusal carries the
       // answers that need another look, by field.
-      installAgent: async (id: string, answers: InstallAnswers): Promise<InstallationDTO> => {
-        const res = await authed(`/api/agents/${encodeURIComponent(id)}/installations`, { method: "POST", body: JSON.stringify(answers) });
+      installAgent: async (id: string, answers: InstallAnswers, o: { live?: boolean } = {}): Promise<InstallationDTO> => {
+        const res = await authed(`/api/agents/${encodeURIComponent(id)}/installations`, { method: "POST", body: JSON.stringify({ ...answers, ...o }) });
         const data = (await res.json().catch(() => ({}))) as { installation?: InstallationDTO; error?: string; errors?: Record<string, string> };
         if (res.ok && data.installation) return data.installation;
         throw Object.assign(new Error(data.error ?? SOMETHING_WRONG), { errors: data.errors });
@@ -67,7 +76,7 @@ export function useApi() {
       countApprovals: () => json<{ pending: number }>("/api/approvals?count=1").then((d) => d.pending),
       answerApproval: (id: string, answer: string) =>
         json<{ approval: ApprovalDTO }>(`/api/approvals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ answer }) }).then((d) => d.approval),
-      controlInstallation: (id: string, action: "pause" | "resume" | "stop" | "run") =>
+      controlInstallation: (id: string, action: "pause" | "resume" | "stop" | "run" | "test" | "golive") =>
         json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}/control`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.installation),
       listAgentMessages: (id: string) => json<{ messages: AgentMessageDTO[] }>(`/api/installations/${encodeURIComponent(id)}/messages`).then((d) => d.messages),
       messageAgent: (id: string, text: string) =>

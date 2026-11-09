@@ -5,8 +5,9 @@ import type { BenchData, SearchResult } from "./types";
 // The toolbox: the only things a code step can reach, through the sandbox's
 // host bridge. Each tool has typed arguments (checked here, whatever the
 // code sends) and a result shape, written out for Dolphin as declarations.
-// Real implementations come in later phases; for now every tool is a mock
-// that answers from the test bench's sample data, which the maker edits.
+// Here every tool is a mock that answers from the test bench's sample data,
+// which the maker edits; a real job's tools (runtime/tools.ts) take the same
+// calls to the owner's Google Sheets, Telegram, the web and web search.
 
 const cell = z.union([z.string().max(2000), z.number(), z.boolean(), z.null()]);
 const row = z.record(z.string().max(80), cell);

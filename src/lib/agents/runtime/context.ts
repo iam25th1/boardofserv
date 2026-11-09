@@ -11,9 +11,47 @@ import type { WebPolicy } from "./webFetch";
 
 export const DEFAULT_FETCHES_PER_DAY = 100;
 
-export function fetchesPerDay(env: Record<string, string | undefined> = process.env): number {
-  const n = Number(env.AGENT_FETCHES_PER_DAY);
-  return Number.isInteger(n) && n > 0 ? n : DEFAULT_FETCHES_PER_DAY;
+type Env = Record<string, string | undefined>;
+
+const whole = (raw: string | undefined, fallback: number) => {
+  const n = Number(raw);
+  return Number.isInteger(n) && n > 0 ? n : fallback;
+};
+
+export function fetchesPerDay(env: Env = process.env): number {
+  return whole(env.AGENT_FETCHES_PER_DAY, DEFAULT_FETCHES_PER_DAY);
+}
+
+export const APP_URL = "https://boardofserv.25th.dev";
+
+// The outside services owners connect and agents reach: Telegram, Google
+// and Brave's web search. Every call goes through `fetch` (tests answer
+// them). A service whose keys aren't set is off.
+export interface Services {
+  fetch: typeof fetch;
+  telegramToken: string | null;
+  google: { clientId: string; clientSecret: string; redirectUri: string } | null;
+  braveKey: string | null;
+  // Each installation's calls a day to Google Sheets and to web search,
+  // and the whole site's searches a day.
+  caps: { sheetCalls: number; searches: number; siteSearches: number };
+}
+
+export const DEFAULT_CAPS = { sheetCalls: 500, searches: 50, siteSearches: 1000 };
+
+export function servicesFrom(env: Env = process.env): Services {
+  const app = (env.APP_URL || APP_URL).replace(/\/+$/, "");
+  return {
+    fetch: (...args) => fetch(...args),
+    telegramToken: env.TELEGRAM_BOT_TOKEN || null,
+    google: env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET, redirectUri: `${app}/api/connections/google/callback` } : null,
+    braveKey: env.BRAVE_SEARCH_API_KEY || null,
+    caps: {
+      sheetCalls: whole(env.AGENT_SHEET_CALLS_PER_DAY, DEFAULT_CAPS.sheetCalls),
+      searches: whole(env.AGENT_SEARCHES_PER_DAY, DEFAULT_CAPS.searches),
+      siteSearches: whole(env.SITE_SEARCHES_PER_DAY, DEFAULT_CAPS.siteSearches),
+    },
+  };
 }
 
 // What the runtime works with: the database, the clock and SERV. The
@@ -40,6 +78,7 @@ export interface Runtime {
   web: WebPolicy;
   // Pages an installation may fetch a day.
   fetchesPerDay: number;
+  services: Services;
   log: (line: string) => void;
 }
 
@@ -56,6 +95,7 @@ export function serverRuntime(): Runtime {
     record: (owner, call, ownKey) => recordAgentCall({ userId: owner.id, conversationId: null, ownKey }, "agent_decision", call),
     web: {},
     fetchesPerDay: fetchesPerDay(),
+    services: servicesFrom(),
     log: (line) => console.info(line),
   };
 }

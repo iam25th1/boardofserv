@@ -4,6 +4,14 @@ import type { AgentDefinition } from "../agents/definition";
 import type { BenchData, RunState, StepCode } from "../agents/types";
 import { CURRENCIES } from "../money";
 
+// One tab of a Google Sheet an owner gave an installation.
+export interface SheetGrant {
+  spreadsheetId: string;
+  title: string;
+  tab: string;
+  tabId: number;
+}
+
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
 // embedded wallet address and, encrypted, the OpenServ API key that this
 // wallet's SIWE sign-in produced. The key is ciphertext only (see crypto.ts);
@@ -540,7 +548,19 @@ export const agentInstallations = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     status: text("status", { enum: ["active", "paused", "stopped"] }).notNull().default("active"),
+    // Live: its triggers start its jobs. One set up for a test run first
+    // isn't live until its owner says: only test runs by hand start it.
+    // (A column of its own rather than a status: the deploy's schema push
+    // adds columns but doesn't change an existing check constraint.)
+    live: boolean("live").notNull().default(true),
+    // Why it was paused, when the runtime paused it (a connection it needs
+    // went away), in plain words for its owner; null when they paused it.
+    pausedReason: text("paused_reason"),
     settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+    // The Google Sheets tabs its owner gave it, by sheet setting: the only
+    // ones its sheet tools reach. The setting's value (what code sees) is
+    // the tab's name.
+    sheets: jsonb("sheets").$type<Record<string, SheetGrant>>().notNull().default({}),
     rules: jsonb("rules").$type<Record<string, string>>().notNull().default({}),
     memory: jsonb("memory").$type<Record<string, unknown>>().notNull().default({}),
     mocks: jsonb("mocks").$type<Pick<BenchData, "sheets" | "search" | "wallet">>().notNull(),
@@ -586,7 +606,7 @@ export const agentJobs = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     status: text("status", { enum: JOB_STATUSES }).notNull().default("queued"),
-    // What started it: { kind: "schedule" | "check" | "message" | "manual", ... }.
+    // What started it: { kind: "schedule" | "check" | "message" | "manual" | "test", ... }.
     trigger: jsonb("trigger").$type<Record<string, unknown>>().notNull(),
     // json, not jsonb: kept exactly as written, keys in their order, so a
     // step that runs again sees the very same values.
@@ -681,9 +701,15 @@ export const agentMessages = pgTable(
     from: text("from", { enum: ["owner", "agent"] }).notNull(),
     text: text("text").notNull(),
     jobId: uuid("job_id").references(() => agentJobs.id, { onDelete: "set null" }),
+    // A message to the owner, in their Telegram chat too: "pending" until
+    // sent, then "sent", "none" (no Telegram linked) or "failed". A message
+    // from the owner says "telegram" when it came from there.
+    tgState: text("tg_state", { enum: ["pending", "sent", "none", "failed", "telegram"] }),
+    tgAttempts: integer("tg_attempts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
+    tgDue: index("agent_messages_tg_idx").on(t.tgState),
     byInstallation: index("agent_messages_installation_idx").on(t.installationId, t.createdAt),
   }),
 );
@@ -717,14 +743,60 @@ export const agentApprovals = pgTable(
     answer: text("answer"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     answeredAt: timestamp("answered_at", { withTimezone: true }),
+    // The question in the owner's Telegram chat: "pending" until it is
+    // sent there (with a button per answer), "sent" while it waits there,
+    // "closed" once that message shows how it ended, "none" when the owner
+    // has no Telegram linked, "failed" after giving up.
+    tgState: text("tg_state", { enum: ["pending", "sent", "closed", "none", "failed"] }),
+    tgMessageId: integer("tg_message_id"),
+    tgAttempts: integer("tg_attempts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
+    tgDue: index("agent_approvals_tg_idx").on(t.tgState),
     byOwner: index("agent_approvals_owner_idx").on(t.ownerUserId, t.status),
     due: index("agent_approvals_due_idx").on(t.status, t.expiresAt),
     byJob: index("agent_approvals_job_idx").on(t.jobId),
     knownStatus: check("agent_approvals_status", sql`${t.status} in ('pending', 'answered', 'expired', 'cancelled')`),
   }),
+);
+
+// What an installation's agent spent (a payment, or order rows with an
+// amount), one row per action, for its spending guard: the job's running
+// total and the installation's total for the day (in its owner's time
+// zone) are sums of these.
+export const agentSpend = pgTable(
+  "agent_spend",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => agentInstallations.id, { onDelete: "cascade" }),
+    jobId: uuid("job_id").references(() => agentJobs.id, { onDelete: "set null" }),
+    actionId: text("action_id"),
+    tool: text("tool").notNull(),
+    amountUsdc: numeric("amount_usdc", { precision: 18, scale: 6 }).notNull(),
+    day: text("day").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byDay: index("agent_spend_day_idx").on(t.installationId, t.day),
+    byJob: index("agent_spend_job_idx").on(t.jobId),
+  }),
+);
+
+// Calls an installation's agent made to an outside service each day (UTC),
+// by tool, for its daily caps (sheets, web search). The site's own total
+// per tool is kept under the nil installation id.
+export const agentToolDays = pgTable(
+  "agent_tool_days",
+  {
+    installationId: uuid("installation_id").notNull(),
+    day: text("day").notNull(),
+    tool: text("tool").notNull(),
+    calls: integer("calls").notNull().default(0),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.installationId, t.day, t.tool] }) }),
 );
 
 // Pages an installation's agent fetched (web.fetch) each day (UTC), for
@@ -741,6 +813,106 @@ export const agentFetchDays = pgTable(
   (t) => ({ pk: primaryKey({ columns: [t.installationId, t.day] }) }),
 );
 
+// The connection vault: each owner's links to outside services, one per
+// service. The secret (a Telegram chat, Google tokens) is AES-256-GCM
+// ciphertext only (crypto.ts), decrypted on the server for the one call
+// that needs it: never readable by agent code, makers, logs or responses.
+// label is what the owner sees ("@name", an email address). lookup is a
+// keyed hash for finding a Telegram chat's owner without decrypting every
+// row; a chat links to one owner at a time.
+export const CONNECTION_PROVIDERS = ["telegram", "google"] as const;
+export type ConnectionProvider = (typeof CONNECTION_PROVIDERS)[number];
+export const connections = pgTable(
+  "connections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: CONNECTION_PROVIDERS }).notNull(),
+    label: text("label").notNull(),
+    secretEncrypted: text("secret_encrypted").notNull(),
+    lookup: text("lookup"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  },
+  (t) => ({
+    onePerService: uniqueIndex("connections_owner_provider_idx").on(t.ownerUserId, t.provider),
+    byLookup: uniqueIndex("connections_lookup_idx").on(t.provider, t.lookup),
+    knownProvider: check("connections_provider", sql`${t.provider} in ('telegram', 'google')`),
+  }),
+);
+
+// Telegram linking: a one-time code the owner sends the bot (/start CODE)
+// from the chat they want linked. Kept as a hash; it works once, within
+// ten minutes.
+export const telegramLinkCodes = pgTable(
+  "telegram_link_codes",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ byOwner: index("telegram_link_codes_owner_idx").on(t.ownerUserId, t.createdAt) }),
+);
+
+// The webhook's secret, as a hash (one row). scripts/telegram-webhook.ts
+// sets a fresh one; the one before keeps working for a few minutes while
+// Telegram changes over.
+export const telegramWebhook = pgTable(
+  "telegram_webhook",
+  {
+    id: integer("id").primaryKey().default(1),
+    secretHash: text("secret_hash").notNull(),
+    previousHash: text("previous_hash"),
+    setAt: timestamp("set_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ one: check("telegram_webhook_one", sql`${t.id} = 1`) }),
+);
+
+// Updates already handled: Telegram sends one again when it isn't sure it
+// arrived, and it must not start a second job.
+export const telegramUpdates = pgTable("telegram_updates", {
+  updateId: bigint("update_id", { mode: "number" }).primaryKey(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// A message an owner sent the bot while they run several agents that take
+// messages: it waits here while they pick which one it is for.
+export const telegramPending = pgTable(
+  "telegram_pending",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    // The installations offered, in the menu's order.
+    installationIds: jsonb("installation_ids").$type<string[]>().notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ byOwner: index("telegram_pending_owner_idx").on(t.ownerUserId, t.createdAt) }),
+);
+
+// Connecting Google: the state of a sign-in on its way, as a hash, tied to
+// the owner who started it. It works once, within ten minutes.
+export const googleOAuthStates = pgTable("google_oauth_states", {
+  stateHash: text("state_hash").primaryKey(),
+  ownerUserId: uuid("owner_user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  returnTo: text("return_to").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
@@ -754,3 +926,4 @@ export type AgentJobStep = typeof agentJobSteps.$inferSelect;
 export type AgentTrigger = typeof agentTriggers.$inferSelect;
 export type AgentMessage = typeof agentMessages.$inferSelect;
 export type AgentApproval = typeof agentApprovals.$inferSelect;
+export type Connection = typeof connections.$inferSelect;

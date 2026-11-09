@@ -1,4 +1,5 @@
 import "server-only";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { replyUsage, type Agent, type AgentVersion } from "../db/schema";
 import { describeFailures, type JsonResult, type ModelConfig } from "../model";
@@ -27,13 +28,27 @@ export interface BuildContext {
   conversationId: string | null;
   // SERV on the maker's own key: its calls are theirs.
   ownKey: boolean;
-  // SERV only: it plans, decides and reviews. Dolphin only writes code.
+  // SERV only: it plans, decides and reviews, and writes code when Dolphin
+  // fails twice on a step. Otherwise Dolphin writes the code.
   serv: ModelConfig;
 }
 
 // Only SERV, whatever else is set up.
 export function servOnly(config: ModelConfig): ModelConfig {
   return { ...config, providers: config.providers.filter((p) => p.id === "serv") };
+}
+
+// How often SERV wrote a code step because Dolphin failed twice on it: its
+// code calls that answered, in the last 30 days and in all.
+export async function codeFallbacks(now: Date = new Date()): Promise<{ last30Days: number; total: number }> {
+  const [row] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      recent: sql<number>`count(*) filter (where ${replyUsage.createdAt} >= ${new Date(now.getTime() - 30 * 86_400_000).toISOString()}::timestamptz)::int`,
+    })
+    .from(replyUsage)
+    .where(and(eq(replyUsage.kind, "agent_code"), eq(replyUsage.provider, "serv"), eq(replyUsage.outcome, "ok")));
+  return { last30Days: row?.recent ?? 0, total: row?.total ?? 0 };
 }
 
 export type AgentCallKind = "agent_plan" | "agent_code" | "agent_review" | "agent_decision";
@@ -102,8 +117,9 @@ export async function writeAllCode(version: AgentVersion, definition: AgentDefin
         progress: async (status, round) => {
           await setStepCode(version.id, step.id, { spec, status, source: null, rounds: round, note: null, updatedAt: new Date().toISOString() });
         },
-        // Dolphin runs on the site's key, whoever is building.
-        record: (kind, call) => recordAgentCall(ctx, kind, call, kind === "agent_code" ? false : ctx.ownKey),
+        // Dolphin runs on the site's key, whoever is building; SERV (its
+        // reviews, and code it writes when Dolphin can't) on the builder's.
+        record: (kind, call) => recordAgentCall(ctx, kind, call, kind === "agent_code" && call.provider === "dolphin" ? false : ctx.ownKey),
       },
     });
     // A draft published or replanned meanwhile stops the writing.

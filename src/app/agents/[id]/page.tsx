@@ -46,9 +46,17 @@ function Builder({ id }: { id: string }) {
       fix: (message) => api.fixAgent(id, message),
       saveBench: (bench) => api.saveAgentBench(id, bench),
       publish: () => api.publishAgent(id),
-      install: async (answers) => {
-        const installed = await api.installAgent(id, answers);
-        router.push(`/installations/${installed.id}`);
+      setup: {
+        connections: api.listConnections,
+        telegramCode: api.telegramCode,
+        googleStart: api.googleStart,
+        inspectSheet: api.inspectSheet,
+        install: (answers) => api.installAgent(id, answers, { live: false }),
+        control: (installationId, action) => api.controlInstallation(installationId, action),
+        installation: api.getInstallation,
+        job: api.getJob,
+        answer: (approvalId, answer) => api.answerApproval(approvalId, answer).then(() => undefined),
+        done: (installationId) => router.push(`/installations/${installationId}`),
       },
     }),
     [api, id, router],

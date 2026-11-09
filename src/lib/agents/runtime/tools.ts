@@ -1,21 +1,33 @@
 import "server-only";
 import { eq, sql } from "drizzle-orm";
-import { agentFetchDays, agentInstallations, agentMessages, type AgentInstallation, type AgentJob } from "../../db/schema";
+import { agentFetchDays, agentInstallations, agentMessages, agentToolDays, type AgentInstallation, type AgentJob, type SheetGrant } from "../../db/schema";
+import { GoogleRevoked, GoogleUnavailable, REVOKED_REASON } from "../../google/oauth";
+import { readTab, SheetRefused, writeTab, type SheetRow } from "../../google/sheets";
+import { braveSearch, SearchRefused, SearchUnavailable } from "../../search/brave";
 import type { AgentDefinition, AgentStep, ToolName } from "../definition";
-import { Declined, InfraError, Paused, typedRules, type ToolHost } from "../runner";
+import { Declined, Halted, InfraError, Paused, type ToolHost } from "../runner";
 import { MAX_MEMORY_BYTES, memoryProblem, MockTools, TOOL_ARGS, ToolError } from "../toolbox";
 import { emptyBench } from "../types";
 import type { Runtime } from "./context";
+import { overLimit, recordSpend, spendOf } from "./spend";
 import { fetchPage, WebUnreachable } from "./webFetch";
 
-// A job's tools (and a value check's, with no job). The ones that are
-// still stand-ins (sheets, search, the wallet) answer like the test bench's
-// mocks, from the installation's own copy of the bench's data, and what
-// they change is kept on the installation for its next job. A message to
-// the owner (telegram.send) goes to the installation's in-app message box.
+// A job's tools (and a value check's, with no job). Sheets are real: the
+// owner's own Google Sheets, only the tabs they gave this installation,
+// within a number of calls a day. So is web search (Brave), within a number
+// of searches a day for each installation and for the whole site; what it
+// finds is untrusted, like a fetched page. The one still a stand-in (the
+// wallet) answers like the test bench's mock, from the installation's own
+// copy of the bench's data, and what it changes is kept on the
+// installation for its next job. A message to
+// the owner (telegram.send) goes to the installation's in-app message box
+// and to the owner's linked Telegram chat, and nowhere else.
 // Memory is real: what the agent remembers for this owner, on their
 // installation alone. So is web.fetch (webFetch.ts), within a number of
 // pages a day for each installation.
+
+// The whole site's daily counts are kept under the nil id.
+const SITE = "00000000-0000-0000-0000-000000000000";
 
 export const isYes = (answer: string | null) => answer !== null && /^\s*(yes|y|ok|okay|approve|approved|go ahead)\b/i.test(answer);
 
@@ -28,19 +40,6 @@ export class JobTools implements ToolHost {
     private definition: AgentDefinition,
     private job: AgentJob | null,
   ) {}
-
-  // The question for a payment over its action's limit, or null when it is
-  // within it. The limit is the owner's value of the action's askOver rule.
-  private overLimit(step: AgentStep, args: unknown): string | null {
-    const d = this.definition;
-    const action = step.kind === "action" ? d.actions.find((a) => a.id === step.action) : d.actions.find((a) => a.tool === "wallet.pay" && a.askOver);
-    const rule = action?.askOver ? d.rules.find((r) => r.key === action.askOver) : undefined;
-    const parsed = TOOL_ARGS["wallet.pay"].safeParse(args);
-    if (!rule || !parsed.success) return null;
-    const limit = typedRules(d, this.installation.rules)[rule.key];
-    if (typeof limit !== "number" || parsed.data.amountUsdc <= limit) return null;
-    return `Pay ${parsed.data.amountUsdc} USDC to ${parsed.data.to}${parsed.data.memo ? ` (${parsed.data.memo})` : ""}? That's over your limit of ${limit} USDC ("${rule.label}").`;
-  }
 
   // The installation's stand-in data, read fresh when a job (re)starts.
   private async mocks(): Promise<MockTools> {
@@ -59,28 +58,105 @@ export class JobTools implements ToolHost {
       if (approval.answer === null) throw new Declined(null);
       return { answer: approval.answer };
     }
-    if (tool === "wallet.pay") {
-      const over = this.overLimit(step, args);
-      if (over && !approval) throw new Paused({ kind: "over_limit", question: over, choices: ["Yes", "No"] });
+    // Spending waits for the owner's yes when it would take the job's or
+    // the day's total over a limit (spend.ts), and counts once it is done.
+    const spend = spendOf(this.definition, step, tool, args);
+    if (spend) {
+      const over = await overLimit(this.rt, this.installation, this.definition, this.job?.id ?? null, spend);
+      if (over && !approval) throw new Paused({ kind: "over_limit", question: over, choices: ["Yes", "No"], tool });
       if (over && !isYes(approval!.answer)) throw new Declined(approval!.answer);
     }
+    const result = await this.use(step, tool, args);
+    if (spend) await recordSpend(this.rt, this.installation, this.job?.id ?? null, spend);
+    return result;
+  }
+
+  private async use(step: AgentStep, tool: ToolName, args: unknown): Promise<unknown> {
+    if (tool === "sheets.read" || tool === "sheets.write") return this.sheet(tool, args);
     if (tool === "memory.get" || tool === "memory.set") return this.memory(tool, args);
     if (tool === "web.fetch") return this.fetch(args);
+    if (tool === "web.search") return this.search(args);
     if (tool === "telegram.send") {
       const parsed = TOOL_ARGS["telegram.send"].safeParse(args);
       if (!parsed.success) throw new ToolError(tool, "telegram.send was called wrongly: it takes { text }.");
-      await this.rt.db.insert(agentMessages).values({ installationId: this.installation.id, from: "agent", text: parsed.data.text, jobId: this.job?.id ?? null, createdAt: this.rt.now() });
+      // To the owner's message box, and their linked Telegram chat: the
+      // only place it can go (telegram/deliver.ts).
+      await this.rt.db.insert(agentMessages).values({ installationId: this.installation.id, from: "agent", text: parsed.data.text, jobId: this.job?.id ?? null, tgState: "pending", createdAt: this.rt.now() });
       return { sent: true };
     }
     const mock = await this.mocks();
     const result = await mock.call(tool, args);
-    if (tool === "sheets.write" || tool === "wallet.pay") {
+    if (tool === "wallet.pay") {
       await this.rt.db
         .update(agentInstallations)
         .set({ mocks: mock.kept, updatedAt: this.rt.now() })
         .where(eq(agentInstallations.id, this.installation.id));
     }
     return result;
+  }
+
+  // One more call of a kind today, within its limit: false when the limit
+  // is reached. The site's own total is kept under the nil id.
+  private async take(tool: string, limit: number, id = this.installation.id): Promise<boolean> {
+    const day = this.rt.now().toISOString().slice(0, 10);
+    const taken = await this.rt.db
+      .insert(agentToolDays)
+      .values({ installationId: id, day, tool, calls: 1 })
+      .onConflictDoUpdate({ target: [agentToolDays.installationId, agentToolDays.day, agentToolDays.tool], set: { calls: sql`${agentToolDays.calls} + 1` }, setWhere: sql`${agentToolDays.calls} < ${limit}` })
+      .returning({ calls: agentToolDays.calls });
+    return taken.length > 0;
+  }
+
+  // The tab a sheet tool names: by its name (the value of a sheet setting)
+  // or by the setting itself. Only the tabs the owner gave this
+  // installation; any other name is refused, whatever the code passes.
+  private grant(name: string): SheetGrant {
+    const grants = Object.entries((this.installation.sheets ?? {}) as Record<string, SheetGrant>);
+    const byKey = grants.find(([k]) => k === name)?.[1];
+    if (byKey) return byKey;
+    const byTab = grants.filter(([, g]) => g.tab === name).map(([, g]) => g);
+    if (byTab.length && byTab.every((g) => g.spreadsheetId === byTab[0]!.spreadsheetId)) return byTab[0]!;
+    const given = [...new Set(grants.map(([, g]) => `"${g.tab}"`))];
+    throw new ToolError("sheets", given.length ? `This agent wasn't given a sheet called "${name}". It was given ${given.join(", ")}.` : "This agent wasn't given any sheets.");
+  }
+
+  private async sheet(tool: "sheets.read" | "sheets.write", args: unknown): Promise<unknown> {
+    const parsed = TOOL_ARGS[tool].safeParse(args);
+    if (!parsed.success) throw new ToolError(tool, tool === "sheets.read" ? "sheets.read was called wrongly: it takes { sheet }." : "sheets.write was called wrongly: it takes { sheet, rows, mode? }.");
+    const g = this.grant(parsed.data.sheet);
+    const limit = this.rt.services.caps.sheetCalls;
+    if (!(await this.take("sheets", limit))) throw new ToolError(tool, `It reached its limit of ${limit} sheet calls today.`);
+    try {
+      if (tool === "sheets.read") return { rows: await readTab(this.rt, this.installation.ownerUserId, g) };
+      const w = parsed.data as unknown as { rows: SheetRow[]; mode?: "append" | "replace" };
+      return { written: await writeTab(this.rt, this.installation.ownerUserId, g, w.rows, w.mode ?? "append") };
+    } catch (err) {
+      if (err instanceof GoogleRevoked) throw new Halted(REVOKED_REASON);
+      if (err instanceof GoogleUnavailable) throw new InfraError(err.message);
+      if (err instanceof SheetRefused) throw new ToolError(tool, err.message);
+      throw err;
+    }
+  }
+
+  // A real web search, within the installation's searches a day and the
+  // site's. Brave being busy is worth another try; refusing isn't.
+  private async search(args: unknown): Promise<unknown> {
+    const parsed = TOOL_ARGS["web.search"].safeParse(args);
+    if (!parsed.success) throw new ToolError("web.search", "web.search was called wrongly: it takes { query }.");
+    if (!this.rt.services.braveKey) throw new ToolError("web.search", "Web search isn't set up here.");
+    const { searches, siteSearches } = this.rt.services.caps;
+    if (!(await this.take("search", searches))) throw new ToolError("web.search", `It reached its limit of ${searches} searches today.`);
+    if (!(await this.take("search", siteSearches, SITE))) throw new ToolError("web.search", "boardofserv's web searches for today are used up. It can search again tomorrow.");
+    try {
+      return { results: await braveSearch(this.rt.services, parsed.data.query) };
+    } catch (err) {
+      if (err instanceof SearchUnavailable) throw new InfraError(err.message);
+      if (err instanceof SearchRefused) {
+        this.rt.log(`search: refused: ${err.message}`);
+        throw new ToolError("web.search", err.message);
+      }
+      throw err;
+    }
   }
 
   // A real page, within the installation's pages a day. A page that can't

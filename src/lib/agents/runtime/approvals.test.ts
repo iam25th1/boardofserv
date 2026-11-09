@@ -169,7 +169,7 @@ describe("a payment over a rule's limit", () => {
     const [a] = await approvalsOf(rt, owner.id, { pendingOnly: true });
     expect(a).toMatchObject({
       kind: "over_limit",
-      question: 'Pay 300 USDC to Weftworks (linen)? That\'s over your limit of 250 USDC ("Ask me before orders over").',
+      question: 'Pay 300 USDC to Weftworks (linen)? This job\'s spending would come to 300 USDC, over your limit of 250 USDC ("Ask me before orders over").',
       options: [
         { label: "Yes", effect: "It pays, and the job is done." },
         { label: "No", effect: "It doesn't pay, and the job stops." },

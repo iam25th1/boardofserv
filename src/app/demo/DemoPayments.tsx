@@ -83,6 +83,7 @@ const adminFor = (treasury: string): AdminDTO => ({
     waiting: [{ id: "00000000-0000-4000-8000-000000000001", handle: "maker_2207", email: "jo@example.com", joinedAt: new Date(Date.UTC(2026, 10, 7, 14)).toISOString() }],
   },
   spend: { today: 0.4213, limit: 2, resetsAt: new Date(Date.UTC(2026, 10, 9)).toISOString() },
+  codeFallbacks: { last30Days: 1, total: 3 },
   network: "base-sepolia",
   networkLabel: "Base Sepolia",
   chainId: 84532,

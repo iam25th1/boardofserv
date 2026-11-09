@@ -24,7 +24,7 @@ describe("the agent format", () => {
     expect(d.format).toBe(1);
     expect(d.job.done).toMatch(/order recorded/);
     expect(d.triggers).toEqual([{ kind: "schedule", every: "day", at: "08:00", description: "Every morning at eight" }]);
-    expect(d.settings.map((s) => s.key)).toEqual(["stock_sheet", "orders_sheet"]);
+    expect(d.settings.map((s) => s.key)).toEqual(["stock_sheet", "orders_sheet", "suppliers_sheet"]);
     expect(d.rules[0]).toEqual({ key: "approval_over_usdc", label: "Ask me before orders over", type: "usdc", value: "250", help: "Orders over this wait for your yes." });
     expect(d.memory[0]!.key).toBe("last_order");
     expect(d.steps.map((s) => s.kind)).toEqual(["code", "code", "decision", "action", "decision", "action"]);
@@ -95,6 +95,19 @@ describe("the agent format", () => {
     expect(errorsOf((d) => void d.steps[2]!.inputs.push("order_rows"))).toContain(
       'step "record" takes record_order (sheets.write) with "order_rows", which other steps read too: give it a value of its own, made by a code step as sheets.write\'s arguments',
     );
+  });
+
+  it("lets only spending ask over a limit: a payment, or rows with an amount column", () => {
+    const record = (d: AgentDefinition) => d.actions.find((a) => a.id === "record_order")!;
+    expect(errorsOf((d) => Object.assign(record(d), { askOver: "approval_over_usdc" }))).toEqual([
+      'action "record_order" asks over a limit, which only spending can: a payment (wallet.pay), or sheets.write with an amountColumn',
+    ]);
+    expect(errorsOf((d) => Object.assign(record(d), { askOver: "approval_over_usdc", askOverDay: "approval_over_usdc", amountColumn: "cost_usdc" }))).toEqual([]);
+    expect(errorsOf((d) => Object.assign(record(d), { amountColumn: "cost_usdc", askOverDay: "max_delivery_days" }))).toEqual([]);
+    expect(errorsOf((d) => Object.assign(record(d), { amountColumn: "cost_usdc", askOver: "nope" }))).toEqual(['action "record_order" asks over "nope", which is not a rule']);
+    expect(errorsOf((d) => Object.assign(d.actions[0]!, { amountColumn: "cost_usdc" }))).toEqual([
+      'action "ask_owner" names an amount column, which only rows written to a sheet (sheets.write) have',
+    ]);
   });
 
   it("refuses a step that reads a value not every way to it has made", () => {

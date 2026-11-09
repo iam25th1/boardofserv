@@ -1,4 +1,5 @@
 import "server-only";
+import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
@@ -6,12 +7,14 @@ import { migrate } from "drizzle-orm/pglite/migrator";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import * as schema from "../db/schema";
 import type { InstallationDTO, JobDTO, JobSummaryDTO } from "../types";
+import { keep } from "../connections/vault";
+import { MemorySheets } from "../google/memorySheets";
 import type { AgentDefinition, DecisionStepDef } from "./definition";
 import restock from "./examples/restock.json";
 import { SUPPLIERS_HTML } from "./examples/supplierPage";
 import type { Decided } from "./runner";
 import { answer } from "./runtime/approvals";
-import type { Runtime } from "./runtime/context";
+import { DEFAULT_CAPS, type Runtime } from "./runtime/context";
 import { control, install, installationDTO, loadInstallation, type Control } from "./runtime/installations";
 import { jobFor, jobsOfInstallation } from "./runtime/views";
 import { jobWorker } from "./runtime/worker";
@@ -19,14 +22,17 @@ import type { BenchData, StepCode } from "./types";
 
 // /demo?agent=restock&live=1, development only: the example restock agent
 // installed for a test owner and running for real, on the real runtime
-// (installation, schedule, jobs, the worker, approvals that wait, web.fetch)
-// in an in-memory Postgres inside the development server, so it needs no
-// database and no keys. Every 90 seconds instead of every morning (and not
-// while a job waits for an answer), against the stand-in sheets and the
-// suppliers' price page this route serves itself. Decisions are made by a
-// stand-in for SERV that follows the example's own rules, so no model is
-// called. The route that imports this does so inside a development-only
-// branch: a production build doesn't have it.
+// (installation, schedule, jobs, the worker, the spending guard and its
+// approvals that wait, web.fetch, the sheet tools) in an in-memory
+// Postgres inside the development server, so it needs no database and no
+// keys. Every 90 seconds instead of every morning (and not while a job
+// waits for an answer), against a Google Sheet held in memory (Google's
+// API answered here) and the suppliers' price page this route serves
+// itself. The owner's connections are stand-ins: Telegram isn't set up,
+// so questions are answered in the page. Decisions are made by a stand-in
+// for SERV that follows the example's own rules, so no model is called.
+// The route that imports this does so inside a development-only branch: a
+// production build doesn't have it.
 
 export const DEMO_EVERY_MS = 90_000;
 const TICK_MS = 2_000;
@@ -43,27 +49,33 @@ const g = globalThis as unknown as { __bosDemoLive?: Promise<Demo> };
 const definition = restock.definition as AgentDefinition;
 const code = Object.fromEntries(Object.entries(restock.code).map(([k, c]) => [k, { ...c, spec: "", updatedAt: restock.builtAt } as StepCode]));
 
-// The example's own rules, in place of SERV: ask over the owner's limit;
-// go ahead on a yes.
+// The example's own rule, in place of SERV: anything to order today?
 async function standIn(step: DecisionStepDef, input: Record<string, unknown>): Promise<Decided> {
   const pick = (id: string, note: string): Decided => ({ ok: true, outcome: step.outcomes.some((o) => o.id === id) ? id : step.outcomes[0]!.id, note, costUsd: 0, model: "demo stand-in" });
-  // "Do any orders exceed the approval limit?": each order line on its own.
-  if (step.id === "check_approval") {
-    const orders = (input.orders_to_place as { fabric?: string; total_cost_usdc?: number }[] | null) ?? [];
-    const limit = Number((input.rules as { approval_limit?: number } | null)?.approval_limit ?? 0);
-    const over = orders.filter((o) => Number(o.total_cost_usdc) > limit);
-    return over.length
-      ? pick("needs_approval", `${over.map((o) => `${o.fabric} (${o.total_cost_usdc} USDC)`).join(", ")} ${over.length === 1 ? "is" : "are"} over your limit of ${limit} USDC.`)
-      : pick("no_approval_needed", `Every order is within your limit of ${limit} USDC.`);
-  }
-  if (step.id === "approval_decision") {
-    const said = (input.approval_response as { answer?: string | null } | null)?.answer ?? null;
-    return /^\s*yes/i.test(said ?? "") ? pick("approved", "You said yes.") : pick("declined", said === null ? "No answer came." : "You said no.");
+  if (step.id === "check_orders_exist") {
+    const orders = (input.orders_to_place as { fabric?: string }[] | null) ?? [];
+    return orders.length ? pick("orders_found", `${orders.map((o) => o.fabric).join(", ")} ${orders.length === 1 ? "needs" : "need"} reordering.`) : pick("no_orders", "Nothing is low today.");
   }
   return pick(step.outcomes[0]!.id, "The demo's stand-in took the first outcome.");
 }
 
+const SHEET_ID = "DemoFabricShopSheet00000000000";
+
 async function start(origin: string): Promise<Demo> {
+  // The connections' stand-ins are kept encrypted like real ones: with no
+  // key set (a development server without .env.local), one for this
+  // process only.
+  process.env.OPENSERV_KEY_ENC_KEY ||= randomBytes(32).toString("base64");
+  const sheets = new MemorySheets();
+  const bench = restock.bench as BenchData;
+  sheets.add(SHEET_ID, "Fabric shop (demo)", { Stock: bench.sheets.Stock ?? [], Orders: [] });
+  // Google, answered here: the in-memory sheet and a token that never runs out.
+  const google = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    if (url.host === "sheets.googleapis.com") return sheets.answer(url, (init?.method ?? "GET").toUpperCase(), init?.body ? String(init.body) : null);
+    if (url.href === "https://oauth2.googleapis.com/token") return Response.json({ access_token: "demo-access", expires_in: 3600 });
+    return fetch(input, init);
+  };
   const client = new PGlite();
   const db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder: join(process.cwd(), "src/lib/db/migrations") });
@@ -76,11 +88,13 @@ async function start(origin: string): Promise<Demo> {
     decide: standIn,
     web: { allowOrigins: [origin] },
     fetchesPerDay: 10_000,
+    services: { fetch: google as typeof fetch, telegramToken: null, google: { clientId: "demo", clientSecret: "demo", redirectUri: `${origin}/api/connections/google/callback` }, braveKey: null, caps: DEFAULT_CAPS },
     log: (line) => console.info(`demo: ${line}`),
   };
   const [owner] = await db.insert(schema.users).values({ privyUserId: "did:demo:shop", handle: "fabric_shop", access: "approved" }).returning();
+  await keep(rt, owner!.id, "telegram", "@fabric_shop (demo)", { chatId: 0, userId: 0 });
+  await keep(rt, owner!.id, "google", "shop@example.com (demo)", { refreshToken: "demo", accessToken: "demo-access", expiresAt: Date.now() + 365 * 86_400_000, scope: "https://www.googleapis.com/auth/spreadsheets" });
   const [agent] = await db.insert(schema.agents).values({ ownerUserId: owner!.id, name: definition.name }).returning();
-  const bench = restock.bench as BenchData;
   const [version] = await db
     .insert(schema.agentVersions)
     .values({ agentId: agent!.id, number: 1, state: "published", publishedAt: new Date(), definition, code, bench })
@@ -90,7 +104,12 @@ async function start(origin: string): Promise<Demo> {
     agent: agent!,
     version: version!,
     answers: {
-      settings: { ...bench.settings, suppliers_page: `${origin}/api/demo/agent/live?page=prices` },
+      settings: {
+        ...bench.settings,
+        stock_sheet: { url: `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=0`, tab: "Stock" },
+        orders_sheet: { url: `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`, tab: "Orders" },
+        suppliers_page: `${origin}/api/demo/agent/live?page=prices`,
+      },
       // Low enough that the linen order needs the owner's yes.
       rules: { approval_limit: "50" },
       timezone: "UTC",

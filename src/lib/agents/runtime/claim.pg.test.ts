@@ -7,10 +7,8 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { and, eq } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import type { Runtime } from "./context";
-import { install } from "./installations";
 import { claimJob, enqueue } from "./jobs";
-import { publishedAgent } from "@/test/runtimeFixtures";
-import { testRuntime } from "@/test/runtimeFixtures";
+import { installed, publishedAgent, testRuntime } from "@/test/runtimeFixtures";
 
 // Two workers on two real connections claiming at once, on a real Postgres
 // (PGlite has one session, so it can't show a race): every job is claimed
@@ -53,7 +51,7 @@ describe.skipIf(!URL)("claiming jobs, on a real Postgres", () => {
     const p = await publishedAgent(dbA as never, owner!);
     const ids: string[] = [];
     for (let i = 0; i < 6; i++) {
-      const inst = await install(rtA, { ownerUserId: owner!.id, agent: p.agent, version: p.version, answers: { settings: { stock_sheet: "Stock", orders_sheet: "Orders" }, rules: {}, timezone: "UTC", minGapMinutes: 0 } });
+      const inst = await installed(rtA, owner!, p);
       for (let j = 0; j < 3; j++) ids.push((await enqueue(rtA, inst, { kind: "manual" })).id);
     }
     const claimed: { id: string; by: string }[] = [];

@@ -11,6 +11,7 @@ export const RESTOCK_WIRE = {
   settings: [
     { key: "stock_sheet", label: "Which sheet holds your stock?", type: "sheet", help: "Rows with fabric, metres in stock and the minimum.", choices: [] },
     { key: "orders_sheet", label: "Where should orders go?", type: "sheet", help: "Each order is added as a row.", choices: [] },
+    { key: "suppliers_sheet", label: "Which sheet lists your suppliers?", type: "sheet", help: "Rows with supplier, fabric, price_usdc and delivery_days.", choices: [] },
   ],
   rules: [
     { key: "approval_over_usdc", label: "Ask me before orders over", type: "usdc", value: "250", help: "Orders over this wait for your yes." },
@@ -23,7 +24,7 @@ export const RESTOCK_WIRE = {
   ],
   steps: [
     { id: "find_low", title: "Find low stock", kind: "code", inputs: ["settings"], outputs: ["low"], next: "compare", description: "Read the stock sheet named in settings.stock_sheet and return low: the rows whose metres are below their minimum.", tools: ["sheets.read"], prompt: "", outcomes: [], action: "" },
-    { id: "compare", title: "Compare suppliers", kind: "code", inputs: ["low", "rules", "settings"], outputs: ["order", "order_rows"], next: "check_total", description: "Read the Suppliers sheet. For each low fabric pick the cheapest supplier whose delivery_days is at most rules.max_delivery_days, order enough metres to reach twice the minimum, and return order: { lines, total_usdc } and order_rows: { sheet: settings.orders_sheet, rows } with one row per line.", tools: ["sheets.read"], prompt: "", outcomes: [], action: "" },
+    { id: "compare", title: "Compare suppliers", kind: "code", inputs: ["low", "rules", "settings"], outputs: ["order", "order_rows"], next: "check_total", description: "Read the suppliers sheet named in settings.suppliers_sheet. For each low fabric pick the cheapest supplier whose delivery_days is at most rules.max_delivery_days, order enough metres to reach twice the minimum, and return order: { lines, total_usdc } and order_rows: { sheet: settings.orders_sheet, rows } with one row per line.", tools: ["sheets.read"], prompt: "", outcomes: [], action: "" },
     { id: "check_total", title: "Big order?", kind: "decision", inputs: ["order", "rules"], outputs: [], next: "", description: "", tools: [], prompt: "Is order.total_usdc over rules.approval_over_usdc?", outcomes: [{ id: "over", label: "Over the limit", next: "ask_owner" }, { id: "within", label: "Within the limit", next: "record" }], action: "" },
     { id: "ask_owner", title: "Ask the owner", kind: "action", inputs: ["order"], outputs: ["answer"], next: "approved", description: "", tools: [], prompt: "", outcomes: [], action: "ask_owner" },
     { id: "approved", title: "Owner said yes?", kind: "decision", inputs: ["answer"], outputs: [], next: "", description: "", tools: [], prompt: "Did the owner agree to the order?", outcomes: [{ id: "yes", label: "Yes", next: "record" }, { id: "no", label: "No", next: "" }], action: "" },
@@ -38,7 +39,7 @@ export const FIND_LOW = `async function run(input, tools) {
 }`;
 
 export const COMPARE = `async function run(input, tools) {
-  const { rows } = await tools.sheets.read({ sheet: "Suppliers" });
+  const { rows } = await tools.sheets.read({ sheet: input.settings.suppliers_sheet });
   const maxDays = Number(input.rules.max_delivery_days);
   const lines = [];
   for (const fabric of input.low) {
@@ -56,7 +57,7 @@ export const COMPARE = `async function run(input, tools) {
 
 export function restockBench(): BenchData {
   return {
-    settings: { stock_sheet: "Stock", orders_sheet: "Orders" },
+    settings: { stock_sheet: "Stock", orders_sheet: "Orders", suppliers_sheet: "Suppliers" },
     rules: {},
     trigger: null,
     sheets: {

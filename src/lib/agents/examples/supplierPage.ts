@@ -1,9 +1,12 @@
 // The suppliers' price list the example restock agent reads with
-// web.fetch: a plain page, one row per supplier and fabric. The test suite
-// and the development demo serve it on their own address; the test bench
-// has its text, as web.fetch would give it, under SUPPLIERS_URL.
+// web.fetch: a plain page, one row per supplier and fabric. boardofserv
+// serves it publicly at SUPPLIERS_URL (app/examples/suppliers), so the
+// example runs for real against a page on the open web with made-up,
+// neutral data. The test suite and the development demo serve it on their
+// own address, never the internet; the test bench has its text, as
+// web.fetch would give it, under SUPPLIERS_URL.
 
-export const SUPPLIERS_URL = "https://suppliers.example/prices";
+export const SUPPLIERS_URL = "https://boardofserv.25th.dev/examples/suppliers";
 
 export const SUPPLIERS = [
   { supplier: "Northmill Textiles", fabric: "Linen, natural", price_usdc: 6.5, delivery_days: 3 },

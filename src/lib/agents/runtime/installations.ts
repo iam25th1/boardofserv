@@ -1,8 +1,12 @@
 import "server-only";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { agentApprovals, agentInstallations, agentJobs, agents, agentTriggers, agentVersions, type Agent, type AgentInstallation, type AgentVersion } from "../../db/schema";
+import { agentApprovals, agentInstallations, agentJobs, agents, agentTriggers, agentVersions, type Agent, type AgentInstallation, type AgentVersion, type SheetGrant } from "../../db/schema";
+import { GoogleRevoked, GoogleUnavailable } from "../../google/oauth";
+import { isSheetAnswer, parseSheetLink, sheetLink } from "../../google/sheetLink";
+import { SheetRefused, sheetInfo } from "../../google/sheets";
 import type { InstallationDTO } from "../../types";
-import type { AgentDefinition } from "../definition";
+import { hasConnection, SERVICE_NAME } from "../../connections/vault";
+import { connectionsNeeded, type AgentDefinition } from "../definition";
 import { describeTriggers } from "../schedule";
 import { checkAnswers, type InstallAnswers } from "../settingsForm";
 import { emptyBench } from "../types";
@@ -37,12 +41,17 @@ export function notRunnable(version: AgentVersion): string | null {
   return null;
 }
 
-export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agent; version: AgentVersion; answers: InstallAnswers }): Promise<AgentInstallation> {
+// live: false sets it up for a test run first (not live): nothing starts
+// it but its owner's test runs, until they make it live.
+export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agent; version: AgentVersion; answers: InstallAnswers; live?: boolean }): Promise<AgentInstallation> {
   const why = notRunnable(o.version);
   if (why) throw new InstallRefused(why);
   const d = o.version.definition!;
+  const missing = await missingConnections(rt, o.ownerUserId, d);
+  if (missing.length) throw new InstallRefused(`${missing.map((p) => (p === "telegram" ? "Link Telegram" : "Connect Google")).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
   const checked = checkAnswers(d, o.answers);
   if (!checked.ok) throw new InstallRefused("Some answers need another look.", checked.errors);
+  const { settings, sheets } = await grantSheets(rt, o.ownerUserId, d, checked.settings);
   const bench = o.version.bench ?? emptyBench();
   const now = rt.now();
   const [row] = await rt.db
@@ -51,7 +60,9 @@ export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agen
       agentId: o.agent.id,
       versionId: o.version.id,
       ownerUserId: o.ownerUserId,
-      settings: checked.settings,
+      live: o.live !== false,
+      settings,
+      sheets,
       rules: checked.rules,
       mocks: { sheets: bench.sheets, search: bench.search, wallet: bench.wallet },
       timezone: checked.timezone,
@@ -62,8 +73,55 @@ export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agen
       updatedAt: now,
     })
     .returning();
-  await setUpTriggers(rt, row!, d);
+  if (row!.live) await setUpTriggers(rt, row!, d);
   return row!;
+}
+
+// The sheets an owner gives an installation: each sheet setting's link
+// opened on the owner's own Google access (so it is one they may open),
+// its tab found, and kept as a grant. Code sees the tab's name; the sheet
+// tools reach only the tabs granted here.
+export async function grantSheets(rt: Runtime, ownerUserId: string, d: AgentDefinition, answers: Record<string, unknown>): Promise<{ settings: Record<string, unknown>; sheets: Record<string, SheetGrant> }> {
+  const settings = { ...answers };
+  const sheets: Record<string, SheetGrant> = {};
+  const asked = d.settings.filter((s) => s.type === "sheet");
+  if (!asked.length) return { settings, sheets };
+  if (!(await hasConnection(rt, ownerUserId, "google"))) throw new InstallRefused("Connect Google first, on Connections: this agent works on your Google Sheets.");
+  const errors: Record<string, string> = {};
+  const seen = new Map<string, string>();
+  for (const s of asked) {
+    const v = answers[s.key];
+    const link = isSheetAnswer(v) ? parseSheetLink(v.url) : null;
+    if (!isSheetAnswer(v) || !link) {
+      errors[s.key] = "Paste the link of a Google Sheet, then pick its tab.";
+      continue;
+    }
+    try {
+      const info = await sheetInfo(rt, ownerUserId, link.spreadsheetId);
+      const tab = info.tabs.find((t) => t.title === v.tab);
+      if (!tab) {
+        errors[s.key] = `"${info.title}" has no tab called "${v.tab}". Pick one of its tabs.`;
+        continue;
+      }
+      // Code names a tab by its name: two tabs of one name in different
+      // spreadsheets couldn't be told apart.
+      const other = seen.get(tab.title);
+      if (other && other !== link.spreadsheetId) {
+        errors[s.key] = `Another sheet here has a tab called "${tab.title}" too. Rename one of the tabs, then try again.`;
+        continue;
+      }
+      seen.set(tab.title, link.spreadsheetId);
+      sheets[s.key] = { spreadsheetId: link.spreadsheetId, title: info.title, tab: tab.title, tabId: tab.id };
+      settings[s.key] = tab.title;
+    } catch (err) {
+      if (err instanceof SheetRefused) errors[s.key] = err.message;
+      else if (err instanceof GoogleRevoked) throw new InstallRefused("Google stopped letting boardofserv in. Connect Google again on Connections, then try again.");
+      else if (err instanceof GoogleUnavailable) throw new InstallRefused("Google couldn't be reached just now. Try again in a minute.");
+      else throw err;
+    }
+  }
+  if (Object.keys(errors).length) throw new InstallRefused("Some answers need another look.", errors);
+  return { settings, sheets };
 }
 
 // An installation with its agent and version, for its owner only: null for
@@ -116,15 +174,22 @@ export async function installationDTO(rt: Runtime, l: Loaded): Promise<Installat
     agentId: l.agent.id,
     name: d.name,
     version: l.version.number,
-    status: i.status,
+    // Set up but not live yet reads as testing.
+    status: i.status === "active" && !i.live ? "testing" : i.status,
+    pausedReason: i.status === "paused" ? i.pausedReason : null,
+    needs: connectionsNeeded(d),
+    missing: await missingConnections(rt, i.ownerUserId, d),
     timezone: i.timezone,
-    settings: d.settings.map((s) => ({ key: s.key, label: s.label, value: i.settings[s.key] ?? null })),
+    settings: d.settings.map((s) => {
+      const g = (i.sheets as Record<string, SheetGrant>)[s.key];
+      return { key: s.key, label: s.label, value: i.settings[s.key] ?? null, ...(g ? { sheet: { title: g.title, tab: g.tab, link: sheetLink(g.spreadsheetId, g.tabId) } } : {}) };
+    }),
     rules: d.rules.map((r) => ({ key: r.key, label: r.label, type: r.type, value: i.rules[r.key] ?? r.value })),
     minGapMinutes: i.minGapMinutes,
     dailySpendUsd: Number(i.dailySpendUsd),
     createdAt: i.createdAt.toISOString(),
     runs: describeTriggers(d, i.schedule),
-    nextRunAt: i.status === "active" && next.length ? new Date(Math.min(...next)).toISOString() : null,
+    nextRunAt: i.status === "active" && i.live && next.length ? new Date(Math.min(...next)).toISOString() : null,
     takesMessages: d.triggers.some((t) => t.kind === "message"),
     checkNote: failing?.note ?? null,
     memory: d.memory.map((m) => ({ key: m.key, description: m.description, value: i.memory[m.key] ?? null })),
@@ -134,7 +199,15 @@ export async function installationDTO(rt: Runtime, l: Loaded): Promise<Installat
   };
 }
 
-export type Control = "pause" | "resume" | "stop" | "run";
+// The connections this agent needs that its owner hasn't made.
+export async function missingConnections(rt: Runtime, ownerUserId: string, d: AgentDefinition): Promise<("telegram" | "google")[]> {
+  const needs = connectionsNeeded(d);
+  const missing: ("telegram" | "google")[] = [];
+  for (const p of ["telegram", "google"] as const) if (needs[p] && !(await hasConnection(rt, ownerUserId, p))) missing.push(p);
+  return missing;
+}
+
+export type Control = "pause" | "resume" | "stop" | "run" | "test" | "golive";
 
 export class ControlRefused extends Error {
   constructor(message: string) {
@@ -151,20 +224,43 @@ export class ControlRefused extends Error {
 //   is cancelled with its question, and a running job finishes the step
 //   it is on and stops there.
 // - run: one job now, by hand (it still keeps the minimum gap).
+// - test: while it is being set up, one job now, by hand: everything for
+//   real, once, before it goes live.
+// - golive: from being set up to running on its own (its triggers start).
 export async function control(rt: Runtime, l: Loaded, action: Control): Promise<void> {
   const { installation: i, definition: d } = l;
   const now = rt.now();
   const here = eq(agentInstallations.id, i.id);
   if (i.status === "stopped") throw new ControlRefused("It's stopped for good. Start it again from its agent's page.");
+  if (!i.live && !["test", "golive", "stop", "resume"].includes(action)) throw new ControlRefused("It isn't live yet: run a test, then make it live.");
+  if (action === "test" || action === "golive") {
+    if (i.live) throw new ControlRefused(action === "test" ? "It's live already: use Run now." : "It's live already.");
+    if (i.status !== "active") throw new ControlRefused("Resume it first.");
+  }
+  if (action === "test") {
+    const missing = await missingConnections(rt, i.ownerUserId, d);
+    if (missing.length) throw new ControlRefused(`Connect ${missing.map((p) => SERVICE_NAME[p]).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
+    await enqueue(rt, i, { kind: "test" });
+    return;
+  }
+  if (action === "golive") {
+    const missing = await missingConnections(rt, i.ownerUserId, d);
+    if (missing.length) throw new ControlRefused(`Connect ${missing.map((p) => SERVICE_NAME[p]).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
+    const [row] = await rt.db.update(agentInstallations).set({ live: true, updatedAt: now }).where(and(here, eq(agentInstallations.live, false))).returning();
+    if (row) await setUpTriggers(rt, row, d);
+    return;
+  }
   if (action === "pause") {
     if (i.status !== "active") throw new ControlRefused("It's paused already.");
-    await rt.db.update(agentInstallations).set({ status: "paused", updatedAt: now }).where(here);
+    await rt.db.update(agentInstallations).set({ status: "paused", pausedReason: null, updatedAt: now }).where(here);
     return;
   }
   if (action === "resume") {
     if (i.status !== "paused") throw new ControlRefused("It isn't paused.");
-    const [row] = await rt.db.update(agentInstallations).set({ status: "active", updatedAt: now }).where(here).returning();
-    await setUpTriggers(rt, row!, d);
+    const missing = await missingConnections(rt, i.ownerUserId, d);
+    if (missing.length) throw new ControlRefused(`Connect ${missing.map((p) => SERVICE_NAME[p]).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
+    const [row] = await rt.db.update(agentInstallations).set({ status: "active", pausedReason: null, updatedAt: now }).where(here).returning();
+    if (row!.live) await setUpTriggers(rt, row!, d);
     return;
   }
   if (action === "run") {

@@ -57,7 +57,7 @@ describe("a dry run", () => {
   it("reports each step's input and output, its tool calls and its time, as it happens", async () => {
     const { events } = await run({});
     expect(events[0]).toEqual({ type: "start", dryRun: true });
-    expect(events[1]).toEqual({ type: "step", stepId: "find_low", input: { settings: { stock_sheet: "Stock", orders_sheet: "Orders" } } });
+    expect(events[1]).toEqual({ type: "step", stepId: "find_low", input: { settings: { stock_sheet: "Stock", orders_sheet: "Orders", suppliers_sheet: "Suppliers" } } });
     expect(events[2]).toMatchObject({ type: "tool", stepId: "find_low", tool: "sheets.read", args: { sheet: "Stock" }, error: null });
     const done = events[3] as Extract<RunEvent, { type: "step_done" }>;
     expect(done).toMatchObject({ type: "step_done", stepId: "find_low", status: "ok", output: { low: [{ fabric: "Linen, natural", metres: 4, minimum: 20 }, { fabric: "Wool felt", metres: 6, minimum: 10 }] } });

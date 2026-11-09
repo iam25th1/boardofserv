@@ -1,0 +1,115 @@
+/* The owner's connections: one chalk card per service. */
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-4);
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-xl);
+  background: var(--slate-2);
+}
+.card[data-connected="true"] {
+  border: var(--stroke) solid var(--chalk);
+}
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2) var(--s-4);
+}
+.name {
+  position: relative;
+  font-weight: var(--w-semibold);
+  font-size: var(--t-lg);
+  line-height: var(--lh-tight);
+  padding-bottom: 6px;
+}
+.line {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 8px;
+  overflow: visible;
+  fill: none;
+  stroke: var(--chalk);
+  stroke-width: var(--stroke);
+  stroke-linecap: round;
+}
+.state {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}
+.card[data-connected="true"] .state {
+  color: var(--chalk);
+}
+.for {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  max-width: 60ch;
+}
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  font-size: var(--t-sm);
+  overflow-wrap: anywhere;
+}
+.details a {
+  color: var(--chalk);
+}
+.quiet {
+  font-size: var(--t-sm);
+  color: var(--chalk-3);
+}
+.loading {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-3);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.said {
+  font-size: var(--t-sm);
+  color: var(--chalk);
+}
+.code {
+  align-self: flex-start;
+  padding: var(--s-2) var(--s-4);
+  border: var(--stroke) dashed var(--chalk);
+  border-radius: var(--r-md);
+  font-family: var(--font-mono);
+  font-size: var(--t-lg);
+  letter-spacing: 0.06em;
+  user-select: all;
+}
+.open {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border: var(--stroke) solid var(--chalk);
+  border-radius: var(--r-full);
+  color: var(--chalk);
+  font-size: var(--t-sm);
+  text-decoration: none;
+}
+.open:hover {
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+}
+.open:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}

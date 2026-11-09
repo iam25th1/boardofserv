@@ -77,7 +77,7 @@ export async function fireDue(rt: Runtime, limit = 20): Promise<number> {
     .from(agentTriggers)
     .innerJoin(agentInstallations, eq(agentInstallations.id, agentTriggers.installationId))
     .innerJoin(agentVersions, eq(agentVersions.id, agentInstallations.versionId))
-    .where(and(lte(agentTriggers.nextAt, now), eq(agentInstallations.status, "active")))
+    .where(and(lte(agentTriggers.nextAt, now), eq(agentInstallations.status, "active"), eq(agentInstallations.live, true)))
     .orderBy(agentTriggers.nextAt)
     .limit(limit);
   let started = 0;

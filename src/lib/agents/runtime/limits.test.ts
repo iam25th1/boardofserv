@@ -43,7 +43,7 @@ async function run(inst: schema.AgentInstallation) {
 describe("a job's log", () => {
   it("shows its owner everything, the maker how it ran without the owner's data, anyone else nothing", async () => {
     const p = await publishedAgent(db, maker);
-    const inst = await installed(rt, owner, p, { settings: { stock_sheet: "Stock", orders_sheet: "Orders" } });
+    const inst = await installed(rt, owner, p);
     const job = await run(inst);
     const mine = (await jobFor(rt, owner.id, job.id))!;
     expect(mine).toMatchObject({ viewer: "owner", status: "done", agentName: "Fabric restock", started: "by hand", stepCount: 4, reason: "It reached the end of its steps." });
@@ -51,7 +51,7 @@ describe("a job's log", () => {
     const decision = mine.steps.find((s) => s.stepId === "check_total")!;
     expect(decision).toMatchObject({ kind: "decision", status: "ok", outcome: "within", model: expect.any(String) });
     expect(decision.costUsd).toBeCloseTo((400 * 1.25 + 20 * 6.5) / 1e6, 10);
-    expect(mine.steps[0]!.input).toEqual({ settings: { stock_sheet: "Stock", orders_sheet: "Orders" } });
+    expect(mine.steps[0]!.input).toEqual({ settings: { stock_sheet: "Stock", orders_sheet: "Orders", suppliers_sheet: "Suppliers" } });
     expect(mine.steps[0]!.calls?.[0]).toMatchObject({ tool: "sheets.read", args: { sheet: "Stock" } });
 
     const makers = (await jobFor(rt, maker.id, job.id))!;

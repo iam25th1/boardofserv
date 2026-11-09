@@ -96,9 +96,21 @@ export const Rule = z.object({
 
 export const Memory = z.object({ key, description: text(200), type: z.enum(["text", "number", "list", "record"]) });
 
-// askOver: a usdc or number rule; a payment (wallet.pay) over its value
-// waits for the owner's yes, wherever it is made.
-export const Action = z.object({ id: key, tool: z.enum(TOOL_NAMES), description: text(200), askOver: key.optional() });
+// Spending: a payment (wallet.pay), or rows written to a sheet when the
+// action names amountColumn, the column holding each row's amount in USDC.
+// askOver names a usdc or number rule: spending that would take the job's
+// running total over its value waits for the owner's yes. askOverDay does
+// the same for the installation's total for the day. Every such limit an
+// agent declares applies to all of its spending, wherever it is made and
+// whatever its steps decide.
+export const Action = z.object({
+  id: key,
+  tool: z.enum(TOOL_NAMES),
+  description: text(200),
+  askOver: key.optional(),
+  askOverDay: key.optional(),
+  amountColumn: key.optional(),
+});
 // (Its tool must be one of ACTION_TOOLS: checked with the rest, in checkGraph.)
 
 const stepBase = { id: key, title: text(80), inputs: z.array(key).max(12), outputs: z.array(key).max(12) };
@@ -166,6 +178,22 @@ export type DecisionStepDef = z.infer<typeof DecisionStep>;
 export type ActionStepDef = z.infer<typeof ActionStep>;
 export type StepKind = AgentStep["kind"];
 
+// Whether an action spends: a payment, or rows with an amount column.
+export function spends(a: { tool: ToolName; amountColumn?: string }): boolean {
+  return a.tool === "wallet.pay" || (a.tool === "sheets.write" && Boolean(a.amountColumn));
+}
+
+// The connections an agent needs its owner to have: Telegram for an agent
+// that messages or asks its owner or takes their messages, Google for one
+// that reads or writes sheets.
+export function connectionsNeeded(d: AgentDefinition): { telegram: boolean; google: boolean } {
+  const tools = new Set<ToolName>([...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))]);
+  return {
+    telegram: tools.has("telegram.send") || tools.has("telegram.ask") || d.triggers.some((t) => t.kind === "message"),
+    google: tools.has("sheets.read") || tools.has("sheets.write") || d.settings.some((s) => s.type === "sheet"),
+  };
+}
+
 // Where a step can go next: one step, or one per outcome, and for an action
 // that waits for the owner, where it goes without an answer.
 export function nextOf(step: AgentStep): (string | null)[] {
@@ -195,11 +223,14 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
   }
   d.actions.forEach((a, i) => {
     if (!ACTION_TOOLS.includes(a.tool)) say(`action "${a.id}" uses ${a.tool}, which only reads: reading happens in code steps, and actions only change things`, ["actions", i, "tool"]);
-    if (a.askOver) {
-      const rule = d.rules.find((r) => r.key === a.askOver);
-      if (a.tool !== "wallet.pay") say(`action "${a.id}" asks over a limit, which only a payment (wallet.pay) can`, ["actions", i, "askOver"]);
-      else if (!rule) say(`action "${a.id}" asks over "${a.askOver}", which is not a rule`, ["actions", i, "askOver"]);
-      else if (rule.type !== "usdc" && rule.type !== "number") say(`action "${a.id}" asks over "${a.askOver}", which must be a usdc or number rule`, ["actions", i, "askOver"]);
+    if (a.amountColumn && a.tool !== "sheets.write") say(`action "${a.id}" names an amount column, which only rows written to a sheet (sheets.write) have`, ["actions", i, "amountColumn"]);
+    for (const field of ["askOver", "askOverDay"] as const) {
+      const limit = a[field];
+      if (!limit) continue;
+      const rule = d.rules.find((r) => r.key === limit);
+      if (!spends(a)) say(`action "${a.id}" asks over a limit, which only spending can: a payment (wallet.pay), or sheets.write with an amountColumn`, ["actions", i, field]);
+      else if (!rule) say(`action "${a.id}" asks over "${limit}", which is not a rule`, ["actions", i, field]);
+      else if (rule.type !== "usdc" && rule.type !== "number") say(`action "${a.id}" asks over "${limit}", which must be a usdc or number rule`, ["actions", i, field]);
     }
   });
   const known = new Set(ids);
@@ -249,7 +280,7 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
     if (s.kind === "action" && !declared.has(s.action)) say(`step "${s.id}" takes "${s.action}", which is not a declared action`, ["steps", i, "action"]);
     if (s.kind === "action" && s.otherwise) {
       const action = declared.get(s.action);
-      if (action && action.tool !== "telegram.ask" && !action.askOver) say(`step "${s.id}" has somewhere to go without an answer, but its action never waits for one`, ["steps", i, "otherwise"]);
+      if (action && action.tool !== "telegram.ask" && !action.askOver && !action.askOverDay) say(`step "${s.id}" has somewhere to go without an answer, but its action never waits for one`, ["steps", i, "otherwise"]);
     }
     if (s.kind === "code") {
       for (const tool of s.tools) {

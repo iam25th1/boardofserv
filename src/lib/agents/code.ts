@@ -6,8 +6,11 @@ import { TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
 import type { StepCode } from "./types";
 
-// Code writing and review. Dolphin, and only Dolphin, writes each code step
-// as `async function run(input, tools)` against the toolbox's declarations.
+// Code writing and review. Dolphin writes each code step as
+// `async function run(input, tools)` against the toolbox's declarations.
+// When Dolphin fails or times out twice on the same step, SERV writes that
+// step instead (and is marked as its writer); either way SERV reviews the
+// code in a call of its own.
 // Before it is kept, the code passes plain checks (it parses, it names only
 // its step's tools, it reaches for nothing outside the sandbox) and then
 // SERV's review: does it do what the step says, touch only the declared
@@ -129,9 +132,14 @@ export function checkCode(source: string, step: CodeStepDef): string | null {
   return null;
 }
 
+// Dolphin not answering (failing or timing out) this many times on one
+// step hands its writing to SERV.
+export const DOLPHIN_TRIES = 2;
+const SERV_CODE_TIMEOUT_MS = 120_000;
+
 export interface TextResult {
   content: string | null;
-  provider: "dolphin";
+  provider: "dolphin" | "serv";
   model: string | null;
   promptTokens: number | null;
   completionTokens: number | null;
@@ -198,6 +206,37 @@ export async function writeWithDolphin(
   };
 }
 
+// SERV writing a step's code, when Dolphin couldn't: the same messages, a
+// plain completion, not streamed.
+export async function writeWithServ(serv: ModelConfig, messages: ChatMessage[], opts: { signal?: AbortSignal; fetchImpl?: typeof fetch } = {}): Promise<TextResult> {
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const p = serv.providers.find((x) => x.id === "serv");
+  const started = Date.now();
+  const failed = (status: number | null): TextResult => ({ content: null, provider: "serv", model: p?.model ?? null, promptTokens: null, completionTokens: null, totalMs: Date.now() - started, outcome: "failed", status });
+  if (!p) return failed(null);
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), SERV_CODE_TIMEOUT_MS);
+  const onAbort = () => ctl.abort();
+  opts.signal?.addEventListener("abort", onAbort);
+  try {
+    const res = await fetchImpl(`${p.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${p.apiKey}` },
+      body: JSON.stringify({ model: p.model, messages, max_tokens: CODE_MAX_TOKENS, stream: false }),
+      signal: ctl.signal,
+    });
+    if (!res.ok) return failed(res.status);
+    const b = (await res.json().catch(() => null)) as { choices?: { message?: { content?: string | null } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number } } | null;
+    const content = b?.choices?.[0]?.message?.content ?? null;
+    return { content, provider: "serv", model: p.model, promptTokens: b?.usage?.prompt_tokens ?? null, completionTokens: b?.usage?.completion_tokens ?? null, totalMs: Date.now() - started, outcome: content ? "ok" : "failed", status: res.status };
+  } catch {
+    return failed(null);
+  } finally {
+    clearTimeout(timer);
+    opts.signal?.removeEventListener("abort", onAbort);
+  }
+}
+
 export interface Review {
   approved: boolean;
   reason: string;
@@ -261,14 +300,28 @@ export async function writeStep(
   let source: string | null = null;
   let note = "";
   let rounds = 0;
+  let writer = "dolphin" as "dolphin" | "serv";
+  let dolphinFailures = 0;
+  // One draft: Dolphin's, or SERV's once Dolphin hasn't answered twice.
+  const write = async (round: number): Promise<TextResult> => {
+    for (;;) {
+      const w =
+        writer === "serv"
+          ? await writeWithServ(opts.serv, conversation, { fetchImpl: opts.fetchImpl, signal: opts.signal })
+          : await writeWithDolphin(opts.dolphin, conversation, { thinking: round > 1, fetchImpl: opts.fetchImpl, signal: opts.signal });
+      await opts.hooks.record("agent_code", w);
+      if (w.content || writer === "serv" || opts.signal?.aborted) return w;
+      dolphinFailures += 1;
+      if (dolphinFailures >= DOLPHIN_TRIES) writer = "serv";
+    }
+  };
   for (let round = 1; round <= MAX_CODE_ROUNDS; round++) {
     rounds = round;
     await opts.hooks.progress("writing", round);
-    const written = await writeWithDolphin(opts.dolphin, conversation, { thinking: round > 1, fetchImpl: opts.fetchImpl, signal: opts.signal });
-    await opts.hooks.record("agent_code", written);
+    const written = await write(round);
     const code = written.content ? extractCode(written.content) : null;
     if (!code) {
-      note = written.content ? "No code came back." : `${DOLPHIN_LABEL} didn't answer.`;
+      note = written.content ? "No code came back." : writer === "serv" ? `${DOLPHIN_LABEL} didn't answer twice, and SERV didn't either.` : `${DOLPHIN_LABEL} didn't answer.`;
       if (!written.content) break;
       conversation.push({ role: "assistant", content: written.content.slice(0, 8000) }, { role: "user", content: "Reply with the function in one ```js block." });
       continue;
@@ -285,7 +338,7 @@ export async function writeStep(
         note = "SERV couldn't review it just now.";
         break;
       }
-      if (review.approved) return { spec, status: "approved", source: code, rounds: round, note: review.reason || null, updatedAt: new Date().toISOString() };
+      if (review.approved) return { spec, status: "approved", source: code, rounds: round, note: review.reason || null, ...(writer === "serv" ? { writer } : {}), updatedAt: new Date().toISOString() };
       note = review.reason || "SERV rejected it.";
     }
     conversation.push(
@@ -293,5 +346,5 @@ export async function writeStep(
       { role: "user", content: `It was rejected: ${note}\nWrite the whole function again with that fixed.` },
     );
   }
-  return { spec, status: "needs_attention", source, rounds, note, updatedAt: new Date().toISOString() };
+  return { spec, status: "needs_attention", source, rounds, note, ...(writer === "serv" ? { writer } : {}), updatedAt: new Date().toISOString() };
 }

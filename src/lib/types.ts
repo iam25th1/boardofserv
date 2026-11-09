@@ -102,7 +102,8 @@ export interface AgentBuilderDTO {
   name: string;
   conversationId: string | null;
   definition: AgentDefinition | null;
-  code: Record<string, { status: CodeStatus; source: string | null; rounds: number; note: string | null }>;
+  // writer: who wrote it (SERV when Dolphin failed twice on the step).
+  code: Record<string, { status: CodeStatus; source: string | null; rounds: number; note: string | null; writer?: "dolphin" | "serv" }>;
   bench: BenchData;
   versions: { number: number; state: "draft" | "published"; createdAt: string; publishedAt: string | null }[];
   // The newest published version, which "Run it for real" installs: its
@@ -130,9 +131,16 @@ export interface InstallationDTO {
   agentId: string;
   name: string;
   version: number;
-  status: "active" | "paused" | "stopped";
+  // testing: set up, not live yet (test runs only, by hand).
+  status: "testing" | "active" | "paused" | "stopped";
+  // Why the runtime paused it (a connection it needs went away), or null.
+  pausedReason: string | null;
+  // The connections it needs, and which of those the owner hasn't made.
+  needs: { telegram: boolean; google: boolean };
+  missing: ("telegram" | "google")[];
   timezone: string;
-  settings: { key: string; label: string; value: unknown }[];
+  // A sheet setting also says which spreadsheet and tab it was given.
+  settings: { key: string; label: string; value: unknown; sheet?: { title: string; tab: string; link: string } }[];
   rules: { key: string; label: string; type: string; value: string }[];
   minGapMinutes: number;
   dailySpendUsd: number;
@@ -152,6 +160,17 @@ export interface InstallationDTO {
   approvals: ApprovalDTO[];
 }
 
+// One of the owner's connections, as only they see it: the service, the
+// account or chat it is linked to, when, and what uses it. Never a secret.
+export interface ConnectionDTO {
+  provider: "telegram" | "google";
+  name: string;
+  label: string;
+  connectedAt: string;
+  lastUsedAt: string | null;
+  usedBy: { id: string; name: string; status: string }[];
+}
+
 // A job, in a list: how it started and ended, its time and cost. reason
 // (which can quote the owner's data) is the owner's alone.
 export interface JobSummaryDTO {
@@ -162,6 +181,8 @@ export interface JobSummaryDTO {
   reason: string | null;
   // In words: "on its schedule", "by your message".
   started: string;
+  // What started it: schedule, check, message, manual or test.
+  trigger: string;
   createdAt: string;
   finishedAt: string | null;
   costUsd: number;
@@ -333,6 +354,9 @@ export interface AdminDTO {
   // Today's estimated model spend on the operator's keys against the daily
   // limit, in US dollars, and when the day ends (midnight UTC).
   spend: { today: number; limit: number; resetsAt: string };
+  // How often SERV wrote a code step because Dolphin failed twice on it:
+  // in the last 30 days, and in all.
+  codeFallbacks: { last30Days: number; total: number };
   network: "base-sepolia" | "base";
   networkLabel: string;
   chainId: number;

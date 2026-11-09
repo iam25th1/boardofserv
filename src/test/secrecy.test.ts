@@ -63,6 +63,14 @@ import { serverRuntime } from "@/lib/agents/runtime/context";
 import { install } from "@/lib/agents/runtime/installations";
 import { claimJob, enqueue, runJob } from "@/lib/agents/runtime/jobs";
 import * as demoLive from "@/app/api/demo/agent/live/route";
+import * as connectionsRoute from "@/app/api/connections/route";
+import * as telegramCode from "@/app/api/connections/telegram/code/route";
+import * as telegramWebhook from "@/app/api/telegram/webhook/route";
+import * as googleStart from "@/app/api/connections/google/start/route";
+import * as googleCallback from "@/app/api/connections/google/callback/route";
+import * as sheetsInspect from "@/app/api/sheets/inspect/route";
+import { fakeNet, fakeSheetUrl } from "./fakeNet";
+import { keep } from "@/lib/connections/vault";
 
 // A published helper's system prompt and canary never leave the server. This
 // drives every API route (and fails if a route is added without being driven
@@ -134,7 +142,31 @@ const ROUTES: Record<string, object> = {
   "installations/[id]/control": installationControl,
   "demo/agent": demoAgent,
   "demo/agent/live": demoLive,
+  "connections": connectionsRoute,
+  "connections/telegram/code": telegramCode,
+  "telegram/webhook": telegramWebhook,
+  "connections/google/start": googleStart,
+  "connections/google/callback": googleCallback,
+  "sheets/inspect": sheetsInspect,
 };
+
+// Google, for this test: Maya's and Sam's own spreadsheets, and the token
+// endpoint handing Maya's tokens over when she connects.
+const google = fakeNet();
+const MAYA_SHEET = "MayaFabricShopSheet0123456789ab";
+const SAM_SHEET = "SamOwnShopSheet0123456789abcdef";
+
+// What the connection vault holds for Maya: never in any response or log
+// line, whoever asks.
+const VAULT_CHAT = 918273645;
+const VAULT_REFRESH = "bosVaultRefreshMarker5";
+const VAULT_ACCESS = "bosVaultAccessMarker6";
+// The server's own keys for the services: in no response, no header and
+// no log line either.
+const BOT_TOKEN = "123:bosBotTokenMarker42";
+const GOOGLE_SECRET = "bosGoogleSecretMarker43";
+const BRAVE_KEY = "bosBraveKeyMarker44";
+const DEV_HOOK_SECRET = "bosDevHookMarker45";
 
 // What one owner gave their copy of an agent: never shown to its maker.
 const SAM_PRIVATE = "SamPrivateStockSheet";
@@ -163,7 +195,7 @@ let sam: schema.User;
 let jo: schema.User | null = null;
 // What the mocked model streams for a use.
 let useChunks: string[] = [];
-const bodies: { label: string; body: string; who: schema.User | null }[] = [];
+const bodies: { label: string; body: string; who: schema.User | null; head: string }[] = [];
 const logged: string[] = [];
 
 function stream(parts: string[]): Response {
@@ -186,7 +218,7 @@ const sketchJson = JSON.stringify({ name: "", kind: "none", watches: "", when: "
 async function hit(label: string, res: Response | Promise<Response>): Promise<Response> {
   const who = state.user as schema.User | null;
   const r = await res;
-  bodies.push({ label, body: await r.clone().text(), who });
+  bodies.push({ label, body: await r.clone().text(), who, head: JSON.stringify([...r.headers.entries()]) });
   return r;
 }
 
@@ -265,7 +297,13 @@ beforeAll(async () => {
   vi.stubEnv("FALLBACK_API_KEY", "");
   vi.stubEnv("HELPER_DAILY_USES", "6");
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    // Google: the sheets and the token endpoint (their bodies aren't JSON).
+    if (url.startsWith("https://sheets.googleapis.com/") || url === "https://oauth2.googleapis.com/token") return google.fetch(url, init);
     const body = JSON.parse(String(init.body)) as { stream: boolean; tools?: unknown; response_format?: { json_schema?: { name?: string; schema?: { properties?: { outcome?: { enum?: string[] } } } } } };
+    // Telegram's Bot API: everything it is asked works.
+    if (url.startsWith("https://api.telegram.org/")) return Response.json({ ok: true, result: { username: "bostestbot", message_id: 1 } });
+    // Google, revoking a token on disconnect.
+    if (url.startsWith("https://oauth2.googleapis.com/revoke")) return new Response("{}", { status: 200 });
     // An agent's build: Dolphin's code and SERV's plan carry markers.
     if (url.includes("dphn.ai")) {
       const ask = JSON.stringify(body);
@@ -621,10 +659,50 @@ describe("a helper's instructions stay on the server", () => {
       await hit("agent: live run", agentRun.POST(req(`/api/agents/${id}/run`, "POST", { dryRun: false, bench: restockBench() }), p));
       await hit("agent: save", agentBench.PUT(req(`/api/agents/${id}/bench`, "PUT", { bench: restockBench() }), p));
       await hit("agent: publish", agentPublish.POST(req(`/api/agents/${id}/publish`, "POST"), p));
+      // Maya connects Google (its consent screen answered by the test), and
+      // opens her sheet to pick its tabs.
+      vi.stubEnv("OPENSERV_KEY_ENC_KEY", randomBytes(32).toString("base64"));
+      vi.stubEnv("GOOGLE_CLIENT_ID", "secrecy-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", GOOGLE_SECRET);
+      vi.stubEnv("BRAVE_SEARCH_API_KEY", BRAVE_KEY);
+      google.addSheet(MAYA_SHEET, "Maya's fabric shop", restockBench().sheets);
+      google.on("https://oauth2.googleapis.com/token", () =>
+        Response.json({ access_token: VAULT_ACCESS, refresh_token: VAULT_REFRESH, expires_in: 3600, scope: "openid email https://www.googleapis.com/auth/spreadsheets", id_token: `x.${Buffer.from(JSON.stringify({ email: "maya@sheets.test" })).toString("base64url")}.y` }),
+      );
+      const started = await hit("connections: google start", googleStart.POST(req("/api/connections/google/start", "POST", { returnTo: "/connections" })));
+      const googleState = new URL((JSON.parse(await started.clone().text()) as { url: string }).url).searchParams.get("state")!;
+      expect(started.headers.get("set-cookie")).toContain("HttpOnly");
+      const callback = (cookie: string | null, q: string) => googleCallback.GET(new Request(`http://localhost/api/connections/google/callback?${q}`, { headers: cookie ? { cookie } : {} }));
+      const elsewhere = await hit("connections: google back to another browser", callback("bos_google_state=not-it", `state=${googleState}&code=c`));
+      expect(elsewhere.headers.get("location")).toContain("google=refused");
+      const back = await hit("connections: google back", callback(`bos_google_state=${googleState}`, `state=${googleState}&code=the-code`));
+      expect(back.status).toBe(303);
+      expect(back.headers.get("location")).toContain("google=connected");
+      await hit("sheets: maya opens her sheet", sheetsInspect.POST(req("/api/sheets/inspect", "POST", { url: fakeSheetUrl(MAYA_SHEET) })));
+      await hit("sheets: a link that isn't a sheet", sheetsInspect.POST(req("/api/sheets/inspect", "POST", { url: "https://example.com/x" })));
+      // Maya links Telegram (a code, sent to the bot from her chat): the
+      // vault holds it with her Google tokens.
+      vi.stubEnv("TELEGRAM_BOT_TOKEN", BOT_TOKEN);
+      vi.stubEnv("TELEGRAM_DEV_WEBHOOK_SECRET", DEV_HOOK_SECRET);
+      const linkCode = JSON.parse(await (await hit("connections: telegram code", telegramCode.POST(req("/api/connections/telegram/code", "POST")))).clone().text()) as { code: string };
+      const hook = (secret: string | null, update: unknown) =>
+        telegramWebhook.POST(
+          new Request("http://localhost/api/telegram/webhook", { method: "POST", headers: { "content-type": "application/json", ...(secret ? { "x-telegram-bot-api-secret-token": secret } : {}) }, body: JSON.stringify(update) }),
+        );
+      const fromMaya = (update_id: number, text: string) => ({ update_id, message: { message_id: 1, from: { id: VAULT_CHAT, first_name: "Maya", username: "maya" }, chat: { id: VAULT_CHAT, type: "private" }, text } });
+      await hit("telegram: webhook without its secret", hook(null, fromMaya(1, `/start ${linkCode.code}`)));
+      await hit("telegram: webhook with a wrong secret", hook("not-it", fromMaya(2, `/start ${linkCode.code}`)));
+      await hit("telegram: maya links her chat", hook(DEV_HOOK_SECRET, fromMaya(3, `/start ${linkCode.code}`)));
+      const tab = (t: string) => ({ url: fakeSheetUrl(MAYA_SHEET), tab: t });
       const installed = JSON.parse(
-        await (await hit("agent: install", agentInstall.POST(req(`/api/agents/${id}/installations`, "POST", { settings: restockBench().settings, rules: {}, timezone: "UTC" }), p))).clone().text(),
+        await (
+          await hit("agent: install", agentInstall.POST(req(`/api/agents/${id}/installations`, "POST", { settings: { stock_sheet: tab("Stock"), orders_sheet: tab("Orders"), suppliers_sheet: tab("Suppliers") }, rules: {}, timezone: "UTC" }), p))
+        )
+          .clone()
+          .text(),
       );
       const ip = { params: { id: installed.installation.id as string } };
+      await hit("connections: list", connectionsRoute.GET(req("/api/connections")));
       await hit("agent: installations", installationsRoute.GET(req("/api/installations")));
       await hit("agent: installation", installationRoute.GET(req(`/api/installations/${ip.params.id}`), ip));
       await hit("agent: message box", installationMessages.GET(req(`/api/installations/${ip.params.id}/messages`), ip));
@@ -653,7 +731,11 @@ describe("a helper's instructions stay on the server", () => {
       // Sam runs his own copy of Maya's agent, with his own settings.
       const agentRow = (await db.query.agents.findFirst({ where: eq(schema.agents.id, id) }))!;
       const published = (await db.query.agentVersions.findFirst({ where: eq(schema.agentVersions.state, "published") }))!;
-      const samsCopy = await install(rt, { ownerUserId: sam.id, agent: agentRow, version: published, answers: { settings: { stock_sheet: SAM_PRIVATE, orders_sheet: "Orders" }, rules: {}, timezone: "UTC" } });
+      await keep(rt, sam.id, "google", "sam@sheets.test", { refreshToken: "sam-refresh", accessToken: "sam-access", expiresAt: Date.now() + 3_600_000, scope: "spreadsheets" });
+      await keep(rt, sam.id, "telegram", "@sam", { chatId: 5551212, userId: 5551212 });
+      google.addSheet(SAM_SHEET, "Sam's shop", { [SAM_PRIVATE]: restockBench().sheets.Stock!, Orders: [], Suppliers: restockBench().sheets.Suppliers! });
+      const samTab = (t: string) => ({ url: fakeSheetUrl(SAM_SHEET), tab: t });
+      const samsCopy = await install(rt, { ownerUserId: sam.id, agent: agentRow, version: published, answers: { settings: { stock_sheet: samTab(SAM_PRIVATE), orders_sheet: samTab("Orders"), suppliers_sheet: samTab("Suppliers") }, rules: {}, timezone: "UTC" } });
       await enqueue(rt, samsCopy, { kind: "manual" });
       await runJob(rt, (await claimJob(rt, "secrecy"))!, "secrecy");
       const samsJob = (await db.query.agentJobs.findFirst({ where: eq(schema.agentJobs.installationId, samsCopy.id) }))!;
@@ -690,7 +772,19 @@ describe("a helper's instructions stay on the server", () => {
         await hit(`agent: ${tag} installation jobs`, installationJobs.GET(req(`/api/installations/${ip.params.id}/jobs`), ip));
         await hit(`agent: ${tag} maker's jobs`, agentJobs.GET(req(`/api/agents/${id}/jobs`), p));
         await hit(`agent: ${tag} stop`, installationControl.POST(req(`/api/installations/${ip.params.id}/control`, "POST", { action: "stop" }), ip));
+        await hit(`connections: ${tag} list`, connectionsRoute.GET(req("/api/connections")));
+        await hit(`connections: ${tag} google start`, googleStart.POST(req("/api/connections/google/start", "POST", {})));
+        await hit(`sheets: ${tag} opens maya's sheet`, sheetsInspect.POST(req("/api/sheets/inspect", "POST", { url: fakeSheetUrl(MAYA_SHEET) })));
+        await hit(`connections: ${tag} disconnect`, connectionsRoute.DELETE(req("/api/connections?provider=google", "DELETE")));
       }
+      // Maya disconnects both: what used them pauses, and the vault forgets them.
+      state.user = maya;
+      await hit("connections: disconnect google", connectionsRoute.DELETE(req("/api/connections?provider=google", "DELETE")));
+      await hit("connections: disconnect telegram", connectionsRoute.DELETE(req("/api/connections?provider=telegram", "DELETE")));
+      await hit("connections: disconnect what isn't there", connectionsRoute.DELETE(req("/api/connections?provider=telegram", "DELETE")));
+      await hit("connections: no such service", connectionsRoute.DELETE(req("/api/connections?provider=fax", "DELETE")));
+      await hit("connections: after", connectionsRoute.GET(req("/api/connections")));
+      expect(await db.select().from(schema.connections).where(eq(schema.connections.ownerUserId, maya.id))).toEqual([]);
     } finally {
       vi.stubEnv("DOLPHIN_API_KEY", "");
     }
@@ -712,6 +806,38 @@ describe("a helper's instructions stay on the server", () => {
     for (const line of logged) {
       expect(line.includes(CODE_MARKER) || line.includes(PROMPT_MARKER), line).toBe(false);
     }
+    // The vault's secrets and the server's own keys for the services: in no
+    // response, no header and no log line, ever. Maya sees her connections
+    // by their labels alone.
+    for (const { label, body, head } of [...bodies, ...logged.map((body) => ({ label: "log", body, head: "" }))]) {
+      for (const secret of [String(VAULT_CHAT), VAULT_REFRESH, VAULT_ACCESS, BOT_TOKEN, BOT_TOKEN.split(":")[1]!, GOOGLE_SECRET, BRAVE_KEY, DEV_HOOK_SECRET]) {
+        expect(body.includes(secret), `${label} carries a connection secret`).toBe(false);
+        expect(head.includes(secret), `${label}'s headers carry a connection secret`).toBe(false);
+      }
+    }
+    // A one-time link code goes only to the owner who asked for it; a
+    // Google sign-in's state only to the browser that started it.
+    const code = (JSON.parse(bodies.find((b) => b.label === "connections: telegram code")!.body) as { code: string }).code;
+    expect(bodies.filter((b) => b.body.includes(code)).map((b) => b.label)).toEqual(["connections: telegram code"]);
+    const started = bodies.find((b) => b.label === "connections: google start")!;
+    const googleState = new URL((JSON.parse(started.body) as { url: string }).url).searchParams.get("state")!;
+    expect(bodies.filter((b) => b.body.includes(googleState) || (b.head.includes(googleState) && b !== started)).map((b) => b.label)).toEqual(["connections: google start"]);
+    // Each owner's spreadsheet: never in the other's responses, nor in the
+    // maker's view of someone else's job.
+    for (const b of bodies) {
+      if (b.who?.id === sam.id) expect(b.body.includes(MAYA_SHEET), `${b.label} shows sam maya's sheet`).toBe(false);
+      if (b.who?.id === maya.id) expect(b.body.includes(SAM_SHEET), `${b.label} shows maya sam's sheet`).toBe(false);
+    }
+    // No job ever carries a connection secret in what it saved.
+    const saved = JSON.stringify(await db.select({ state: schema.agentJobs.state }).from(schema.agentJobs));
+    for (const secret of [String(VAULT_CHAT), VAULT_REFRESH, VAULT_ACCESS, "sam-refresh", "sam-access"]) expect(saved.includes(secret), secret).toBe(false);
+    expect(bodies.find((b) => b.label === "connections: list")!.body).toContain("@maya");
+    expect(bodies.find((b) => b.label === "connections: list")!.body).toContain("maya@sheets.test");
+    expect(bodies.find((b) => b.label === "connections: sam list")!.body).not.toContain("@maya");
+    expect(bodies.find((b) => b.label === "connections: signed out list")!.body).toBe('{"error":"Not signed in"}');
+    expect(bodies.find((b) => b.label === "telegram: webhook without its secret")!.body).toBe('{"error":"Not allowed"}');
+    expect(bodies.find((b) => b.label === "telegram: webhook with a wrong secret")!.body).toBe('{"error":"Not allowed"}');
+    expect(bodies.find((b) => b.label === "telegram: maya links her chat")!.body).toBe('{"ok":true}');
     expect(bodies.find((b) => b.label === "agent: sam builder")!.body).toBe('{"error":"Not found"}');
     expect(bodies.find((b) => b.label === "agent: sam installation")!.body).toBe('{"error":"Not found"}');
     // Job logs and questions: the owner sees their own data, the maker of

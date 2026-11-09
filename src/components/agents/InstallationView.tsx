@@ -97,7 +97,18 @@ export function InstallationView({ initial, api, children }: { initial: Installa
           {data.settings.map((s) => (
             <div key={s.key}>
               <dt>{s.label}</dt>
-              <dd>{shown(s.value)}</dd>
+              <dd>
+                {s.sheet ? (
+                  <>
+                    the &ldquo;{s.sheet.tab}&rdquo; tab of{" "}
+                    <a href={s.sheet.link} target="_blank" rel="noopener noreferrer">
+                      {s.sheet.title}
+                    </a>
+                  </>
+                ) : (
+                  shown(s.value)
+                )}
+              </dd>
             </div>
           ))}
           {data.rules.map((r) => (

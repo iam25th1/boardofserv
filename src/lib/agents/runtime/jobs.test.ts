@@ -6,7 +6,7 @@ import { asc, eq, inArray } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import { addUser, testDb } from "@/test/helperDb";
 import type { AgentDefinition, CodeStepDef } from "@/lib/agents/definition";
-import { installed, publishedAgent, RESTOCK_CODE, restockDefinition, testRuntime, type TestRuntime } from "@/test/runtimeFixtures";
+import { installed, publishedAgent, RESTOCK_CODE, restockDefinition, sheetRows, testRuntime, type TestRuntime } from "@/test/runtimeFixtures";
 import { BACKOFF_MS, claimJob, enqueue, MAX_ATTEMPTS, requeueStale, runJob, STALE_MS } from "./jobs";
 import { jobWorker } from "./worker";
 
@@ -50,9 +50,8 @@ describe("a job", () => {
     expect(steps[2]).toMatchObject({ outcome: "within", model: expect.any(String) });
     expect(Number(steps[2]!.costUsd)).toBeGreaterThan(0);
     expect(steps[0]!.tools).toEqual([expect.objectContaining({ tool: "sheets.read", args: { sheet: "Stock" } })]);
-    // The order went to the installation's own stand-in sheet.
-    const [row] = await db.select().from(schema.agentInstallations).where(eq(schema.agentInstallations.id, inst.id));
-    expect(row!.mocks.sheets.Orders).toHaveLength(2);
+    // The order went to the owner's own Orders tab.
+    expect(sheetRows(rt, inst, "orders_sheet")).toHaveLength(2);
   });
 
   it("is tried again later when SERV doesn't answer, and fails after the last try", async () => {
@@ -103,7 +102,7 @@ describe("a job", () => {
     // The dead worker had saved the first step as done.
     await db
       .update(schema.agentJobs)
-      .set({ state: { at: "compare", bag: { settings: { stock_sheet: "Stock", orders_sheet: "Orders" }, rules: { approval_over_usdc: 250, max_delivery_days: 7 }, memory: {}, trigger: { kind: "manual" }, low: [{ fabric: "Wool felt", metres: 6, minimum: 10 }] }, steps: 1, ms: 5, costUsd: 0, journal: [], resumed: false } })
+      .set({ state: { at: "compare", bag: { settings: { stock_sheet: "Stock", orders_sheet: "Orders", suppliers_sheet: "Suppliers" }, rules: { approval_over_usdc: 250, max_delivery_days: 7 }, memory: {}, trigger: { kind: "manual" }, low: [{ fabric: "Wool felt", metres: 6, minimum: 10 }] }, steps: 1, ms: 5, costUsd: 0, journal: [], resumed: false } })
       .where(eq(schema.agentJobs.id, claimed.id));
     expect(await requeueStale(rt)).toBe(0);
     rt.clock.move(STALE_MS + 1);
