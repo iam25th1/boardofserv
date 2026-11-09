@@ -5,10 +5,11 @@ import { GoogleRevoked, GoogleUnavailable, REVOKED_REASON } from "../../google/o
 import { readTab, SheetRefused, writeTab, type SheetRow } from "../../google/sheets";
 import { braveSearch, SearchRefused, SearchUnavailable } from "../../search/brave";
 import type { AgentDefinition, AgentStep, ToolName } from "../definition";
-import { Declined, Halted, InfraError, Paused, typedRules, type ToolHost } from "../runner";
+import { Declined, Halted, InfraError, Paused, type ToolHost } from "../runner";
 import { MAX_MEMORY_BYTES, memoryProblem, MockTools, TOOL_ARGS, ToolError } from "../toolbox";
 import { emptyBench } from "../types";
 import type { Runtime } from "./context";
+import { overLimit, recordSpend, spendOf } from "./spend";
 import { fetchPage, WebUnreachable } from "./webFetch";
 
 // A job's tools (and a value check's, with no job). Sheets are real: the
@@ -40,19 +41,6 @@ export class JobTools implements ToolHost {
     private job: AgentJob | null,
   ) {}
 
-  // The question for a payment over its action's limit, or null when it is
-  // within it. The limit is the owner's value of the action's askOver rule.
-  private overLimit(step: AgentStep, args: unknown): string | null {
-    const d = this.definition;
-    const action = step.kind === "action" ? d.actions.find((a) => a.id === step.action) : d.actions.find((a) => a.tool === "wallet.pay" && a.askOver);
-    const rule = action?.askOver ? d.rules.find((r) => r.key === action.askOver) : undefined;
-    const parsed = TOOL_ARGS["wallet.pay"].safeParse(args);
-    if (!rule || !parsed.success) return null;
-    const limit = typedRules(d, this.installation.rules)[rule.key];
-    if (typeof limit !== "number" || parsed.data.amountUsdc <= limit) return null;
-    return `Pay ${parsed.data.amountUsdc} USDC to ${parsed.data.to}${parsed.data.memo ? ` (${parsed.data.memo})` : ""}? That's over your limit of ${limit} USDC ("${rule.label}").`;
-  }
-
   // The installation's stand-in data, read fresh when a job (re)starts.
   private async mocks(): Promise<MockTools> {
     if (this.mock) return this.mock;
@@ -70,11 +58,20 @@ export class JobTools implements ToolHost {
       if (approval.answer === null) throw new Declined(null);
       return { answer: approval.answer };
     }
-    if (tool === "wallet.pay") {
-      const over = this.overLimit(step, args);
-      if (over && !approval) throw new Paused({ kind: "over_limit", question: over, choices: ["Yes", "No"] });
+    // Spending waits for the owner's yes when it would take the job's or
+    // the day's total over a limit (spend.ts), and counts once it is done.
+    const spend = spendOf(this.definition, step, tool, args);
+    if (spend) {
+      const over = await overLimit(this.rt, this.installation, this.definition, this.job?.id ?? null, spend);
+      if (over && !approval) throw new Paused({ kind: "over_limit", question: over, choices: ["Yes", "No"], tool });
       if (over && !isYes(approval!.answer)) throw new Declined(approval!.answer);
     }
+    const result = await this.use(step, tool, args);
+    if (spend) await recordSpend(this.rt, this.installation, this.job?.id ?? null, spend);
+    return result;
+  }
+
+  private async use(step: AgentStep, tool: ToolName, args: unknown): Promise<unknown> {
     if (tool === "sheets.read" || tool === "sheets.write") return this.sheet(tool, args);
     if (tool === "memory.get" || tool === "memory.set") return this.memory(tool, args);
     if (tool === "web.fetch") return this.fetch(args);

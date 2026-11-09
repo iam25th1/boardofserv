@@ -97,6 +97,19 @@ describe("the agent format", () => {
     );
   });
 
+  it("lets only spending ask over a limit: a payment, or rows with an amount column", () => {
+    const record = (d: AgentDefinition) => d.actions.find((a) => a.id === "record_order")!;
+    expect(errorsOf((d) => Object.assign(record(d), { askOver: "approval_over_usdc" }))).toEqual([
+      'action "record_order" asks over a limit, which only spending can: a payment (wallet.pay), or sheets.write with an amountColumn',
+    ]);
+    expect(errorsOf((d) => Object.assign(record(d), { askOver: "approval_over_usdc", askOverDay: "approval_over_usdc", amountColumn: "cost_usdc" }))).toEqual([]);
+    expect(errorsOf((d) => Object.assign(record(d), { amountColumn: "cost_usdc", askOverDay: "max_delivery_days" }))).toEqual([]);
+    expect(errorsOf((d) => Object.assign(record(d), { amountColumn: "cost_usdc", askOver: "nope" }))).toEqual(['action "record_order" asks over "nope", which is not a rule']);
+    expect(errorsOf((d) => Object.assign(d.actions[0]!, { amountColumn: "cost_usdc" }))).toEqual([
+      'action "ask_owner" names an amount column, which only rows written to a sheet (sheets.write) have',
+    ]);
+  });
+
   it("refuses a step that reads a value not every way to it has made", () => {
     // order_rows is made on the way to record whichever way the decisions go.
     expect(errorsOf(() => {})).toEqual([]);

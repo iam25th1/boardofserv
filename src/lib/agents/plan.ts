@@ -64,7 +64,9 @@ export const AGENT_PLAN_SCHEMA = {
         id: str("snake_case"),
         tool: { type: "string", enum: [...ACTION_TOOLS] },
         description: str("what this action does"),
-        askOver: str("wallet.pay only: the usdc rule whose value a payment over waits for the owner's yes, else empty"),
+        askOver: str("spending only: the usdc rule over which the job's running total of spending waits for the owner's yes, else empty"),
+        askOverDay: str("spending only: the usdc rule over which the day's total of spending waits for the owner's yes, else empty"),
+        amountColumn: str("sheets.write only: the column holding each row's amount in USDC, when writing those rows is spending (orders), else empty"),
       }),
       "the only actions it may ever take",
     ),
@@ -156,7 +158,17 @@ export function wireToDefinition(w: Wire): unknown {
       return { key: s(t.key), label: s(t.label), type: t.type, value: s(t.value), help: s(t.help) };
     }),
     memory: arr(w.memory).map((x) => ({ key: s((x as Wire).key), description: s((x as Wire).description), type: (x as Wire).type })),
-    actions: arr(w.actions).map((x) => ({ id: s((x as Wire).id), tool: (x as Wire).tool, description: s((x as Wire).description), ...(s((x as Wire).askOver) ? { askOver: s((x as Wire).askOver) } : {}) })),
+    actions: arr(w.actions).map((x) => {
+      const a = x as Wire;
+      return {
+        id: s(a.id),
+        tool: a.tool,
+        description: s(a.description),
+        ...(s(a.askOver) ? { askOver: s(a.askOver) } : {}),
+        ...(s(a.askOverDay) ? { askOverDay: s(a.askOverDay) } : {}),
+        ...(s(a.amountColumn) ? { amountColumn: s(a.amountColumn) } : {}),
+      };
+    }),
     steps,
     limits: { maxSteps: Math.round(n(limits.maxSteps)), maxRunSeconds: Math.round(n(limits.maxRunSeconds)), maxSpendUsd: n(limits.maxSpendUsd) },
     ...(n(w.approvalHours) > 0 ? { approvalHours: Math.round(n(w.approvalHours)) } : {}),
@@ -174,7 +186,7 @@ export const PLAN_AGENT_PROMPT = [
   "In code step descriptions, name the exact sheets, columns and fields the maker gave, and the shape of what the step returns.",
   `Tools: ${TOOL_NAMES.map((t) => `${t} (${TOOLS[t].summary})`).join("; ")}.`,
   "Every side effect (sheets.write, telegram.send, telegram.ask, wallet.pay) must be a declared action. Anything the maker said it must never do without asking goes through telegram.ask first.",
-  "A question to the owner (telegram.ask) waits for their answer for approvalHours; an action step that asks can name otherwise, the step to go to when no answer comes, or leave it empty to stop. A payment action (wallet.pay) can name askOver, a usdc rule: payments over it wait for the owner's yes.",
+  "A question to the owner (telegram.ask) waits for their answer for approvalHours; an action step that asks can name otherwise, the step to go to when no answer comes, or leave it empty to stop. Spending is a payment (wallet.pay), or rows written to a sheet whose amountColumn holds each row's amount in USDC (orders). A spending action can name askOver, a usdc rule: the runtime asks the owner before any spending that takes the job's running total over it, and askOverDay, the same for the day's total. The runtime keeps those totals across every action and line, so never add a decision or question of your own for those limits.",
   "Settings are what each renter answers at setup; rules are limits a renter may adjust, with the maker's default as text; memory is what it keeps between jobs.",
   "Keys and ids are snake_case. Money is in USDC. Use as few steps as do the job. Limits: maxSteps at most 50, maxRunSeconds at most 300, maxSpendUsd at most 0.5.",
   "Never use em dashes.",

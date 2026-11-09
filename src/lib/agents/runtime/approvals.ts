@@ -8,7 +8,7 @@ import type { RunState } from "../types";
 import type { Runtime } from "./context";
 
 // Approvals that wait. A job that asks its owner something (telegram.ask),
-// or wants to pay more than a rule allows, pauses as waiting_for_owner, and
+// or would spend past a limit (spend.ts), pauses as waiting_for_owner, and
 // an approval holds the question, the answers the owner can give and what
 // happens on each. It is asked in the app and, when the owner linked
 // Telegram, in their chat with a button per answer: the first answer, from
@@ -28,6 +28,10 @@ export function effects(d: AgentDefinition, step: AgentStep, ask: Ask): { option
   const title = (id: string | null | undefined) => d.steps.find((s) => s.id === id)?.title;
   const h = hours(d);
   const after = `After ${h} ${h === 1 ? "hour" : "hours"} with no answer`;
+  // Over a limit: a payment pays; anything else that spends goes ahead.
+  const pays = !ask.tool || ask.tool === "wallet.pay";
+  const does = pays ? "pays" : "goes ahead";
+  const doesnt = pays ? "doesn't pay" : "doesn't go ahead";
   if (step.kind === "action") {
     const next = title(step.next);
     const away = title(step.otherwise);
@@ -35,10 +39,10 @@ export function effects(d: AgentDefinition, step: AgentStep, ask: Ask): { option
     if (ask.kind === "over_limit") {
       return {
         options: [
-          { label: "Yes", effect: next ? `It pays, then goes on to "${next}".` : "It pays, and the job is done." },
-          { label: "No", effect: `It doesn't pay, and ${without}.` },
+          { label: "Yes", effect: next ? `It ${does}, then goes on to "${next}".` : `It ${does}, and the job is done.` },
+          { label: "No", effect: `It ${doesnt}, and ${without}.` },
         ],
-        noAnswer: `${after}, it doesn't pay, and ${without}.`,
+        noAnswer: `${after}, it ${doesnt}, and ${without}.`,
       };
     }
     return {
@@ -49,10 +53,10 @@ export function effects(d: AgentDefinition, step: AgentStep, ask: Ask): { option
   if (ask.kind === "over_limit") {
     return {
       options: [
-        { label: "Yes", effect: `It pays, and "${step.title}" goes on.` },
-        { label: "No", effect: `It doesn't pay, and "${step.title}" is told you said no.` },
+        { label: "Yes", effect: `It ${does}, and "${step.title}" goes on.` },
+        { label: "No", effect: `It ${doesnt}, and "${step.title}" is told you said no.` },
       ],
-      noAnswer: `${after}, it doesn't pay, and "${step.title}" is told so.`,
+      noAnswer: `${after}, it ${doesnt}, and "${step.title}" is told so.`,
     };
   }
   return {

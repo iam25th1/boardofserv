@@ -45,6 +45,8 @@ export interface Ask {
   kind: "ask" | "over_limit";
   question: string;
   choices: string[];
+  // Over a limit: the tool that would spend.
+  tool?: ToolName;
 }
 
 // A tool call that must wait for the owner.

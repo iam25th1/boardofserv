@@ -756,6 +756,30 @@ export const agentApprovals = pgTable(
   }),
 );
 
+// What an installation's agent spent (a payment, or order rows with an
+// amount), one row per action, for its spending guard: the job's running
+// total and the installation's total for the day (in its owner's time
+// zone) are sums of these.
+export const agentSpend = pgTable(
+  "agent_spend",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    installationId: uuid("installation_id")
+      .notNull()
+      .references(() => agentInstallations.id, { onDelete: "cascade" }),
+    jobId: uuid("job_id").references(() => agentJobs.id, { onDelete: "set null" }),
+    actionId: text("action_id"),
+    tool: text("tool").notNull(),
+    amountUsdc: numeric("amount_usdc", { precision: 18, scale: 6 }).notNull(),
+    day: text("day").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byDay: index("agent_spend_day_idx").on(t.installationId, t.day),
+    byJob: index("agent_spend_job_idx").on(t.jobId),
+  }),
+);
+
 // Calls an installation's agent made to an outside service each day (UTC),
 // by tool, for its daily caps (sheets, web search). The site's own total
 // per tool is kept under the nil installation id.
