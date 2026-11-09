@@ -7,6 +7,8 @@ import { nextOf, type AgentDefinition, type AgentStep } from "@/lib/agents/defin
 import type { BenchData, RunEvent } from "@/lib/agents/types";
 import { TOOLS } from "@/lib/agents/toolbox";
 import type { AgentBuilderDTO, AgentSummaryDTO } from "@/lib/types";
+import { InstallForm } from "./InstallForm";
+import type { InstallAnswers } from "@/lib/agents/settingsForm";
 import { StepDiagram, type NodeState } from "./StepDiagram";
 import styles from "./AgentBuilder.module.css";
 
@@ -25,6 +27,9 @@ export interface BuilderApi {
   // version that never changes, in testing.
   saveBench?: (bench: BenchData) => Promise<AgentBuilderDTO>;
   publish?: () => Promise<AgentBuilderDTO>;
+  // Run the newest published version for real, for the maker; resolves once
+  // it is installed (and the page has moved on).
+  install?: (answers: InstallAnswers) => Promise<void>;
 }
 
 const SECTIONS = [
@@ -93,6 +98,7 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
   const fixId = useId();
   const [busy, setBusy] = useState<"save" | "publish" | null>(null);
   const [headSaid, setHeadSaid] = useState<string | null>(null);
+  const [installing, setInstalling] = useState(false);
 
   const d = data.definition;
   const building = ["planning", "writing", "fixing"].includes(data.agent.buildState);
@@ -211,7 +217,7 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
           <span className={styles.badge} data-state={data.agent.state}>
             {data.agent.state === "published" ? `In testing, version ${data.agent.version}` : `Draft, version ${data.agent.version}`}
           </span>
-          {(api.saveBench || api.publish) && (
+          {(api.saveBench || api.publish || api.install) && (
             <div className={styles.runRow}>
               {api.saveBench && (
                 <Button size="sm" variant="ghost" onClick={() => void save()} disabled={busy !== null}>
@@ -223,10 +229,25 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
                   {busy === "publish" ? "Publishing..." : "Publish version"}
                 </Button>
               )}
+              {api.install && data.runnable && (
+                <Button size="sm" variant={installing ? "ghost" : "primary"} onClick={() => setInstalling(!installing)} aria-expanded={installing}>
+                  Run it for real
+                </Button>
+              )}
             </div>
           )}
         </div>
       </header>
+      {installing && api.install && data.runnable && (
+        <section className={styles.section} aria-label="Run it for real">
+          <h2>Run version {data.runnable.version} for real</h2>
+          <p className={styles.quiet}>
+            It runs on its own from now on: on its schedule, when its value check turns true, or when you message it. Sheets, Telegram, search and the wallet are
+            still stand-ins; web pages and what it remembers are real.
+          </p>
+          <InstallForm definition={data.runnable.definition} defaults={data.runnable.defaults} onInstall={api.install} onCancel={() => setInstalling(false)} />
+        </section>
+      )}
       {headSaid && (
         <p className={styles.quiet} role="status">
           {headSaid}

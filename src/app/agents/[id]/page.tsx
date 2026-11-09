@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { TopBar, TopLink } from "@/components/chat/TopBar";
 import { AgentBuilder, type BuilderApi } from "@/components/agents/AgentBuilder";
@@ -34,6 +35,7 @@ function SignedIn({ id }: { id: string }) {
 
 function Builder({ id }: { id: string }) {
   const api = useApi();
+  const router = useRouter();
   const [data, setData] = useState<AgentBuilderDTO | null>(null);
   const [missing, setMissing] = useState(false);
   const builderApi = useMemo<BuilderApi>(
@@ -43,8 +45,12 @@ function Builder({ id }: { id: string }) {
       fix: (message) => api.fixAgent(id, message),
       saveBench: (bench) => api.saveAgentBench(id, bench),
       publish: () => api.publishAgent(id),
+      install: async (answers) => {
+        const installed = await api.installAgent(id, answers);
+        router.push(`/installations/${installed.id}`);
+      },
     }),
-    [api, id],
+    [api, id, router],
   );
   useEffect(() => {
     builderApi.load().then(setData, () => setMissing(true));

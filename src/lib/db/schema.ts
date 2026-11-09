@@ -517,6 +517,49 @@ export const agentVersions = pgTable(
   }),
 );
 
+// One owner's running copy of a published agent version: the owner's answers
+// to the agent's settings questions, their rule values (text, over the
+// maker's defaults), what the agent remembers for them, and its status.
+// active runs; paused runs nothing new until resumed; stopped is for good.
+// mocks holds what the tools that are still stand-ins answer from (the
+// sheets, search results and wallet balance, copied from the version's test
+// bench when it is installed). schedule is the owner's time of day ("HH:MM")
+// and weekday (0 is Sunday) for a scheduled agent, over the maker's. Only the
+// owner ever sees settings, rules, memory or mocks.
+export const agentInstallations = pgTable(
+  "agent_installations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => agentVersions.id, { onDelete: "cascade" }),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["active", "paused", "stopped"] }).notNull().default("active"),
+    settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+    rules: jsonb("rules").$type<Record<string, string>>().notNull().default({}),
+    memory: jsonb("memory").$type<Record<string, unknown>>().notNull().default({}),
+    mocks: jsonb("mocks").$type<Pick<BenchData, "sheets" | "search" | "wallet">>().notNull(),
+    timezone: text("timezone").notNull().default("UTC"),
+    schedule: jsonb("schedule").$type<{ at: string | null; day: number | null }>(),
+    minGapMinutes: integer("min_gap_minutes").notNull().default(5),
+    dailySpendUsd: numeric("daily_spend_usd", { precision: 10, scale: 4 }).notNull().default("0.5"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+  },
+  (t) => ({
+    byOwner: index("agent_installations_owner_idx").on(t.ownerUserId, t.createdAt),
+    byAgent: index("agent_installations_agent_idx").on(t.agentId),
+    knownStatus: check("agent_installations_status", sql`${t.status} in ('active', 'paused', 'stopped')`),
+    gap: check("agent_installations_gap", sql`${t.minGapMinutes} between 0 and 1440`),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
@@ -524,3 +567,4 @@ export type AgentSketchRow = typeof agentSketches.$inferSelect;
 export type PublishedHelper = typeof publishedHelpers.$inferSelect;
 export type Agent = typeof agents.$inferSelect;
 export type AgentVersion = typeof agentVersions.$inferSelect;
+export type AgentInstallation = typeof agentInstallations.$inferSelect;

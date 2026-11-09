@@ -105,6 +105,10 @@ export interface AgentBuilderDTO {
   code: Record<string, { status: CodeStatus; source: string | null; rounds: number; note: string | null }>;
   bench: BenchData;
   versions: { number: number; state: "draft" | "published"; createdAt: string; publishedAt: string | null }[];
+  // The newest published version, which "Run it for real" installs: its
+  // definition (for the settings form) and the bench's sample settings to
+  // start the answers from. Null before the first is published.
+  runnable: { version: number; definition: AgentDefinition; defaults: Record<string, unknown> } | null;
 }
 
 // One of the maker's agents on their own agents page.
@@ -117,6 +121,22 @@ export interface AgentListItemDTO {
   draft: boolean;
   steps: number;
   updatedAt: string;
+}
+
+// One owner's running copy of an agent, as its owner sees it. Only ever
+// sent to that owner.
+export interface InstallationDTO {
+  id: string;
+  agentId: string;
+  name: string;
+  version: number;
+  status: "active" | "paused" | "stopped";
+  timezone: string;
+  settings: { key: string; label: string; value: unknown }[];
+  rules: { key: string; label: string; type: string; value: string }[];
+  minGapMinutes: number;
+  dailySpendUsd: number;
+  createdAt: string;
 }
 
 // A published helper as anyone may see it: never its instructions.

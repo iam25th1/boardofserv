@@ -48,6 +48,9 @@ import * as agentRun from "@/app/api/agents/[id]/run/route";
 import * as agentFix from "@/app/api/agents/[id]/fix/route";
 import * as agentBench from "@/app/api/agents/[id]/bench/route";
 import * as agentPublish from "@/app/api/agents/[id]/publish/route";
+import * as agentInstall from "@/app/api/agents/[id]/installations/route";
+import * as installationsRoute from "@/app/api/installations/route";
+import * as installationRoute from "@/app/api/installations/[id]/route";
 import * as demoAgent from "@/app/api/demo/agent/route";
 
 // A published helper's system prompt and canary never leave the server. This
@@ -108,6 +111,9 @@ const ROUTES: Record<string, object> = {
   "agents/[id]/fix": agentFix,
   "agents/[id]/bench": agentBench,
   "agents/[id]/publish": agentPublish,
+  "agents/[id]/installations": agentInstall,
+  "installations": installationsRoute,
+  "installations/[id]": installationRoute,
   "demo/agent": demoAgent,
 };
 
@@ -588,6 +594,12 @@ describe("a helper's instructions stay on the server", () => {
       await hit("agent: live run", agentRun.POST(req(`/api/agents/${id}/run`, "POST", { dryRun: false, bench: restockBench() }), p));
       await hit("agent: save", agentBench.PUT(req(`/api/agents/${id}/bench`, "PUT", { bench: restockBench() }), p));
       await hit("agent: publish", agentPublish.POST(req(`/api/agents/${id}/publish`, "POST"), p));
+      const installed = JSON.parse(
+        await (await hit("agent: install", agentInstall.POST(req(`/api/agents/${id}/installations`, "POST", { settings: restockBench().settings, rules: {}, timezone: "UTC" }), p))).clone().text(),
+      );
+      const ip = { params: { id: installed.installation.id as string } };
+      await hit("agent: installations", installationsRoute.GET(req("/api/installations")));
+      await hit("agent: installation", installationRoute.GET(req(`/api/installations/${ip.params.id}`), ip));
       await hit("agent: fix", agentFix.POST(req(`/api/agents/${id}/fix`, "POST", { message: "it ignored delivery time" }), p));
       await jobFor((await draftOf(id))!.id);
       await hit("agent: board", board.GET(req("/api/board")));
@@ -603,6 +615,9 @@ describe("a helper's instructions stay on the server", () => {
         await hit(`agent: ${tag} fix`, agentFix.POST(req(`/api/agents/${id}/fix`, "POST", { message: "x" }), p));
         await hit(`agent: ${tag} list`, agentsRoute.GET(req("/api/agents")));
         await hit(`agent: ${tag} conversation`, conversationMessages.GET(req(`/api/conversations/${cid}/messages`), { params: { id: cid } }));
+        await hit(`agent: ${tag} install`, agentInstall.POST(req(`/api/agents/${id}/installations`, "POST", { settings: {}, rules: {}, timezone: "UTC" }), p));
+        await hit(`agent: ${tag} installations`, installationsRoute.GET(req("/api/installations")));
+        await hit(`agent: ${tag} installation`, installationRoute.GET(req(`/api/installations/${ip.params.id}`), ip));
       }
     } finally {
       vi.stubEnv("DOLPHIN_API_KEY", "");
@@ -626,6 +641,8 @@ describe("a helper's instructions stay on the server", () => {
       expect(line.includes(CODE_MARKER) || line.includes(PROMPT_MARKER), line).toBe(false);
     }
     expect(bodies.find((b) => b.label === "agent: sam builder")!.body).toBe('{"error":"Not found"}');
+    expect(bodies.find((b) => b.label === "agent: sam installation")!.body).toBe('{"error":"Not found"}');
+    expect(JSON.parse(bodies.find((b) => b.label === "agent: sam installations")!.body)).toEqual({ installations: [] });
   });
 
   it("never sends any part of anyone's email, except the account menu's own to its owner", async () => {
