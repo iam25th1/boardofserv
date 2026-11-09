@@ -1,0 +1,95 @@
+/* A code review: findings on a chalk list, blocking ones marked solid. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--slate-2);
+}
+.panel[data-status="blocked"] {
+  border: var(--stroke) solid var(--chalk);
+}
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2) var(--s-4);
+}
+.head h2 {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+}
+.status {
+  padding: 2px 12px;
+  border-radius: var(--r-full);
+  border: 1px dashed var(--chalk-3);
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+}
+.status[data-status="passed"] {
+  border-style: solid;
+  border-color: var(--chalk);
+  color: var(--chalk);
+}
+.status[data-status="blocked"] {
+  border: var(--stroke) solid var(--chalk);
+  color: var(--chalk);
+  font-weight: var(--w-semibold);
+}
+.findings {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.findings li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-md);
+}
+.findings li[data-severity="blocking"] {
+  border: 1px solid var(--chalk);
+}
+.severity {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk-2);
+  white-space: nowrap;
+}
+.findings li[data-severity="blocking"] .severity {
+  color: var(--chalk);
+}
+.step {
+  font-size: var(--t-sm);
+  font-weight: var(--w-semibold);
+  align-self: center;
+}
+.findings p {
+  grid-column: 2;
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  max-width: 64ch;
+}
+.quiet {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+@media (max-width: 640px) {
+  .panel {
+    padding: var(--s-4);
+  }
+  .findings li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .findings p {
+    grid-column: 1;
+  }
+}

@@ -72,7 +72,7 @@ export interface Runtime {
   siteRefusal: (owner: User, ownKey: boolean) => Promise<string | null>;
   // One model call in a run (a decision, the guard's check), counted like
   // any other.
-  record: (owner: User, call: JsonResult, ownKey: boolean, kind?: "agent_decision" | "agent_guard" | "agent_screen") => Promise<void>;
+  record: (owner: User, call: JsonResult, ownKey: boolean, kind?: "agent_decision" | "agent_guard" | "agent_screen" | "agent_vetting") => Promise<void>;
   // In place of SERV (the development demo only).
   decide?: (step: DecisionStepDef, input: Record<string, unknown>) => Promise<Decided>;
   // In place of SERV's action guard (the development demo only).

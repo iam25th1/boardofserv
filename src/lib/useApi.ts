@@ -3,7 +3,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent } from "./agents/types";
 import type { InstallAnswers } from "./agents/settingsForm";
-import type { AccountDTO, AdminDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, QuotaDTO, RentalDetailDTO, RentalDTO, RequestDTO, RequestPageDTO, SketchDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, AdminSafetyDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, QuotaDTO, RentalDetailDTO, RentalDTO, RequestDTO, RequestPageDTO, SketchDTO, WalletDTO } from "./types";
 import type { SetupShape } from "./agents/definition";
 
 // When the server sends no sentence of its own: never a status code.
@@ -194,6 +194,7 @@ export function useApi() {
       getWallet: () => json<{ wallet: WalletDTO }>("/api/wallet").then((d) => d.wallet),
       checkDeposits: () => json<{ wallet: WalletDTO }>("/api/deposits/check", { method: "POST" }).then((d) => d.wallet),
       getAdmin: () => json<{ admin: AdminDTO }>("/api/admin").then((d) => d.admin),
+      getAdminSafety: () => json<{ safety: AdminSafetyDTO }>("/api/admin/safety").then((d) => d.safety),
       adminPause: (paused: boolean) => json<{ admin: AdminDTO }>("/api/admin/pause", { method: "POST", body: JSON.stringify({ paused }) }).then((d) => d.admin),
       adminDecide: (id: string, action: "approve" | "reject" | "fail") =>
         json<{ admin: AdminDTO }>(`/api/admin/withdrawals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.admin),

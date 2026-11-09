@@ -112,6 +112,16 @@ export interface AgentBuilderDTO {
   runnable: { version: number; definition: AgentDefinition; defaults: Record<string, unknown> } | null;
   // Its place on the board for rent, once its maker put it there.
   listing: MakerListingDTO | null;
+  // The code review of the version shown (none before its first).
+  review: VersionReviewDTO | null;
+}
+
+// A version's code review, in plain words: never code.
+export interface VersionReviewDTO {
+  status: "passed" | "blocked" | "unreviewed";
+  findings: { step: string; severity: "blocking" | "warning"; finding: string }[];
+  by: "local" | "serv";
+  reviewedAt: string;
 }
 
 // One of the maker's agents on their own agents page.
@@ -599,4 +609,9 @@ export interface OfferDTO {
 export interface RequestPageDTO {
   request: RequestDTO;
   offers: OfferDTO[];
+}
+
+// The admin's safety page.
+export interface AdminSafetyDTO {
+  reviews: { versionId: string; agentId: string; name: string; maker: string; version: number; state: "draft" | "published"; review: VersionReviewDTO }[];
 }

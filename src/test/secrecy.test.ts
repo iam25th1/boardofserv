@@ -82,6 +82,7 @@ import * as requestsRoute from "@/app/api/requests/route";
 import * as requestRoute from "@/app/api/requests/[id]/route";
 import * as requestOffersRoute from "@/app/api/requests/[id]/offers/route";
 import * as offerRoute from "@/app/api/offers/[id]/route";
+import * as adminSafetyRoute from "@/app/api/admin/safety/route";
 import { fakeNet, fakeSheetUrl } from "./fakeNet";
 import { keep } from "@/lib/connections/vault";
 
@@ -174,6 +175,7 @@ const ROUTES: Record<string, object> = {
   "requests/[id]": requestRoute,
   "requests/[id]/offers": requestOffersRoute,
   "offers/[id]": offerRoute,
+  "admin/safety": adminSafetyRoute,
 };
 
 // Google, for this test: Maya's and Sam's own spreadsheets, and the token
@@ -338,6 +340,8 @@ beforeAll(async () => {
     if (body.response_format?.json_schema?.name === "agent_plan") return Response.json({ choices: [{ message: { content: JSON.stringify(AGENT_PLAN) } }] });
     if (body.response_format?.json_schema?.name === "code_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "approve", reason: "Fine." }) } }] });
     // The guard lets Maya's agent through (its own checks are tested elsewhere).
+    // The version review passes; its findings never carry code anyway.
+    if (body.response_format?.json_schema?.name === "version_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ findings: [{ step: "Find low stock", severity: "warning", finding: "It reads the whole stock tab every time." }] }) } }] });
     if (body.response_format?.json_schema?.name === "action_guard") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "allow", reason: "It fits what the agent is for." }) } }] });
     if (body.response_format?.json_schema?.name === "decision") {
       return Response.json({ choices: [{ message: { content: JSON.stringify({ outcome: body.response_format.json_schema.schema!.properties!.outcome!.enum![0], reason: "x" }) } }] });
@@ -687,6 +691,13 @@ describe("a helper's instructions stay on the server", () => {
       await hit("agent: live run", agentRun.POST(req(`/api/agents/${id}/run`, "POST", { dryRun: false, bench: restockBench() }), p));
       await hit("agent: save", agentBench.PUT(req(`/api/agents/${id}/bench`, "PUT", { bench: restockBench() }), p));
       await hit("agent: publish", agentPublish.POST(req(`/api/agents/${id}/publish`, "POST"), p));
+      // The admin's safety page shows every review, never the code.
+      vi.stubEnv("ADMIN_USER_IDS", maya.id);
+      resetPaymentsConfig();
+      await hit("safety: admin", adminSafetyRoute.GET(req("/api/admin/safety")));
+      vi.stubEnv("ADMIN_USER_IDS", "");
+      resetPaymentsConfig();
+      await hit("safety: not an admin", adminSafetyRoute.GET(req("/api/admin/safety")));
       // Maya connects Google (its consent screen answered by the test), and
       // opens her sheet to pick its tabs.
       vi.stubEnv("OPENSERV_KEY_ENC_KEY", randomBytes(32).toString("base64"));
@@ -957,6 +968,9 @@ describe("a helper's instructions stay on the server", () => {
     for (const label of ["agent: maker sees sam's job", "agent: maker's jobs with sam's", "agent: installation after a job", "agent: questions"]) expect(said(label), label).not.toContain(SAM_PRIVATE);
     expect(said("agent: sam sees maya's job")).toBe('{"error":"Not found"}');
     expect(said("agent: sam answers maya's question")).toBe('{"error":"Not found"}');
+    // The admin's safety page lists the review in plain words.
+    expect(JSON.parse(said("safety: admin")).safety.reviews[0].review.findings).toEqual([{ step: "Find low stock", severity: "warning", finding: "It reads the whole stock tab every time." }]);
+    expect(said("safety: not an admin")).toBe('{"error":"Not found"}');
     // Renting: Sam's rental is his alone, and the maker can't rent her own.
     expect(said("market: maya rents her own")).toContain("It's yours");
     expect(said("market: sam rents")).toContain('"status":"setup"');

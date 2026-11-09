@@ -3,6 +3,7 @@ import { ownedAgent } from "@/lib/agents/owned";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { draftOf, publishDraft } from "@/lib/agents/store";
 import { offerVersion } from "@/lib/market/versions";
+import { REVIEW_BLOCKED, REVIEW_DOWN, vetVersion } from "@/lib/agents/publish";
 
 export const runtime = "nodejs";
 
@@ -10,7 +11,8 @@ export const runtime = "nodejs";
 // testing" on the maker's own agents page until its maker lists it for
 // rent; once listed, new renters get the newest version and those renting
 // an older one are offered it (update or stay). Only a planned draft, not
-// building, with every code step's code approved, can be published.
+// building, with every code step's code approved and a code review with no
+// blocking finding, can be published.
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const who = await ownedAgent(req, params.id);
   if ("refused" in who) return who.refused;
@@ -22,8 +24,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (waiting.length) {
     return Response.json({ error: `${waiting.map((s) => `"${s.title}"`).join(", ")} ${waiting.length === 1 ? "still needs" : "still need"} approved code.` }, { status: 409 });
   }
+  // The code review: nothing unreviewed or with a blocking finding goes out.
+  const rt = serverRuntime();
+  const review = await vetVersion(rt, who.user, draft);
+  if (review.status === "unreviewed") return Response.json({ error: REVIEW_DOWN, review }, { status: 503 });
+  if (review.status === "blocked") return Response.json({ error: REVIEW_BLOCKED, review, builder: await builderOf(who.agent, { ...draft, review }) }, { status: 409 });
   const published = await publishDraft(who.agent.id);
   if (!published) return Response.json({ error: "It could not be published just now. Try again." }, { status: 409 });
-  await offerVersion(serverRuntime(), who.agent.id, published);
+  await offerVersion(rt, who.agent.id, published);
   return Response.json({ builder: await builderOf(who.agent, published) });
 }
