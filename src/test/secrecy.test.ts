@@ -193,7 +193,7 @@ beforeAll(async () => {
   ({ client, db } = await testDb());
   state.db = db;
   maya = await addUser(db, "maya.rivera", "maker_4821");
-  sam = await addUser(db, "sam.okafor", "maker_1234");
+  sam = await addUser(db, "sam.carter", "maker_1234");
   vi.stubEnv("SERV_API_KEY", "test-serv-key");
   vi.stubEnv("FALLBACK_API_KEY", "");
   vi.stubEnv("HELPER_DAILY_USES", "6");
