@@ -1,0 +1,382 @@
+{
+  "note": "Built by scripts/seed-restock.ts: planned by SERV, code written by Dolphin and reviewed by SERV, decisions recorded from one live run.",
+  "builtAt": "2026-11-09T11:51:00.907Z",
+  "interview": {
+    "name": "Fabric restock",
+    "kind": "agent",
+    "watches": null,
+    "when": null,
+    "how": null,
+    "tells": null,
+    "takes": null,
+    "does": null,
+    "gives": null,
+    "wakes": "every morning at 08:00",
+    "looks": "the Stock sheet (columns fabric, metres, minimum) and the Suppliers sheet, where three suppliers list each fabric with price_usdc per metre and delivery_days",
+    "handles": "for each fabric below its minimum, pick the cheapest supplier that delivers within the longest delivery the owner allows, and order enough metres to reach twice the minimum",
+    "finish": "every low fabric has an order row in the Orders sheet, or the owner said no",
+    "asks": "never place an order whose total is over the approval limit in USDC without asking the owner on Telegram first",
+    "setup": "the names of the stock, suppliers and orders sheets, the approval limit (250 USDC) and the longest delivery (7 days)",
+    "remembers": "the last order it placed",
+    "asking": null,
+    "live": false
+  },
+  "definition": {
+    "format": 1,
+    "name": "Fabric restock",
+    "job": {
+      "does": "Checks fabric stock each morning and automatically reorders low items from the cheapest supplier within delivery time limits.",
+      "done": "All low fabrics have order rows in the Orders sheet, or the owner declined."
+    },
+    "triggers": [
+      {
+        "kind": "schedule",
+        "every": "day",
+        "at": "08:00",
+        "description": "Every morning at 08:00"
+      }
+    ],
+    "settings": [
+      {
+        "key": "stock_sheet",
+        "label": "Name of the Stock sheet",
+        "type": "text",
+        "help": "Sheet with columns: fabric, metres, minimum",
+        "choices": []
+      },
+      {
+        "key": "suppliers_sheet",
+        "label": "Name of the Suppliers sheet",
+        "type": "text",
+        "help": "Sheet where each supplier lists fabrics with price_usdc per metre and delivery_days",
+        "choices": []
+      },
+      {
+        "key": "orders_sheet",
+        "label": "Name of the Orders sheet",
+        "type": "text",
+        "help": "Sheet where order rows are added",
+        "choices": []
+      },
+      {
+        "key": "approval_limit",
+        "label": "Order approval limit in USDC",
+        "type": "number",
+        "help": "Orders over this amount require your confirmation on Telegram",
+        "choices": []
+      },
+      {
+        "key": "max_delivery_days",
+        "label": "Maximum acceptable delivery time in days",
+        "type": "number",
+        "help": "Only suppliers delivering within this timeframe will be considered",
+        "choices": []
+      }
+    ],
+    "rules": [
+      {
+        "key": "approval_limit",
+        "label": "Order approval limit",
+        "type": "usdc",
+        "value": "250",
+        "help": "Orders over this limit require owner confirmation"
+      },
+      {
+        "key": "max_delivery_days",
+        "label": "Maximum delivery days",
+        "type": "number",
+        "value": "7",
+        "help": "Longest acceptable delivery time"
+      }
+    ],
+    "memory": [
+      {
+        "key": "last_order",
+        "description": "Details of the last order placed",
+        "type": "record"
+      }
+    ],
+    "steps": [
+      {
+        "id": "read_stock_and_suppliers",
+        "title": "Read stock and supplier data",
+        "inputs": [
+          "settings",
+          "rules"
+        ],
+        "outputs": [
+          "orders_to_place"
+        ],
+        "kind": "code",
+        "description": "Read all fabrics from the Stock sheet and filter those below minimum. For each low fabric, read all suppliers and pick the cheapest one delivering within max_delivery_days. Build orders list with {fabric, supplier, metres_to_order, total_cost_usdc}. Return orders_to_place.",
+        "tools": [
+          "sheets.read"
+        ],
+        "next": "check_approval"
+      },
+      {
+        "id": "check_approval",
+        "title": "Check if approval needed",
+        "inputs": [
+          "orders_to_place",
+          "rules"
+        ],
+        "outputs": [],
+        "kind": "decision",
+        "prompt": "Do any orders exceed the approval limit?",
+        "outcomes": [
+          {
+            "id": "needs_approval",
+            "label": "Some orders exceed limit",
+            "next": "ask_approval"
+          },
+          {
+            "id": "no_approval_needed",
+            "label": "All orders within limit or no orders",
+            "next": "prepare_write_orders"
+          }
+        ]
+      },
+      {
+        "id": "ask_approval",
+        "title": "Request Telegram approval for high orders",
+        "inputs": [
+          "orders_to_place"
+        ],
+        "outputs": [
+          "approval_response"
+        ],
+        "kind": "action",
+        "action": "ask_approval",
+        "next": "approval_decision"
+      },
+      {
+        "id": "approval_decision",
+        "title": "Check owner approval response",
+        "inputs": [
+          "approval_response"
+        ],
+        "outputs": [],
+        "kind": "decision",
+        "prompt": "Did the owner approve the orders?",
+        "outcomes": [
+          {
+            "id": "approved",
+            "label": "Owner approved",
+            "next": "prepare_write_orders"
+          },
+          {
+            "id": "declined",
+            "label": "Owner declined",
+            "next": null
+          }
+        ]
+      },
+      {
+        "id": "prepare_write_orders",
+        "title": "Prepare write_orders argument",
+        "inputs": [
+          "orders_to_place",
+          "settings"
+        ],
+        "outputs": [
+          "write_orders_arg"
+        ],
+        "kind": "code",
+        "description": "Transform orders_to_place into {sheet: settings.orders_sheet, rows: orders_to_place}. Return write_orders_arg.",
+        "tools": [],
+        "next": "write_orders_action"
+      },
+      {
+        "id": "write_orders_action",
+        "title": "Write orders to sheet",
+        "inputs": [
+          "write_orders_arg"
+        ],
+        "outputs": [
+          "write_result"
+        ],
+        "kind": "action",
+        "action": "write_orders",
+        "next": "prepare_memory_arg"
+      },
+      {
+        "id": "prepare_memory_arg",
+        "title": "Prepare memory.set argument",
+        "inputs": [
+          "orders_to_place",
+          "memory"
+        ],
+        "outputs": [
+          "memory_arg"
+        ],
+        "kind": "code",
+        "description": "Transform orders_to_place into {key: 'last_order', value: orders_to_place}. Return memory_arg.",
+        "tools": [],
+        "next": "save_order_memory_action"
+      },
+      {
+        "id": "save_order_memory_action",
+        "title": "Save last order to memory",
+        "inputs": [
+          "memory_arg"
+        ],
+        "outputs": [
+          "memory_result"
+        ],
+        "kind": "action",
+        "action": "save_order_memory",
+        "next": null
+      }
+    ],
+    "actions": [
+      {
+        "id": "ask_approval",
+        "tool": "telegram.ask",
+        "description": "Ask owner to approve orders over the approval limit"
+      },
+      {
+        "id": "write_orders",
+        "tool": "sheets.write",
+        "description": "Write new order rows to the Orders sheet"
+      },
+      {
+        "id": "save_order_memory",
+        "tool": "memory.set",
+        "description": "Save the last order placed to memory"
+      }
+    ],
+    "limits": {
+      "maxSteps": 20,
+      "maxRunSeconds": 60,
+      "maxSpendUsd": 0.5
+    }
+  },
+  "code": {
+    "read_stock_and_suppliers": {
+      "status": "approved",
+      "source": "async function run(input, tools) {\n  const settings = (input && input.settings) || {};\n  const rules = (input && input.rules) || {};\n  const maxDays = Number(rules.max_delivery_days ?? settings.max_delivery_days);\n  const orders_to_place = [];\n\n  let stockRows = [], supplierRows = [];\n  try {\n    const s = await tools.sheets.read({ sheet: settings.stock_sheet });\n    stockRows = (s && Array.isArray(s.rows)) ? s.rows : [];\n  } catch (e) { stockRows = []; }\n  try {\n    const p = await tools.sheets.read({ sheet: settings.suppliers_sheet });\n    supplierRows = (p && Array.isArray(p.rows)) ? p.rows : [];\n  } catch (e) { supplierRows = []; }\n\n  const low = [];\n  for (const row of stockRows) {\n    if (!row) continue;\n    const fabric = row.fabric;\n    const metres = Number(row.metres);\n    const minimum = Number(row.minimum);\n    if (!fabric || !isFinite(metres) || !isFinite(minimum)) continue;\n    if (metres < minimum) low.push({ fabric: String(fabric), metres, minimum });\n  }\n\n  for (const item of low) {\n    const need = item.minimum - item.metres;\n    if (!(need > 0)) continue;\n    let best = null;\n    for (const row of supplierRows) {\n      if (!row) continue;\n      if (String(row.fabric) !== item.fabric) continue;\n      const price = Number(row.price_usdc);\n      const days = Number(row.delivery_days);\n      if (!isFinite(price) || !isFinite(days)) continue;\n      if (isFinite(maxDays) && days > maxDays) continue;\n      if (!best || price < best.price) {\n        best = { supplier: String(row.supplier ?? \"\"), price };\n      }\n    }\n    if (!best) continue;\n    orders_to_place.push({\n      fabric: item.fabric,\n      supplier: best.supplier,\n      metres_to_order: need,\n      total_cost_usdc: Math.round(need * best.price * 100) / 100\n    });\n  }\n\n  return { orders_to_place };\n}",
+      "rounds": 1,
+      "note": "The code correctly reads stock and supplier data, filters fabrics below minimum, selects the cheapest supplier within delivery constraints, and builds the required orders list using only the listed tool with no unsafe operations."
+    },
+    "prepare_write_orders": {
+      "status": "approved",
+      "source": "async function run(input, tools) {\n  const settings = input.settings || {};\n  const orders = input.orders_to_place;\n  const rows = Array.isArray(orders) ? orders : [];\n  return {\n    write_orders_arg: {\n      sheet: settings.orders_sheet,\n      rows: rows\n    }\n  };\n}",
+      "rounds": 1,
+      "note": "The code correctly transforms the inputs into the required output structure, reads only from its inputs, calls no tools, and avoids unsafe operations."
+    },
+    "prepare_memory_arg": {
+      "status": "approved",
+      "source": "async function run(input, tools) {\n  const orders = Array.isArray(input.orders_to_place) ? input.orders_to_place : [];\n  return { memory_arg: { key: 'last_order', value: orders } };\n}",
+      "rounds": 1,
+      "note": "The code correctly transforms orders_to_place into the required {key, value} structure, returns only the specified output, reads only its inputs, and performs no unsafe operations."
+    }
+  },
+  "bench": {
+    "settings": {
+      "stock_sheet": "Stock",
+      "suppliers_sheet": "Suppliers",
+      "orders_sheet": "Orders",
+      "approval_limit": 250,
+      "max_delivery_days": 7
+    },
+    "rules": {},
+    "trigger": null,
+    "sheets": {
+      "Stock": [
+        {
+          "fabric": "Linen, natural",
+          "metres": 4,
+          "minimum": 20
+        },
+        {
+          "fabric": "Cotton twill",
+          "metres": 55,
+          "minimum": 30
+        },
+        {
+          "fabric": "Wool felt",
+          "metres": 6,
+          "minimum": 10
+        },
+        {
+          "fabric": "Canvas, heavy",
+          "metres": 12,
+          "minimum": 15
+        }
+      ],
+      "Suppliers": [
+        {
+          "supplier": "Northmill Textiles",
+          "fabric": "Linen, natural",
+          "price_usdc": 6.5,
+          "delivery_days": 3
+        },
+        {
+          "supplier": "Harbor Cloth Co.",
+          "fabric": "Linen, natural",
+          "price_usdc": 5.9,
+          "delivery_days": 9
+        },
+        {
+          "supplier": "Weftworks",
+          "fabric": "Linen, natural",
+          "price_usdc": 6.1,
+          "delivery_days": 5
+        },
+        {
+          "supplier": "Northmill Textiles",
+          "fabric": "Wool felt",
+          "price_usdc": 11,
+          "delivery_days": 4
+        },
+        {
+          "supplier": "Harbor Cloth Co.",
+          "fabric": "Wool felt",
+          "price_usdc": 9.8,
+          "delivery_days": 12
+        },
+        {
+          "supplier": "Weftworks",
+          "fabric": "Wool felt",
+          "price_usdc": 10.5,
+          "delivery_days": 6
+        },
+        {
+          "supplier": "Northmill Textiles",
+          "fabric": "Canvas, heavy",
+          "price_usdc": 7.2,
+          "delivery_days": 2
+        },
+        {
+          "supplier": "Harbor Cloth Co.",
+          "fabric": "Canvas, heavy",
+          "price_usdc": 6.8,
+          "delivery_days": 5
+        },
+        {
+          "supplier": "Weftworks",
+          "fabric": "Canvas, heavy",
+          "price_usdc": 7.5,
+          "delivery_days": 3
+        }
+      ],
+      "Orders": []
+    },
+    "pages": {},
+    "search": {},
+    "telegram": {
+      "answers": [
+        "Yes, go ahead"
+      ]
+    },
+    "memory": {},
+    "wallet": {
+      "balanceUsdc": 1000
+    },
+    "decisions": {
+      "check_approval": "no_approval_needed"
+    }
+  },
+  "planTries": 5
+}

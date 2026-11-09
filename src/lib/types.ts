@@ -1,3 +1,6 @@
+import type { SketchFieldKey } from "./sketchFields";
+import type { AgentDefinition } from "./agents/definition";
+import type { BenchData, CodeStatus } from "./agents/types";
 // Shapes the browser works with. Dates arrive as ISO strings over JSON.
 export interface ConversationDTO {
   id: string;
@@ -47,7 +50,7 @@ export interface AccountDTO {
 // takes, does and gives (see sketchFields.ts).
 export interface SketchDTO {
   name: string | null;
-  kind: "watcher" | "digest" | "helper" | "answer" | null;
+  kind: "watcher" | "digest" | "helper" | "answer" | "agent" | null;
   watches: string | null;
   when: string | null;
   how: string | null;
@@ -55,11 +58,65 @@ export interface SketchDTO {
   takes: string | null;
   does: string | null;
   gives: string | null;
+  // An agent's interview: what wakes it up, where it looks, what it does with
+  // what it finds, what counts as done, what it must never do without
+  // asking, what the owner sets up and what it should remember.
+  wakes?: string | null;
+  looks?: string | null;
+  handles?: string | null;
+  finish?: string | null;
+  asks?: string | null;
+  setup?: string | null;
+  remembers?: string | null;
   // The one field the latest reply asks about.
-  asking: "watches" | "when" | "how" | "tells" | "takes" | "does" | "gives" | null;
+  asking: SketchFieldKey | null;
   live: boolean;
   // The maker picked the kind on the dock: the plan no longer changes it.
   kindChosen?: boolean;
+}
+
+// An agent built from a conversation, as its maker's dock shows it: the
+// steps' shape and how far the build has got, never code or prompts.
+export interface AgentSummaryDTO {
+  id: string;
+  version: number;
+  state: "draft" | "published";
+  buildState: "idle" | "planning" | "writing" | "fixing" | "failed";
+  buildNote: string | null;
+  // Empty until the first plan is made.
+  steps: {
+    id: string;
+    title: string;
+    kind: "code" | "decision" | "action";
+    next: (string | null)[];
+    // A code step's code: null for other kinds.
+    code: "queued" | "writing" | "reviewing" | "approved" | "needs_attention" | null;
+  }[];
+}
+
+// Everything the agent's own builder shows its maker: the definition, each
+// code step's code and review, the test bench's sample data and the
+// versions. Only ever sent to the agent's maker.
+export interface AgentBuilderDTO {
+  agent: AgentSummaryDTO;
+  name: string;
+  conversationId: string | null;
+  definition: AgentDefinition | null;
+  code: Record<string, { status: CodeStatus; source: string | null; rounds: number; note: string | null }>;
+  bench: BenchData;
+  versions: { number: number; state: "draft" | "published"; createdAt: string; publishedAt: string | null }[];
+}
+
+// One of the maker's agents on their own agents page.
+export interface AgentListItemDTO {
+  id: string;
+  name: string;
+  version: number;
+  // The newest published version, in testing; null before the first.
+  testing: number | null;
+  draft: boolean;
+  steps: number;
+  updatedAt: string;
 }
 
 // A published helper as anyone may see it: never its instructions.

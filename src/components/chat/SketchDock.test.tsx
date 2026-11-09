@@ -52,7 +52,7 @@ describe("SketchDock", () => {
     render(<SketchDock sketch={sketchFromDTO(blurb)} onKind={onKind} />);
     const kind = screen.getByRole("combobox", { name: "Kind" });
     expect(kind).toHaveValue("answer");
-    expect([...kind.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["answer", "watcher", "digest", "helper"]);
+    expect([...kind.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["answer", "agent", "watcher", "digest", "helper"]);
     fireEvent.change(kind, { target: { value: "digest" } });
     expect(onKind).toHaveBeenCalledWith("digest");
     cleanup();

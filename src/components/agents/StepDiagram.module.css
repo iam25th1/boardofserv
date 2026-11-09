@@ -1,0 +1,85 @@
+/* An agent's steps in chalk. Shapes say the kind, strokes and fills the state. */
+.wrap {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  max-width: 100%;
+}
+
+.diagram {
+  display: block;
+  overflow: visible;
+}
+
+.link {
+  fill: none;
+  stroke: var(--chalk-2);
+  stroke-width: var(--stroke);
+  stroke-linecap: round;
+}
+.link[data-back="true"] {
+  stroke-dasharray: 3 5;
+}
+
+.node {
+  fill: none;
+  stroke: var(--chalk-3);
+  stroke-width: var(--stroke);
+  stroke-linejoin: round;
+  transition: stroke var(--dur) var(--ease);
+}
+.fill {
+  fill: var(--chalk);
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(0);
+}
+
+[data-state="ready"] .node,
+[data-state="done"] .node,
+[data-state="active"] .node {
+  stroke: var(--chalk);
+}
+[data-state="active"] .node {
+  stroke-width: var(--stroke-bold);
+}
+
+/* Code being written or reviewed: a dashed outline that keeps turning. */
+[data-state="writing"] .node {
+  stroke: var(--chalk);
+  stroke-dasharray: 4 4;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: spin 4s linear infinite;
+}
+
+/* Needs the maker's attention, or failed on the bench: dashed, with a mark. */
+[data-state="attention"] .node,
+[data-state="failed"] .node {
+  stroke: var(--chalk);
+  stroke-dasharray: 3 3;
+}
+.mark {
+  font: var(--w-bold) 12px var(--font-body);
+  fill: var(--chalk);
+  text-anchor: middle;
+}
+
+.label {
+  font-family: var(--font-body);
+  font-weight: var(--w-medium);
+  fill: var(--chalk-3);
+  text-anchor: middle;
+}
+[data-state="ready"] .label,
+[data-state="done"] .label,
+[data-state="active"] .label,
+[data-state="attention"] .label,
+[data-state="writing"] .label {
+  fill: var(--chalk-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-state="writing"] .node {
+    animation: none;
+  }
+}

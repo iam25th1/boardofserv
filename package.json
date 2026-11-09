@@ -21,6 +21,7 @@
     "start:prod": "next start --hostname 127.0.0.1 --port 7560"
   },
   "dependencies": {
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
     "@privy-io/react-auth": "2.13.1",
     "@privy-io/server-auth": "1.18.4",
     "animejs": "4.5.0",
@@ -28,6 +29,7 @@
     "next": "14.2.35",
     "pg": "8.13.1",
     "qrcode": "1.5.4",
+    "quickjs-emscripten-core": "0.32.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-markdown": "9.0.1",

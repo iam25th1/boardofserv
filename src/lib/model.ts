@@ -40,8 +40,9 @@ const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 20_000;
 // history is dropped, not summarised), and a reply is capped at 700 tokens.
 const DEFAULT_HISTORY_MESSAGES = 12;
 const DEFAULT_MAX_TOKENS = 700;
-// The plan call answers in a small JSON object.
-const DEFAULT_PLAN_MAX_TOKENS = 200;
+// The plan call answers in a small JSON object (an agent's interview has the
+// most fields to fill).
+const DEFAULT_PLAN_MAX_TOKENS = 320;
 
 // Appended to a reply that broke off mid-stream. Stored with the reply so it
 // survives a reload, and stripped again before the history goes back to a model.

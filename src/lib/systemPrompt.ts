@@ -8,8 +8,8 @@ import type { SketchDTO } from "./types";
 // asks about and which answers the person will see as buttons, so the reply
 // writes no JSON and only phrases that one question (replySystemPrompt).
 export const SYSTEM_PROMPT = [
-  "You are boardofserv. You help people describe, in plain words, an agent they want: what it watches, when it acts, how often it checks and where it tells them.",
-  "Or an answer helper that others ask once: what it takes, what it does and what it gives back, and the rules and voice it should keep.",
+  "You are boardofserv. You help people describe, in plain words, an answer helper that others ask once: what it takes, what it does and what it gives back, and the rules and voice it should keep.",
+  "Or an agent that runs on its own: what wakes it up, where it looks, what it does with what it finds, what counts as done, what it must never do without asking, what the owner sets up and what it remembers.",
   "Ask one question at a time and keep replies short.",
   "Use everyday language and do not mention APIs, keys or code unless asked. Do not claim to build or run anything. Never use em dashes.",
 ].join(" ");
@@ -23,6 +23,13 @@ const ABOUT: Record<SketchFieldKey, string> = {
   takes: "what the user gives it",
   does: "what it does",
   gives: "what comes back",
+  wakes: "what wakes it up",
+  looks: "where it looks",
+  handles: "what it does with what it finds",
+  finish: "what counts as done",
+  asks: "what it must never do without asking",
+  setup: "what the owner sets up",
+  remembers: "what it should remember",
 };
 
 // What the sketch holds, as one short plain line: the fields of its kind.
@@ -55,6 +62,9 @@ export function askLine(sketch: SketchDTO | null, plan: TurnPlan | null): string
     if (sketch?.kind === "answer") {
       return "The helper is fully described. If the conversation has no rules or voice for it yet, ask what it must always or never do and how it should sound; otherwise confirm it and say the Publish button on the sketch puts it on the board.";
     }
+    if (sketch?.kind === "agent") {
+      return "The agent is fully described: confirm it in a sentence, say the Plan button on the sketch turns it into steps to test, and ask nothing.";
+    }
     return "The agent is fully described: confirm that, say switching it on comes in the next update, and ask nothing.";
   }
   return "Ask about the most important missing piece.";
@@ -66,7 +76,7 @@ export function replySystemPrompt(sketch: SketchDTO | null, plan: TurnPlan | nul
 
 // The plan: the sketch as JSON, plus the next question and its buttons. Kept
 // to the minimum: what each field means lives in the schema's descriptions.
-// A one-shot answer helper is the default kind; a watcher or a digest only
-// when the person mentions something to monitor or a schedule.
+// A one-shot answer helper is the default kind; an agent when it runs on its
+// own: on a schedule, watching data or acting over time.
 export const PLAN_PROMPT =
-  'Update the sketch of the agent the person is describing from what they said. Keep known values unless they changed them. Use a few plain words per field and "" if unknown. Kind is answer unless they mention a schedule (digest) or something to keep watching (watcher).';
+  'Update the sketch of the agent the person is describing from what they said. Keep known values unless they changed them. Use a few plain words per field and "" if unknown. Kind is answer unless it runs on its own: on a schedule, watching data or acting over time (agent).';

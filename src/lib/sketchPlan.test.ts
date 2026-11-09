@@ -22,6 +22,13 @@ const stored: SketchDTO = {
   takes: null,
   does: null,
   gives: null,
+  wakes: null,
+  looks: null,
+  handles: null,
+  finish: null,
+  asks: null,
+  setup: null,
+  remembers: null,
   asking: "how",
   live: false,
   kindChosen: false,
@@ -149,10 +156,10 @@ describe("the sketch schema", () => {
 });
 
 describe("the default kind", () => {
-  it("is a one-shot answer helper, unless the person mentions a schedule or something to keep watching", () => {
-    expect(PLAN_PROMPT).toContain("Kind is answer unless they mention a schedule (digest) or something to keep watching (watcher).");
+  it("is a one-shot answer helper, unless it runs on its own, which makes it an agent", () => {
+    expect(PLAN_PROMPT).toContain("Kind is answer unless it runs on its own: on a schedule, watching data or acting over time (agent).");
     const kind = SKETCH_SCHEMA.schema.properties.kind as { description: string };
     expect(kind.description).toMatch(/^answer \(the default\) replies once/);
-    expect(kind.description).toContain("watcher only when they mention something to monitor; digest only when they mention a schedule");
+    expect(kind.description).toContain("agent runs on its own: on a schedule, watching data or acting over time. Use only answer or agent");
   });
 });

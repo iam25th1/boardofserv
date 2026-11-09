@@ -1,5 +1,7 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
+import type { AgentDefinition } from "../agents/definition";
+import type { BenchData, StepCode } from "../agents/types";
 import { CURRENCIES } from "../money";
 
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
@@ -88,7 +90,9 @@ export const messages = pgTable(
 // user_id (null on rows from before it was kept) is who the turn was for, so
 // the daily limit survives a deleted conversation. kind is "reply" for a
 // chat turn, "compile" for the call that writes a published helper's
-// instructions (its tokens in the reply columns). own_key marks a call made
+// instructions, and agent_plan, agent_code, agent_review or agent_decision
+// for building and testing an agent (each with its tokens in the reply
+// columns). own_key marks a call made
 // on the person's own SERV key: it is not counted against anything.
 export const replyUsage = pgTable(
   "reply_usage",
@@ -96,7 +100,7 @@ export const replyUsage = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
-    kind: text("kind", { enum: ["reply", "compile"] }).notNull().default("reply"),
+    kind: text("kind", { enum: ["reply", "compile", "agent_plan", "agent_code", "agent_review", "agent_decision"] }).notNull().default("reply"),
     ownKey: boolean("own_key").notNull().default(false),
     provider: text("provider"),
     model: text("model"),
@@ -128,14 +132,14 @@ export const replyUsage = pgTable(
 // The agent being sketched in a conversation, one row per conversation. Each
 // turn's plan is merged in (see mergeSketch): a value the model sends
 // replaces the stored one, a null never wipes it. live stays false until
-// agents can run. An answer helper uses takes, does and gives instead of
-// watches, when, how and tells.
+// agents can run. An answer helper uses takes, does and gives, an agent its
+// interview fields, the older kinds watches, when, how and tells.
 export const agentSketches = pgTable("agent_sketches", {
   conversationId: uuid("conversation_id")
     .primaryKey()
     .references(() => conversations.id, { onDelete: "cascade" }),
   name: text("name"),
-  kind: text("kind", { enum: ["watcher", "digest", "helper", "answer"] }),
+  kind: text("kind", { enum: ["watcher", "digest", "helper", "answer", "agent"] }),
   watches: text("watches"),
   when: text("when"),
   how: text("how"),
@@ -143,7 +147,15 @@ export const agentSketches = pgTable("agent_sketches", {
   takes: text("takes"),
   does: text("does"),
   gives: text("gives"),
-  asking: text("asking", { enum: ["watches", "when", "how", "tells", "takes", "does", "gives"] }),
+  // An agent's interview (see sketchFields.ts).
+  wakes: text("wakes"),
+  looks: text("looks"),
+  handles: text("handles"),
+  finish: text("finish"),
+  asks: text("asks"),
+  setup: text("setup"),
+  remembers: text("remembers"),
+  asking: text("asking", { enum: ["watches", "when", "how", "tells", "takes", "does", "gives", "wakes", "looks", "handles", "finish", "asks", "setup", "remembers"] }),
   live: boolean("live").notNull().default(false),
   // The maker picked the kind on the dock; the plan leaves it alone from then on.
   kindChosen: boolean("kind_chosen").notNull().default(false),
@@ -450,8 +462,65 @@ export const paymentSettings = pgTable("payment_settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// An agent a maker builds from a conversation: the stable identity its
+// versions hang from. A conversation has at most one.
+export const agents = pgTable(
+  "agents",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceConversationId: uuid("source_conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byOwner: index("agents_owner_idx").on(t.ownerUserId, t.updatedAt),
+    onePerConversation: uniqueIndex("agents_conversation_idx").on(t.sourceConversationId),
+  }),
+);
+
+// The versions of an agent, numbered from 1. At most one is a draft, the one
+// being planned, written and tested. Publishing turns the draft into a
+// version that never changes again: every write to a version is guarded by
+// state = 'draft' (see agents/store.ts), and an edit after publishing starts
+// a new draft from it. definition is null until the first plan is made.
+// code holds each code step's source and review, which only the maker's own
+// builder ever shows. bench holds the test bench's sample data. build_state
+// says what the background build is doing ("idle", "planning", "writing",
+// "fixing" or "failed", with build_note saying why in plain words).
+export const agentVersions = pgTable(
+  "agent_versions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    state: text("state", { enum: ["draft", "published"] }).notNull().default("draft"),
+    definition: jsonb("definition").$type<AgentDefinition>(),
+    code: jsonb("code").$type<Record<string, StepCode>>().notNull().default({}),
+    bench: jsonb("bench").$type<BenchData>(),
+    buildState: text("build_state", { enum: ["idle", "planning", "writing", "fixing", "failed"] }).notNull().default("idle"),
+    buildNote: text("build_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+  },
+  (t) => ({
+    byNumber: uniqueIndex("agent_versions_number_idx").on(t.agentId, t.number),
+    oneDraft: uniqueIndex("agent_versions_draft_idx").on(t.agentId).where(sql`${t.state} = 'draft'`),
+    knownState: check("agent_versions_state", sql`${t.state} in ('draft', 'published')`),
+    publishedHasTime: check("agent_versions_published_at", sql`(${t.state} = 'published') = (${t.publishedAt} is not null)`),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type AgentSketchRow = typeof agentSketches.$inferSelect;
 export type PublishedHelper = typeof publishedHelpers.$inferSelect;
+export type Agent = typeof agents.$inferSelect;
+export type AgentVersion = typeof agentVersions.$inferSelect;

@@ -64,6 +64,9 @@ in the `boardofserv_boardofserv_pgdata` volume either way.
   first set.
 - `INVITE_ONLY` (optional, on unless `0`, `false`, `no` or `off`): accounts
   wait for an admin's approval before they can chat (see "Invite-only").
+- `AGENT_PLAN_MAX_TOKENS` (optional, default 3500), `AGENT_PLAN_TIMEOUT_MS`
+  (120000) and `DOLPHIN_CODE_TIMEOUT_MS` (240000): how long SERV's plan of an
+  agent may be and take, and how long Dolphin may take to write one code step.
 - `CHAT_DAILY_LIMIT` (optional, default 30): messages each person may send a
   day. `DAILY_SPEND_LIMIT_USD` (optional, default 5): the most the site
   spends a day on the operator's model keys (see "Spend limits" below).
@@ -394,6 +397,247 @@ echoes the prompt and the canary, and fails if any response body or console
 line carries either, or any part of anyone's email (apart from the account
 menu's response to its owner).
 
+
+## Agents
+
+An agent runs on its own: on a schedule, when a value it checks changes, or
+when a message comes in. A maker builds one in the chat, SERV plans it,
+Dolphin writes its code, SERV reviews that code, and the maker tries it on
+a test bench before publishing a version.
+
+### The agent format
+
+`src/lib/agents/definition.ts`: one versioned definition (`format: 1`),
+checked with zod.
+
+- `job`: what it does and what counts as done.
+- `triggers`: a schedule (every hour, day or week, at a time), a value
+  checked every so many minutes, or an incoming Telegram message. Stored
+  now, run in a later phase.
+- `settings`: the questions each renter answers at setup (label, type, help).
+- `rules`: the limits a renter may adjust, each with the maker's default (a
+  spend cap in USDC, an approval threshold, an allowed list).
+- `memory`: named values kept per renter between jobs.
+- `steps`: each with an id, title, kind, inputs, outputs and where it goes
+  next. A code step carries a plain description of what its code must do and
+  the tools it may call; a decision step carries a prompt for SERV and two to
+  six outcomes, each with its own next step; an action step takes one
+  declared action. A run starts at the first step.
+- `actions`: the only actions the agent may ever take, each with a tool that
+  changes something (`sheets.write`, `telegram.send`, `telegram.ask`,
+  `wallet.pay`, `memory.set`); reading and working things out happen in code
+  steps. A code step may use a tool with a side effect only when an action
+  declares it.
+- `limits`: the most steps, seconds and model spend (US dollars) one job
+  may use.
+
+Steps pass values through one bag per run: `settings`, `rules`, `memory`
+and `trigger` are in it from the start, and each step adds its outputs. The
+checks beyond the shape:
+
+- names are unique, every next step exists and every step can be reached
+  from the first;
+- every input comes from somewhere, and is made on every way to the step (a
+  value made on only one branch of a decision can't be read where the
+  branches meet);
+- a step whose words name a setting, rule or memory key reads that bag;
+- action steps take declared actions, and side effects are declared;
+- an action whose tool needs exact arguments (`sheets.write`, `wallet.pay`,
+  `memory.set`) takes them as its first input, a value of its own made by a
+  code step for it alone.
+
+Most of these came from building the example agent live (see below): each
+is a way a plan from SERV passed the shape and still couldn't run.
+
+Agents live in `agents` (owner, the conversation it was built in, name) and
+`agent_versions` (number, state, definition, code, bench data, build state).
+An agent has at most one draft. Publishing turns the draft into a version
+that never changes again: every write to a version is guarded by
+`state = 'draft'` (`src/lib/agents/store.ts`), and editing after that starts
+a new draft copied from the newest published version.
+
+### The toolbox
+
+`src/lib/agents/toolbox.ts`: the only things a code step can reach, through
+the sandbox's host bridge, and only the ones its step lists.
+
+- `sheets.read({ sheet })` and `sheets.write({ sheet, rows, mode })`
+- `web.fetch({ url })` and `web.search({ query })`
+- `telegram.send({ text })` and `telegram.ask({ question, choices })`, which
+  asks the owner and waits for the answer
+- `memory.get({ key })` and `memory.set({ key, value })`
+- `wallet.pay({ to, amountUsdc, memo })`
+
+Each has typed arguments, checked whatever the code sends, and a result
+shape, written out as declarations for Dolphin. Real implementations come in
+later phases. For now each is a mock that answers from the test bench's
+sample data (sheets and their rows, pages, search results, the owner's
+answers, memory, a wallet balance in USDC), on a copy per run, and logs
+every call.
+
+### The agent builder chat
+
+"agent" is a sketch kind beside the one-shot answer helper. The plan picks it
+when what the person describes runs on its own (on a schedule, watching data,
+acting over time), and the dock's kind switch can pick it too. The plan only
+chooses answer or agent now; watcher, digest and helper stay for sketches
+that already have them.
+
+SERV interviews the maker one question at a time, with answer buttons where
+they help, through the same plan-then-reply turn as a helper: what wakes it
+up, where it looks, what it does with what it finds, what counts as done,
+what it must never do without asking, what the owner sets up and what it
+should remember (`wakes`, `looks`, `handles`, `finish`, `asks`, `setup`,
+`remembers` on `agent_sketches`, migration 0019). They ride in the same plan
+schema as the helper's fields, so a first message that already says "every
+morning, check my stock sheet" keeps what it said.
+
+The agent's dock (`src/components/chat/AgentDock.tsx`) shows the interview
+as seven chalk dots, filled as they are answered and turning while asked,
+and once the agent is planned, its real steps as a chalk diagram
+(`src/components/agents/StepDiagram.tsx`): a code step is a square, a
+decision a diamond, an action a circle, with links to each next step and one
+per outcome from a decision. New steps are chalked on one after another and
+their links drawn with anime.js; a step whose code is approved fills in.
+Helpers keep their takes / does / gives dock.
+
+### Planning
+
+Plan on the agent's dock (`POST /api/agents` with the conversation) makes the
+agent and its first draft, or plans its draft afresh, once the interview is
+complete. SERV, and only SERV, turns the interview and the conversation
+behind it into a whole definition (`src/lib/agents/plan.ts`, max tokens
+`AGENT_PLAN_MAX_TOKENS`, default 3500). Its answer is the format flattened
+for SERV's strict json_schema (every field present, "" or [] where it doesn't
+apply, no unions, no numeric range keywords), turned back into the format
+and checked. A plan that doesn't check out goes back to SERV with the
+reasons, up to three tries in all. One mistake with only one meaning is
+repaired on the way in: a step that lists a setting, rule or memory key as
+an input (or names one in its words) reads the bag it lives in. A whole plan
+is one answer of a few thousand tokens, not streamed, so it waits up to
+`AGENT_PLAN_TIMEOUT_MS` (default 120000) rather than a reply's 20 seconds;
+a review waits a minute and a decision half a minute. Decision steps carry a prompt and their
+outcomes, action steps one declared action, code steps a plain description
+of what the code must do with its inputs and outputs.
+
+Planning, and the code after it, runs in the background
+(`src/lib/agents/build.ts`), one job per draft, since it can outlast a
+request (Cloudflare closes a request after 100 seconds). The draft's
+`build_state` says where it is (`planning`, `writing`, `fixing`, `idle` or
+`failed` with a plain note), the dock polls `GET /api/agents/:id` every two
+seconds while it builds, and a state no job in this process owns (the
+server restarted) is called failed so the maker can plan again. Every model
+call writes a `reply_usage` row (`agent_plan`, `agent_code`, `agent_review`,
+`agent_decision`), so building counts towards the day's spend, and planning
+is refused like a chat turn when the day's limit is reached or the account
+isn't let in yet.
+
+### Code writing and review
+
+Once a plan is saved, each code step without approved code is written
+(`src/lib/agents/code.ts`), one at a time:
+
+1. Dolphin, and only Dolphin, writes it as `async function run(input,
+   tools)` against the toolbox's declarations for the step's own tools,
+   told what each input holds (the renter's settings and rules by key and
+   type, or the earlier step it comes from), what the agent is for, what
+   to return, and the exact arguments any output must be when an action
+   takes it as its tool's arguments. Settings
+   from recon on Dolphin's API: `max_tokens` 4000, its reasoning off for
+   the first draft (`chat_template_kwargs: { thinking: false }`, which it
+   accepts though its docs don't list it) and on for a rewrite. If Dolphin
+   ever refuses that field, the call is made again without it.
+   `DOLPHIN_CODE_TIMEOUT_MS` (default 240000) bounds one call.
+2. Plain checks, before any review: it parses (compiled with `node:vm`,
+   never run), defines `run`, calls only its step's tools by name, and
+   reaches for nothing outside the sandbox (require, imports, fetch,
+   globals, timers, building code at run time, prototype tricks).
+3. SERV reviews it (strict json_schema, approve or reject with a reason):
+   does it do what the step says with exactly its inputs and outputs, does
+   it touch only the declared tools, does it do anything risky.
+
+A failed check or a rejection goes back to Dolphin with the reason, up to
+three rounds. After that the step "needs attention" in the builder, with the
+last reason and the last code. The code is stored with the version
+(`agent_versions.code`), and only the maker's own builder ever shows it.
+Dolphin's calls are on the site's key whoever builds; SERV's on the
+maker's own key when they have one.
+
+### The sandbox and the test bench
+
+Code steps run in QuickJS compiled to WebAssembly
+(`src/lib/agents/sandbox.ts`, `quickjs-emscripten-core` with its prebuilt
+release build: no native step to install), a fresh runtime for each step.
+It has no network, no files, no modules and no timers. The step's code sees
+its input as JSON and a frozen `tools` object whose functions call one host
+function, the bridge, with a tool name and JSON arguments, and get JSON
+back; the bridge lets through only the tools the step lists, and the
+toolbox checks the arguments. Only strings cross, so no prototype trick
+inside can reach the host. Five seconds (an endless loop is interrupted),
+32 MB and a small stack bound each step; deep recursion stops inside
+QuickJS as a plain error, and any fault on the host side drops the wasm
+instance rather than trusting it again. The packages are loaded from
+`node_modules` at run time (`serverComponentsExternalPackages`), since the
+runtime reads its `.wasm` file from its package.
+
+The test bench is on the agent's builder page, `/agents/:id`, for its
+maker only. The maker edits sample data for every tool's mock (sheets and
+their rows, pages, search results, the owner's answers, memory, a wallet
+balance, the settings and rules a renter would have) and runs the agent
+(`POST /api/agents/:id/run`, streamed). Each step lights up on the diagram
+and in the trace as it happens, with its input, output, tool calls, time
+and cost (`src/lib/agents/runner.ts`). Decision steps ask SERV, within the
+agent's spend limit; a dry run takes the recorded answers instead and calls
+no model. An action step is taken with its first input when that is
+already the tool's arguments; a message to the owner is made from any
+inputs. The run stops at the end, at the first failure or at the agent's
+limits on steps, time and spend, and says which.
+
+Fix by chatting (`POST /api/agents/:id/fix`): the maker says what went
+wrong ("it ignored delivery time"), SERV changes the plan from the plan as
+it is, and only the code steps whose job changed are written and reviewed
+again; the rest keep their approved code.
+
+### Saving and versions
+
+On the builder: Save draft keeps the test bench's sample data with the
+draft (`PUT /api/agents/:id/bench`); Publish version
+(`POST /api/agents/:id/publish`) turns the draft into a version that never
+changes again, once it is planned, done building and every code step's code
+is approved. The Versions list shows each one, published or draft. A
+published version shows as "in testing" on the maker's own agents page,
+`/agents` (`GET /api/agents`, linked from the account menu); it doesn't go
+on the board for renting yet. Changing the plan or saving the bench after
+publishing starts a new draft copied from it.
+
+### The example agent
+
+`src/lib/agents/examples/restock.json` is a fabric shop's restock agent,
+built through the real pipeline by `scripts/seed-restock.ts` with live calls
+(SERV planning, Dolphin writing, SERV reviewing and deciding):
+
+```sh
+npx vite-node --config vitest.config.ts scripts/seed-restock.ts
+```
+
+It reads the Stock sheet and three suppliers' prices and delivery times,
+picks the cheapest supplier within the longest delivery the owner allows,
+asks the owner on Telegram when the order is over the approval limit (and
+stops if they say no), records the order in the Orders sheet and remembers
+it. The script needs `SERV_API_KEY` and `DOLPHIN_API_KEY`, touches no
+database, refuses any call past its budget (`SEED_SERV_BUDGET`,
+`SEED_DOLPHIN_BUDGET`) and lists every call with its status, tokens and
+time. `SEED_RESUME=1` keeps the saved plan and approved code and writes only
+what is missing; with `SEED_FIX="what went wrong"` SERV first changes the
+saved plan, as fixing by chatting does. The decisions of one live run are
+recorded on its bench, so dry runs replay them with no model call.
+
+`/demo?agent=restock` (development only, no sign-in) shows its builder and
+test bench: a run is a dry run on the server (`POST /api/demo/agent`, a 404
+outside development), every tool a mock and every decision recorded, so it
+never calls a model. Save draft and Publish only change that page. A
+production build has neither the example nor its code
+(`src/test/demo-unreachable.test.ts` checks the build).
 
 ## Payments
 

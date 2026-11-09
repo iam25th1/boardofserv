@@ -43,9 +43,9 @@ const plan = (o: Record<string, unknown>) =>
 describe("the plan for an answer helper", () => {
   it("offers the answer kind and its fields in the strict schema, with no banned keywords", () => {
     const { schema } = SKETCH_SCHEMA;
-    expect(schema.required).toEqual(["name", "kind", "watches", "when", "how", "tells", "takes", "does", "gives", "asking", "choices"]);
+    expect(schema.required).toEqual(["name", "kind", "watches", "when", "how", "tells", "takes", "does", "gives", "wakes", "looks", "handles", "finish", "asks", "setup", "remembers", "asking", "choices"]);
     expect(schema.properties.kind.enum).toContain("answer");
-    expect(schema.properties.asking.enum).toEqual(["watches", "when", "how", "tells", "takes", "does", "gives", "none"]);
+    expect(schema.properties.asking.enum).toEqual(["watches", "when", "how", "tells", "takes", "does", "gives", "wakes", "looks", "handles", "finish", "asks", "setup", "remembers", "none"]);
     const text = JSON.stringify(SKETCH_SCHEMA);
     for (const banned of ["minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf", "minItems", "maxItems", "null"]) {
       expect(text).not.toContain(`"${banned}"`);
@@ -59,7 +59,7 @@ describe("the plan for an answer helper", () => {
       })) as unknown as typeof fetch;
     const { sketch } = await planTurn({ stored: null, previous: null, said: "Write blurbs for my shop" }, { config, signal: new AbortController().signal, fetchImpl });
     expect(sketch).toMatchObject({ kind: "answer", takes: "a product name and a few facts", asking: "gives", choices: ["The blurb", "Three options"] });
-    expect(mergeSketch(null, sketch!)).toEqual({ ...blurb, kindChosen: false });
+    expect(mergeSketch(null, sketch!)).toEqual({ ...blurb, kindChosen: false, wakes: null, looks: null, handles: null, finish: null, asks: null, setup: null, remembers: null });
   });
 
   it("sends the stored answer fields to the next plan", () => {
@@ -71,7 +71,7 @@ describe("the plan for an answer helper", () => {
   });
 
   it("drops a question about a field the kind does not have", () => {
-    const parsed = { name: null, kind: null, watches: null, when: null, how: null, tells: null, takes: null, does: null, gives: null, choices: [] };
+    const parsed = { name: null, kind: null, watches: null, when: null, how: null, tells: null, takes: null, does: null, gives: null, wakes: null, looks: null, handles: null, finish: null, asks: null, setup: null, remembers: null, choices: [] };
     expect(mergeSketch(blurb, { ...parsed, asking: "how" }).asking).toBeNull();
     expect(mergeSketch(blurb, { ...parsed, asking: "gives" }).asking).toBe("gives");
     // An agent is still asked about its own fields.

@@ -74,7 +74,9 @@ const nextConfig = {
   // the browser bundle, and those are enumerated in .env.example.
   poweredByHeader: false,
   experimental: {
-    serverComponentsExternalPackages: ["pg"],
+    // Loaded from node_modules at run time, not bundled: pg, and the agent
+    // sandbox's QuickJS, which reads its WebAssembly file from its package.
+    serverComponentsExternalPackages: ["pg", "quickjs-emscripten-core", "@jitl/quickjs-wasmfile-release-sync"],
     // src/instrumentation.ts: payments boot when the server starts.
     instrumentationHook: true,
   },

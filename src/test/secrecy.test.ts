@@ -7,6 +7,9 @@ import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import * as schema from "@/lib/db/schema";
 import { addHelper, addUser, testDb } from "./helperDb";
+import { FIND_LOW, RESTOCK_WIRE, restockBench } from "./agentFixtures";
+import { jobFor } from "@/lib/agents/build";
+import { draftOf } from "@/lib/agents/store";
 import { FakeChain, addr } from "./fakeChain";
 import { generatePrivateKey, privateKeyToAddress } from "viem/accounts";
 import { randomBytes } from "node:crypto";
@@ -39,6 +42,13 @@ import * as adminPause from "@/app/api/admin/pause/route";
 import * as adminDecide from "@/app/api/admin/withdrawals/[id]/route";
 import * as adminAccess from "@/app/api/admin/access/[id]/route";
 import * as healthRoute from "@/app/api/health/route";
+import * as agentsRoute from "@/app/api/agents/route";
+import * as agentRoute from "@/app/api/agents/[id]/route";
+import * as agentRun from "@/app/api/agents/[id]/run/route";
+import * as agentFix from "@/app/api/agents/[id]/fix/route";
+import * as agentBench from "@/app/api/agents/[id]/bench/route";
+import * as agentPublish from "@/app/api/agents/[id]/publish/route";
+import * as demoAgent from "@/app/api/demo/agent/route";
 
 // A published helper's system prompt and canary never leave the server. This
 // drives every API route (and fails if a route is added without being driven
@@ -92,6 +102,25 @@ const ROUTES: Record<string, object> = {
   "admin/withdrawals/[id]": adminDecide,
   "admin/access/[id]": adminAccess,
   "health": healthRoute,
+  "agents": agentsRoute,
+  "agents/[id]": agentRoute,
+  "agents/[id]/run": agentRun,
+  "agents/[id]/fix": agentFix,
+  "agents/[id]/bench": agentBench,
+  "agents/[id]/publish": agentPublish,
+  "demo/agent": demoAgent,
+};
+
+// An agent's code, and its plan's prompts: only its maker's builder may show
+// them.
+const CODE_MARKER = "bosAgentCodeMarker7";
+const PROMPT_MARKER = "bosAgentPromptMarker9";
+const AGENT_CODE = `// ${CODE_MARKER}\n${FIND_LOW}`;
+const AGENT_PLAN = {
+  ...RESTOCK_WIRE,
+  steps: RESTOCK_WIRE.steps.map((s) =>
+    s.id === "find_low" ? { ...s, description: `${s.description} ${PROMPT_MARKER}` } : s.id === "check_total" ? { ...s, prompt: `${s.prompt} ${PROMPT_MARKER}` } : s,
+  ),
 };
 
 // What the compile call writes: the private part of the helper's prompt.
@@ -207,8 +236,15 @@ beforeAll(async () => {
   vi.stubEnv("SERV_API_KEY", "test-serv-key");
   vi.stubEnv("FALLBACK_API_KEY", "");
   vi.stubEnv("HELPER_DAILY_USES", "6");
-  vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
-    const body = JSON.parse(String(init.body)) as { stream: boolean; tools?: unknown; response_format?: { json_schema?: { name?: string } } };
+  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body)) as { stream: boolean; tools?: unknown; response_format?: { json_schema?: { name?: string; schema?: { properties?: { outcome?: { enum?: string[] } } } } } };
+    // An agent's build: Dolphin's code and SERV's plan carry markers.
+    if (url.includes("dphn.ai")) return Response.json({ choices: [{ message: { content: "```js\n" + AGENT_CODE + "\n```" } }] });
+    if (body.response_format?.json_schema?.name === "agent_plan") return Response.json({ choices: [{ message: { content: JSON.stringify(AGENT_PLAN) } }] });
+    if (body.response_format?.json_schema?.name === "code_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "approve", reason: "Fine." }) } }] });
+    if (body.response_format?.json_schema?.name === "decision") {
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ outcome: body.response_format.json_schema.schema!.properties!.outcome!.enum![0], reason: "x" }) } }] });
+    }
     if (body.response_format?.json_schema?.name === "helper_prompt") return Response.json({ choices: [{ message: { content: JSON.stringify({ prompt: COMPILED }) } }] });
     if (!body.stream) return Response.json({ choices: [{ message: { content: sketchJson } }] });
     return stream(body.tools ? useChunks : ["Noted. What should it refuse?"]);
@@ -257,6 +293,14 @@ describe("a helper's instructions stay on the server", () => {
     await hit("serv key without a key", servKey.POST(req("/api/account/serv-key", "POST", {})));
     await hit("serv key remove", servKey.DELETE(req("/api/account/serv-key", "DELETE")));
     await hit("health", healthRoute.GET());
+    await hit("plan a helper's conversation", agentsRoute.POST(req("/api/agents", "POST", { conversationId: cid })));
+    await hit("agent that isn't there", agentRoute.GET(req(`/api/agents/${cid}`), { params: { id: cid } }));
+    await hit("run an agent that isn't there", agentRun.POST(req(`/api/agents/${cid}/run`, "POST", { dryRun: true }), { params: { id: cid } }));
+    await hit("fix an agent that isn't there", agentFix.POST(req(`/api/agents/${cid}/fix`, "POST", { message: "x" }), { params: { id: cid } }));
+    await hit("save an agent that isn't there", agentBench.PUT(req(`/api/agents/${cid}/bench`, "PUT", {}), { params: { id: cid } }));
+    await hit("publish an agent that isn't there", agentPublish.POST(req(`/api/agents/${cid}/publish`, "POST"), { params: { id: cid } }));
+    await hit("my agents", agentsRoute.GET(req("/api/agents")));
+    await hit("demo agent outside development", demoAgent.POST(req("/api/demo/agent", "POST", { bench: {} })));
     await hit("handle check", handle.GET(req("/api/account/handle?handle=shopkeeper")));
     await hit("handle set", handle.PATCH(req("/api/account/handle", "PATCH", { handle: "shopkeeper" })));
     await hit("wallet", wallet.GET(req("/api/wallet")));
@@ -511,6 +555,77 @@ describe("a helper's instructions stay on the server", () => {
     expect(JSON.parse(said("waitlist: chat while waiting")).access).toBe("waiting");
     expect(JSON.parse(said("waitlist: admin")).admin.access.waiting).toEqual([{ id: jo.id, handle: "maker_2207", email: jo.email, joinedAt: expect.any(String) }]);
     expect(JSON.parse(said("waitlist: approve")).admin.access.waiting).toEqual([]);
+  });
+
+  it("never sends an agent's code or prompts, except to its maker's own builder", async () => {
+    vi.stubEnv("DOLPHIN_API_KEY", "test-dolphin-key");
+    const mark = bodies.length;
+    const [convo] = await db.insert(schema.conversations).values({ userId: maya.id, title: "Restock" }).returning();
+    const cid = convo!.id;
+    await db.insert(schema.agentSketches).values({
+      conversationId: cid,
+      name: "Fabric restock",
+      kind: "agent",
+      wakes: "every morning",
+      looks: "the Stock sheet",
+      handles: "orders what is low",
+      finish: "an order is recorded",
+      asks: "orders over 250 USDC",
+      setup: "the sheets",
+      remembers: "the last order",
+    });
+    try {
+      state.user = maya;
+      const planned = JSON.parse(await (await hit("agent: plan", agentsRoute.POST(req("/api/agents", "POST", { conversationId: cid })))).clone().text());
+      const id = planned.agent.id as string;
+      await jobFor((await draftOf(id))!.id);
+      const p = { params: { id } };
+      await hit("agent: dock", agentRoute.GET(req(`/api/agents/${id}`), p));
+      await hit("agent: builder", agentRoute.GET(req(`/api/agents/${id}?view=builder`), p));
+      await hit("agent: conversation", conversationMessages.GET(req(`/api/conversations/${cid}/messages`), { params: { id: cid } }));
+      await hit("agent: list", agentsRoute.GET(req("/api/agents")));
+      await hit("agent: dry run", agentRun.POST(req(`/api/agents/${id}/run`, "POST", { dryRun: true, bench: restockBench() }), p));
+      await hit("agent: live run", agentRun.POST(req(`/api/agents/${id}/run`, "POST", { dryRun: false, bench: restockBench() }), p));
+      await hit("agent: save", agentBench.PUT(req(`/api/agents/${id}/bench`, "PUT", { bench: restockBench() }), p));
+      await hit("agent: publish", agentPublish.POST(req(`/api/agents/${id}/publish`, "POST"), p));
+      await hit("agent: fix", agentFix.POST(req(`/api/agents/${id}/fix`, "POST", { message: "it ignored delivery time" }), p));
+      await jobFor((await draftOf(id))!.id);
+      await hit("agent: board", board.GET(req("/api/board")));
+      // Someone else, and nobody.
+      for (const who of [sam, null]) {
+        state.user = who;
+        const tag = who ? "sam" : "signed out";
+        await hit(`agent: ${tag} dock`, agentRoute.GET(req(`/api/agents/${id}`), p));
+        await hit(`agent: ${tag} builder`, agentRoute.GET(req(`/api/agents/${id}?view=builder`), p));
+        await hit(`agent: ${tag} run`, agentRun.POST(req(`/api/agents/${id}/run`, "POST", { dryRun: true }), p));
+        await hit(`agent: ${tag} save`, agentBench.PUT(req(`/api/agents/${id}/bench`, "PUT", { bench: restockBench() }), p));
+        await hit(`agent: ${tag} publish`, agentPublish.POST(req(`/api/agents/${id}/publish`, "POST"), p));
+        await hit(`agent: ${tag} fix`, agentFix.POST(req(`/api/agents/${id}/fix`, "POST", { message: "x" }), p));
+        await hit(`agent: ${tag} list`, agentsRoute.GET(req("/api/agents")));
+        await hit(`agent: ${tag} conversation`, conversationMessages.GET(req(`/api/conversations/${cid}/messages`), { params: { id: cid } }));
+      }
+    } finally {
+      vi.stubEnv("DOLPHIN_API_KEY", "");
+    }
+
+    // The maker's own builder does show the code and the prompts.
+    const builder = new Set(["agent: builder", "agent: save", "agent: publish"]);
+    for (const label of builder) {
+      const body = bodies.find((b) => b.label === label)!.body;
+      expect(body, label).toContain(CODE_MARKER);
+      expect(body, label).toContain(PROMPT_MARKER);
+    }
+    // Nothing else does, in any response or log line.
+    expect(bodies.length - mark).toBeGreaterThan(25);
+    for (const { label, body } of bodies) {
+      if (builder.has(label)) continue;
+      expect(body.includes(CODE_MARKER), `${label} carries the agent's code`).toBe(false);
+      expect(body.includes(PROMPT_MARKER), `${label} carries the agent's prompts`).toBe(false);
+    }
+    for (const line of logged) {
+      expect(line.includes(CODE_MARKER) || line.includes(PROMPT_MARKER), line).toBe(false);
+    }
+    expect(bodies.find((b) => b.label === "agent: sam builder")!.body).toBe('{"error":"Not found"}');
   });
 
   it("never sends any part of anyone's email, except the account menu's own to its owner", async () => {
