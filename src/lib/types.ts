@@ -107,6 +107,18 @@ export interface AgentBuilderDTO {
   versions: { number: number; state: "draft" | "published"; createdAt: string; publishedAt: string | null }[];
 }
 
+// One of the maker's agents on their own agents page.
+export interface AgentListItemDTO {
+  id: string;
+  name: string;
+  version: number;
+  // The newest published version, in testing; null before the first.
+  testing: number | null;
+  draft: boolean;
+  steps: number;
+  updatedAt: string;
+}
+
 // A published helper as anyone may see it: never its instructions.
 export interface PublicHelperDTO {
   slug: string;

@@ -41,6 +41,8 @@ function Builder({ id }: { id: string }) {
       load: () => api.getAgentBuilder(id),
       run: (body, on) => api.runAgent(id, body, on),
       fix: (message) => api.fixAgent(id, message),
+      saveBench: (bench) => api.saveAgentBench(id, bench),
+      publish: () => api.publishAgent(id),
     }),
     [api, id],
   );

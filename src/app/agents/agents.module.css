@@ -20,3 +20,54 @@
   font-size: var(--t-hand);
   color: var(--chalk-3);
 }
+.head h1 {
+  font-weight: var(--w-semibold);
+  font-size: var(--t-xl);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.02em;
+}
+.note {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-3);
+}
+.card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-2) var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--slate-2);
+  color: var(--chalk);
+  text-decoration: none;
+  transition: border-color var(--dur) var(--ease);
+}
+.card:hover {
+  border-color: var(--chalk-3);
+}
+.meta {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.chip {
+  margin-left: auto;
+  padding: 2px 10px;
+  border-radius: var(--r-full);
+  border: 1px dashed var(--chalk-3);
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+}
+.chip[data-testing="true"] {
+  border-style: solid;
+  border-color: var(--chalk);
+  color: var(--chalk);
+}

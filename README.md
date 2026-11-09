@@ -574,6 +574,18 @@ wrong ("it ignored delivery time"), SERV changes the plan from the plan as
 it is, and only the code steps whose job changed are written and reviewed
 again; the rest keep their approved code.
 
+### Saving and versions
+
+On the builder: Save draft keeps the test bench's sample data with the
+draft (`PUT /api/agents/:id/bench`); Publish version
+(`POST /api/agents/:id/publish`) turns the draft into a version that never
+changes again, once it is planned, done building and every code step's code
+is approved. The Versions list shows each one, published or draft. A
+published version shows as "in testing" on the maker's own agents page,
+`/agents` (`GET /api/agents`, linked from the account menu); it doesn't go
+on the board for renting yet. Changing the plan or saving the bench after
+publishing starts a new draft copied from it.
+
 ## Payments
 
 Users top up a balance in USDC or $SERV, pay for helper uses from it, and

@@ -2,7 +2,7 @@
 import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent } from "./agents/types";
-import type { AccountDTO, AdminDTO, AgentBuilderDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
 
 // When the server sends no sentence of its own: never a status code.
 const SOMETHING_WRONG = "Something went wrong. Try again in a few minutes.";
@@ -45,6 +45,10 @@ export function useApi() {
         json<{ agent: AgentSummaryDTO }>("/api/agents", { method: "POST", body: JSON.stringify({ conversationId }) }).then((d) => d.agent),
       getAgent: (id: string) => json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}`).then((d) => d.agent),
       getAgentBuilder: (id: string) => json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}?view=builder`).then((d) => d.builder),
+      listAgents: () => json<{ agents: AgentListItemDTO[] }>("/api/agents").then((d) => d.agents),
+      saveAgentBench: (id: string, bench: BenchData) =>
+        json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}/bench`, { method: "PUT", body: JSON.stringify({ bench }) }).then((d) => d.builder),
+      publishAgent: (id: string) => json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}/publish`, { method: "POST" }).then((d) => d.builder),
       // Change the plan from what the maker says; it rebuilds in the background.
       fixAgent: (id: string, message: string) =>
         json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/fix`, { method: "POST", body: JSON.stringify({ message }) }).then((d) => d.agent),

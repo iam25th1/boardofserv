@@ -6,7 +6,7 @@ import { db } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
 import { startPlan, summaryOf } from "@/lib/agents/build";
 import { buildContext, NOT_AVAILABLE } from "@/lib/agents/context";
-import { agentForConversation, createAgent, editableDraft } from "@/lib/agents/store";
+import { agentForConversation, agentsOf, createAgent, editableDraft, versionsOf } from "@/lib/agents/store";
 import { INTERVIEW_FIELDS } from "@/lib/sketchFields";
 import { loadSketch } from "@/lib/sketchStore";
 import { refusal } from "@/lib/spend";
@@ -50,4 +50,28 @@ export async function POST(req: Request) {
     return Response.json({ error: "It's being built already.", agent: summaryOf(agent, draft) }, { status: 409 });
   }
   return Response.json({ agent: summaryOf(agent, { ...draft, buildState: "planning", buildNote: null }) }, { status: 202 });
+}
+
+// The maker's own agents, newest first: each one's latest version, and
+// whether a published version is in testing. Never anyone else's.
+export async function GET(req: Request) {
+  const user = await getUserFromRequest(req);
+  if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+  const mine = await agentsOf(user.id);
+  const agents = await Promise.all(
+    mine.map(async (a) => {
+      const versions = await versionsOf(a.id);
+      const published = versions.find((v) => v.state === "published");
+      return {
+        id: a.id,
+        name: versions[0]?.definition?.name ?? a.name,
+        version: versions[0]?.number ?? 1,
+        testing: published ? published.number : null,
+        draft: versions.some((v) => v.state === "draft"),
+        steps: versions[0]?.definition?.steps.length ?? 0,
+        updatedAt: a.updatedAt.toISOString(),
+      };
+    }),
+  );
+  return Response.json({ agents });
 }

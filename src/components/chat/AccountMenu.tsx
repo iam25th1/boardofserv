@@ -125,10 +125,13 @@ export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, 
           )}
 
           <div className={styles.section}>
-            <p className={styles.label}>Wallet</p>
+            <p className={styles.label}>Wallet and agents</p>
             <div className={styles.links}>
               <Link className={styles.topup} href="/wallet">
                 Balance, top up and earnings
+              </Link>
+              <Link className={styles.topup} href="/agents">
+                Agents you&apos;re building
               </Link>
               {account?.admin && (
                 <Link className={styles.topup} href="/admin">

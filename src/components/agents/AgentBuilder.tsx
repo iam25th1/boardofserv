@@ -21,6 +21,10 @@ export interface BuilderApi {
   load: () => Promise<AgentBuilderDTO>;
   run: (body: { dryRun: boolean; bench: BenchData }, on: (e: RunEvent) => void) => () => void;
   fix?: (message: string) => Promise<AgentSummaryDTO>;
+  // Save draft keeps the bench's sample data; publish makes the draft a
+  // version that never changes, in testing.
+  saveBench?: (bench: BenchData) => Promise<AgentBuilderDTO>;
+  publish?: () => Promise<AgentBuilderDTO>;
 }
 
 const SECTIONS = [
@@ -87,6 +91,8 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
   const [said, setSaid] = useState<string | null>(null);
   const traceRef = useRef<HTMLOListElement>(null);
   const fixId = useId();
+  const [busy, setBusy] = useState<"save" | "publish" | null>(null);
+  const [headSaid, setHeadSaid] = useState<string | null>(null);
 
   const d = data.definition;
   const building = ["planning", "writing", "fixing"].includes(data.agent.buildState);
@@ -130,6 +136,40 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
     });
   }, [api, texts, data.bench, dryRun]);
 
+  const save = async () => {
+    if (!api.saveBench || busy) return;
+    const parsed = benchFrom(texts, data.bench);
+    if ("bad" in parsed) {
+      setBad(parsed.bad);
+      return;
+    }
+    setBad(null);
+    setBusy("save");
+    setHeadSaid(null);
+    try {
+      setData(await api.saveBench(parsed.bench));
+      setHeadSaid("Draft saved.");
+    } catch (err) {
+      setHeadSaid(err instanceof Error ? err.message : "It could not be saved. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const publish = async () => {
+    if (!api.publish || busy) return;
+    setBusy("publish");
+    setHeadSaid(null);
+    try {
+      setData(await api.publish());
+      setHeadSaid("Published. It's in testing on your agents page; it doesn't go on the board yet.");
+    } catch (err) {
+      setHeadSaid(err instanceof Error ? err.message : "It could not be published. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const stop = () => {
     stopRef.current?.();
     stopRef.current = null;
@@ -167,10 +207,31 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
           <h1>{data.name}</h1>
           {d && <p className={styles.job}>{d.job.does}</p>}
         </div>
-        <span className={styles.badge} data-state={data.agent.state}>
-          {data.agent.state === "published" ? `In testing, version ${data.agent.version}` : `Draft, version ${data.agent.version}`}
-        </span>
+        <div className={styles.headSide}>
+          <span className={styles.badge} data-state={data.agent.state}>
+            {data.agent.state === "published" ? `In testing, version ${data.agent.version}` : `Draft, version ${data.agent.version}`}
+          </span>
+          {(api.saveBench || api.publish) && (
+            <div className={styles.runRow}>
+              {api.saveBench && (
+                <Button size="sm" variant="ghost" onClick={() => void save()} disabled={busy !== null}>
+                  {busy === "save" ? "Saving..." : "Save draft"}
+                </Button>
+              )}
+              {api.publish && data.agent.state === "draft" && (
+                <Button size="sm" onClick={() => void publish()} disabled={busy !== null || building || !d}>
+                  {busy === "publish" ? "Publishing..." : "Publish version"}
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
       </header>
+      {headSaid && (
+        <p className={styles.quiet} role="status">
+          {headSaid}
+        </p>
+      )}
       {children}
 
       {data.agent.buildNote && <p className={styles.note}>{data.agent.buildNote}</p>}
@@ -279,6 +340,21 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
                 )}
               </div>
             </div>
+          </section>
+
+          <section className={styles.section} aria-labelledby="versions-h">
+            <h2 id="versions-h">Versions</h2>
+            <p className={styles.quiet}>A published version never changes. Changing the plan or saving the bench after that starts a new draft.</p>
+            <ol className={styles.versions}>
+              {data.versions.map((v) => (
+                <li key={v.number}>
+                  <strong>Version {v.number}</strong>
+                  <span className={styles.meta}>
+                    {v.state === "published" && v.publishedAt ? `published ${new Date(v.publishedAt).toLocaleString()}, in testing` : `draft, started ${new Date(v.createdAt).toLocaleString()}`}
+                  </span>
+                </li>
+              ))}
+            </ol>
           </section>
 
           {api.fix && (
