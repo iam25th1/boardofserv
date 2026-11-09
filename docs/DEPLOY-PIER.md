@@ -260,10 +260,33 @@ deploy again, or `pier restart boardofserv`.
    auto limit on its page. Tell renters of paying agents, if there are any.
 4. If the market's examples were imported before this deploy, the enquiry
    follow-up on the board is still the version that wakes on a fixed
-   schedule: `import-examples.ts` leaves an example that is there already,
-   so publish the new one from its builder as the admin, or leave it.
+   schedule: `import-examples.ts` leaves an example that is there already.
+   Its `--update` option (from the deploy that brings Reppo) publishes the
+   saved one as a new version; see "Update the example agents" below.
 5. Open `/app/admin/safety` as an admin: the queue, freezes, model cost this
    week, code reviews and the audit log.
+
+### Update the example agents
+
+`scripts/import-examples.ts --update` refreshes the examples already on
+the board from their saved files: each one whose saved plan or code
+changed gets a new version through the normal version path (SERV's code
+review, published, the board's listing moved to it, its renters offered
+it, the listing screened again). One that is up to date is left alone; one
+that isn't on the board yet is put there. It makes SERV calls (the review
+and the screen), on the SERV_API_KEY in the environment. From the deploy
+folder, with the production environment:
+
+```sh
+cd ~/.boardofserv/app
+set -a; . ~/boardofserv/.env.local; set +a
+npx vite-node --config vitest.config.ts scripts/import-examples.ts -- --update
+```
+
+It prints each example and what happened: `updated to version N, offered
+to M renters`, `up to date`, `on the board now`, or `not updated:` and why
+(the review blocked it or couldn't run, or a draft is in the way in its
+builder). Without `--update` it behaves as before.
 
 ## Logs
 
