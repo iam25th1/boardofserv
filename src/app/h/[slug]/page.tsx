@@ -38,7 +38,7 @@ export default function HelperPageView({ params }: { params: { slug: string } })
 
   return (
     <div className={styles.page}>
-      <TopBar agents={<TopLink href="/chat">Your agents</TopLink>} />
+      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} />
       <main className={styles.col}>
         {failed ? (
           <div className={styles.gone}>
@@ -53,13 +53,13 @@ export default function HelperPageView({ params }: { params: { slug: string } })
           <div className={styles.gone}>
             <h1>Nothing on this board</h1>
             <p className={styles.note}>no helper goes by that name</p>
-            <Link href="/board">See the board</Link>
+            <Link href="/app/board">See the board</Link>
           </div>
         ) : "takenDown" in page ? (
           <div className={styles.gone}>
             <h1>{page.takenDown}</h1>
             <p>This helper was taken down.</p>
-            <Link href="/board">See what else is on the board</Link>
+            <Link href="/app/board">See what else is on the board</Link>
           </div>
         ) : (
           <>
@@ -302,7 +302,7 @@ function UsePanel({ helper, onPrices }: { helper: PublicHelperDTO; onPrices: (pr
             {paid && short && balances && (
               <>
                 {" "}
-                <Link href="/wallet">Top up</Link>
+                <Link href="/app/wallet">Top up</Link>
               </>
             )}
           </p>

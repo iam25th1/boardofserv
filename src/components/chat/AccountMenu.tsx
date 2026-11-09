@@ -127,17 +127,17 @@ export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, 
           <div className={styles.section}>
             <p className={styles.label}>Wallet and agents</p>
             <div className={styles.links}>
-              <Link className={styles.topup} href="/wallet">
+              <Link className={styles.topup} href="/app/wallet">
                 Balance, top up and earnings
               </Link>
-              <Link className={styles.topup} href="/agents">
+              <Link className={styles.topup} href="/app/agents">
                 Agents you&apos;re building
               </Link>
-              <Link className={styles.topup} href="/connections">
+              <Link className={styles.topup} href="/app/connections">
                 Connections: Telegram and Google
               </Link>
               {account?.admin && (
-                <Link className={styles.topup} href="/admin">
+                <Link className={styles.topup} href="/app/admin">
                   Admin
                 </Link>
               )}

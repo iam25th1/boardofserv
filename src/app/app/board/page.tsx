@@ -71,7 +71,7 @@ export default function BoardPage() {
 
   return (
     <div className={styles.page}>
-      <TopBar agents={<TopLink href="/chat">Your agents</TopLink>} here="board" />
+      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} here="board" />
       <main className={styles.col}>
         <header className={styles.head}>
           <h1>The board</h1>
@@ -99,7 +99,7 @@ export default function BoardPage() {
             ) : (
               <>
                 <p>Nothing on the board yet.</p>
-                <Link href="/chat">Describe a helper and publish it</Link>
+                <Link href="/app/chat">Describe a helper and publish it</Link>
               </>
             )}
           </div>

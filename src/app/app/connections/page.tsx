@@ -14,7 +14,7 @@ import styles from "../agents/agents.module.css";
 export default function ConnectionsPage() {
   return (
     <div className={styles.page}>
-      <TopBar agents={<TopLink href="/installations">Running for you</TopLink>} />
+      <TopBar agents={<TopLink href="/app/installations">Running for you</TopLink>} />
       <main className={styles.col}>
         <header className={styles.head}>
           <h1>Connections</h1>

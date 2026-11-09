@@ -46,7 +46,7 @@ function Count() {
   }, [n]);
   if (!n) return null;
   return (
-    <Link ref={ref} href="/approvals" className={styles.badge} aria-label={`${n} ${n === 1 ? "question waits" : "questions wait"} for your answer`}>
+    <Link ref={ref} href="/app/approvals" className={styles.badge} aria-label={`${n} ${n === 1 ? "question waits" : "questions wait"} for your answer`}>
       <span aria-hidden="true">{n}</span> waiting
     </Link>
   );

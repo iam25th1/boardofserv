@@ -13,7 +13,7 @@ import styles from "./agents.module.css";
 export default function AgentsPage() {
   return (
     <div className={styles.page}>
-      <TopBar agents={<TopLink href="/chat">Your agents</TopLink>} />
+      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} />
       <main className={styles.col}>
         <header className={styles.head}>
           <h1>Agents you&apos;re building</h1>
@@ -50,7 +50,7 @@ function List() {
   if (!agents.length) {
     return (
       <p className={styles.quiet}>
-        None yet. Describe one that runs on its own in <Link href="/chat">the chat</Link>, then press Plan.
+        None yet. Describe one that runs on its own in <Link href="/app/chat">the chat</Link>, then press Plan.
       </p>
     );
   }
@@ -58,7 +58,7 @@ function List() {
     <ul className={styles.list}>
       {agents.map((a) => (
         <li key={a.id}>
-          <Link href={`/agents/${a.id}`} className={styles.card}>
+          <Link href={`/app/agents/${a.id}`} className={styles.card}>
             <strong>{a.name}</strong>
             <span className={styles.meta}>
               {a.steps} {a.steps === 1 ? "step" : "steps"}, version {a.version}

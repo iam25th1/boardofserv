@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { InstallationView, type InstallationApi } from "@/components/agents/InstallationView";
 import { JobTimeline, type JobApi } from "@/components/agents/JobTimeline";
 import type { InstallationDTO, JobDTO, JobSummaryDTO } from "@/lib/types";
-import styles from "../agents/agents.module.css";
+import styles from "../app/agents/agents.module.css";
 
 // /demo?agent=restock&live=1, development only: the example agent installed
 // for a test owner and running for real on an in-memory database inside the

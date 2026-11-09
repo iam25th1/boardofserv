@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Providers } from "./providers";
-import ChatPage from "./chat/page";
+import ChatPage from "./app/chat/page";
 import LoginPage from "./login/page";
 import { SignInStalled, STALLED_TEXT } from "@/components/SignInStalled";
 import type { AccountDTO } from "@/lib/types";
@@ -126,7 +126,7 @@ describe("invite-only, signed in", () => {
     await signedIn("waiting");
     expect(screen.getByRole("heading", { name: "You're on the list" })).toBeInTheDocument();
     expect(screen.getByText(/signed in as jo@example.com/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "See the board" })).toHaveAttribute("href", "/board");
+    expect(screen.getByRole("link", { name: "See the board" })).toHaveAttribute("href", "/app/board");
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
     expect(screen.queryByText("the chat")).toBeNull();
   });

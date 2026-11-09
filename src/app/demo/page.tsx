@@ -6,7 +6,7 @@ import { DemoPayments } from "./DemoPayments";
 import { DemoAgent } from "./DemoAgent";
 import { DemoLive } from "./DemoLive";
 import { TopBar, TopLink } from "@/components/chat/TopBar";
-import styles from "../agents/agents.module.css";
+import styles from "../app/agents/agents.module.css";
 
 const DEMO_TREASURY = "0x7Ea5C0fFee2B6f4E3c9A1d0B8e7F6a5C4d3B2a19";
 
@@ -20,7 +20,7 @@ export default function DemoPage({ searchParams }: { searchParams: { state?: str
   if (searchParams.agent === "restock") {
     return (
       <div className={styles.page}>
-        <TopBar agents={<TopLink href="/chat">Your agents</TopLink>} />
+        <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} />
         <main className={styles.col}>{searchParams.live === "1" ? <DemoLive jobId={searchParams.job} /> : <DemoAgent />}</main>
       </div>
     );

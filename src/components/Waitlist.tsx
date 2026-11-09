@@ -43,7 +43,7 @@ export function Waitlist({ access, email, onSignOut }: { access: "waiting" | "re
           The board is open to everyone in the meantime.
         </p>
         <div className={styles.actions} data-rise>
-          <Link className={styles.link} href="/board">
+          <Link className={styles.link} href="/app/board">
             See the board
           </Link>
           <Button variant="ghost" size="sm" onClick={onSignOut}>

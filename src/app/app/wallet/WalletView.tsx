@@ -26,7 +26,7 @@ export interface QrPath {
 export function WalletView({ payments, qr }: { payments: PaymentsDTO; qr: QrPath | null }) {
   return (
     <div className={styles.page}>
-      <TopBar agents={<TopLink href="/chat">Your agents</TopLink>} />
+      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} />
       <main className={styles.col}>
         <header className={styles.head}>
           <h1>Your wallet</h1>
@@ -49,7 +49,7 @@ function SignedIn({ payments, qr }: { payments: PaymentsDTO; qr: QrPath | null }
   if (ready && authenticated) return <Wallet payments={payments} qr={qr} />;
   return (
     <div className={styles.signin}>
-      <Link href="/login?next=%2Fwallet" aria-disabled={!ready}>
+      <Link href="/login?next=%2Fapp%2Fwallet" aria-disabled={!ready}>
         Sign in to see your wallet
       </Link>
     </div>

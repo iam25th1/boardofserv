@@ -82,7 +82,7 @@ describe("the board", () => {
     expect(cards.map((a) => a.getAttribute("href"))).toEqual(["/h/haiku-maker", "/h/shop-blurbs"]);
     expect(cards[0]).toHaveTextContent("Haiku makerWhat Haiku maker does@maya");
     expect(screen.getByRole("link", { name: "Board" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Your agents" })).toHaveAttribute("href", "/chat");
+    expect(screen.getByRole("link", { name: "Your agents" })).toHaveAttribute("href", "/app/chat");
   });
 
   it("chalks the cards on once, on the first load, and never for a search", async () => {

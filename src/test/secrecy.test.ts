@@ -669,7 +669,7 @@ describe("a helper's instructions stay on the server", () => {
       google.on("https://oauth2.googleapis.com/token", () =>
         Response.json({ access_token: VAULT_ACCESS, refresh_token: VAULT_REFRESH, expires_in: 3600, scope: "openid email https://www.googleapis.com/auth/spreadsheets", id_token: `x.${Buffer.from(JSON.stringify({ email: "maya@sheets.test" })).toString("base64url")}.y` }),
       );
-      const started = await hit("connections: google start", googleStart.POST(req("/api/connections/google/start", "POST", { returnTo: "/connections" })));
+      const started = await hit("connections: google start", googleStart.POST(req("/api/connections/google/start", "POST", { returnTo: "/app/connections" })));
       const googleState = new URL((JSON.parse(await started.clone().text()) as { url: string }).url).searchParams.get("state")!;
       expect(started.headers.get("set-cookie")).toContain("HttpOnly");
       const callback = (cookie: string | null, q: string) => googleCallback.GET(new Request(`http://localhost/api/connections/google/callback?${q}`, { headers: cookie ? { cookie } : {} }));

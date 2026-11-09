@@ -1,0 +1,38 @@
+/* The public landing page (filled in by the landing page commit). */
+.page {
+  min-height: 100dvh;
+}
+.col {
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: var(--s-6) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-10) max(var(--gutter), env(safe-area-inset-left, 0px));
+}
+.ways {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+}
+.primary,
+.secondary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 var(--s-5);
+  border-radius: var(--r-full);
+  font-weight: var(--w-medium);
+  text-decoration: none;
+}
+.primary {
+  background: var(--chalk);
+  color: var(--slate);
+}
+.secondary {
+  border: var(--stroke) solid var(--line);
+  color: var(--chalk);
+}
+.primary:focus-visible,
+.secondary:focus-visible {
+  outline: var(--focus);
+  outline-offset: 3px;
+}

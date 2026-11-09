@@ -15,7 +15,7 @@ import styles from "./admin.module.css";
 export default function AdminPage() {
   return (
     <div className={styles.page}>
-      <TopBar agents={<TopLink href="/chat">Your agents</TopLink>} />
+      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} />
       <main className={styles.col}>
         <header className={styles.head}>
           <h1>Admin</h1>
@@ -31,7 +31,7 @@ function SignedIn() {
   if (ready && authenticated) return <Admin />;
   return (
     <p className={styles.quiet}>
-      <Link href="/login?next=%2Fadmin" aria-disabled={!ready}>
+      <Link href="/login?next=%2Fapp%2Fadmin" aria-disabled={!ready}>
         Sign in
       </Link>{" "}
       to see this page.

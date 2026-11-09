@@ -76,7 +76,7 @@ describe("the agent dock", () => {
     expect(container.querySelector('[data-node="find_low"]')!.getAttribute("data-state")).toBe("writing");
     expect(container.querySelector('[data-node="decide"]')!.getAttribute("data-state")).toBe("planned");
     expect(screen.getByText("Writing code, 0 of 1 ready")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/agents/a1");
+    expect(screen.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/app/agents/a1");
     cleanup();
     const ready = render(<AgentDock sketch={done} agent={agent()} />);
     expect(ready.container.querySelector('[data-node="find_low"]')!.getAttribute("data-state")).toBe("ready");

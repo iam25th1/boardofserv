@@ -3,17 +3,18 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
 import { TopBar, TopLink } from "@/components/chat/TopBar";
-import { InstallationView, type InstallationApi } from "@/components/agents/InstallationView";
+import { JobTimeline, type JobApi } from "@/components/agents/JobTimeline";
 import { privyAppId } from "@/lib/privy-config";
-import type { InstallationDTO } from "@/lib/types";
+import type { JobDTO } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 import styles from "../../agents/agents.module.css";
 
-// One agent running for its owner.
-export default function InstallationPage({ params }: { params: { id: string } }) {
+// One job, step by step: for its owner in full, for the agent's maker
+// without the owner's data.
+export default function JobPage({ params }: { params: { id: string } }) {
   return (
     <div className={styles.page}>
-      <TopBar agents={<TopLink href="/installations">Running for you</TopLink>} />
+      <TopBar agents={<TopLink href="/app/installations">Running for you</TopLink>} />
       <main className={styles.col}>{privyAppId() ? <SignedIn id={params.id} /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}</main>
     </div>
   );
@@ -21,35 +22,41 @@ export default function InstallationPage({ params }: { params: { id: string } })
 
 function SignedIn({ id }: { id: string }) {
   const { ready, authenticated } = usePrivy();
-  if (ready && authenticated) return <Detail id={id} />;
+  if (ready && authenticated) return <Job id={id} />;
   return (
     <p className={styles.quiet}>
       <Link href="/login" aria-disabled={!ready}>
         Sign in
       </Link>{" "}
-      to see this.
+      to see this job.
     </p>
   );
 }
 
-function Detail({ id }: { id: string }) {
+function Job({ id }: { id: string }) {
   const api = useApi();
-  const [data, setData] = useState<InstallationDTO | null>(null);
+  const [job, setJob] = useState<JobDTO | null>(null);
   const [missing, setMissing] = useState(false);
-  const view = useMemo<InstallationApi>(
+  const jobApi = useMemo<JobApi>(
     () => ({
-      load: () => api.getInstallation(id),
-      messages: () => api.listAgentMessages(id),
-      send: (text) => api.messageAgent(id, text),
-      control: (action) => api.controlInstallation(id, action),
+      load: () => api.getJob(id),
       answer: async (approvalId, answer) => void (await api.answerApproval(approvalId, answer)),
     }),
     [api, id],
   );
   useEffect(() => {
-    view.load().then(setData, () => setMissing(true));
-  }, [view]);
+    jobApi.load().then(setJob, () => setMissing(true));
+  }, [jobApi]);
   if (missing) return <p className={styles.quiet}>Nothing here.</p>;
-  if (!data) return <p className={styles.loading}>getting it</p>;
-  return <InstallationView initial={data} api={view} />;
+  if (!job) return <p className={styles.loading}>getting the job</p>;
+  return (
+    <>
+      <JobTimeline initial={job} api={jobApi} />
+      {job.viewer === "owner" && (
+        <p className={styles.quiet}>
+          <Link href={`/app/installations/${job.installationId}`}>Back to the agent</Link>
+        </p>
+      )}
+    </>
+  );
 }

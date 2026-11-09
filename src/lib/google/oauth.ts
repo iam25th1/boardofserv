@@ -52,7 +52,7 @@ export const REVOKED_REASON =
 
 // Where returning from Google may land: a page of this site only.
 export function safeReturn(to: unknown): string {
-  return typeof to === "string" && /^\/(?!\/)[\w\-./?=&%]*$/.test(to) && to.length <= 300 ? to : "/connections";
+  return typeof to === "string" && /^\/(?!\/)[\w\-./?=&%]*$/.test(to) && to.length <= 300 ? to : "/app/connections";
 }
 
 // The start: a state kept (as a hash) for the owner, and Google's address.
@@ -106,7 +106,7 @@ function emailOf(idToken: string | undefined): string | null {
 export class CallbackRefused extends Error {
   constructor(
     message: string,
-    readonly returnTo = "/connections",
+    readonly returnTo = "/app/connections",
   ) {
     super(message);
     this.name = "CallbackRefused";

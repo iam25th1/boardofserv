@@ -13,7 +13,7 @@ import styles from "../agents/agents.module.css";
 export default function InstallationsPage() {
   return (
     <div className={styles.page}>
-      <TopBar agents={<TopLink href="/chat">Your agents</TopLink>} />
+      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} />
       <main className={styles.col}>
         <header className={styles.head}>
           <h1>Running for you</h1>
@@ -50,7 +50,7 @@ function List() {
   if (!list.length) {
     return (
       <p className={styles.quiet}>
-        Nothing yet. Publish one of <Link href="/agents">your agents</Link>, then press Run it for real.
+        Nothing yet. Publish one of <Link href="/app/agents">your agents</Link>, then press Run it for real.
       </p>
     );
   }
@@ -59,7 +59,7 @@ function List() {
       {list.map((i) => (
         <li key={i.id} className={styles.panel}>
           <div className={styles.panelHead}>
-            <Link href={`/installations/${i.id}`}>
+            <Link href={`/app/installations/${i.id}`}>
               <strong>{i.name}</strong>
             </Link>
             <span className={styles.meta}>

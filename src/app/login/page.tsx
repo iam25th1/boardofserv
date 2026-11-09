@@ -33,7 +33,7 @@ function SignIn() {
     if (!ready || !authenticated) return;
     // A helper's page or the board sends people here with ?next= to come back.
     const next = new URLSearchParams(window.location.search).get("next");
-    router.replace(next && SAFE_NEXT.test(next) ? next : `/chat${window.location.search}`);
+    router.replace(next && SAFE_NEXT.test(next) ? next : `/app/chat${window.location.search}`);
   }, [ready, authenticated, router]);
 
   // Same arrival as the empty chat: the line rises, the chalk arrow is drawn,

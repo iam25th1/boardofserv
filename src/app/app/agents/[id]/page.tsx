@@ -15,7 +15,7 @@ import styles from "../agents.module.css";
 export default function AgentPage({ params }: { params: { id: string } }) {
   return (
     <div className={styles.page}>
-      <TopBar agents={<TopLink href="/chat">Your agents</TopLink>} />
+      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} />
       <main className={styles.col}>{privyAppId() ? <SignedIn id={params.id} /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}</main>
     </div>
   );
@@ -56,7 +56,7 @@ function Builder({ id }: { id: string }) {
         installation: api.getInstallation,
         job: api.getJob,
         answer: (approvalId, answer) => api.answerApproval(approvalId, answer).then(() => undefined),
-        done: (installationId) => router.push(`/installations/${installationId}`),
+        done: (installationId) => router.push(`/app/installations/${installationId}`),
       },
     }),
     [api, id, router],

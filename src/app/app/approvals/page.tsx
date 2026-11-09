@@ -15,7 +15,7 @@ const POLL_MS = 5_000;
 export default function ApprovalsPage() {
   return (
     <div className={styles.page}>
-      <TopBar agents={<TopLink href="/installations">Running for you</TopLink>} />
+      <TopBar agents={<TopLink href="/app/installations">Running for you</TopLink>} />
       <main className={styles.col}>
         <header className={styles.head}>
           <h1>Waiting for your answer</h1>
@@ -64,7 +64,7 @@ function List() {
         <li key={a.id}>
           <ApprovalCard
             approval={a}
-            jobHref={`/jobs/${a.jobId}`}
+            jobHref={`/app/jobs/${a.jobId}`}
             onAnswer={async (answer) => {
               await api.answerApproval(a.id, answer);
               await load();

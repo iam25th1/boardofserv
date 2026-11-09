@@ -253,7 +253,7 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
             definition={data.runnable.definition}
             defaults={data.runnable.defaults}
             api={api.setup}
-            returnTo={`/agents/${data.agent.id}?setup=1`}
+            returnTo={`/app/agents/${data.agent.id}?setup=1`}
             onDone={api.setup.done}
             onCancel={() => setInstalling(false)}
           />
@@ -271,7 +271,7 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
 
       {!d ? (
         <p className={styles.quiet}>
-          No steps yet. Finish the interview in <Link href="/chat">the chat</Link> and press Plan.
+          No steps yet. Finish the interview in <Link href="/app/chat">the chat</Link> and press Plan.
         </p>
       ) : (
         <>

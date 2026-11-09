@@ -141,7 +141,7 @@ function ServiceCard({
                 {c.usedBy.map((i, n) => (
                   <span key={i.id}>
                     {n > 0 ? ", " : ""}
-                    <Link href={`/installations/${i.id}`}>{i.name}</Link>
+                    <Link href={`/app/installations/${i.id}`}>{i.name}</Link>
                     {i.status === "paused" ? " (paused)" : ""}
                   </span>
                 ))}
