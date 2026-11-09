@@ -31,43 +31,6 @@
   color: var(--chalk-3);
 }
 
-/* The kind switch: a small chalk pill, a native select underneath. */
-.kind {
-  flex: none;
-  position: relative;
-}
-.kind select {
-  appearance: none;
-  -webkit-appearance: none;
-  background: transparent;
-  color: var(--chalk-2);
-  font: inherit;
-  font-size: var(--t-xs);
-  padding: 3px 10px;
-  border: 1px dashed var(--chalk-3);
-  border-radius: var(--r-full);
-  cursor: pointer;
-  transition:
-    border-color var(--dur) var(--ease),
-    color var(--dur) var(--ease);
-}
-.kind select:hover:not(:disabled) {
-  border-color: var(--chalk);
-  color: var(--chalk);
-}
-.kind select:focus-visible {
-  outline: var(--focus);
-  outline-offset: 2px;
-}
-.kind select:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.kind option {
-  background: var(--slate-2);
-  color: var(--chalk);
-}
-
 /* watch, decide, tell you */
 .flow {
   width: 208px;

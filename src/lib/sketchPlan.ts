@@ -1,7 +1,7 @@
 import "server-only";
 import { completeJson, type ChatMessage, type JsonResult, type ModelConfig } from "./model";
 import { parseSketchBlock, type ParsedSketch } from "./sketchBlock";
-import { SKETCH_FIELDS, SKETCH_KINDS } from "./sketchFields";
+import { PLAN_KINDS, SKETCH_FIELDS } from "./sketchFields";
 import { PLAN_PROMPT } from "./systemPrompt";
 import type { SketchDTO } from "./types";
 
@@ -10,6 +10,9 @@ import type { SketchDTO } from "./types";
 // the person will see as buttons. The reply only phrases that question, so the
 // question and the buttons match. The plan sees the stored sketch, the reply
 // the person is answering (if any) and their new message, nothing else.
+//
+// An agent's interview fields ride in the same schema, so the turn that
+// first says "every morning, check my stock sheet" keeps what it said.
 //
 // The schema sticks to what SERV is known to accept: strings, a string enum
 // and an array of strings, every property required, nothing extra. Unknown is
@@ -25,14 +28,14 @@ export const SKETCH_SCHEMA = {
   schema: {
     type: "object",
     additionalProperties: false,
-    required: ["name", "kind", "watches", "when", "how", "tells", "takes", "does", "gives", "asking", "choices"],
+    required: ["name", "kind", "watches", "when", "how", "tells", "takes", "does", "gives", "wakes", "looks", "handles", "finish", "asks", "setup", "remembers", "asking", "choices"],
     properties: {
       name: text("short agent name"),
       kind: {
         type: "string",
-        enum: [...SKETCH_KINDS, "none"],
+        enum: [...PLAN_KINDS, "none"],
         description:
-          "answer (the default) replies once to what it is given; watcher only when they mention something to monitor; digest only when they mention a schedule; helper is an ongoing bot",
+          "answer (the default) replies once to what it is given; agent runs on its own: on a schedule, watching data or acting over time. Use only answer or agent",
       },
       watches: text("what it monitors"),
       when: text("what triggers it"),
@@ -41,10 +44,18 @@ export const SKETCH_SCHEMA = {
       takes: text("answer: what the user gives it"),
       does: text("answer: what it does, one line"),
       gives: text("answer: what comes back"),
+      wakes: text("agent: what wakes it up (a schedule, a value it checks, a message)"),
+      looks: text("agent: where it looks (sheets, sites, messages)"),
+      handles: text("agent: what it does with what it finds"),
+      finish: text("agent: what counts as done"),
+      asks: text("agent: what it must never do without asking the owner"),
+      setup: text("agent: what the owner sets up for it (accounts, sheets, limits)"),
+      remembers: text("agent: what it remembers between jobs"),
       asking: {
         type: "string",
         enum: [...SKETCH_FIELDS, "none"],
-        description: "most important empty field to ask next: takes, does, gives for answer, else watches, when, how, tells; none if all set",
+        description:
+          "most important empty field to ask next: takes, does, gives for answer; wakes, looks, handles, finish, asks, setup, remembers for agent; none if all set",
       },
       choices: { type: "array", items: { type: "string" }, description: "up to 4 short answers to that question" },
     },

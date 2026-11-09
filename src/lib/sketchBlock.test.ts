@@ -123,6 +123,13 @@ describe("parseSketchBlock", () => {
       takes: null,
       does: null,
       gives: null,
+      wakes: null,
+      looks: null,
+      handles: null,
+      finish: null,
+      asks: null,
+      setup: null,
+      remembers: null,
       asking: null,
       choices: [],
     });
@@ -153,6 +160,13 @@ describe("mergeSketch", () => {
     takes: null,
     does: null,
     gives: null,
+    wakes: null,
+    looks: null,
+    handles: null,
+    finish: null,
+    asks: null,
+    setup: null,
+    remembers: null,
     asking: "tells",
     live: false,
     kindChosen: false,
@@ -167,23 +181,37 @@ describe("mergeSketch", () => {
     takes: null,
     does: null,
     gives: null,
+    wakes: null,
+    looks: null,
+    handles: null,
+    finish: null,
+    asks: null,
+    setup: null,
+    remembers: null,
     asking: null,
     choices: [],
     ...p,
   });
 
   it("takes every value from the first sketch", () => {
-    expect(mergeSketch(null, reply({ name: "A", kind: "watcher", watches: "B", asking: "when" }))).toEqual({
+    expect(mergeSketch(null, reply({ name: "A", kind: "agent", wakes: "B", asking: "looks" }))).toEqual({
       name: "A",
-      kind: "watcher",
-      watches: "B",
+      kind: "agent",
+      watches: null,
       when: null,
       how: null,
       tells: null,
       takes: null,
       does: null,
       gives: null,
-      asking: "when",
+      wakes: "B",
+      looks: null,
+      handles: null,
+      finish: null,
+      asks: null,
+      setup: null,
+      remembers: null,
+      asking: "looks",
       live: false,
       kindChosen: false,
     });
@@ -191,7 +219,7 @@ describe("mergeSketch", () => {
 
   it("makes a sketch the plan names no kind for a one-shot answer helper, and keeps a kind the maker chose", () => {
     expect(mergeSketch(null, reply({ name: "A" }))).toMatchObject({ kind: "answer", kindChosen: false });
-    expect(mergeSketch({ ...stored, kind: "digest" }, reply({ kind: "watcher" })).kind).toBe("watcher");
+    expect(mergeSketch({ ...stored, kind: "digest" }, reply({ kind: "agent" })).kind).toBe("agent");
     expect(mergeSketch({ ...stored, kind: "digest", kindChosen: true }, reply({ kind: "answer" }))).toMatchObject({ kind: "digest", kindChosen: true });
   });
 

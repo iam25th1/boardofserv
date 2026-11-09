@@ -130,14 +130,14 @@ export const replyUsage = pgTable(
 // The agent being sketched in a conversation, one row per conversation. Each
 // turn's plan is merged in (see mergeSketch): a value the model sends
 // replaces the stored one, a null never wipes it. live stays false until
-// agents can run. An answer helper uses takes, does and gives instead of
-// watches, when, how and tells.
+// agents can run. An answer helper uses takes, does and gives, an agent its
+// interview fields, the older kinds watches, when, how and tells.
 export const agentSketches = pgTable("agent_sketches", {
   conversationId: uuid("conversation_id")
     .primaryKey()
     .references(() => conversations.id, { onDelete: "cascade" }),
   name: text("name"),
-  kind: text("kind", { enum: ["watcher", "digest", "helper", "answer"] }),
+  kind: text("kind", { enum: ["watcher", "digest", "helper", "answer", "agent"] }),
   watches: text("watches"),
   when: text("when"),
   how: text("how"),
@@ -145,7 +145,15 @@ export const agentSketches = pgTable("agent_sketches", {
   takes: text("takes"),
   does: text("does"),
   gives: text("gives"),
-  asking: text("asking", { enum: ["watches", "when", "how", "tells", "takes", "does", "gives"] }),
+  // An agent's interview (see sketchFields.ts).
+  wakes: text("wakes"),
+  looks: text("looks"),
+  handles: text("handles"),
+  finish: text("finish"),
+  asks: text("asks"),
+  setup: text("setup"),
+  remembers: text("remembers"),
+  asking: text("asking", { enum: ["watches", "when", "how", "tells", "takes", "does", "gives", "wakes", "looks", "handles", "finish", "asks", "setup", "remembers"] }),
   live: boolean("live").notNull().default(false),
   // The maker picked the kind on the dock; the plan leaves it alone from then on.
   kindChosen: boolean("kind_chosen").notNull().default(false),

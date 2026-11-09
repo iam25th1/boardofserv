@@ -458,6 +458,32 @@ sample data (sheets and their rows, pages, search results, the owner's
 answers, memory, a wallet balance in USDC), on a copy per run, and logs
 every call.
 
+### The agent builder chat
+
+"agent" is a sketch kind beside the one-shot answer helper. The plan picks it
+when what the person describes runs on its own (on a schedule, watching data,
+acting over time), and the dock's kind switch can pick it too. The plan only
+chooses answer or agent now; watcher, digest and helper stay for sketches
+that already have them.
+
+SERV interviews the maker one question at a time, with answer buttons where
+they help, through the same plan-then-reply turn as a helper: what wakes it
+up, where it looks, what it does with what it finds, what counts as done,
+what it must never do without asking, what the owner sets up and what it
+should remember (`wakes`, `looks`, `handles`, `finish`, `asks`, `setup`,
+`remembers` on `agent_sketches`, migration 0019). They ride in the same plan
+schema as the helper's fields, so a first message that already says "every
+morning, check my stock sheet" keeps what it said.
+
+The agent's dock (`src/components/chat/AgentDock.tsx`) shows the interview
+as seven chalk dots, filled as they are answered and turning while asked,
+and once the agent is planned, its real steps as a chalk diagram
+(`src/components/agents/StepDiagram.tsx`): a code step is a square, a
+decision a diamond, an action a circle, with links to each next step and one
+per outcome from a decision. New steps are chalked on one after another and
+their links drawn with anime.js; a step whose code is approved fills in.
+Helpers keep their takes / does / gives dock.
+
 ## Payments
 
 Users top up a balance in USDC or $SERV, pay for helper uses from it, and

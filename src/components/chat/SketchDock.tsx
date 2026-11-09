@@ -16,6 +16,7 @@ import {
 } from "@/lib/agentSketch";
 import { animatePop, dustIn, ease, prefersReducedMotion } from "@/lib/motion";
 import type { SketchKind } from "@/lib/sketchFields";
+import { KindSwitch } from "./KindSwitch";
 import styles from "./SketchDock.module.css";
 
 // The agent sketch, docked on top of the composer as one piece: name and
@@ -63,9 +64,6 @@ interface Props {
   // The maker switches the kind. Without it the kind is not shown.
   onKind?: (kind: SketchKind) => void;
 }
-
-// The kinds the maker can switch between, in the words the dock uses.
-const KINDS: SketchKind[] = ["answer", "watcher", "digest", "helper"];
 
 export function SketchDock({ sketch, canSwitch = false, sketching = false, onToggle, published = null, onPublish, onKind }: Props) {
   const root = useRef<HTMLDivElement>(null);
@@ -232,29 +230,8 @@ export function SketchDock({ sketch, canSwitch = false, sketching = false, onTog
             {sketching ? <span className={styles.sketching}>sketching...</span> : statusLine(sketch, paused, canSwitch, Boolean(published))}
           </small>
         </button>
-        {onKind && (
-          <label className={styles.kind}>
-            <span className="visually-hidden">Kind</span>
-            <select
-              value={sketch.kind ?? ""}
-              onChange={(e) => onKind(e.target.value as SketchKind)}
-              // A helper on the board keeps its kind until it is taken down.
-              disabled={Boolean(published)}
-              title={published ? "Take it off the board to change its kind" : "What kind of agent this is"}
-            >
-              {!sketch.kind && (
-                <option value="" disabled>
-                  kind
-                </option>
-              )}
-              {KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {k}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        {/* A helper on the board keeps its kind until it is taken down. */}
+        {onKind && <KindSwitch kind={sketch.kind} onKind={onKind} locked={published ? "Take it off the board to change its kind" : null} />}
         <svg className={`${styles.flow} chalky`} viewBox="0 0 208 44" aria-hidden="true" focusable="false">
           {LINK_D.map((d, i) => (
             <path key={d} className={styles.link} d={d} data-link={i} />

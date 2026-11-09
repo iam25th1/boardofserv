@@ -1,0 +1,52 @@
+/* The agent's dock: the helper dock's frame (SketchDock.module.css), with the
+   interview or the steps below it. */
+.diagram {
+  padding: 0 18px var(--s-2);
+}
+
+/* The interview: seven dots, filled when answered, turning while asked. */
+.interview svg {
+  display: block;
+  max-width: 100%;
+  overflow: visible;
+}
+.dot {
+  fill: transparent;
+  stroke: var(--chalk-3);
+  stroke-width: var(--stroke);
+  transition:
+    fill var(--dur) var(--ease),
+    stroke var(--dur) var(--ease);
+}
+.interview [data-state="on"] .dot {
+  fill: var(--chalk);
+  stroke: var(--chalk);
+}
+.interview [data-state="ask"] .dot {
+  stroke: var(--chalk);
+  stroke-dasharray: 3 3;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: spin 4s linear infinite;
+}
+.interview text {
+  font: var(--w-medium) 10px var(--font-body);
+  fill: var(--chalk-3);
+  text-anchor: middle;
+}
+.interview [data-state="on"] text,
+.interview [data-state="ask"] text {
+  fill: var(--chalk-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .interview [data-state="ask"] .dot {
+    animation: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .diagram {
+    padding: 0 14px var(--s-2);
+  }
+}

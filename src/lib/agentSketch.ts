@@ -1,4 +1,4 @@
-import { ANSWER_FIELDS, AGENT_FIELDS, type SketchFieldKey } from "./sketchFields";
+import { ANSWER_FIELDS, AGENT_FIELDS } from "./sketchFields";
 import type { SketchDTO } from "./types";
 
 // The agent being sketched in a conversation, as the sketch dock shows it.
@@ -30,7 +30,9 @@ export interface AgentSketch {
   live: boolean;
 }
 
-export type FieldKey = SketchFieldKey;
+// The three-node dock's fields: an agent's interview has a dock of its own
+// (AgentDock).
+export type FieldKey = (typeof AGENT_FIELDS)[number] | (typeof ANSWER_FIELDS)[number];
 export const FIELD_KEYS: FieldKey[] = [...AGENT_FIELDS];
 export const ANSWER_FIELD_KEYS: FieldKey[] = [...ANSWER_FIELDS];
 

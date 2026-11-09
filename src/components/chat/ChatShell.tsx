@@ -12,6 +12,7 @@ import { EmptyState } from "./EmptyState";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { TopBar } from "./TopBar";
 import { SketchDock } from "./SketchDock";
+import { AgentDock } from "./AgentDock";
 import { Chips } from "./Chips";
 import { PublishSheet, type PublishEdits } from "./PublishSheet";
 import { PriceFields, draftsOf, readPrices, type PriceDrafts } from "./PriceFields";
@@ -547,6 +548,8 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
         dock={
           fixture ? (
             <SketchDock sketch={fixture} canSwitch onToggle={(live) => setFixture({ ...fixture, live })} />
+          ) : sketch?.name && sketch.kind === "agent" ? (
+            <AgentDock key={activeId ?? "new"} sketch={sketch} agent={null} sketching={sketchingTurn !== null} onKind={(kind) => void doKind(kind)} />
           ) : sketch?.name ? (
             // Keyed by conversation: opening another one brings its dock in fresh.
             <SketchDock

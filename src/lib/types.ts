@@ -1,3 +1,4 @@
+import type { SketchFieldKey } from "./sketchFields";
 // Shapes the browser works with. Dates arrive as ISO strings over JSON.
 export interface ConversationDTO {
   id: string;
@@ -47,7 +48,7 @@ export interface AccountDTO {
 // takes, does and gives (see sketchFields.ts).
 export interface SketchDTO {
   name: string | null;
-  kind: "watcher" | "digest" | "helper" | "answer" | null;
+  kind: "watcher" | "digest" | "helper" | "answer" | "agent" | null;
   watches: string | null;
   when: string | null;
   how: string | null;
@@ -55,11 +56,40 @@ export interface SketchDTO {
   takes: string | null;
   does: string | null;
   gives: string | null;
+  // An agent's interview: what wakes it up, where it looks, what it does with
+  // what it finds, what counts as done, what it must never do without
+  // asking, what the owner sets up and what it should remember.
+  wakes?: string | null;
+  looks?: string | null;
+  handles?: string | null;
+  finish?: string | null;
+  asks?: string | null;
+  setup?: string | null;
+  remembers?: string | null;
   // The one field the latest reply asks about.
-  asking: "watches" | "when" | "how" | "tells" | "takes" | "does" | "gives" | null;
+  asking: SketchFieldKey | null;
   live: boolean;
   // The maker picked the kind on the dock: the plan no longer changes it.
   kindChosen?: boolean;
+}
+
+// An agent built from a conversation, as its maker's dock shows it: the
+// steps' shape and how far the build has got, never code or prompts.
+export interface AgentSummaryDTO {
+  id: string;
+  version: number;
+  state: "draft" | "published";
+  buildState: "idle" | "planning" | "writing" | "fixing" | "failed";
+  buildNote: string | null;
+  // Empty until the first plan is made.
+  steps: {
+    id: string;
+    title: string;
+    kind: "code" | "decision" | "action";
+    next: (string | null)[];
+    // A code step's code: null for other kinds.
+    code: "queued" | "writing" | "reviewing" | "approved" | "needs_attention" | null;
+  }[];
 }
 
 // A published helper as anyone may see it: never its instructions.
