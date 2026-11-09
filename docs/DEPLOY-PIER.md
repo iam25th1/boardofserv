@@ -81,7 +81,8 @@ seconds. To keep a development server out of payments altogether, set
 The database comes from Colima, which does not start by itself after a
 reboot. Until `colima start` brings the container back, `/api/health` answers
 503 and payments stay off (the boot retries every 30 seconds). To make Colima
-start at login: `brew services start colima`.
+start at login: `brew services start colima` (see
+[Lock down the database](#lock-down-the-database)).
 
 ## Environment
 
@@ -94,7 +95,10 @@ change one in the dashboard (http://127.0.0.1:7433, the service's
 Environment tab), which shows names and a masked preview but never a whole
 value, then restart the service (or deploy, for a `NEXT_PUBLIC_` value, which
 is built in). Through Pier's API, a `PUT` of the environment replaces the
-whole set: send every key you keep.
+whole set: send every key you keep. A key sent with the value
+`__PIER_KEEP__` keeps the value Pier already has, so one value can change
+without the others ever leaving Pier; that is how `scripts/db-lockdown.sh`
+changes `DATABASE_URL` alone (`scripts/db-lockdown-env.mjs`, `pier-set`).
 
 In the store (14):
 
@@ -126,9 +130,7 @@ Tests and scripts only, never in the store: `TEST_POSTGRES_URL`,
 
 ## Deploy an update
 
-Push the commit to the branch the deploy clone follows (`deploy-pier` until
-that pull request is merged; then switch the clone to `main` once with
-`git -C ~/.boardofserv/app switch main`). Then:
+Merge to `main`, which the deploy clone follows. Then:
 
 ```sh
 pier deploy boardofserv
@@ -199,8 +201,8 @@ back build with `pier restart boardofserv`.
 
 ```sh
 mkdir -p ~/.boardofserv/backups && chmod 700 ~/.boardofserv/backups
-docker exec boardofserv-db pg_dump -U boardofserv -Fc boardofserv \
-  > ~/.boardofserv/backups/boardofserv-$(date +%Y%m%d-%H%M).dump
+(umask 077; docker exec boardofserv-db pg_dump -U boardofserv -Fc boardofserv \
+  > ~/.boardofserv/backups/boardofserv-$(date +%Y%m%d-%H%M).dump)
 ```
 
 Take one before any deploy that changes the schema. The dump holds user
@@ -213,18 +215,92 @@ restore into the same database (the service should be stopped:
 docker exec -i boardofserv-db pg_restore -U boardofserv -d boardofserv --clean --if-exists < ~/.boardofserv/backups/<file>.dump
 ```
 
-The data itself lives in the Docker volume `boardofserv_boardofserv_pgdata`.
+These commands use the container's own socket, so they work with or without
+the password. The data itself lives in the Docker volume
+`boardofserv_boardofserv_pgdata`.
+
+## Lock down the database
+
+`boardofserv-db` was created by `npm run db:up` publishing port 5433 on every
+interface (Colima forwards it as `*:5433`) with the default password from
+`docker-compose.yml`, so anything on the local network can reach the database
+that holds the balances. `scripts/db-lockdown.sh` closes both. Nobody runs it
+but the owner.
+
+```sh
+cd ~/boardofserv
+bash scripts/db-lockdown.sh            # dry run: prints every step, changes nothing
+bash scripts/db-lockdown.sh --apply    # asks you to type LOCK DOWN, then does them
+```
+
+With `--apply`, in order: a full `pg_dump` into `~/.boardofserv/backups/`
+(stopping if it fails or is empty) and a row count of every table; a new 64
+character random password on the database role, never printed or logged; the
+container recreated from the same image and the same named volume, published
+on `127.0.0.1:5433` only (the old one is kept, stopped, as
+`boardofserv-db-pre-lockdown`); the row counts compared and the new password
+tried from inside the container and from the Mac; then the new
+`DATABASE_URL` written into `.env.local` (that line only) and into the
+`boardofserv` service in Pier (that value only). It never redeploys the
+service or starts the dev server.
+
+**When.** Any time a short outage is fine, once the change that added the
+script is merged, deployed (`pier deploy boardofserv`) and pulled into
+`~/boardofserv`. Stop the dev server first: it would keep the old password
+until it starts again. (After that pull, `npm ci --ignore-scripts` in
+`~/boardofserv` brings its `node_modules` up to the new Next.js before
+`npm run dev`.)
+
+**Downtime.** The site answers 503 from the moment the container stops
+(step 4) until the redeploy finishes: the script itself takes under a minute,
+the redeploy a few more.
+
+**Afterwards**, as the script prints:
+
+```sh
+pier deploy boardofserv                         # starts with the new DATABASE_URL
+curl -s https://boardofserv.25th.dev/api/health # {"ok":true,...}
+npm run dev                                     # the dev server, again
+docker rm boardofserv-db-pre-lockdown           # once both work; the volume stays
+```
+
+**Rolling back.** If a step fails the script stops and prints the way back
+from the step it reached: the backup path, the old container's settings
+(also saved next to the backup as `<database>-<time>.container.txt`), and the
+commands. In short, while `.env.local` still has the old `DATABASE_URL`:
+
+```sh
+docker rm -f boardofserv-db                                    # the new container, if there is one
+docker rename boardofserv-db-pre-lockdown boardofserv-db
+docker start boardofserv-db
+until docker exec boardofserv-db pg_isready -q; do sleep 1; done
+node scripts/db-lockdown-env.mjs password-sql .env.local \
+  | docker exec -i boardofserv-db psql -X -q -v ON_ERROR_STOP=1 -U boardofserv -d boardofserv >/dev/null 2>&1 \
+  && echo "old password back"
+```
+
+The last command reads the old password from `.env.local` and pipes it
+straight into `psql`; it refuses to print it to a terminal. Restore the
+backup (above) only if rows are missing. The backup is never deleted. If only
+the Pier step failed, `.env.local` already has the new `DATABASE_URL`: copy it
+into Pier (dashboard, Environment) or run
+`node scripts/db-lockdown-env.mjs pier-set .env.local`, then redeploy.
+
+**After a reboot.** The new container keeps `--restart unless-stopped`, but
+Docker only runs once Colima does, and Colima does not start at login today.
+To make the database come back by itself, the owner runs once:
+
+```sh
+brew services start colima
+```
+
+The script was rehearsed end to end on a scratch container, a scratch env file
+and a stand-in for Pier's API; the real container has not been through it.
 
 ## Still to do by hand
 
-- Allow `https://boardofserv.25th.dev` in the Privy dashboard (allowed
-  origins). The login modal loads on the live site, but signing in needs it.
-- The database container publishes port 5433 on every interface with the
-  default password, so anything on the local network can reach it. Bind it
-  to `127.0.0.1` and change the password when the container can be
-  recreated.
-- `npm ci` warns that Next.js 14.2.15 has a published security advisory;
-  move to the patched 14.2 release.
-- Cloudflare Web Analytics, which the 25th.dev zone injects, is blocked by
-  the content security policy. Turn the injection off for this hostname, or
-  allow its two hosts if you want the numbers.
+- Sign in once on the live site. Privy's iframe already names
+  `https://boardofserv.25th.dev` as an allowed parent, so the origin looks
+  allowed in the Privy dashboard, but a sign-in has not been tried.
+- Run `scripts/db-lockdown.sh --apply` ([above](#lock-down-the-database)),
+  then `brew services start colima`.

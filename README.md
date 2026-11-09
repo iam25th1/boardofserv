@@ -22,7 +22,7 @@ agents is the next phase. The chat is the product, so it got the most care.
 ```sh
 cp .env.example .env.local      # then fill in the values below
 npm ci --ignore-scripts
-npm run db:up                   # local Postgres in Docker on port 5433
+npm run db:up                   # local Postgres in Docker on 127.0.0.1:5433
 npm run db:push                 # create the tables
 npm run dev                     # http://localhost:3000
 ```
@@ -117,8 +117,28 @@ the server:
   only sends `frame-ancestors 'none'` from the policy, since fast refresh needs
   eval. After a Privy upgrade, check sign-in and wallet linking against the
   policy again (the browser console names anything it blocks). The
-  Cloudflare Web Analytics beacon the 25th.dev zone injects is blocked on
-  purpose.
+  Cloudflare Web Analytics beacon the 25th.dev zone injects is allowed through
+  the two hosts Cloudflare lists for it: `static.cloudflareinsights.com` for
+  the script and `cloudflareinsights.com` for connections.
+
+What is locked down, and what isn't yet:
+
+- Next.js is on 14.2.35, the last 14.2 release, with every fix that reached
+  14.2. `npm audit` still lists next advisories fixed only in 15.5 or 16, a
+  major upgrade not made yet.
+- The database: `scripts/db-lockdown.sh`, which the owner runs, gives the
+  database role a long random password and publishes `boardofserv-db` on
+  127.0.0.1:5433 only; until it has run, the container listens on every
+  interface with the default password. `npm run db:up` now creates a new
+  database on 127.0.0.1 only. How and when to run it:
+  [docs/DEPLOY-PIER.md](docs/DEPLOY-PIER.md#lock-down-the-database).
+- Not yet: Privy's HttpOnly cookies are off (Privy dashboard setting), kept
+  off for now, so Privy keeps its access token where page scripts can read
+  it. The server already accepts the `privy-token` cookie as well as the
+  bearer header (`src/lib/auth-route.ts`).
+- Backups go to `~/.boardofserv/backups/` (folder 0700, files 0600), outside
+  the repo and any synced folder. The lockdown script takes one before it
+  changes anything; the runbook has the commands to take and restore one.
 
 ## The model behind the chat
 

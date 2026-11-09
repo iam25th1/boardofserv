@@ -10,8 +10,13 @@
 // (which needs eval for fast refresh) only refuses to be framed.
 //
 // Cloudflare's Web Analytics beacon, which the 25th.dev zone injects into
-// pages, is left out on purpose: the browser blocks it and nothing else
-// changes.
+// pages, gets the two hosts Cloudflare lists for it
+// (developers.cloudflare.com/fundamentals/reference/policies-compliances/content-security-policies/):
+// "script-src static.cloudflareinsights.com; connect-src cloudflareinsights.com".
+// The injected beacon loads from static.cloudflareinsights.com/beacon.min.js/<version>
+// and reports to /cdn-cgi/rum on this origin, which 'self' already covers.
+const CLOUDFLARE_ANALYTICS = { script: "https://static.cloudflareinsights.com", connect: "https://cloudflareinsights.com" };
+
 const WALLETCONNECT = ["walletconnect.com", "walletconnect.org"];
 const both = (sub, scheme = "https") => WALLETCONNECT.map((d) => `${scheme}://${sub}.${d}`);
 const REOWN_API = ["https://api.web3modal.com", "https://api.web3modal.org"];
@@ -33,13 +38,14 @@ const CONNECT = [
   ...both("echo"),
   ...both("push"),
   ...REOWN_API,
+  CLOUDFLARE_ANALYTICS.connect,
 ];
 
 const IMAGES = ["'self'", "data:", "blob:", ...WALLETCONNECT.map((d) => `https://${d}`), ...both("secure"), "https://explorer-api.walletconnect.com", ...REOWN_API];
 
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
+  `script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com ${CLOUDFLARE_ANALYTICS.script}`,
   "style-src 'self' 'unsafe-inline'",
   `img-src ${IMAGES.join(" ")}`,
   "font-src 'self' https://fonts.reown.com",

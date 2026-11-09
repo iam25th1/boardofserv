@@ -15,6 +15,25 @@ const ROOT = join(__dirname, "..", "..");
 // Written only in the ?sketch fixture (src/lib/agentSketch.fixture.ts).
 const SKETCH_MARKER = "0.4 credit a day";
 
+// The production policy as it was before Cloudflare's analytics hosts were
+// allowed, so a test can show those are the only change.
+const POLICY_BEFORE_ANALYTICS = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https://walletconnect.com https://walletconnect.org https://secure.walletconnect.com https://secure.walletconnect.org https://explorer-api.walletconnect.com https://api.web3modal.com https://api.web3modal.org",
+  "font-src 'self' https://fonts.reown.com",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "child-src https://auth.privy.io https://verify.walletconnect.com https://verify.walletconnect.org https://secure.walletconnect.com https://secure.walletconnect.org",
+  "frame-src https://auth.privy.io https://verify.walletconnect.com https://verify.walletconnect.org https://secure.walletconnect.com https://secure.walletconnect.org https://challenges.cloudflare.com",
+  "connect-src 'self' https://auth.privy.io https://*.rpc.privy.systems wss://www.walletlink.org https://explorer-api.walletconnect.com https://relay.walletconnect.com https://relay.walletconnect.org wss://relay.walletconnect.com wss://relay.walletconnect.org https://rpc.walletconnect.com https://rpc.walletconnect.org https://pulse.walletconnect.com https://pulse.walletconnect.org https://keys.walletconnect.com https://keys.walletconnect.org https://notify.walletconnect.com https://notify.walletconnect.org https://echo.walletconnect.com https://echo.walletconnect.org https://push.walletconnect.com https://push.walletconnect.org https://api.web3modal.com https://api.web3modal.org",
+  "worker-src 'self'",
+  "manifest-src 'self'",
+];
+
 const state = vi.hoisted(() => ({ up: true }));
 vi.mock("@/lib/db", () => ({
   db: {
@@ -93,11 +112,35 @@ describe("security headers", () => {
     expect(directive("font-src")).toContain("https://fonts.reown.com");
     expect(directive("img-src")).toContain("https://api.web3modal.org");
     expect(directive("frame-src")).toContain("https://secure.walletconnect.org");
-    // Nothing anywhere, and no analytics beacons.
+    // Nothing anywhere, and no analytics beacon but Cloudflare's.
     expect(csp).not.toContain("unsafe-eval");
     expect(csp).not.toMatch(/(^|\s)\*(\s|;|$)/);
-    expect(csp).not.toContain("cloudflareinsights");
     expect(csp).not.toContain("cca-lite.coinbase.com");
+  });
+
+  it("allows Cloudflare's Web Analytics beacon, and nothing else it blocked before", async () => {
+    // @ts-expect-error next.config.mjs is plain JavaScript, without types
+    const { SECURITY_HEADERS } = await import("../../next.config.mjs");
+    const csp: string = SECURITY_HEADERS(true).find((h: { key: string }) => h.key === "Content-Security-Policy").value;
+    const parse = (policy: string) =>
+      new Map(
+        policy.split("; ").map((d) => {
+          const [name, ...sources] = d.split(" ");
+          return [name, sources] as const;
+        }),
+      );
+    const before = parse(POLICY_BEFORE_ANALYTICS.join("; "));
+    const now = parse(csp);
+    expect([...now.keys()]).toEqual([...before.keys()]);
+    const added = new Map([...now].map(([name, sources]) => [name, sources.filter((s) => !before.get(name)!.includes(s))]));
+    const dropped = [...before].flatMap(([name, sources]) => sources.filter((s) => !now.get(name)!.includes(s)));
+    // Exactly the two hosts in Cloudflare's CSP table, each in its directive.
+    expect(Object.fromEntries([...added].filter(([, s]) => s.length > 0))).toEqual({
+      "script-src": ["https://static.cloudflareinsights.com"],
+      "connect-src": ["https://cloudflareinsights.com"],
+    });
+    expect(dropped).toEqual([]);
+    expect(csp).not.toMatch(/\*\.cloudflareinsights\.com|http:\/\/[a-z.]*cloudflareinsights/);
   });
 
   it("the development server only refuses framing, so fast refresh keeps working", async () => {
@@ -184,6 +227,7 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
     const csp = res.headers.get("content-security-policy") ?? "";
     expect(csp).toContain("frame-ancestors 'none'");
     expect(csp).toContain("https://auth.privy.io");
+    expect(csp).toContain("https://static.cloudflareinsights.com");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("x-frame-options")).toBe("DENY");
     expect(res.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");

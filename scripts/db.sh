@@ -3,8 +3,10 @@
 #
 # Uses docker compose (docker-compose.yml) when the plugin is installed.
 # Without it, plain docker runs the same database: same image, credentials,
-# port 5433 and data volume, in a container named boardofserv-db. If that
-# container already exists it is started again, so data carries over.
+# port 5433 (on 127.0.0.1 only) and data volume, in a container named
+# boardofserv-db. If that container already exists it is started again, so
+# data carries over. A container made before the port was limited to
+# 127.0.0.1 keeps its old binding: scripts/db-lockdown.sh recreates it.
 #
 # Note: compose names its container boardofserv-db-1. If boardofserv-db from
 # the fallback exists when compose becomes available, it holds port 5433;
@@ -41,7 +43,7 @@ up() {
       -e POSTGRES_USER=boardofserv \
       -e POSTGRES_PASSWORD=boardofserv \
       -e POSTGRES_DB=boardofserv \
-      -p 5433:5432 \
+      -p 127.0.0.1:5433:5432 \
       -v "$VOLUME":/var/lib/postgresql/data \
       "$IMAGE" >/dev/null
     echo "Created and started $NAME on port 5433."
