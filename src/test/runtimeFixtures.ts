@@ -44,6 +44,9 @@ export interface TestRuntime extends Runtime {
   posts: string[];
 }
 
+// Reppo, answered by the fake in src/test/fakeReppo.ts.
+export const TEST_REPPO = { apiKey: "test-reppo-key", baseUrl: "https://eval.reppo.xyz" };
+
 export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date("2026-11-09T06:00:00Z")): TestRuntime {
   const clock = {
     at: start,
@@ -61,6 +64,7 @@ export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date(
       telegramToken: TEST_BOT_TOKEN,
       google: { clientId: "test-client", clientSecret: "test-google-secret", redirectUri: "https://boardofserv.test/api/connections/google/callback" },
       braveKey: "test-brave-key",
+      reppo: TEST_REPPO,
       caps: { sheetCalls: 500, searches: 50, siteSearches: 1000 },
     },
     now: () => clock.at,

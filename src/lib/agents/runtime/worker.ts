@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { hostname } from "node:os";
 import type { Runtime } from "./context";
 import { beat, claimJob, HEARTBEAT_MS, requeueStale, runJob } from "./jobs";
+import { reppoCycle } from "../../reppo/cycle";
 import { expireDue } from "./approvals";
 import { fireDue } from "./triggers";
 import { deliverTelegram, tidyTelegram } from "../../telegram/deliver";
@@ -41,6 +42,7 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
   const id = `${hostname()}:${process.pid}:${randomBytes(4).toString("hex")}`;
   const running = new Map<string, Promise<void>>();
   let cycles = 0;
+  let reppo: Promise<void> | null = null;
   const heart = setInterval(() => {
     beat(rt, id, [...running.keys()]).catch(() => undefined);
   }, HEARTBEAT_MS);
@@ -66,6 +68,15 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
       // questions' messages settled there.
       await deliverTelegram(rt).catch((err: unknown) => rt.log(`telegram: delivery broke off: ${err instanceof Error ? err.name : "unknown error"}`));
       if (++cycles % 720 === 1) await tidyTelegram(rt).catch(() => undefined);
+      // Reppo's evaluations beside the jobs: never waited on here, so a slow
+      // or broken Reppo never holds up a job.
+      if (!reppo && rt.services.reppo) {
+        reppo = reppoCycle(rt)
+          .catch((err: unknown) => rt.log(`reppo: cycle broke off: ${err instanceof Error ? err.name : "unknown error"}`))
+          .finally(() => {
+            reppo = null;
+          });
+      }
       while (running.size < capacity) {
         const job = await claimJob(rt, id);
         if (!job) break;
@@ -75,7 +86,7 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
         running.set(job.id, run);
       }
     },
-    running: () => [...running.values()],
+    running: () => [...running.values(), ...(reppo ? [reppo] : [])],
     stop: () => clearInterval(heart),
   };
 }

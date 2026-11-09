@@ -1232,6 +1232,55 @@ export const agentAudit = pgTable(
 export type AgentAudit = typeof agentAudit.$inferSelect;
 export type NewAgentAudit = typeof agentAudit.$inferInsert;
 
+// Reppo's evaluations (src/lib/reppo): a finished job's quality, or a
+// second opinion on an action waiting for its renter. One row per thing,
+// by its key ("job:<id>", "action:<approval id>"), so nothing is scored
+// twice. The input is exactly what was sent: redacted, never renter data.
+// Queued here first; the worker submits it within the credit budget, reads
+// it back, and records the result. No foreign keys: it outlives the job.
+export const reppoEvals = pgTable(
+  "reppo_evals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    kind: text("kind", { enum: ["job", "action"] }).notNull(),
+    key: text("key").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    versionId: uuid("version_id").notNull(),
+    installationId: uuid("installation_id").notNull(),
+    jobId: uuid("job_id"),
+    approvalId: uuid("approval_id"),
+    taskType: text("task_type", { enum: ["claim", "response", "action"] }).notNull(),
+    input: text("input").notNull(),
+    // queued (to submit), submitted (to read back), completed, failed.
+    status: text("status", { enum: ["queued", "submitted", "completed", "failed"] }).notNull().default("queued"),
+    reppoId: text("reppo_id"),
+    attempts: integer("attempts").notNull().default(0),
+    polls: integer("polls").notNull().default(0),
+    // When to submit it, or read it back, next.
+    nextAt: timestamp("next_at", { withTimezone: true }).defaultNow().notNull(),
+    lastError: text("last_error"),
+    score: integer("score"),
+    route: text("route", { enum: ["ship", "review", "block"] }),
+    decision: text("decision"),
+    confidence: text("confidence"),
+    reason: text("reason"),
+    rubric: jsonb("rubric").$type<Record<string, number>>(),
+    creditsCharged: integer("credits_charged").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    once: uniqueIndex("reppo_evals_key_idx").on(t.key),
+    due: index("reppo_evals_due_idx").on(t.status, t.nextAt),
+    byVersion: index("reppo_evals_version_idx").on(t.versionId, t.completedAt),
+    byAgent: index("reppo_evals_agent_idx").on(t.agentId, t.createdAt),
+    bySubmitted: index("reppo_evals_submitted_idx").on(t.submittedAt),
+  }),
+);
+export type ReppoEval = typeof reppoEvals.$inferSelect;
+
 // An admin's freeze of an agent, a version, a maker or a renter, with a
 // reason. A frozen thing can't run, be rented, publish or offer. Lifting
 // one keeps the row (lifted_at and why): together they are the admin log.

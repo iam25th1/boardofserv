@@ -88,7 +88,8 @@ async function main() {
     record: async () => {},
     web: { allowOrigins: [origin] },
     fetchesPerDay: 100,
-    services: { fetch: services, telegramToken: CHAT ? (process.env.TELEGRAM_BOT_TOKEN ?? null) : null, google: { clientId: "live", clientSecret: "live", redirectUri: "http://127.0.0.1/callback" }, braveKey: null, caps: DEFAULT_CAPS },
+    services: { fetch: services, telegramToken: CHAT ? (process.env.TELEGRAM_BOT_TOKEN ?? null) : null, google: { clientId: "live", clientSecret: "live", redirectUri: "http://127.0.0.1/callback" }, braveKey: null,
+    reppo: null, caps: DEFAULT_CAPS },
     log: (line) => console.log(line),
   };
   const [owner] = await db.insert(schema.users).values({ privyUserId: "did:live:shop", handle: "fabric_shop", access: "approved" }).returning();
