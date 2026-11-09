@@ -469,11 +469,12 @@ the sandbox's host bridge, and only the ones its step lists.
 - `wallet.pay({ to, amountUsdc, memo })`
 
 Each has typed arguments, checked whatever the code sends, and a result
-shape, written out as declarations for Dolphin. Real implementations come in
-later phases. For now each is a mock that answers from the test bench's
-sample data (sheets and their rows, pages, search results, the owner's
-answers, memory, a wallet balance in USDC), on a copy per run, and logs
-every call.
+shape, written out as declarations for Dolphin. On the test bench each is
+a mock that answers from the bench's sample data (sheets and their rows,
+pages, search results, the owner's answers, memory, a wallet balance in
+USDC), on a copy per run, and logs every call. Running for real, the same
+calls reach the owner's Google Sheets, Telegram, the web and Brave's search
+(see Running for real and Connections); only the wallet is still a stand-in.
 
 ### The agent builder chat
 
@@ -537,7 +538,7 @@ isn't let in yet.
 Once a plan is saved, each code step without approved code is written
 (`src/lib/agents/code.ts`), one at a time:
 
-1. Dolphin, and only Dolphin, writes it as `async function run(input,
+1. Dolphin writes it as `async function run(input,
    tools)` against the toolbox's declarations for the step's own tools,
    told what each input holds (the renter's settings and rules by key and
    type, or the earlier step it comes from), what the agent is for, what
@@ -558,7 +559,11 @@ Once a plan is saved, each code step without approved code is written
 
 A failed check or a rejection goes back to Dolphin with the reason, up to
 three rounds. After that the step "needs attention" in the builder, with the
-last reason and the last code. The code is stored with the version
+last reason and the last code. When Dolphin fails or times out twice on the
+same step (no answer at all), SERV writes that step from the same request
+instead, for the rest of its rounds; the plain checks and SERV's review run
+as before, the review in a separate call. The step is marked "written by
+SERV" in the builder, and the admin page counts how often that happened. The code is stored with the version
 (`agent_versions.code`), and only the maker's own builder ever shows it.
 Dolphin's calls are on the site's key whoever builds; SERV's on the
 maker's own key when they have one.
@@ -619,9 +624,16 @@ values over the maker's defaults, what it remembers for them, its time zone,
 schedule time, minimum gap between jobs and daily model spend cap, and its
 status. For now a maker installs their own agent from the builder with "Run
 it for real" (`POST /api/agents/:id/installations`); `install()` takes any
-owner, for renting later. Sheets, Telegram, search and the wallet are still
-stand-ins (copied from the version's test bench, kept per installation);
-memory and `web.fetch` are real.
+owner, for renting later. Google Sheets, Telegram, web search, memory and
+`web.fetch` are real; the wallet is still a stand-in (copied from the
+version's test bench, kept per installation).
+
+Setting one up is a guided flow: its questions, Telegram linked (when the
+agent messages or asks its owner), Google connected and each sheet picked
+(when it works on sheets), its rules and limits, then a test run. It is
+installed as `testing`: nothing starts it but a test run by hand, which
+does everything once for real and is drawn step by step; "Make it live"
+starts its triggers. Installing needs the connections the agent uses.
 
 - Triggers: a schedule fires in the owner's time zone ("every day at 7:00",
   daylight saving kept to the wall clock); a value check runs its own code
@@ -637,10 +649,20 @@ memory and `web.fetch` are real.
   replayed from its journal, never made twice. Failures outside the agent
   are tried again after 30 seconds, 2 minutes and 10 minutes; the agent's own
   logic failing is not. A job keeps its version to the end.
-- Approvals: `telegram.ask`, and a payment over an action's `askOver` rule,
-  pause the job and open a question with each answer's effect (a count in
-  the top bar, `/approvals`). It expires after the maker's `approvalHours`
-  (24 by default) and the job takes the step's `otherwise` path, or stops.
+- Approvals: `telegram.ask`, and spending over a limit, pause the job and
+  open a question with each answer's effect (a count in the top bar,
+  `/approvals`, and the owner's Telegram chat with a button per answer:
+  whichever answer comes first counts, and the other one then shows it). It
+  expires after the maker's `approvalHours` (24 by default) and the job
+  takes the step's `otherwise` path, or stops.
+- The spending guard (`runtime/spend.ts`): spending is a payment
+  (`wallet.pay`), or rows written by a `sheets.write` action that names an
+  `amountColumn` (orders). Before any of it goes through, it is added to
+  the job's running total and to the installation's total for the day (the
+  owner's day), and checked against every `askOver` (per job) and
+  `askOverDay` (per day) limit the agent declares, at the owner's values,
+  whatever the agent's own steps decided. Five payments of 40 against a
+  limit of 50 ask before the second one.
 - Memory is kept on the installation, only the declared fields and types.
 - `web.fetch` (`webFetch.ts`) is GET only, http and https, 1 MB, 10 seconds,
   text types, HTML read as text, and refuses private, loopback, link-local,
@@ -660,6 +682,59 @@ memory and `web.fetch` are real.
 `BOS_AGENT_WORKER=0` turns the worker off in a process, and
 `AGENT_FETCHES_PER_DAY` (default 100) caps each installation's pages a day.
 
+### Connections
+
+Owners connect Telegram and Google once, on `/connections`
+(`src/lib/connections/vault.ts`). Each connection's secret (a Telegram chat,
+Google tokens) is kept encrypted like the OpenServ keys, decrypted on the
+server only for the call that needs it, and never reaches agent code, a
+maker, a log line or a response: the owner sees a label (`@name`, an email
+address) and dates. A Telegram chat is found by a keyed hash, and links to
+one owner at a time. Disconnecting revokes Google's access, forgets the
+secret, and pauses every installation that needs it with a plain reason; it
+can't resume until the connection is back.
+
+- Telegram (`src/lib/telegram/`): the owner gets a one-time code (kept as a
+  hash, 10 minutes, once) and sends the bot `/start CODE`, or opens the
+  `t.me` link that sends it. `telegram.send` goes to the installation
+  owner's linked chat and nowhere else; questions go with a button per
+  answer. Sending runs from the worker's cycle, each row its own outbox
+  entry (five tries, Telegram's `retry_after` kept on a 429), so a job
+  never waits on Telegram. Owners can message the bot: it goes to their one
+  agent that takes messages, or the one they pick from a short menu. The
+  webhook (`/api/telegram/webhook`) reads an update only with the secret in
+  `X-Telegram-Bot-Api-Secret-Token`, checked against a hash in the
+  database, and handles each update once. Nothing in the server changes
+  the webhook: `scripts/telegram-webhook.ts` does, run by the owner after a
+  deploy (it only shows the current webhook without `--apply`). In
+  development, `scripts/telegram-fake-update.ts` posts made-up updates to a
+  local server with `TELEGRAM_DEV_WEBHOOK_SECRET` (ignored in production).
+- Google Sheets (`src/lib/google/`): the OAuth web server flow, scope
+  `spreadsheets` (a pasted link isn't covered by `drive.file`), with
+  `access_type=offline` and `prompt=consent` for a refresh token. The state
+  is tied to the browser (an HttpOnly cookie) and the owner (a hash in the
+  database), once, within 10 minutes; the callback is
+  `/api/connections/google/callback`. A sheet setting is a pasted link:
+  boardofserv opens it on the owner's access, they pick the tab, and the
+  installation keeps a grant per setting. The sheet tools reach only those
+  tabs, write values as they are (never formulas), refresh tokens on their
+  own, and pause the installation when Google says the access was revoked
+  (in Google's Testing mode it lasts 7 days). Each owner stays under 50
+  calls a minute and each installation under `AGENT_SHEET_CALLS_PER_DAY`
+  (500).
+- Web search: Brave's Search API (`BRAVE_SEARCH_API_KEY`), plain text
+  results marked untrusted like a fetched page, within
+  `AGENT_SEARCHES_PER_DAY` (50) per installation and `SITE_SEARCHES_PER_DAY`
+  (1000) for the site.
+
+After deploying a version with these, the owner: sets `TELEGRAM_BOT_TOKEN`,
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `BRAVE_SEARCH_API_KEY` in
+Pier, adds `https://boardofserv.25th.dev/api/connections/google/callback`
+as the Google OAuth client's redirect URI (and themselves as a test user
+while it is in Testing), runs `pier deploy boardofserv`, then, in the
+deployed app's folder, the webhook script with `--apply`, then sets
+`BOS_AGENT_WORKER` back on.
+
 ### The example agent
 
 `src/lib/agents/examples/restock.json` is a fabric shop's restock agent,
@@ -670,12 +745,16 @@ built through the real pipeline by `scripts/seed-restock.ts` with live calls
 npx vite-node --config vitest.config.ts scripts/seed-restock.ts
 ```
 
-It reads the Stock sheet and the suppliers' price page
-(`examples/supplierPage.ts`) with `web.fetch`, picks the cheapest supplier
-within the longest delivery the owner allows,
-asks the owner on Telegram when the order is over the approval limit (and
-stops if they say no), records the order in the Orders sheet and remembers
-it. The script needs `SERV_API_KEY` and `DOLPHIN_API_KEY`, touches no
+It reads the owner's Stock sheet (a Google Sheet tab) and the suppliers'
+price page with `web.fetch`, picks the cheapest supplier within the longest
+delivery the owner allows, and, when SERV decides there is anything to
+order, writes the order rows to the Orders tab and remembers it (otherwise
+it tells the owner stock is fine). Writing the orders is spending (their
+`total_cost_usdc` column), so the guard asks the owner on Telegram before
+an order whose total is over their approval limit, and a no stops the job.
+The suppliers' page (`examples/supplierPage.ts`, made-up neutral prices) is
+served publicly at `/examples/suppliers`; tests and the demo serve it
+themselves. The script needs `SERV_API_KEY` and `DOLPHIN_API_KEY`, touches no
 database, refuses any call past its budget (`SEED_SERV_BUDGET`,
 `SEED_DOLPHIN_BUDGET`) and lists every call with its status, tokens and
 time. `SEED_RESUME=1` keeps the saved plan and approved code and writes only
@@ -689,10 +768,12 @@ outside development), every tool a mock and every decision recorded, so it
 never calls a model. Save draft and Publish only change that page.
 `/demo?agent=restock&live=1` runs it for real on the real runtime, in an
 in-memory Postgres inside the development server: installed for a test
-owner, every 90 seconds, against the stand-in sheets and a suppliers' page
-the demo serves itself, with a stand-in for SERV, so it needs no database and
-no keys. `scripts/live-restock.ts` runs it as a job with SERV deciding for
-real (`SERV_API_KEY`, `LIVE_SERV_BUDGET`, default 6 calls). A production
+owner, every 90 seconds, against a Google Sheet held in memory and a
+suppliers' page the demo serves itself, with a stand-in for SERV, so it
+needs no database and no keys. `scripts/live-restock.ts` runs it as a job
+with SERV deciding for real (`SERV_API_KEY`, `LIVE_SERV_BUDGET`, default 6
+calls); with `TELEGRAM_BOT_TOKEN` and `LIVE_TELEGRAM_CHAT` it asks in that
+real chat too. A production
 build has none of this (`src/test/demo-unreachable.test.ts` checks the
 build).
 

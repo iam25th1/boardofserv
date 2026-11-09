@@ -131,6 +131,15 @@ Read by the app, not set, so their defaults apply (see `.env.example`):
 `WITHDRAW_MIN_USDC`, `WITHDRAW_MIN_SERV`, `WITHDRAW_AUTO_MAX_USDC`,
 `WITHDRAW_AUTO_MAX_SERV`, `WITHDRAW_DAILY_CAP_USDC`, `WITHDRAW_DAILY_CAP_SERV`.
 
+Connections (Telegram, Google Sheets, web search), to add to the store
+before the deploy that brings them: `TELEGRAM_BOT_TOKEN`, `GOOGLE_CLIENT_ID`,
+`GOOGLE_CLIENT_SECRET`, `BRAVE_SEARCH_API_KEY`. Optional, with defaults:
+`APP_URL` (https://boardofserv.25th.dev), `AGENT_SHEET_CALLS_PER_DAY` (500),
+`AGENT_SEARCHES_PER_DAY` (50), `SITE_SEARCHES_PER_DAY` (1000). Never in the
+store: `TELEGRAM_DEV_WEBHOOK_SECRET` (development only, ignored in
+production). The webhook's own secret isn't an environment value: it lives
+as a hash in the database (`telegram_webhook`), set by the webhook script.
+
 Tests and scripts only, never in the store: `TEST_POSTGRES_URL`,
 `CHECK_BUILD`, `RUN_E2E`, `RUN_SERV_DEMO`, `RUN_SKETCH_LIVE`, `LIVE_BUDGET`,
 `LIVE_REPORT`, `SMOKE_FROM`, `SMOKE_TIMEOUT_MINUTES`, `SMOKE_WITHDRAW_USDC`.
@@ -168,6 +177,29 @@ The build replaces `.next` under the running server, so pages can fail for
 the minute a deploy takes. If a deploy fails after the build (step 4), the
 old process is still running on files it didn't build: fix the cause and
 deploy again, or `pier restart boardofserv`.
+
+### After the deploy that brings connections
+
+1. In Google Cloud, the OAuth client (type Web application) has
+   `https://boardofserv.25th.dev/api/connections/google/callback` as an
+   authorized redirect URI. While the consent screen is in Testing, add each
+   owner who will connect Google as a test user (100 at most); their access
+   lasts 7 days, after which their installations pause and say so.
+2. `pier deploy boardofserv` (the schema push adds the new tables and
+   columns, and widens the installation status check to take `testing`).
+3. Point the bot's webhook at the site, with a fresh secret, from the deploy
+   folder with the production environment (the shared database and the same
+   bot token are in the development `.env.local`):
+
+   ```sh
+   cd ~/.boardofserv/app
+   npx vite-node --config vitest.config.ts scripts/telegram-webhook.ts -- --env-file ~/boardofserv/.env.local --apply
+   ```
+
+   It prints Telegram's answer and the webhook's address, never the
+   secret. Without `--apply` it only shows the webhook as it is.
+4. Set `BOS_AGENT_WORKER` back on (remove it, or set it to anything but 0)
+   in the dashboard, then restart the service.
 
 ## Logs
 
