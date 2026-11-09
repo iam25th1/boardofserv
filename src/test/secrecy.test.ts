@@ -357,10 +357,17 @@ beforeAll(async () => {
     if (body.response_format?.json_schema?.name === "code_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "approve", reason: "Fine." }) } }] });
     // The content screen passes posts (its holds are tested elsewhere).
     if (body.response_format?.json_schema?.name === "content_screen") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "ok", reason: "Fine." }) } }] });
-    // The guard lets Maya's agent through (its own checks are tested elsewhere).
-    // The version review passes; its findings never carry code anyway.
-    if (body.response_format?.json_schema?.name === "version_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ findings: [{ step: "Find low stock", severity: "warning", finding: "It reads the whole stock tab every time." }] }) } }] });
-    if (body.response_format?.json_schema?.name === "action_guard") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "allow", reason: "It fits what the agent is for." }) } }] });
+    // The guard lets Maya's agent through (its own checks are tested
+    // elsewhere), and the version review passes with a warning. Both quote
+    // what they were shown, as a careless model might: the guard everything
+    // it read (the renter's settings with it), the review the agent's code.
+    // Neither may reach anyone who shouldn't see it.
+    const shown = (body as unknown as { messages?: { content: string }[] }).messages?.[1]?.content ?? "";
+    if (body.response_format?.json_schema?.name === "version_review") {
+      const quoted = shown.split("\n").find((l) => l.includes(CODE_MARKER)) ?? "";
+      return Response.json({ choices: [{ message: { content: JSON.stringify({ findings: [{ step: "Find low stock", severity: "warning", finding: "It reads the whole stock tab every time." }, { step: "Compare suppliers", severity: "warning", finding: `It leaves a note in its code: ${quoted.trim()}` }] }) } }] });
+    }
+    if (body.response_format?.json_schema?.name === "action_guard") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "allow", reason: `It fits what the agent is for. ${(shown.split("\n").find((l) => l.startsWith("The renter's settings:")) ?? "").slice(0, 400)}` }) } }] });
     if (body.response_format?.json_schema?.name === "decision") {
       return Response.json({ choices: [{ message: { content: JSON.stringify({ outcome: body.response_format.json_schema.schema!.properties!.outcome!.enum![0], reason: "x" }) } }] });
     }
@@ -1040,7 +1047,9 @@ describe("a helper's instructions stay on the server", () => {
     // The audit log: each renter's own lines in full, with what SERV's check
     // said; the maker's with renters by number and nothing of theirs; an
     // admin's with everything; nobody else's.
+    expect(said("audit: sam's own")).toContain(SAM_PRIVATE);
     expect(said("audit: sam's own")).toContain('"guard":"allow"');
+    expect(said("audit: admin")).toContain(SAM_PRIVATE);
     expect(said("audit: admin")).toContain(`"renter":"@${sam.handle}"`);
     const makers = JSON.parse(said("audit: maya's agent's")).audit.entries as { renter: string; what: unknown; guardReason: unknown }[];
     expect(new Set(makers.map((e) => e.renter))).toEqual(new Set(["You", "Renter 1"]));
@@ -1059,7 +1068,11 @@ describe("a helper's instructions stay on the server", () => {
     expect(said("safety: not an admin lifts")).toBe('{"error":"Not found"}');
     expect(said("safety: signed out stops")).toBe('{"error":"Not signed in"}');
     // The admin's safety page lists the review in plain words.
-    expect(JSON.parse(said("safety: admin")).safety.reviews[0].review.findings).toEqual([{ step: "Find low stock", severity: "warning", finding: "It reads the whole stock tab every time." }]);
+    // ...and never the code, even when SERV quoted it.
+    const findings = JSON.parse(said("safety: admin")).safety.reviews[0].review.findings as { step: string; finding: string }[];
+    expect(findings[0]).toEqual({ step: "Find low stock", severity: "warning", finding: "It reads the whole stock tab every time." });
+    expect(findings[1]!.step).toBe("Compare suppliers");
+    expect(findings[1]!.finding).not.toContain(CODE_MARKER);
     expect(said("safety: not an admin")).toBe('{"error":"Not found"}');
     // Renting: Sam's rental is his alone, and the maker can't rent her own.
     expect(said("market: maya rents her own")).toContain("It's yours");

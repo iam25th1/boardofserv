@@ -48,11 +48,14 @@ const TRICKS: RegExp[] = [
 ];
 
 export function localFlag(text: string): string | null {
+  // What a step reads arrives as JSON: its escaped line breaks and quotes
+  // would hide a word's start ("\nIgnore"), so they count as spaces here.
+  const plain = text.replace(/\\[nrt"\\]/g, " ");
   for (const t of TRICKS) {
-    const m = t.exec(text);
+    const m = t.exec(plain);
     if (m) {
       const start = Math.max(0, m.index - 20);
-      return text.slice(start, Math.min(text.length, m.index + m[0].length + 40)).replace(/\s+/g, " ").trim();
+      return plain.slice(start, Math.min(plain.length, m.index + m[0].length + 40)).replace(/\s+/g, " ").trim();
     }
   }
   return null;
