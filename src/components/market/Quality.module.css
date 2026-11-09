@@ -1,0 +1,139 @@
+/* Quality from Reppo: a score in chalk, and its routes as thin bars. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--slate-2);
+}
+.panel h2 {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+}
+.pending {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}
+.score {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.score strong {
+  font-family: var(--font-hand);
+  font-size: calc(var(--t-hand) * 2.2);
+  font-weight: var(--w-regular);
+  line-height: 1;
+}
+.score span {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.routes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: max-content 1fr 3.5ch;
+  align-items: center;
+  gap: var(--s-1) var(--s-3);
+  font-size: var(--t-sm);
+  max-width: 420px;
+}
+.routes li {
+  display: contents;
+}
+.routes li > span:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--chalk-2);
+}
+.bar {
+  position: relative;
+  height: 8px;
+  border: 1px solid var(--chalk-3);
+  border-radius: var(--r-full);
+  overflow: hidden;
+}
+.bar > span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--chalk);
+  transform-origin: 0 50%;
+}
+.history {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.note {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+  max-width: 64ch;
+}
+.jobs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.jobs > li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-3) 0;
+  border-top: 1px dashed var(--line);
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.jobs > li > p {
+  max-width: 64ch;
+}
+.jobHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-2);
+}
+.jobHead strong {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  font-weight: var(--w-regular);
+  color: var(--chalk);
+  min-width: 2.5ch;
+}
+.chip {
+  padding: 1px 10px;
+  border: 1px solid var(--chalk-3);
+  border-radius: var(--r-full);
+  font-size: var(--t-xs);
+  color: var(--chalk);
+}
+.jobs > li[data-route="block"] .chip {
+  border-style: dashed;
+  border-color: var(--chalk);
+}
+.meta {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.jobHead time {
+  margin-left: auto;
+}
+.rubric {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+  font-variant-numeric: tabular-nums;
+}

@@ -9,6 +9,7 @@ import { formatAmount } from "@/lib/money";
 import { REDUCED_MOTION, ease } from "@/lib/motion";
 import type { BoardQuery } from "@/lib/publicApi";
 import type { AgentListingDTO, PublicHelperDTO } from "@/lib/types";
+import { qualityLine } from "./Quality";
 import styles from "./Board.module.css";
 
 // The board: agents to rent and helpers to try, newest and most rented
@@ -29,7 +30,7 @@ export const price = (minor: string, decimals: number) => `${formatAmount(BigInt
 
 export function BoardView({ load }: { load: BoardLoader }) {
   const [board, setBoard] = useState<{ helpers: PublicHelperDTO[]; agents: AgentListingDTO[] } | null>(null);
-  const [query, setQuery] = useState<BoardQuery>({ q: "", kind: "all", connects: [], min: "", max: "" });
+  const [query, setQuery] = useState<BoardQuery>({ q: "", kind: "all", connects: [], min: "", max: "", sort: "rented", minQuality: "" });
   const [failed, setFailed] = useState(false);
   // Flips once, when the first load has cards to chalk on.
   const [entrance, setEntrance] = useState(false);
@@ -81,11 +82,11 @@ export function BoardView({ load }: { load: BoardLoader }) {
   }, [entrance]);
 
   const set = (patch: Partial<BoardQuery>) => setQuery((q) => ({ ...q, ...patch }));
-  const filtering = query.kind !== "all" || Boolean(query.connects?.length) || Boolean(query.min?.trim()) || Boolean(query.max?.trim());
+  const filtering = query.kind !== "all" || Boolean(query.connects?.length) || Boolean(query.min?.trim()) || Boolean(query.max?.trim()) || Boolean(query.minQuality) || query.sort === "quality";
   const empty = board && board.helpers.length + board.agents.length === 0;
 
   return (
-    <Page title="The board" note="agents to rent, helpers to try" width="wide" aside={<Filters query={query} set={set} clear={() => set({ kind: "all", connects: [], min: "", max: "" })} filtering={filtering} />}>
+    <Page title="The board" note="agents to rent, helpers to try" width="wide" aside={<Filters query={query} set={set} clear={() => set({ kind: "all", connects: [], min: "", max: "", sort: "rented", minQuality: "" })} filtering={filtering} />}>
       <label className={styles.search}>
         <SearchIcon size={16} />
         <input value={query.q} onChange={(e) => set({ q: e.target.value })} placeholder="Search by name or what it does" aria-label="Search the board" type="search" />
@@ -178,7 +179,9 @@ export function AgentCard({ agent: a }: { agent: AgentListingDTO }) {
         {BigInt(a.jobFee) > 0n && <small>+ {price(a.jobFee, a.decimals)} a job</small>}
         <small>model calls about {price(a.modelEstimate, a.decimals)} a week</small>
       </div>
-      <small className={styles.trust}>{a.quality === null ? "not enough reviewed jobs yet" : null}</small>
+      <small className={styles.trust} data-scored={a.quality.score !== null ? "true" : undefined}>
+        {a.quality.score === null ? qualityLine(a.quality) : `Quality ${qualityLine(a.quality)}`}
+      </small>
     </Link>
   );
 }
@@ -233,12 +236,34 @@ function Filters({ query, set, clear, filtering }: { query: BoardQuery; set: (p:
           <input type="number" min={0} step="any" inputMode="decimal" placeholder="up to" aria-label="Weekly price up to" value={query.max} onChange={(e) => set({ max: e.target.value })} />
         </div>
       </fieldset>
+      <fieldset>
+        <legend>Order</legend>
+        <div className={styles.segments} role="radiogroup" aria-label="Order">
+          {(["rented", "quality"] as const).map((k) => (
+            <label key={k} data-on={(query.sort ?? "rented") === k ? "true" : undefined}>
+              <input type="radio" name="sort" value={k} checked={(query.sort ?? "rented") === k} onChange={() => set({ sort: k })} />
+              {k === "rented" ? "Most rented" : "Best quality"}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Quality from Reppo</legend>
+        <div className={styles.segments} role="radiogroup" aria-label="Quality from Reppo">
+          {(["", "60", "80"] as const).map((k) => (
+            <label key={k || "any"} data-on={(query.minQuality ?? "") === k ? "true" : undefined}>
+              <input type="radio" name="quality" value={k} checked={(query.minQuality ?? "") === k} onChange={() => set({ minQuality: k })} />
+              {k === "" ? "Any" : `${k} and up`}
+            </label>
+          ))}
+        </div>
+      </fieldset>
       {filtering && (
         <Button variant="ghost" size="sm" onClick={clear}>
           Clear the filters
         </Button>
       )}
-      <p className={styles.hint}>Connections and prices are about agents: helpers show when nothing narrows the board.</p>
+      <p className={styles.hint}>Connections, prices and quality are about agents: helpers show when nothing narrows the board.</p>
     </div>
   );
 }

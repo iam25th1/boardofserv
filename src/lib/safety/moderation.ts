@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { and, count, desc, eq, gte, ne } from "drizzle-orm";
-import { agentListings, agents, agentVersions, reports, requestOffers, requests, users, type Report, type User } from "../db/schema";
+import { and, count, desc, eq, gte, isNull, ne } from "drizzle-orm";
+import { agentListings, agents, agentVersions, reports, reppoEvals, requestOffers, requests, users, type Report, type User } from "../db/schema";
 import { completeJson, SERV_PROMPT_GUARD, type ChatMessage } from "../model";
 import type { Runtime } from "../agents/runtime/context";
 import { wrapData } from "../agents/untrusted";
@@ -147,7 +147,7 @@ export async function fileReport(rt: Runtime, reporter: User, o: { kind: Report[
   return row;
 }
 
-export type QueueItem = { type: "report" | "listing" | "request" | "offer"; id: string };
+export type QueueItem = { type: "report" | "listing" | "request" | "offer" | "reppo"; id: string };
 export type Moderation = "approve" | "hide" | "freeze";
 
 // What an item is about: the agent, maker, request or offer, and who is
@@ -172,6 +172,22 @@ async function freezeBehind(rt: Runtime, admin: User, kind: "agent" | "maker" | 
 
 export async function moderate(rt: Runtime, admin: User, item: QueueItem, action: Moderation, reason: string): Promise<boolean> {
   if (!isId(item.id)) return false;
+  if (item.type === "reppo") {
+    // A job Reppo routed to block: approve (nothing to do), hide its agent's
+    // listing, or freeze the version that ran it.
+    const [e] = await rt.db
+      .select()
+      .from(reppoEvals)
+      .where(and(eq(reppoEvals.id, item.id), eq(reppoEvals.kind, "job"), eq(reppoEvals.route, "block"), isNull(reppoEvals.reviewedAt)));
+    if (!e) return false;
+    if (action === "hide") await hideTarget(rt, "listing", e.agentId);
+    if (action === "freeze") await freeze(rt, admin, "version", e.versionId, reason);
+    await rt.db
+      .update(reppoEvals)
+      .set({ reviewedAt: rt.now(), reviewedBy: admin.id, resolution: `${action === "approve" ? "Approved" : action === "hide" ? "Hidden" : "Frozen"}: ${reason}`, updatedAt: rt.now() })
+      .where(eq(reppoEvals.id, e.id));
+    return true;
+  }
   if (item.type === "report") {
     const [r] = await rt.db.select().from(reports).where(and(eq(reports.id, item.id), eq(reports.status, "open")));
     if (!r) return false;
@@ -188,7 +204,11 @@ export async function moderate(rt: Runtime, admin: User, item: QueueItem, action
   const key = item.type === "listing" ? agentListings.agentId : item.type === "request" ? requests.id : requestOffers.id;
   const [held] = await rt.db.select({ screen: target.screen }).from(target).where(eq(key, item.id));
   if (!held || held.screen !== "held") return false;
-  if (action === "approve") await rt.db.update(target).set({ screen: "ok", screenReason: null }).where(eq(key, item.id));
+  if (action === "approve") {
+    await rt.db.update(target).set({ screen: "ok", screenReason: null }).where(eq(key, item.id));
+    // A listing let back on the board: Reppo's earlier blocks no longer count toward a hold.
+    if (item.type === "listing") await rt.db.update(agentListings).set({ qualityClearedAt: rt.now() }).where(eq(agentListings.agentId, item.id));
+  }
   else await hideTarget(rt, item.type, item.id);
   if (action === "freeze") await freezeBehind(rt, admin, item.type, item.id, reason);
   return true;
@@ -217,7 +237,17 @@ export async function moderationQueue(rt: Runtime): Promise<ModerationQueueDTO> 
     .innerJoin(agents, eq(agents.id, requestOffers.agentId))
     .innerJoin(users, eq(users.id, requestOffers.makerUserId))
     .where(eq(requestOffers.screen, "held"));
+  const blocked = await rt.db
+    .select({ id: reppoEvals.id, agentId: reppoEvals.agentId, agent: agents.name, version: agentVersions.number, maker: users.handle, score: reppoEvals.score, reason: reppoEvals.reason, at: reppoEvals.completedAt })
+    .from(reppoEvals)
+    .innerJoin(agents, eq(agents.id, reppoEvals.agentId))
+    .innerJoin(agentVersions, eq(agentVersions.id, reppoEvals.versionId))
+    .innerJoin(users, eq(users.id, agents.ownerUserId))
+    .where(and(eq(reppoEvals.kind, "job"), eq(reppoEvals.route, "block"), isNull(reppoEvals.reviewedAt)))
+    .orderBy(desc(reppoEvals.completedAt))
+    .limit(100);
   return {
+    blocked: blocked.map((b) => ({ id: b.id, agentId: b.agentId, agent: b.agent, version: b.version, maker: `@${b.maker}`, score: b.score, reason: b.reason ?? "", at: (b.at ?? new Date(0)).toISOString() })),
     reports: await Promise.all(open.map(async ({ r, by }) => ({ id: r.id, kind: r.kind, target: await what(r.kind, r.targetId), targetId: r.targetId, reason: r.reason, reasonWords: REPORT_REASON_WORDS[r.reason], note: r.note, by: `@${by}`, createdAt: r.createdAt.toISOString() }))),
     held: [
       ...listings.map((l) => ({ type: "listing" as const, id: l.agentId, title: l.name, by: `@${l.maker}`, reason: l.reason ?? "" })),

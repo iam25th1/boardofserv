@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, inArray, lt, ne, sql } from "drizzle-orm";
-import { agentApprovals, agentInstallations, agentMessages, agentVersions, telegramLinkCodes, telegramPending, telegramUpdates, type AgentApproval } from "../db/schema";
+import { agentApprovals, agentInstallations, agentMessages, agentVersions, reppoEvals, telegramLinkCodes, telegramPending, telegramUpdates, type AgentApproval } from "../db/schema";
 import type { AgentDefinition } from "../agents/definition";
 import type { Runtime } from "../agents/runtime/context";
 import { secretOf, touch } from "../connections/vault";
@@ -26,11 +26,14 @@ export const answerData = (approvalId: string, index: number) => `a:${approvalId
 
 // The question as its Telegram message: the agent, the question, what each
 // answer does, and what happens with none.
-export function approvalText(a: Pick<AgentApproval, "question" | "options" | "noAnswer" | "stepId">, d: AgentDefinition | null): string {
+// When Reppo is giving a second opinion on it, that it is coming, and that
+// the answer decides either way.
+export function approvalText(a: Pick<AgentApproval, "question" | "options" | "noAnswer" | "stepId">, d: AgentDefinition | null, opinion = false): string {
   const step = d?.steps.find((s) => s.id === a.stepId)?.title;
   const lines = [`${d?.name ?? "Your agent"}${step ? `, at "${step}"` : ""}, asks:`, "", a.question, ""];
   for (const o of a.options) lines.push(`${o.label}: ${o.effect}`);
   lines.push(a.noAnswer);
+  if (opinion) lines.push("", "Reppo is still checking it for a second opinion, which will follow here. Your answer decides either way.");
   return clip(lines.join("\n"));
 }
 
@@ -92,6 +95,12 @@ export async function deliverTelegram(rt: Runtime, limit = 20): Promise<number> 
     .where(and(eq(agentApprovals.tgState, "sent"), ne(agentApprovals.status, "pending")))
     .limit(limit);
   const outgoing = await rt.db.select().from(agentMessages).where(eq(agentMessages.tgState, "pending")).limit(limit);
+  // Questions Reppo is giving a second opinion on.
+  const opinions = asks.length
+    ? new Set(
+        (await rt.db.select({ id: reppoEvals.approvalId }).from(reppoEvals).where(and(eq(reppoEvals.kind, "action"), inArray(reppoEvals.approvalId, asks.map((a) => a.id))))).map((r) => r.id),
+      )
+    : new Set<string | null>();
   const defs = await definitionsOf(rt, [...asks, ...toClose, ...outgoing].map((r) => r.installationId));
   const owners = outgoing.length
     ? await rt.db
@@ -112,7 +121,7 @@ export async function deliverTelegram(rt: Runtime, limit = 20): Promise<number> 
       continue;
     }
     try {
-      const sent = await tg<{ message_id: number }>(rt.services, "sendMessage", { chat_id: chat, text: approvalText(a, defs.get(a.installationId) ?? null), reply_markup: { inline_keyboard: keyboard(a) } });
+      const sent = await tg<{ message_id: number }>(rt.services, "sendMessage", { chat_id: chat, text: approvalText(a, defs.get(a.installationId) ?? null, opinions.has(a.id)), reply_markup: { inline_keyboard: keyboard(a) } });
       // Answered in the app while it was on its way: settle it next cycle.
       await rt.db.update(agentApprovals).set({ tgState: "sent", tgMessageId: sent.message_id }).where(eq(agentApprovals.id, a.id));
       await touch(rt, a.ownerUserId, "telegram");

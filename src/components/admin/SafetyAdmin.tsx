@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Button, SkeletonPanel, TextInput, Textarea } from "@/components/ui";
 import { ReviewPanel } from "@/components/agents/ReviewPanel";
 import { AuditLog } from "@/components/agents/AuditLog";
+import { ReppoCredits } from "./ReppoCredits";
 import { formatAmount } from "@/lib/money";
 import type { AdminSafetyDTO, AuditPageDTO, FreezeDTO } from "@/lib/types";
 import styles from "./SafetyAdmin.module.css";
@@ -16,7 +17,7 @@ export interface SafetyAdminApi {
   freeze?: (body: { kind: FreezeDTO["kind"]; target: string; reason: string }) => Promise<AdminSafetyDTO>;
   lift?: (id: string, reason: string) => Promise<AdminSafetyDTO>;
   audit?: (before?: string | null) => Promise<AuditPageDTO>;
-  moderate?: (body: { type: "report" | "listing" | "request" | "offer"; id: string; action: "approve" | "hide" | "freeze"; reason: string }) => Promise<AdminSafetyDTO>;
+  moderate?: (body: { type: "report" | "listing" | "request" | "offer" | "reppo"; id: string; action: "approve" | "hide" | "freeze"; reason: string }) => Promise<AdminSafetyDTO>;
 }
 
 export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
@@ -29,12 +30,28 @@ export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
   if (data === null) return <p className={styles.quiet}>This page could not load. Try again in a moment.</p>;
   return (
     <div className={styles.page}>
+      <ReppoCredits r={data.reppo} />
       <section className={styles.section} aria-labelledby="queue-h">
         <h2 id="queue-h">Queue</h2>
-        {data.queue.reports.length + data.queue.held.length === 0 ? (
-          <p className={styles.quiet}>Nothing waiting: no open reports, and the screen held nothing back.</p>
+        {data.queue.reports.length + data.queue.held.length + data.queue.blocked.length === 0 ? (
+          <p className={styles.quiet}>Nothing waiting: no open reports, the screen held nothing back, and Reppo blocked no job.</p>
         ) : (
           <ul className={styles.queue}>
+            {data.queue.blocked.map((b) => (
+              <li key={`reppo-${b.id}`}>
+                <div className={styles.logHead}>
+                  <span className={styles.chip}>job Reppo blocked</span>
+                  <strong>
+                    {b.agent}, version {b.version}
+                  </strong>
+                  <span className={styles.quiet}>by {b.maker}</span>
+                </div>
+                <p>
+                  Reppo scored it {b.score ?? "?"} out of 100 and advised against it: {b.reason}
+                </p>
+                {api.moderate && <Decide type="reppo" id={b.id} moderate={api.moderate} onDone={setData} />}
+              </li>
+            ))}
             {data.queue.held.map((h) => (
               <li key={`${h.type}-${h.id}`}>
                 <div className={styles.logHead}>
@@ -42,7 +59,7 @@ export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
                   <strong>{h.title}</strong>
                   <span className={styles.quiet}>by {h.by}</span>
                 </div>
-                <p>The screen held it: {h.reason}</p>
+                <p>{h.reason.startsWith("Reppo") ? h.reason : `The screen held it: ${h.reason}`}</p>
                 {api.moderate && <Decide type={h.type} id={h.id} moderate={api.moderate} onDone={setData} />}
               </li>
             ))}
@@ -246,7 +263,7 @@ function LiftButton({ id, lift, onDone }: { id: string; lift: NonNullable<Safety
   );
 }
 
-function Decide({ type, id, moderate, onDone, canHide = true }: { type: "report" | "listing" | "request" | "offer"; id: string; moderate: NonNullable<SafetyAdminApi["moderate"]>; onDone: (d: AdminSafetyDTO) => void; canHide?: boolean }) {
+function Decide({ type, id, moderate, onDone, canHide = true }: { type: "report" | "listing" | "request" | "offer" | "reppo"; id: string; moderate: NonNullable<SafetyAdminApi["moderate"]>; onDone: (d: AdminSafetyDTO) => void; canHide?: boolean }) {
   const [why, setWhy] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);

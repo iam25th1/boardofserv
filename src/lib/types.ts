@@ -211,10 +211,39 @@ export interface SafetyDTO {
   maxAutoSpendUsdc: number;
 }
 
+// An agent version's quality, from Reppo's scores of a sample of its
+// finished jobs: the rolling score (null until enough were reviewed), how
+// many were and the share routed ship, review and block (whole percents),
+// and the last earlier version's score as history.
+export interface QualityDTO {
+  score: number | null;
+  reviewed: number;
+  minimum: number;
+  ship: number;
+  review: number;
+  block: number;
+  previous: { version: number; score: number; reviewed: number } | null;
+}
+
+// One of a maker's jobs Reppo scored, with nothing of its renter's.
+export interface ScoredJobDTO {
+  id: string;
+  at: string;
+  version: number;
+  score: number | null;
+  route: "ship" | "review" | "block" | null;
+  confidence: string | null;
+  reason: string | null;
+  rubric: Record<string, number>;
+  // Routed to block and waiting for an admin to look.
+  flagged: boolean;
+}
+
 // An agent on the board, for anyone: what it does, what it connects to,
 // its price (USDC minor units, with the decimals) and who made it. Never
-// its code, its prompts or anyone's data. Quality and trust scores come
-// later: null until then ("not enough reviewed jobs yet").
+// its code, its prompts or anyone's data. Its quality is its listed
+// version's, from Reppo (a score once enough jobs were reviewed); trust
+// comes later (null).
 export interface AgentListingDTO {
   id: string;
   name: string;
@@ -226,7 +255,7 @@ export interface AgentListingDTO {
   renters: number;
   maker: string;
   version: number;
-  quality: number | null;
+  quality: QualityDTO;
   trust: number | null;
   createdAt: string;
   // A rough weekly model cost (USDC minor units), from how often it runs
@@ -392,6 +421,10 @@ export interface ApprovalDTO {
   question: string;
   // Why the platform asks (a safety check), shown beside the question.
   reason: string | null;
+  // Reppo's second opinion, for payments and new contacts: still being
+  // checked, ready (a score, a route and why), or none this time. Absent
+  // when none was asked for. Never the decision: the answer is.
+  opinion?: { state: "checking" | "ready" | "none"; score: number | null; route: "ship" | "review" | "block" | null; reason: string | null } | null;
   options: { label: string; effect: string }[];
   noAnswer: string;
   status: "pending" | "answered" | "expired" | "cancelled";
@@ -601,6 +634,11 @@ export interface MakerDashboardDTO {
   stopped: { at: string; note: string | null } | null;
   // An admin's freeze on it or its maker, if any.
   frozen: string | null;
+  // Its listed (or newest) version's quality, and the jobs Reppo scored.
+  quality: QualityDTO | null;
+  scored: ScoredJobDTO[];
+  // Jobs Reppo routed to block that an admin hasn't looked at yet.
+  flagged: number;
 }
 
 // A request on the request board, for anyone: what someone wants an agent
@@ -665,9 +703,27 @@ export interface FreezeDTO {
 export interface ModerationQueueDTO {
   reports: { id: string; kind: "agent" | "maker" | "request" | "offer"; target: string; targetId: string; reason: string; reasonWords: string; note: string; by: string; createdAt: string }[];
   held: { type: "listing" | "request" | "offer"; id: string; title: string; by: string; reason: string }[];
+  // Jobs Reppo's quality checks routed to block, with Reppo's reason.
+  blocked: { id: string; agentId: string; agent: string; version: number; maker: string; score: number | null; reason: string; at: string }[];
+}
+
+// Reppo's quality checks, for the admin: credits used, what is in flight
+// and waiting, why nothing goes out (when so), and the settings in force.
+export interface ReppoAdminDTO {
+  on: boolean;
+  today: { credits: number; evals: number };
+  week: { credits: number; evals: number };
+  inFlight: number;
+  queued: number;
+  failedToday: number;
+  paused: string | null;
+  budgetSpent: boolean;
+  settings: { firstJobs: number; sampleEvery: number; weeklyPerAgent: number; dailyCredits: number; actionOpinions: boolean };
+  creditsPerEval: number;
 }
 
 export interface AdminSafetyDTO {
+  reppo: ReppoAdminDTO;
   queue: ModerationQueueDTO;
   // Every freeze, newest first: the admin log.
   freezes: FreezeDTO[];

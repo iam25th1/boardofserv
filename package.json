@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
     "test": "vitest run",
-    "test:build": "CHECK_BUILD=1 vitest run src/test/demo-unreachable.test.ts src/test/production.test.ts",
+    "test:build": "CHECK_BUILD=1 vitest run src/test/demo-unreachable.test.ts src/test/production.test.ts src/test/fonts.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:push:deploy": "vite-node scripts/db-push.ts",

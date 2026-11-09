@@ -39,3 +39,25 @@ describe("an approval card", () => {
     expect(screen.queryByText("Why it asks")).toBeNull();
   });
 });
+
+describe("Reppo's second opinion on a card", () => {
+  it("says it is still being checked, and the answer buttons work meanwhile", async () => {
+    const onAnswer = vi.fn(async () => undefined);
+    render(<ApprovalCard approval={{ ...base, opinion: { state: "checking", score: null, route: null, reason: null } }} onAnswer={onAnswer} />);
+    expect(screen.getByText("Still being checked. You can answer now.")).toBeInTheDocument();
+    expect(screen.getByText("Your answer decides: Reppo never approves or blocks anything.")).toBeInTheDocument();
+    screen.getByRole("button", { name: "Yes" }).click();
+    expect(onAnswer).toHaveBeenCalledWith("Yes");
+  });
+
+  it("shows the score, the route in words and the reason once it comes, or that none came", () => {
+    render(<ApprovalCard approval={{ ...base, opinion: { state: "ready", score: 34, route: "review", reason: "The order is larger than usual." } }} onAnswer={async () => undefined} />);
+    expect(screen.getByText(/34 out of 100/).closest("span")).toHaveTextContent("34 out of 100, it suggests a closer look. The order is larger than usual.");
+    cleanup();
+    render(<ApprovalCard approval={{ ...base, opinion: { state: "none", score: null, route: null, reason: null } }} onAnswer={async () => undefined} />);
+    expect(screen.getByText("Reppo couldn't give one this time.")).toBeInTheDocument();
+    cleanup();
+    render(<ApprovalCard approval={{ ...base, opinion: null }} onAnswer={async () => undefined} />);
+    expect(screen.queryByText(/Second opinion/)).toBeNull();
+  });
+});

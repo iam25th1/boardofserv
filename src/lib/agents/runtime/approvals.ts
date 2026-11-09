@@ -6,6 +6,7 @@ import { DEFAULT_APPROVAL_HOURS, type AgentDefinition, type AgentStep } from "..
 import type { Ask } from "../runner";
 import type { RunState } from "../types";
 import type { Runtime } from "./context";
+import { opinionsFor, requestOpinion } from "../../reppo/opinion";
 
 // Approvals that wait. A job that asks its owner something (telegram.ask),
 // or would spend past a limit (spend.ts), pauses as waiting_for_owner, and
@@ -70,14 +71,16 @@ export async function pauseForOwner(rt: Runtime, job: AgentJob, worker: string, 
   const step = d.steps.find((s) => s.id === wait.stepId)!;
   const { options, noAnswer } = effects(d, step, wait.ask);
   const now = rt.now();
-  await rt.db.transaction(async (tx) => {
+  const approvalId = await rt.db.transaction(async (tx) => {
     const moved = await tx
       .update(agentJobs)
       .set({ status: "waiting_for_owner", state, claimedBy: null, costUsd: state.costUsd.toFixed(6), updatedAt: now })
       .where(and(eq(agentJobs.id, job.id), eq(agentJobs.claimedBy, worker), eq(agentJobs.status, "running")))
       .returning({ id: agentJobs.id });
-    if (!moved.length) return;
-    await tx.insert(agentApprovals).values({
+    if (!moved.length) return null;
+    const [row] = await tx
+      .insert(agentApprovals)
+      .values({
       jobId: job.id,
       installationId: job.installationId,
       ownerUserId: job.ownerUserId,
@@ -92,8 +95,15 @@ export async function pauseForOwner(rt: Runtime, job: AgentJob, worker: string, 
       // Asked in the owner's Telegram chat too (telegram/deliver.ts).
       tgState: "pending",
       createdAt: now,
-    });
+      })
+      .returning({ id: agentApprovals.id });
+    return row?.id ?? null;
   });
+  // A payment or a new contact: Reppo's second opinion, beside the wait.
+  if (approvalId && wait.ask.opinion && wait.ask.tool) {
+    const [v] = await rt.db.select({ agentId: agentVersions.agentId }).from(agentVersions).where(eq(agentVersions.id, job.versionId));
+    if (v) await requestOpinion(rt, { job, agentId: v.agentId, approvalId, definition: d, step, tool: wait.ask.tool, facts: wait.ask.opinion });
+  }
 }
 
 // The answer (null for none) goes to the paused call, and the job back in
@@ -171,11 +181,15 @@ export async function approvalsOf(rt: Runtime, ownerUserId: string, o: { install
     )
     .orderBy(desc(agentApprovals.createdAt))
     .limit(50);
-  const list = rows.map(({ approval: a, definition: d }) => approvalDTO(a, d));
+  const opinions = await opinionsFor(
+    rt,
+    rows.map((r) => r.approval.id),
+  );
+  const list = rows.map(({ approval: a, definition: d }) => approvalDTO(a, d, opinions.get(a.id) ?? null));
   return [...list.filter((a) => a.status === "pending"), ...list.filter((a) => a.status !== "pending")];
 }
 
-export function approvalDTO(a: AgentApproval, d: AgentDefinition | null): ApprovalDTO {
+export function approvalDTO(a: AgentApproval, d: AgentDefinition | null, opinion: ApprovalDTO["opinion"] = null): ApprovalDTO {
   return {
     id: a.id,
     jobId: a.jobId,
@@ -191,5 +205,6 @@ export function approvalDTO(a: AgentApproval, d: AgentDefinition | null): Approv
     answer: a.answer,
     expiresAt: a.expiresAt.toISOString(),
     createdAt: a.createdAt.toISOString(),
+    opinion,
   };
 }

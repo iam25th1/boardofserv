@@ -42,7 +42,12 @@ export interface TestRuntime extends Runtime {
   // public: its answer to each, and every post it was shown.
   postVerdict: (text: string) => { verdict: "ok" | "hold"; reason: string } | "down";
   posts: string[];
+  // SERV's code review of a version before it is published.
+  reviewFindings: () => { step: string; severity: "blocking" | "warning"; finding: string }[] | "down";
 }
+
+// Reppo, answered by the fake in src/test/fakeReppo.ts.
+export const TEST_REPPO = { apiKey: "test-reppo-key", baseUrl: "https://eval.reppo.xyz" };
 
 export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date("2026-11-09T06:00:00Z")): TestRuntime {
   const clock = {
@@ -61,6 +66,7 @@ export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date(
       telegramToken: TEST_BOT_TOKEN,
       google: { clientId: "test-client", clientSecret: "test-google-secret", redirectUri: "https://boardofserv.test/api/connections/google/callback" },
       braveKey: "test-brave-key",
+      reppo: TEST_REPPO,
       caps: { sheetCalls: 500, searches: 50, siteSearches: 1000 },
     },
     now: () => clock.at,
@@ -80,6 +86,7 @@ export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date(
     screened: [],
     postVerdict: () => ({ verdict: "ok", reason: "An ordinary small business job." }),
     posts: [],
+    reviewFindings: () => [],
     fetchImpl: (async (_url: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body)) as { messages: { content: string }[]; response_format: { json_schema: { name: string; schema: { properties: { outcome: { enum: string[] } } } } } };
       if (body.response_format.json_schema.name === "action_guard") {
@@ -93,6 +100,11 @@ export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date(
         const v = rt.screenVerdict(body.messages[1]!.content);
         if (v === "down") return new Response("{}", { status: 503 });
         return Response.json({ choices: [{ message: { content: JSON.stringify(v) } }], usage: { prompt_tokens: 650, completion_tokens: 40 } });
+      }
+      if (body.response_format.json_schema.name === "version_review") {
+        const f = rt.reviewFindings();
+        if (f === "down") return new Response("{}", { status: 503 });
+        return Response.json({ choices: [{ message: { content: JSON.stringify({ findings: f }) } }], usage: { prompt_tokens: 1500, completion_tokens: 60 } });
       }
       if (body.response_format.json_schema.name === "content_screen") {
         rt.posts.push(body.messages[1]!.content);

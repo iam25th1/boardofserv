@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Onest, Caveat } from "next/font/google";
+import localFont from "next/font/local";
 import "../design/tokens.css";
 import "./globals.css";
 import { Providers } from "./providers";
@@ -8,15 +8,18 @@ import { palette } from "@/design/palette";
 import { themeInitScript } from "@/lib/theme-init";
 
 // Onest for everything you read. Caveat only for the small handwritten notes.
-const onest = Onest({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+// Both are in the repo (src/app/fonts, the latin files Google Fonts serves,
+// under the SIL Open Font License), so no build or deploy fetches a font.
+// Each is one variable file covering the weights the app uses.
+const onest = localFont({
+  src: "./fonts/onest-latin.woff2",
+  weight: "400 700",
   variable: "--font-onest",
   display: "swap",
 });
-const caveat = Caveat({
-  subsets: ["latin"],
-  weight: ["500", "600"],
+const caveat = localFont({
+  src: "./fonts/caveat-latin.woff2",
+  weight: "400 700",
   variable: "--font-caveat",
   display: "swap",
 });

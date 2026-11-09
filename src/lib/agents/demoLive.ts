@@ -90,7 +90,8 @@ async function start(origin: string): Promise<Demo> {
     guard: async () => ({ verdict: "allow", reason: "The demo's stand-in check lets the example through." }),
     web: { allowOrigins: [origin] },
     fetchesPerDay: 10_000,
-    services: { fetch: google as typeof fetch, telegramToken: null, google: { clientId: "demo", clientSecret: "demo", redirectUri: `${origin}/api/connections/google/callback` }, braveKey: null, caps: DEFAULT_CAPS },
+    services: { fetch: google as typeof fetch, telegramToken: null, google: { clientId: "demo", clientSecret: "demo", redirectUri: `${origin}/api/connections/google/callback` }, braveKey: null,
+    reppo: null, caps: DEFAULT_CAPS },
     log: (line) => console.info(`demo: ${line}`),
   };
   const [owner] = await db.insert(schema.users).values({ privyUserId: "did:demo:shop", handle: "fabric_shop", access: "approved" }).returning();

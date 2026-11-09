@@ -52,6 +52,22 @@ export interface Ask {
   tool?: ToolName;
   // Why the platform asks, in plain words.
   reason?: string | null;
+  // A payment, or something sent to a contact the renter never gave it:
+  // Reppo is asked for a second opinion while the renter decides, from
+  // these facts alone (reppo/opinion.ts). Never anything the renter gave.
+  opinion?: OpinionFacts;
+}
+
+export interface OpinionFacts {
+  risk: "write" | "outbound" | "money";
+  // Why it waits: over the renter's auto limit (or they approve every
+  // payment), over a spending limit in their rules, a contact they never
+  // gave it, SERV's safety check asking.
+  why: ("over_auto_limit" | "every_payment" | "rule_limit" | "new_contact" | "guard_ask" | "guard_down")[];
+  // The amount next to the renter's auto limit, never the amount itself.
+  amount: "within" | "up_to_twice" | "over_twice" | null;
+  // Some of what it acts on came from outside the renter's own answers.
+  outside: boolean;
 }
 
 // A tool call that must wait for the owner.

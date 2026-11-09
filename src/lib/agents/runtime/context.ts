@@ -1,4 +1,5 @@
 import "server-only";
+import { reppoFrom, type ReppoConfig } from "../../reppo/client";
 import { db } from "../../db";
 import type { User } from "../../db/schema";
 import { modelConfig, type JsonResult, type ModelConfig } from "../../model";
@@ -26,13 +27,16 @@ export function fetchesPerDay(env: Env = process.env): number {
 export const APP_URL = "https://boardofserv.25th.dev";
 
 // The outside services owners connect and agents reach: Telegram, Google
-// and Brave's web search. Every call goes through `fetch` (tests answer
+// and Brave's web search; and Reppo, which scores what agents do. Every call goes through `fetch` (tests answer
 // them). A service whose keys aren't set is off.
 export interface Services {
   fetch: typeof fetch;
   telegramToken: string | null;
   google: { clientId: string; clientSecret: string; redirectUri: string } | null;
   braveKey: string | null;
+  // Reppo's Eval Router, for quality scores and second opinions (off
+  // without REPPO_API_KEY).
+  reppo: ReppoConfig | null;
   // Each installation's calls a day to Google Sheets and to web search,
   // and the whole site's searches a day.
   caps: { sheetCalls: number; searches: number; siteSearches: number };
@@ -47,6 +51,7 @@ export function servicesFrom(env: Env = process.env): Services {
     telegramToken: env.TELEGRAM_BOT_TOKEN || null,
     google: env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET, redirectUri: `${app}/api/connections/google/callback` } : null,
     braveKey: env.BRAVE_SEARCH_API_KEY || null,
+    reppo: reppoFrom(env),
     caps: {
       sheetCalls: whole(env.AGENT_SHEET_CALLS_PER_DAY, DEFAULT_CAPS.sheetCalls),
       searches: whole(env.AGENT_SEARCHES_PER_DAY, DEFAULT_CAPS.searches),

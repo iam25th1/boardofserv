@@ -1,0 +1,2 @@
+ALTER TABLE "agent_jobs" ADD COLUMN "reppo_sample" text;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "agent_jobs_to_sample_idx" ON "agent_jobs" USING btree ("finished_at") WHERE "agent_jobs"."reppo_sample" is null;

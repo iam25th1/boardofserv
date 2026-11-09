@@ -8,6 +8,7 @@ import type { AuditPageDTO, JobSummaryDTO, MakerDashboardDTO } from "@/lib/types
 import { price } from "./BoardView";
 import { EarningsChart } from "./EarningsChart";
 import { KillSwitch } from "./KillSwitch";
+import { QualityPanel, ScoredJobs } from "./Quality";
 import { AuditLog } from "@/components/agents/AuditLog";
 import { day, RENTAL_WORD } from "./RentalView";
 import styles from "./MakerDashboard.module.css";
@@ -51,7 +52,7 @@ export function MakerDashboard({ id, api }: { id: string; api: MakerDashboardApi
   const finished = d.jobs.done + d.jobs.failed;
   const rate = finished ? Math.round((d.jobs.done / finished) * 100) : null;
   return (
-    <Page title={d.name} note={d.stopped ? "stopped everywhere" : "on the board"} width="wide" asideSide="right" asideNarrow="below" aside={<Side d={d} />}>
+    <Page title={d.name} note={d.stopped ? "stopped everywhere" : d.listing?.screen === "held" ? "on hold for review" : d.listing?.listed && d.listing.screen === "ok" ? "on the board" : "not on the board"} width="wide" asideSide="right" asideNarrow="below" aside={<Side d={d} />}>
       {api.kill && <KillSwitch d={d} kill={async (action, note) => setData(await api.kill!(action, note))} />}
       <dl className={styles.stats}>
         <div>
@@ -117,6 +118,13 @@ export function MakerDashboard({ id, api }: { id: string; api: MakerDashboardApi
         <p className={styles.quiet}>Counted by the step that failed. What a renter&apos;s job read or wrote stays theirs.</p>
       </section>
 
+      {d.flagged > 0 && (
+        <p className={styles.flag} role="status">
+          Reppo&apos;s quality checks advised against {d.flagged === 1 ? "one of its jobs" : `${d.flagged} of its jobs`}. An admin looks at each; several on one version put its listing on hold until they do. Its reasons are below.
+        </p>
+      )}
+      {d.quality && <QualityPanel q={d.quality} title="Quality of its listed version" />}
+      <ScoredJobs jobs={d.scored} />
       <AgentRuns load={api.runs} />
       {api.audit && <AuditLog load={api.audit} view="maker" />}
     </Page>
@@ -128,7 +136,12 @@ function Side({ d }: { d: MakerDashboardDTO }) {
   return (
     <div className={styles.side}>
       <div className={styles.priceBox}>
-        <span className={styles.hand}>{l?.listed ? "On the board" : "Not on the board"}</span>
+        <span className={styles.hand}>{l?.listed && l.screen === "ok" ? "On the board" : l?.listed && l.screen === "held" ? "On hold for review" : "Not on the board"}</span>
+        {l?.screen === "held" && (
+          <p className={styles.held} role="status">
+            {l.screenReason ?? "It is off the board until an admin looks."} Renters keep running it as before.
+          </p>
+        )}
         {l && (
           <p className={styles.price}>
             {BigInt(l.weeklyPrice) === 0n ? "Free to rent" : `${price(l.weeklyPrice, l.decimals)} a week`}
@@ -136,7 +149,7 @@ function Side({ d }: { d: MakerDashboardDTO }) {
           </p>
         )}
         <Link href={`/app/agents/${d.agentId}`}>{l ? "Change the price in its builder" : "Put it on the board from its builder"}</Link>
-        {l?.listed && <Link href={`/app/board/agents/${d.agentId}`}>See its page</Link>}
+        {l?.listed && l.screen === "ok" && <Link href={`/app/board/agents/${d.agentId}`}>See its page</Link>}
       </div>
       <section aria-labelledby="versions-h" className={styles.versions}>
         <h2 id="versions-h">Versions</h2>

@@ -6,8 +6,24 @@ import type { AdminSafetyDTO, AuditEntryDTO } from "@/lib/types";
 const at = (hoursAgo: number) => new Date(Date.UTC(2026, 10, 9, 12) - hoursAgo * 3_600_000).toISOString();
 
 export const DEMO_SAFETY: AdminSafetyDTO = {
+  reppo: {
+    on: true,
+    today: { credits: 2640, evals: 6 },
+    week: { credits: 11440, evals: 26 },
+    inFlight: 2,
+    queued: 1,
+    failedToday: 0,
+    paused: null,
+    budgetSpent: false,
+    settings: { firstJobs: 3, sampleEvery: 10, weeklyPerAgent: 10, dailyCredits: 4400, actionOpinions: true },
+    creditsPerEval: 440,
+  },
   queue: {
+    blocked: [
+      { id: "b-1", agentId: "a-follow", agent: "Enquiry follow-up", version: 2, maker: "@lena_prints", score: 38, reason: "It recorded a reply as ready to send without the person's yes, which its purpose says it asks for.", at: at(3) },
+    ],
     held: [
+      { type: "listing", id: "a-follow", title: "Enquiry follow-up", by: "@lena_prints", reason: "Reppo's quality checks advised against 3 of its recent jobs, so it is off the board until an admin looks." },
       { type: "request", id: "q-held", title: "Find the home address of a customer who left a bad review", by: "@quiet_lane", reason: "It asks for a private person's home address." },
       { type: "offer", id: "o-held", title: 'Restock helper: "Pay a deposit to my other wallet first and I set it up."', by: "@fast_builds", reason: "It asks for a payment outside the site." },
     ],

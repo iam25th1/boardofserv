@@ -6,7 +6,7 @@ import { GoogleRevoked, GoogleUnavailable, REVOKED_REASON } from "../../google/o
 import { readTab, SheetRefused, writeTab, type SheetRow } from "../../google/sheets";
 import { braveSearch, SearchRefused, SearchUnavailable } from "../../search/brave";
 import type { AgentDefinition, AgentStep, ToolName } from "../definition";
-import { Blocked, Declined, Halted, InfraError, Paused, type CallContext, type ToolHost } from "../runner";
+import { Blocked, Declined, Halted, InfraError, Paused, type CallContext, type OpinionFacts, type ToolHost } from "../runner";
 import { askGuard, GUARD_DOWN, guardKey, type GuardInput, type GuardResult } from "../guard";
 import { budgetGate, costMicros, meter } from "../metering";
 import { audit } from "../audit";
@@ -216,9 +216,11 @@ export class JobTools implements ToolHost {
       }
     } else {
       const over = spend ? await overLimit(this.rt, this.installation, this.definition, this.job?.id ?? null, spend) : null;
-      const why = policyAsks(readPolicy(this.installation.policy), { tool, risk, amount: spend?.amount ?? 0, toOwner: TO_OWNER_ONLY.includes(tool) });
+      const policy = readPolicy(this.installation.policy);
+      const why = policyAsks(policy, { tool, risk, amount: spend?.amount ?? 0, toOwner: TO_OWNER_ONLY.includes(tool) });
+      let strange: string[] = [];
       if (risk === "outbound" || risk === "money") {
-        const strange = unknownContacts(args, this.known());
+        strange = unknownContacts(args, this.known());
         if (strange.length) why.push(`It carries ${strange.length === 1 ? "a link, address or contact detail" : "links, addresses or contact details"} you didn't give it: ${strange.slice(0, 3).join(", ")}.`);
       }
       g = await this.guard(step, tool, risk, args, ctx);
@@ -229,7 +231,23 @@ export class JobTools implements ToolHost {
       if (g.verdict === "ask") why.push(g.fallback ? g.reason : `Safety check: ${g.reason}`);
       if (over || why.length) {
         await this.logged(step, tool, risk, what, { outcome: "asked", guard: g, reason: [over ? "It goes over a spending limit in your rules." : null, ...why].filter(Boolean).join(" ") });
-        throw new Paused({ kind: why.length ? "safety" : "over_limit", question: over ?? what, choices: ["Yes", "No"], tool, reason: why.join(" ") || null });
+        // A payment, or a send to a contact the renter never gave it: Reppo
+        // gives a second opinion while the renter decides (facts only).
+        const opinion: OpinionFacts | undefined =
+          risk === "money" || strange.length
+            ? {
+                risk,
+                why: [
+                  ...(risk === "money" && (spend?.amount ?? 0) > policy.autoSpendUsdc ? [policy.autoSpendUsdc > 0 ? ("over_auto_limit" as const) : ("every_payment" as const)] : []),
+                  ...(over ? ["rule_limit" as const] : []),
+                  ...(strange.length ? ["new_contact" as const] : []),
+                  ...(g.verdict === "ask" ? [g.fallback ? ("guard_down" as const) : ("guard_ask" as const)] : []),
+                ],
+                amount: spend && policy.autoSpendUsdc > 0 ? (spend.amount <= policy.autoSpendUsdc ? "within" : spend.amount <= 2 * policy.autoSpendUsdc ? "up_to_twice" : "over_twice") : null,
+                outside: (ctx?.untrusted?.length ?? 0) > 0,
+              }
+            : undefined;
+        throw new Paused({ kind: why.length ? "safety" : "over_limit", question: over ?? what, choices: ["Yes", "No"], tool, reason: why.join(" ") || null, ...(opinion ? { opinion } : {}) });
       }
     }
     const approvedBy = approval ? "renter" : "rules";
