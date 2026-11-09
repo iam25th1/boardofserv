@@ -42,6 +42,7 @@ function Rental({ id }: { id: string }) {
       run: (installationId, action) => api.controlInstallation(installationId, action),
       job: api.getJob,
       answer: (approvalId, answer) => api.answerApproval(approvalId, answer).then(() => undefined),
+      version: (choice) => api.answerVersion(id, choice),
     }),
     [api, id],
   );

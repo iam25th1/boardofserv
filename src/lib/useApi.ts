@@ -3,7 +3,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent } from "./agents/types";
 import type { InstallAnswers } from "./agents/settingsForm";
-import type { AccountDTO, AdminDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, QuotaDTO, RentalDetailDTO, RentalDTO, SketchDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, QuotaDTO, RentalDetailDTO, RentalDTO, SketchDTO, WalletDTO } from "./types";
 import type { SetupShape } from "./agents/definition";
 
 // When the server sends no sentence of its own: never a status code.
@@ -92,6 +92,9 @@ export function useApi() {
         if (res.ok && data.rental) return data.rental;
         throw Object.assign(new Error(data.error ?? SOMETHING_WRONG), { status: res.status });
       },
+      answerVersion: (id: string, choice: "update" | "stay") =>
+        json<{ rental: RentalDetailDTO; setupAgain: boolean }>(`/api/rentals/${encodeURIComponent(id)}/version`, { method: "POST", body: JSON.stringify({ choice }) }),
+      getMakerDashboard: (id: string) => json<{ dashboard: MakerDashboardDTO }>(`/api/agents/${encodeURIComponent(id)}/dashboard`).then((d) => d.dashboard),
       publishAgent: (id: string) => json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}/publish`, { method: "POST" }).then((d) => d.builder),
       // Run the newest published version for real. A refusal carries the
       // answers that need another look, by field.

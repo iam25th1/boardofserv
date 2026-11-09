@@ -76,6 +76,8 @@ import * as rentalsRoute from "@/app/api/rentals/route";
 import * as rentalRoute from "@/app/api/rentals/[id]/route";
 import * as rentalInstall from "@/app/api/rentals/[id]/install/route";
 import * as rentalControl from "@/app/api/rentals/[id]/control/route";
+import * as rentalVersion from "@/app/api/rentals/[id]/version/route";
+import * as agentDashboard from "@/app/api/agents/[id]/dashboard/route";
 import { fakeNet, fakeSheetUrl } from "./fakeNet";
 import { keep } from "@/lib/connections/vault";
 
@@ -162,6 +164,8 @@ const ROUTES: Record<string, object> = {
   "rentals/[id]": rentalRoute,
   "rentals/[id]/install": rentalInstall,
   "rentals/[id]/control": rentalControl,
+  "rentals/[id]/version": rentalVersion,
+  "agents/[id]/dashboard": agentDashboard,
 };
 
 // Google, for this test: Maya's and Sam's own spreadsheets, and the token
@@ -788,6 +792,8 @@ describe("a helper's instructions stay on the server", () => {
       await hit("market: sam's page renting", marketAgent.GET(req(`/api/market/agents/${id}`), p));
       await hit("market: sam pauses", rentalControl.POST(req(`/api/rentals/${rented.id}/control`, "POST", { action: "pause" }), rp));
       await hit("market: sam cancels", rentalControl.POST(req(`/api/rentals/${rented.id}/control`, "POST", { action: "cancel" }), rp));
+      await hit("market: sam answers no offer", rentalVersion.POST(req(`/api/rentals/${rented.id}/version`, "POST", { choice: "update" }), rp));
+      await hit("market: sam's dashboard of maya's agent", agentDashboard.GET(req(`/api/agents/${id}/dashboard`), p));
       await hit("market: sam lists maya's agent", agentListing.POST(req(`/api/agents/${id}/listing`, "POST", { weeklyPrice: "0", jobFee: "0", listed: false }), p));
       for (const who of [maya, null]) {
         state.user = who;
@@ -796,7 +802,12 @@ describe("a helper's instructions stay on the server", () => {
         await hit(`market: ${tag} sets up sam's rental`, rentalInstall.POST(req(`/api/rentals/${rented.id}/install`, "POST", { settings: {}, rules: {}, timezone: "UTC" }), rp));
         await hit(`market: ${tag} cancels sam's rental`, rentalControl.POST(req(`/api/rentals/${rented.id}/control`, "POST", { action: "cancel" }), rp));
         await hit(`market: ${tag} rentals`, rentalsRoute.GET(req("/api/rentals")));
+        await hit(`market: ${tag} answers sam's offer`, rentalVersion.POST(req(`/api/rentals/${rented.id}/version`, "POST", { choice: "stay" }), rp));
       }
+      state.user = maya;
+      await hit("market: maya's dashboard", agentDashboard.GET(req(`/api/agents/${id}/dashboard`), p));
+      state.user = null;
+      await hit("market: signed out dashboard", agentDashboard.GET(req(`/api/agents/${id}/dashboard`), p));
       await hit("market: signed out rents", marketRent.POST(req(`/api/market/agents/${id}/rent`, "POST"), p));
       await hit("market: signed out lists", agentListing.POST(req(`/api/agents/${id}/listing`, "POST", { weeklyPrice: "0", jobFee: "0", listed: false }), p));
       state.user = maya;
@@ -910,6 +921,13 @@ describe("a helper's instructions stay on the server", () => {
     expect(said("market: sam lists maya's agent")).toBe('{"error":"Not found"}');
     for (const label of ["market: maya opens sam's rental", "market: maya sets up sam's rental", "market: maya cancels sam's rental"]) expect(said(label), label).toBe('{"error":"Not found"}');
     expect(said("market: maya rentals")).toBe('{"rentals":[]}');
+    expect(said("market: sam answers no offer")).toBe('{"error":"There\'s no new version waiting for you."}');
+    expect(said("market: maya answers sam's offer")).toBe('{"error":"Not found"}');
+    expect(said("market: sam's dashboard of maya's agent")).toBe('{"error":"Not found"}');
+    expect(said("market: signed out dashboard")).toBe('{"error":"Not signed in"}');
+    // Maya's dashboard knows Sam by his handle, and nothing of his own.
+    expect(said("market: maya's dashboard")).toContain('"handle":"maker_1234"');
+    for (const secret of [SAM_PRIVATE, SAM_SHEET, sam.email]) expect(said("market: maya's dashboard")).not.toContain(secret);
     expect(said("market: signed out rentals")).toBe('{"error":"Not signed in"}');
     // Sam's list has his own copy only, never Maya's.
     const mayas = JSON.parse(bodies.find((b) => b.label === "agent: installation")!.body).installation.id as string;

@@ -124,6 +124,8 @@ export interface AgentListItemDTO {
   draft: boolean;
   steps: number;
   updatedAt: string;
+  // On the board for rent, and how many rent it now; null when it isn't.
+  board: { renters: number } | null;
 }
 
 // One owner's running copy of an agent, as its owner sees it. Only ever
@@ -236,6 +238,9 @@ export interface RentalDTO {
   // wait for the renter's answer.
   nextRunAt: string | null;
   waiting: number;
+  // A newer version its maker published, waiting for the renter to update
+  // to it or stay; breaking says why updating needs setting up again.
+  offer: { version: number; breaking: string | null } | null;
 }
 
 // One rental on its own page: the rental, its money (USDC minor units) and
@@ -511,3 +516,22 @@ export type ChatEvent =
   | { type: "done"; messageId?: string; source: string; label: string }
   // `limit` when a day's limit refused the turn before anything was stored.
   | { type: "error"; message: string; limit?: "site" | "chat" };
+
+// A maker's view of their agent on the board: who rents it (by handle),
+// what it earned them each week (their 90%, USDC minor units), how its
+// renters' jobs went in the last 30 days and where failing ones failed (by
+// step: never the renter's data), and each published version with how
+// many run it.
+export interface MakerDashboardDTO {
+  agentId: string;
+  name: string;
+  listing: MakerListingDTO | null;
+  decimals: number;
+  renters: { handle: string; since: string; status: RentalDTO["status"]; version: number; weeksPaid: number }[];
+  // The last eight weeks, oldest first, each starting on a Monday.
+  earnings: { week: string; amount: string }[];
+  earnedTotal: string;
+  jobs: { done: number; failed: number };
+  failures: { step: string; count: number }[];
+  versions: { number: number; publishedAt: string | null; renters: number; offered: number }[];
+}

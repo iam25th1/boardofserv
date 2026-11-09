@@ -8,7 +8,8 @@ import { RentalsView } from "./RentalsView";
 // The renter's dashboard: where it stands, the money, the questions and
 // jobs, and the controls each state allows.
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), usePathname: () => "/app/rentals" }));
+const push = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }), usePathname: () => "/app/rentals" }));
 beforeEach(() => {
   vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce"), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));
 });
@@ -18,7 +19,7 @@ afterEach(() => {
 });
 
 function api(rental: RentalDetailDTO, patch: Partial<RentalApi> = {}): RentalApi {
-  return { load: vi.fn().mockResolvedValue(rental), control: vi.fn().mockResolvedValue(rental), run: vi.fn().mockResolvedValue(undefined), job: vi.fn(async (id: string) => demoJob(id)), answer: vi.fn(), now: () => DEMO_NOW, ...patch };
+  return { load: vi.fn().mockResolvedValue(rental), control: vi.fn().mockResolvedValue(rental), run: vi.fn().mockResolvedValue(undefined), job: vi.fn(async (id: string) => demoJob(id)), answer: vi.fn(), version: vi.fn().mockResolvedValue({ rental, setupAgain: false }), now: () => DEMO_NOW, ...patch };
 }
 const rental = (patch: Partial<RentalDetailDTO>): RentalDetailDTO => ({ ...DEMO_RENTAL, ...patch });
 
@@ -37,6 +38,22 @@ describe("one rental", () => {
     await waitFor(() => expect(a.job).toHaveBeenCalledWith("j-2"));
     expect(a.job).not.toHaveBeenCalledWith("j-1");
     expect(screen.getByRole("link", { name: "Its settings, rules, memory and messages" })).toHaveAttribute("href", "/app/installations/i-1");
+  });
+
+  it("offers a new version: update in place, or set it up again when it's a breaking change", async () => {
+    const a = api(DEMO_RENTAL);
+    render(<RentalView id="r-1" api={a} />);
+    const offer = await screen.findByRole("region", { name: "Version 3 is out" });
+    expect(offer).toHaveTextContent("Updating keeps your answers, sheets and connections");
+    fireEvent.click(within(offer).getByRole("button", { name: "Stay on version 2" }));
+    await waitFor(() => expect(a.version).toHaveBeenCalledWith("stay"));
+    cleanup();
+    const b = api(rental({ offer: { version: 3, breaking: 'It asks something new at setup ("Notes tab").' } }), { version: vi.fn().mockResolvedValue({ rental: DEMO_RENTAL, setupAgain: true }) });
+    render(<RentalView id="r-1" api={b} />);
+    const breaking = await screen.findByRole("region", { name: "Version 3 is out" });
+    expect(breaking).toHaveTextContent('It asks something new at setup ("Notes tab"). Updating stops what runs now; then you set it up again.');
+    fireEvent.click(within(breaking).getByRole("button", { name: "Update and set it up again" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/app/rentals/r-1/setup"));
   });
 
   it("cancels to the end of the paid week, after saying so", async () => {

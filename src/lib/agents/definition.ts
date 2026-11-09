@@ -204,6 +204,25 @@ export function setupShapeOf(d: AgentDefinition): SetupShape {
   return { name: d.name, settings: d.settings, rules: d.rules, triggers: d.triggers.filter((t) => t.kind === "schedule"), needs: connectionsNeeded(d) };
 }
 
+// Why moving an installation from one version of an agent to another
+// needs setting it up again, or null when its answers carry over: a setup
+// question added, removed or changed, or a connection it didn't need.
+export function breakingChange(from: AgentDefinition, to: AgentDefinition): string | null {
+  const before = new Map(from.settings.map((s) => [s.key, s.type]));
+  const after = new Map(to.settings.map((s) => [s.key, s.type]));
+  const added = to.settings.filter((s) => !before.has(s.key));
+  if (added.length) return `It asks something new at setup ("${added[0]!.label}").`;
+  const gone = from.settings.filter((s) => !after.has(s.key));
+  if (gone.length) return `It no longer asks "${gone[0]!.label}" at setup.`;
+  const changed = to.settings.find((s) => before.get(s.key) !== s.type);
+  if (changed) return `"${changed.label}" takes a different kind of answer now.`;
+  const was = connectionsNeeded(from);
+  const now = connectionsNeeded(to);
+  if (now.telegram && !was.telegram) return "It needs your Telegram now.";
+  if (now.google && !was.google) return "It needs your Google Sheets now.";
+  return null;
+}
+
 // Where a step can go next: one step, or one per outcome, and for an action
 // that waits for the owner, where it goes without an answer.
 export function nextOf(step: AgentStep): (string | null)[] {

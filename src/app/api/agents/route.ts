@@ -1,12 +1,14 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, count, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { db } from "@/lib/db";
-import { conversations, messages } from "@/lib/db/schema";
+import { conversations, messages, rentals } from "@/lib/db/schema";
 import { startPlan, summaryOf } from "@/lib/agents/build";
 import { buildContext, NOT_AVAILABLE } from "@/lib/agents/context";
 import { agentForConversation, agentsOf, createAgent, editableDraft, versionsOf } from "@/lib/agents/store";
+import { serverRuntime } from "@/lib/agents/runtime/context";
+import { listingOf } from "@/lib/market/listings";
 import { INTERVIEW_FIELDS } from "@/lib/sketchFields";
 import { loadSketch } from "@/lib/sketchStore";
 import { refusal } from "@/lib/spend";
@@ -52,8 +54,9 @@ export async function POST(req: Request) {
   return Response.json({ agent: summaryOf(agent, { ...draft, buildState: "planning", buildNote: null }) }, { status: 202 });
 }
 
-// The maker's own agents, newest first: each one's latest version, and
-// whether a published version is in testing. Never anyone else's.
+// The maker's own agents, newest first: each one's latest version, whether
+// a published version is in testing, and whether it is on the board and
+// how many rent it. Never anyone else's.
 export async function GET(req: Request) {
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
@@ -70,8 +73,17 @@ export async function GET(req: Request) {
         draft: versions.some((v) => v.state === "draft"),
         steps: versions[0]?.definition?.steps.length ?? 0,
         updatedAt: a.updatedAt.toISOString(),
+        board: await boardOf(a.id),
       };
     }),
   );
   return Response.json({ agents });
+}
+
+async function boardOf(agentId: string): Promise<{ renters: number } | null> {
+  const rt = serverRuntime();
+  const listing = await listingOf(rt, agentId);
+  if (!listing?.listed) return null;
+  const [n] = await rt.db.select({ n: count() }).from(rentals).where(and(eq(rentals.agentId, agentId), ne(rentals.status, "ended")));
+  return { renters: n?.n ?? 0 };
 }

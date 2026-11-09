@@ -173,8 +173,15 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
     setBusy("publish");
     setHeadSaid(null);
     try {
-      setData(await api.publish());
-      setHeadSaid(api.list ? "Published. Put it on the board for rent below when you're ready." : "Published. It's in testing on your agents page.");
+      const next = await api.publish();
+      setData(next);
+      setHeadSaid(
+        next.listing?.listed
+          ? "Published. New renters get this version, and everyone renting an older one is asked to update or stay."
+          : api.list
+            ? "Published. Put it on the board for rent below when you're ready."
+            : "Published. It's in testing on your agents page.",
+      );
     } catch (err) {
       setHeadSaid(err instanceof Error ? err.message : "It could not be published. Try again.");
     } finally {

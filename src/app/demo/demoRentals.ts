@@ -1,4 +1,4 @@
-import type { ApprovalDTO, InstallationDTO, JobDTO, JobSummaryDTO, RentalDetailDTO, RentalDTO } from "@/lib/types";
+import type { ApprovalDTO, InstallationDTO, JobDTO, JobSummaryDTO, MakerDashboardDTO, RentalDetailDTO, RentalDTO } from "@/lib/types";
 
 // Sample rentals for /demo?market=rentals and ?market=rental (development
 // only): one agent rented and running, with a question waiting and a few
@@ -89,11 +89,12 @@ const base = (patch: Partial<RentalDTO> & Pick<RentalDTO, "id" | "name" | "does"
   createdAt: at(-10),
   nextRunAt: null,
   waiting: 0,
+  offer: null,
   ...patch,
 });
 
 export const DEMO_RENTAL: RentalDetailDTO = {
-  ...base({ id: "r-1", name: "Enquiry follow-up", does: "Watches a sheet of enquiries, drafts a reply to each new one and asks you before sending it.", status: "active", nextRunAt: at(0, 0.25), waiting: 1 }),
+  ...base({ id: "r-1", name: "Enquiry follow-up", does: "Watches a sheet of enquiries, drafts a reply to each new one and asks you before sending it.", status: "active", nextRunAt: at(0, 0.25), waiting: 1, offer: { version: 3, breaking: null } }),
   money: { spentSoFar: usdc(19.25), thisWeek: usdc(9.75), feesHeld: usdc(0.25) },
   installation: INSTALLATION,
 };
@@ -138,3 +139,33 @@ export const demoJob = (id: string): JobDTO =>
           { seq: 4, stepId: "send", title: "Send the reply", kind: "action", status: "ok", ms: 900, model: null, costUsd: 0, tools: [{ tool: "sheets.write", failed: false }] },
         ],
       };
+
+// The maker's side: Enquiry follow-up on the board, eight weeks of it.
+const monday = (weeksAgo: number) => new Date(Date.UTC(2026, 10, 9) - weeksAgo * 7 * 86_400_000).toISOString();
+export const DEMO_DASHBOARD: MakerDashboardDTO = {
+  agentId: "00000000-0000-4000-8000-000000000003",
+  name: "Enquiry follow-up",
+  listing: { weeklyPrice: usdc(9), jobFee: usdc(0.25), decimals: 6, listed: true, version: 2 },
+  decimals: 6,
+  renters: [
+    { handle: "jordan_lee", since: at(-10), status: "active", version: 2, weeksPaid: 2 },
+    { handle: "ari.studio", since: at(-24), status: "active", version: 1, weeksPaid: 4 },
+    { handle: "kofi_m", since: at(-30), status: "unpaid", version: 2, weeksPaid: 4 },
+    { handle: "pat_designs", since: at(-41), status: "cancelling", version: 2, weeksPaid: 6 },
+    { handle: "rowan_t", since: at(-52), status: "ended", version: 1, weeksPaid: 3 },
+  ],
+  earnings: [0, 8.1, 8.1, 16.65, 24.98, 33.53, 25.43, 26.1].map((v, i) => ({ week: monday(7 - i), amount: usdc(v) })),
+  earnedTotal: usdc(142.99),
+  jobs: { done: 212, failed: 9 },
+  failures: [
+    { step: "Read new enquiries", count: 6 },
+    { step: "Send the reply", count: 2 },
+    { step: "Before its first step", count: 1 },
+  ],
+  versions: [
+    { number: 2, publishedAt: at(-12), renters: 3, offered: 0 },
+    { number: 1, publishedAt: at(-60), renters: 1, offered: 1 },
+  ],
+};
+
+export const DEMO_RUNS: JobSummaryDTO[] = JOBS.map((j, i) => ({ ...j, reason: null, mine: i === 2 }));

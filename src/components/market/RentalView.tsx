@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createScope, createTimeline, stagger, svg } from "animejs";
 import { Button, Dialog, SkeletonPanel } from "@/components/ui";
 import { Page } from "@/components/shell/Page";
@@ -29,6 +30,8 @@ export interface RentalApi {
   run: (installationId: string, action: "run" | "test" | "golive") => Promise<unknown>;
   job: (id: string) => Promise<JobDTO>;
   answer: (approvalId: string, answer: string) => Promise<void>;
+  // A new version: update to it, or stay. setupAgain: it needs setting up again.
+  version: (choice: "update" | "stay") => Promise<{ rental: RentalDetailDTO; setupAgain: boolean }>;
   now?: () => Date;
 }
 
@@ -92,6 +95,7 @@ export function RentalView({ id, api }: { id: string; api: RentalApi }) {
         <Controls r={r} api={api} onChange={setData} refresh={refresh} />
       </div>
       <Explain r={r} />
+      {r.offer && <Offer r={r} api={api} onChange={setData} />}
       {r.status !== "ended" && <WeekStrip r={r} now={api.now?.() ?? new Date()} />}
 
       {inst && (
@@ -147,6 +151,50 @@ export function RentalView({ id, api }: { id: string; api: RentalApi }) {
         </section>
       )}
     </Page>
+  );
+}
+
+// A newer version its maker published: update to it, or stay.
+function Offer({ r, api, onChange }: { r: RentalDetailDTO; api: RentalApi; onChange: (d: RentalDetailDTO) => void }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<"update" | "stay" | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  const offer = r.offer!;
+  const choose = async (choice: "update" | "stay") => {
+    setBusy(choice);
+    setSaid(null);
+    try {
+      const got = await api.version(choice);
+      if (got.setupAgain) router.push(`/app/rentals/${r.id}/setup`);
+      else onChange(got.rental);
+    } catch (err) {
+      setSaid(err instanceof Error ? err.message : "That didn't work. Try again.");
+      setBusy(null);
+    }
+  };
+  return (
+    <section className={styles.offer} aria-labelledby="offer-h">
+      <h2 id="offer-h">Version {offer.version} is out</h2>
+      <p>
+        {offer.breaking
+          ? `${offer.breaking} Updating stops what runs now; then you set it up again.`
+          : "Updating keeps your answers, sheets and connections; its next job runs the new version."}{" "}
+        Staying keeps version {r.version} running as it is.
+      </p>
+      <div className={styles.controls}>
+        <Button size="sm" onClick={() => void choose("update")} disabled={busy !== null}>
+          {busy === "update" ? "Updating..." : offer.breaking ? `Update and set it up again` : `Update to version ${offer.version}`}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => void choose("stay")} disabled={busy !== null}>
+          {busy === "stay" ? "Saving..." : `Stay on version ${r.version}`}
+        </Button>
+        {said && (
+          <span className={styles.said} role="alert">
+            {said}
+          </span>
+        )}
+      </div>
+    </section>
   );
 }
 

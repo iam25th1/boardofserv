@@ -2,7 +2,7 @@ import "server-only";
 import { and, desc, eq, inArray, lte, ne, sql } from "drizzle-orm";
 import { agentApprovals, agentInstallations, agentJobs, agentListings, agents, agentTriggers, agentVersions, holds, rentalCharges, rentals, users, type Rental } from "../db/schema";
 import type { RentalDetailDTO, RentalDTO } from "../types";
-import { setupShapeOf, type SetupShape } from "../agents/definition";
+import { breakingChange, setupShapeOf, type SetupShape } from "../agents/definition";
 import type { Exec } from "../payments/ledger";
 import { control, install, installationDTO, loadInstallation } from "../agents/runtime/installations";
 import type { Runtime } from "../agents/runtime/context";
@@ -232,7 +232,7 @@ export async function rentalDTOs(rt: Runtime, rows: Rental[]): Promise<RentalDTO
     .from(agentVersions)
     .innerJoin(agents, eq(agents.id, agentVersions.agentId))
     .innerJoin(users, eq(users.id, agents.ownerUserId))
-    .where(inArray(agentVersions.id, [...new Set(rows.map((r) => r.versionId))]));
+    .where(inArray(agentVersions.id, [...new Set(rows.flatMap((r) => (r.offeredVersionId ? [r.versionId, r.offeredVersionId] : [r.versionId])))]));
   const installIds = rows.flatMap((r) => (r.installationId ? [r.installationId] : []));
   const installs = installIds.length
     ? await rt.db
@@ -259,6 +259,7 @@ export async function rentalDTOs(rt: Runtime, rows: Rental[]): Promise<RentalDTO
     const i = installs.find((x) => x.id === r.installationId);
     const set = i && i.status !== "stopped";
     const nextAt = next.find((x) => x.id === r.installationId)?.at;
+    const offered = r.offeredVersionId && r.status !== "ended" ? about.find((x) => x.versionId === r.offeredVersionId) : undefined;
     const status: RentalDTO["status"] =
       r.status === "ended"
         ? "ended"
@@ -292,6 +293,7 @@ export async function rentalDTOs(rt: Runtime, rows: Rental[]): Promise<RentalDTO
       createdAt: r.createdAt.toISOString(),
       nextRunAt: status === "active" && nextAt ? new Date(nextAt).toISOString() : null,
       waiting: set ? (waiting.find((x) => x.id === r.installationId)?.n ?? 0) : 0,
+      offer: offered?.definition && a?.definition ? { version: offered.number, breaking: breakingChange(a.definition, offered.definition) } : null,
     };
   });
 }

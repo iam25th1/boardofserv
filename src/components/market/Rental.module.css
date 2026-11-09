@@ -53,6 +53,25 @@
   font-size: var(--t-sm);
   color: var(--chalk-3);
 }
+/* A new version: a note pinned to the board. */
+.offer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-4) var(--s-5);
+  border: 1.5px dashed var(--chalk);
+  border-radius: var(--r-lg);
+}
+.offer h2 {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-lg);
+  font-weight: var(--w-regular);
+  line-height: 1.1;
+}
+.offer p {
+  color: var(--chalk-2);
+  max-width: 64ch;
+}
 
 /* The week: seven days of chalk, the days gone drawn over. */
 .week {

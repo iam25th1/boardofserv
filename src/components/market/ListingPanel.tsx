@@ -54,10 +54,17 @@ export function ListingPanel({ agentId, version, listing, save }: { agentId: str
     <section className={styles.panel} aria-labelledby="listing-h">
       <div className={styles.head}>
         <h2 id="listing-h">{listed ? "On the board for rent" : "Put it on the board for rent"}</h2>
-        {listed && (
-          <Link href={`/app/board/agents/${agentId}`} className={styles.see}>
-            See its page
-          </Link>
+        {listing && (
+          <span className={styles.links}>
+            <Link href={`/app/agents/${agentId}/dashboard`} className={styles.see}>
+              Renters and earnings
+            </Link>
+            {listed && (
+              <Link href={`/app/board/agents/${agentId}`} className={styles.see}>
+                See its page
+              </Link>
+            )}
+          </span>
         )}
       </div>
       <p className={styles.quiet}>

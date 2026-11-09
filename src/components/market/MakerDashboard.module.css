@@ -1,0 +1,262 @@
+/* A maker's agent on the board: the earnings in chalk columns, renters,
+   failures by step, and beside it the price. */
+.quiet {
+  font-size: var(--t-sm);
+  color: var(--chalk-3);
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--s-4);
+  margin: 0;
+  padding-bottom: var(--s-4);
+  border-bottom: 1px dashed var(--line);
+}
+.stats dt {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.stats dd {
+  margin: 0;
+  font-size: var(--t-md);
+  font-variant-numeric: tabular-nums;
+}
+.stats .hero {
+  font-size: var(--t-xl);
+  font-weight: var(--w-semibold);
+  letter-spacing: -0.02em;
+}
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.block h2,
+.versions h2 {
+  font-size: var(--t-lg);
+  font-weight: var(--w-semibold);
+  letter-spacing: -0.01em;
+}
+
+/* The chart: columns on one baseline, a hover target per week. */
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.plot {
+  position: relative;
+  display: flex;
+  height: 168px;
+  padding-top: 28px;
+}
+.band {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: var(--r-sm);
+  color: inherit;
+  font: inherit;
+  cursor: default;
+}
+.band:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.col {
+  display: block;
+  width: min(24px, 60%);
+  border-radius: 4px 4px 0 0;
+  background: var(--chalk);
+  transform-origin: 50% 100%;
+}
+.band[data-on] .col {
+  background: var(--chalk-2);
+}
+.cap {
+  font-size: var(--t-sm);
+  font-weight: var(--w-semibold);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: var(--s-1);
+  white-space: nowrap;
+}
+.base {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  width: 100%;
+  height: 2px;
+  overflow: visible;
+  pointer-events: none;
+}
+.base path {
+  fill: none;
+  stroke: var(--chalk-3);
+  stroke-width: var(--stroke);
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.ticks {
+  display: flex;
+}
+.ticks span {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: var(--t-2xs);
+  color: var(--chalk-3);
+  white-space: nowrap;
+}
+.tip {
+  position: absolute;
+  bottom: calc(100% - 20px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: var(--s-2) var(--s-3);
+  background: var(--slate-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  white-space: nowrap;
+  pointer-events: none;
+  font-size: var(--t-sm);
+  text-align: left;
+}
+.tip span {
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+}
+
+.renters {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.renters li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--s-1) var(--s-3);
+  padding: var(--s-3) 0;
+  border-bottom: 1px dashed var(--line);
+}
+.renters li[data-status="ended"] {
+  color: var(--chalk-3);
+}
+.chip {
+  padding: 2px 10px;
+  border-radius: var(--r-full);
+  border: 1px dashed var(--chalk-3);
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+}
+.chip[data-status="active"] {
+  border-style: solid;
+  border-color: var(--chalk);
+  color: var(--chalk);
+}
+
+.fails {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.fails li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(4rem, 1fr) 4.5rem;
+  align-items: center;
+  gap: var(--s-3);
+  font-size: var(--t-sm);
+}
+.meter {
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--dust);
+  overflow: hidden;
+}
+.meter span {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-full);
+  background: var(--chalk-2);
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+.priceBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-5);
+  border: var(--stroke) solid var(--chalk);
+  border-radius: var(--r-xl);
+  font-size: var(--t-sm);
+}
+.hand {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}
+.price {
+  font-size: var(--t-lg);
+  font-weight: var(--w-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.versions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: 0 var(--s-2);
+}
+.versions ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.versions li {
+  display: flex;
+  flex-direction: column;
+}
+.fails li > span:last-child {
+  text-align: right;
+}
+.feeLine {
+  display: block;
+  font-size: var(--t-sm);
+  font-weight: var(--w-regular);
+  color: var(--chalk-2);
+}
+@media (max-width: 640px) {
+  .ticks span:nth-child(even) {
+    visibility: hidden;
+  }
+  .fails li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .fails .meter {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}

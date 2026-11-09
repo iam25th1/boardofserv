@@ -61,7 +61,7 @@ function List() {
               {a.steps} {a.steps === 1 ? "step" : "steps"}, version {a.version}
             </span>
             <span className={styles.chip} data-testing={a.testing ? "true" : "false"}>
-              {a.testing ? `In testing, version ${a.testing}` : "Draft"}
+              {a.board ? `On the board, ${a.board.renters} renting` : a.testing ? `In testing, version ${a.testing}` : "Draft"}
               {a.testing && a.draft ? ", with a newer draft" : ""}
             </span>
           </Link>

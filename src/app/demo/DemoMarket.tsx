@@ -7,10 +7,11 @@ import { RentalView, type RentalApi } from "@/components/market/RentalView";
 import { RentalsView } from "@/components/market/RentalsView";
 import { Page } from "@/components/shell/Page";
 import { YourAgentsNav } from "@/components/shell/SubNav";
-import { demoJob, DEMO_NOW, DEMO_RENTAL, DEMO_RENTALS } from "./demoRentals";
+import { DEMO_DASHBOARD, demoJob, DEMO_NOW, DEMO_RENTAL, DEMO_RENTALS, DEMO_RUNS } from "./demoRentals";
+import { MakerDashboard, type MakerDashboardApi } from "@/components/market/MakerDashboard";
 import type { AgentListingDTO, AgentPageDTO, PublicHelperDTO } from "@/lib/types";
 
-// /demo?market=board, agent, rentals or rental (development only): the market's
+// /demo?market=board, agent, rentals, rental or maker (development only): the market's
 // screens with sample data, to look at and screenshot without a database
 // or a sign-in. Neutral, made-up agents and makers.
 
@@ -126,15 +127,19 @@ export function DemoMarket({ view }: { view: string }) {
       run: async () => undefined,
       job: async (id) => demoJob(id),
       answer: async () => undefined,
+      version: async () => ({ rental: DEMO_RENTAL, setupAgain: false }),
       now: () => DEMO_NOW,
     }),
     [],
   );
   const rentals = useMemo(() => async () => DEMO_RENTALS, []);
+  const dashApi = useMemo<MakerDashboardApi>(() => ({ load: async () => DEMO_DASHBOARD, runs: async () => DEMO_RUNS }), []);
   return (
     <AppShell>
       {view === "agent" ? (
         <AgentPageView id={DEMO_PAGE.id} api={pageApi} />
+      ) : view === "maker" ? (
+        <MakerDashboard id={DEMO_DASHBOARD.agentId} api={dashApi} />
       ) : view === "rental" ? (
         <RentalView id={DEMO_RENTAL.id} api={rentalApi} />
       ) : view === "rentals" ? (
