@@ -69,6 +69,7 @@ import * as telegramWebhook from "@/app/api/telegram/webhook/route";
 import * as googleStart from "@/app/api/connections/google/start/route";
 import * as googleCallback from "@/app/api/connections/google/callback/route";
 import * as sheetsInspect from "@/app/api/sheets/inspect/route";
+import * as marketAgent from "@/app/api/market/agents/[id]/route";
 import { fakeNet, fakeSheetUrl } from "./fakeNet";
 import { keep } from "@/lib/connections/vault";
 
@@ -148,6 +149,7 @@ const ROUTES: Record<string, object> = {
   "connections/google/start": googleStart,
   "connections/google/callback": googleCallback,
   "sheets/inspect": sheetsInspect,
+  "market/agents/[id]": marketAgent,
 };
 
 // Google, for this test: Maya's and Sam's own spreadsheets, and the token
@@ -751,6 +753,7 @@ describe("a helper's instructions stay on the server", () => {
       await hit("agent: fix", agentFix.POST(req(`/api/agents/${id}/fix`, "POST", { message: "it ignored delivery time" }), p));
       await jobFor((await draftOf(id))!.id);
       await hit("agent: board", board.GET(req("/api/board")));
+      await hit("market: an agent that isn't on the board", marketAgent.GET(req(`/api/market/agents/${id}`), { params: { id } }));
       // Someone else, and nobody.
       for (const who of [sam, null]) {
         state.user = who;

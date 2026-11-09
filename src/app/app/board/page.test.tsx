@@ -70,7 +70,7 @@ describe("the board", () => {
     await settle();
     expect(screen.getByText(line)).toBeInTheDocument();
     // Nothing cuts it short on screen either.
-    const css = readFileSync(join(__dirname, "board.module.css"), "utf8");
+    const css = readFileSync(join(__dirname, "../../../components/market/Board.module.css"), "utf8");
     expect(css).not.toMatch(/line-clamp|text-overflow/);
   });
 
@@ -89,7 +89,7 @@ describe("the board", () => {
     await settle();
     expect(timelines.count).toBe(1);
 
-    fireEvent.change(screen.getByLabelText("Search helpers by name"), { target: { value: "shop" } });
+    fireEvent.change(screen.getByLabelText("Search the board"), { target: { value: "shop" } });
     await settle(250);
     expect(requests.at(-1)).toBe("/api/board?q=shop");
     expect(screen.getAllByRole("link").filter((a) => a.getAttribute("href")?.startsWith("/h/"))).toHaveLength(1);
@@ -109,7 +109,7 @@ describe("the board", () => {
     render(<BoardPage />);
     await settle();
     expect(screen.getByText("Nothing on the board yet.")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Search helpers by name"), { target: { value: "zzz" } });
+    fireEvent.change(screen.getByLabelText("Search the board"), { target: { value: "zzz" } });
     await settle(250);
     expect(screen.getByText("Nothing on the board matches that.")).toBeInTheDocument();
   });

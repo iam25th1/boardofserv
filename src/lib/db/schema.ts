@@ -927,6 +927,31 @@ export const supportMessages = pgTable(
   (t) => ({ byCreated: index("support_messages_created_idx").on(t.createdAt) }),
 );
 
+// An agent on the board for rent: which published version new renters
+// get, and its price in USDC minor units (6 decimals) a week, with an
+// optional fee per job. 0 is free (the examples, for testing). Unlisted
+// agents keep their renters but take no new ones.
+export const agentListings = pgTable(
+  "agent_listings",
+  {
+    agentId: uuid("agent_id")
+      .primaryKey()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => agentVersions.id, { onDelete: "cascade" }),
+    weeklyPrice: numeric("weekly_price", { precision: 78, scale: 0 }).notNull().default("0"),
+    jobFee: numeric("job_fee", { precision: 78, scale: 0 }).notNull().default("0"),
+    listed: boolean("listed").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byListed: index("agent_listings_listed_idx").on(t.listed, t.weeklyPrice),
+    priced: check("agent_listings_prices", sql`${t.weeklyPrice} >= 0 and ${t.jobFee} >= 0`),
+  }),
+);
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
@@ -941,3 +966,4 @@ export type AgentTrigger = typeof agentTriggers.$inferSelect;
 export type AgentMessage = typeof agentMessages.$inferSelect;
 export type AgentApproval = typeof agentApprovals.$inferSelect;
 export type Connection = typeof connections.$inferSelect;
+export type AgentListing = typeof agentListings.$inferSelect;

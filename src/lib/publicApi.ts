@@ -1,11 +1,36 @@
-import type { PaymentsDTO, PublicHelperDTO } from "./types";
+import type { AgentListingDTO, AgentPageDTO, PaymentsDTO, PublicHelperDTO } from "./types";
 
 // Calls that need no sign-in: the board and a helper's public page.
 
-export async function fetchBoard(q: string, signal?: AbortSignal): Promise<PublicHelperDTO[]> {
-  const res = await fetch(`/api/board${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`, { signal });
+export interface BoardQuery {
+  q?: string;
+  kind?: "all" | "helpers" | "agents";
+  connects?: AgentListingDTO["connects"];
+  // Weekly price bounds, in whole USDC as typed.
+  min?: string;
+  max?: string;
+}
+
+export async function fetchBoard(query: BoardQuery | string, signal?: AbortSignal): Promise<{ helpers: PublicHelperDTO[]; agents: AgentListingDTO[] }> {
+  const b = typeof query === "string" ? { q: query } : query;
+  const p = new URLSearchParams();
+  if (b.q?.trim()) p.set("q", b.q.trim());
+  if (b.kind && b.kind !== "all") p.set("kind", b.kind);
+  if (b.connects?.length) p.set("connects", b.connects.join(","));
+  if (b.min?.trim()) p.set("min", b.min.trim());
+  if (b.max?.trim()) p.set("max", b.max.trim());
+  const qs = p.toString();
+  const res = await fetch(`/api/board${qs ? `?${qs}` : ""}`, { signal });
   if (!res.ok) throw new Error(`Request failed (${res.status})`);
-  return ((await res.json()) as { helpers: PublicHelperDTO[] }).helpers;
+  const data = (await res.json()) as { helpers: PublicHelperDTO[]; agents?: AgentListingDTO[] };
+  return { helpers: data.helpers, agents: data.agents ?? [] };
+}
+
+export async function fetchAgentPage(id: string, signal?: AbortSignal): Promise<AgentPageDTO | null> {
+  const res = await fetch(`/api/market/agents/${encodeURIComponent(id)}`, { signal });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  return ((await res.json()) as { agent: AgentPageDTO }).agent;
 }
 
 export type HelperPage = { helper: PublicHelperDTO } | { takenDown: string } | { missing: true };

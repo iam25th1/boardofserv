@@ -1,0 +1,154 @@
+/* An agent's page: the plan in plain words, the price beside it. */
+.lede {
+  font-size: var(--t-md);
+  line-height: var(--lh-body);
+  max-width: 60ch;
+}
+.done {
+  color: var(--chalk-2);
+  max-width: 60ch;
+}
+.done span {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk);
+  margin-right: var(--s-1);
+}
+.runs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.runs li {
+  padding: 3px 12px;
+  border: 1px dashed var(--chalk-3);
+  border-radius: var(--r-full);
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding-top: var(--s-4);
+  border-top: 1px dashed var(--line);
+}
+.block h2 {
+  font-size: var(--t-lg);
+  font-weight: var(--w-semibold);
+  letter-spacing: -0.01em;
+}
+
+/* The steps, as a job's timeline: a line down the side, a mark each. */
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.steps li {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: var(--s-3);
+  padding-bottom: var(--s-4);
+}
+.steps li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 11.5px;
+  top: 26px;
+  bottom: 2px;
+  border-left: var(--stroke) solid var(--line);
+}
+.steps li > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 1px;
+}
+.mark {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: var(--chalk);
+  stroke-width: var(--stroke);
+  stroke-linejoin: round;
+}
+.stepKind {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk-3);
+  line-height: 1.1;
+}
+.outcomes {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.list {
+  margin: 0;
+  padding-left: 1.1em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.list li::marker {
+  color: var(--chalk-3);
+}
+.kind {
+  font-size: var(--t-sm);
+  color: var(--chalk-3);
+}
+.help {
+  display: block;
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+
+/* Beside it: the price and the way to rent it. */
+.side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.priceBox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-5);
+  border: var(--stroke) solid var(--chalk);
+  border-radius: var(--r-xl);
+}
+.price {
+  font-size: var(--t-xl);
+  font-weight: var(--w-semibold);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.fee {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: 0 var(--s-2);
+}
+.facts dt {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.facts dd {
+  margin: 0;
+}
+.pending {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}

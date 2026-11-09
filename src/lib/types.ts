@@ -160,6 +160,42 @@ export interface InstallationDTO {
   approvals: ApprovalDTO[];
 }
 
+// An agent on the board, for anyone: what it does, what it connects to,
+// its price (USDC minor units, with the decimals) and who made it. Never
+// its code, its prompts or anyone's data. Quality and trust scores come
+// later: null until then ("not enough reviewed jobs yet").
+export interface AgentListingDTO {
+  id: string;
+  name: string;
+  does: string;
+  connects: ("telegram" | "sheets" | "web")[];
+  weeklyPrice: string;
+  jobFee: string;
+  decimals: number;
+  renters: number;
+  maker: string;
+  version: number;
+  quality: number | null;
+  trust: number | null;
+  createdAt: string;
+}
+
+// An agent's own page: the listing, and the plan in plain words. Steps are
+// titles (and a decision's outcomes), never code or prompts.
+export interface AgentPageDTO extends AgentListingDTO {
+  done: string;
+  runs: string[];
+  steps: { kind: "works" | "decides" | "acts"; title: string; outcomes: string[] }[];
+  // What the renter answers at setup.
+  asks: { label: string; help: string; kind: string }[];
+  needs: { telegram: boolean; google: boolean };
+  // What it never does without the renter's yes, and all it may ever do.
+  neverWithoutAsking: string[];
+  canOnly: string[];
+  // The viewer made it (they run it from their builder, not by renting).
+  mine: boolean;
+}
+
 // One of the owner's connections, as only they see it: the service, the
 // account or chat it is linked to, when, and what uses it. Never a secret.
 export interface ConnectionDTO {
