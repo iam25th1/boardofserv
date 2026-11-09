@@ -163,4 +163,55 @@ describe("ChatShell", () => {
     expect(screen.getByRole("log")).toHaveTextContent("Got it. Where should it tell you?");
     expect(answers()).toBeNull();
   });
+
+  it("says how many messages are left under the composer once fewer than 10 are, and nothing on an own key", async () => {
+    const quota = (remaining: number) => ({ limit: 30, remaining, resetsAt: "2026-11-10T00:00:00.000Z" });
+    api.account = { ...UNLINKED, chat: quota(10) };
+    await renderShell();
+    expect(screen.queryByText(/messages? left today/)).toBeNull();
+    cleanup();
+
+    api.account = { ...UNLINKED, chat: quota(9) };
+    await renderShell();
+    expect(screen.getByText("9 messages left today")).toHaveAttribute("role", "status");
+    expect(screen.getByLabelText("Message boardofserv")).not.toBeDisabled();
+    cleanup();
+
+    api.account = { ...UNLINKED, chat: quota(1) };
+    await renderShell();
+    expect(screen.getByText("1 message left today")).toHaveAttribute("role", "status");
+    cleanup();
+
+    api.account = { ...UNLINKED, servKey: { last4: "9f2c" }, chat: null, paused: false };
+    await renderShell();
+    expect(screen.queryByText(/left today|reset at midnight/)).toBeNull();
+  });
+
+  it("pauses the composer, calmly, when the day's messages or the site's limit run out", async () => {
+    api.account = { ...UNLINKED, chat: { limit: 30, remaining: 0, resetsAt: "2026-11-10T00:00:00.000Z" } };
+    await renderShell();
+    expect(screen.getByText("You've used today's 30 messages. They reset at midnight UTC.")).toHaveAttribute("role", "status");
+    expect(screen.getByLabelText("Message boardofserv")).toBeDisabled();
+    cleanup();
+
+    api.account = { ...UNLINKED, chat: { limit: 30, remaining: 12, resetsAt: "2026-11-10T00:00:00.000Z" }, paused: true };
+    await renderShell();
+    expect(screen.getByText("boardofserv has hit today's limit. It resets at midnight UTC.")).toHaveAttribute("role", "status");
+    expect(screen.getByLabelText("Message boardofserv")).toBeDisabled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("puts a refused message back in the composer, with the limit under it", async () => {
+    await renderShell();
+    const input = screen.getByLabelText("Message boardofserv");
+    fireEvent.change(input, { target: { value: "One more blurb" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByText("One more blurb")).toBeInTheDocument();
+    api.account = { ...UNLINKED, paused: true };
+    await emit({ type: "error", message: "boardofserv has hit today's limit. It resets at midnight UTC.", limit: "site" });
+    // The message is not in the thread, it is back in the box.
+    expect(screen.getByLabelText("Message boardofserv")).toHaveValue("One more blurb");
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("boardofserv has hit today's limit. It resets at midnight UTC.")).toHaveAttribute("role", "status");
+  });
 });

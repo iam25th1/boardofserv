@@ -189,6 +189,12 @@ describe("mergeSketch", () => {
     });
   });
 
+  it("makes a sketch the plan names no kind for a one-shot answer helper, and keeps a kind the maker chose", () => {
+    expect(mergeSketch(null, reply({ name: "A" }))).toMatchObject({ kind: "answer", kindChosen: false });
+    expect(mergeSketch({ ...stored, kind: "digest" }, reply({ kind: "watcher" })).kind).toBe("watcher");
+    expect(mergeSketch({ ...stored, kind: "digest", kindChosen: true }, reply({ kind: "answer" }))).toMatchObject({ kind: "digest", kindChosen: true });
+  });
+
   it("never lets a null wipe a stored value", () => {
     expect(mergeSketch(stored, reply({ tells: "Telegram" }))).toEqual({ ...stored, tells: "Telegram", asking: null });
   });

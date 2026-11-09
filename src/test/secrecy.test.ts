@@ -6,9 +6,10 @@ import { eq } from "drizzle-orm";
 import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import * as schema from "@/lib/db/schema";
-import { addUser, testDb } from "./helperDb";
+import { addHelper, addUser, testDb } from "./helperDb";
 import { FakeChain, addr } from "./fakeChain";
 import { generatePrivateKey, privateKeyToAddress } from "viem/accounts";
+import { randomBytes } from "node:crypto";
 import { paymentsConfig, resetPaymentsConfig } from "@/lib/payments/config";
 import { setChainClient } from "@/lib/payments/chain";
 import { syncWallets } from "@/lib/payments/wallets";
@@ -53,6 +54,13 @@ import * as healthRoute from "@/app/api/health/route";
 // Nor the treasury's private key: payments run for real here (on a fake
 // chain), deposits, a paid use, withdrawals, a payout and the admin page,
 // and no body or console line may carry the key.
+//
+// Nor anyone's own SERV key: saved, used for chat and a helper, shown back
+// and removed, it never appears in a body or a log line, not even eight
+// characters of it in a row. Only its last four are ever shown.
+//
+// The one other place an email may appear: the admin's list of accounts
+// waiting to get in, to an admin.
 
 const state = vi.hoisted(() => ({ db: null as unknown, user: null as unknown }));
 vi.mock("@/lib/db", () => ({ db: new Proxy({}, { get: (_, key) => Reflect.get(state.db as object, key) }) }));
@@ -94,6 +102,8 @@ let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
 let maya: schema.User;
 let sam: schema.User;
+// An account still waiting to get in, made by the waitlist test.
+let jo: schema.User | null = null;
 // What the mocked model streams for a use.
 let useChunks: string[] = [];
 const bodies: { label: string; body: string; who: schema.User | null }[] = [];
@@ -432,10 +442,84 @@ describe("a helper's instructions stay on the server", () => {
     expect(logged.length).toBeGreaterThan(markLog);
   });
 
+  it("never sends anyone's own SERV key, only its last four characters", async () => {
+    const own = `sk-own-${randomBytes(20).toString("hex")}`;
+    const base = globalThis.fetch;
+    const auths: string[] = [];
+    vi.stubGlobal("fetch", (url: string, init: RequestInit) => {
+      auths.push((init.headers as Record<string, string>).authorization ?? "");
+      return base(url, init);
+    });
+    vi.stubEnv("OPENSERV_KEY_ENC_KEY", randomBytes(32).toString("base64"));
+    const mark = bodies.length;
+    const markLog = logged.length;
+    await addHelper(db, maya, { slug: "own-key-helper" });
+    const fresh = async (u: schema.User) => (await db.select().from(schema.users).where(eq(schema.users.id, u.id)))[0]!;
+    try {
+      // Maya, who still has free uses left today.
+      state.user = maya;
+      await hit("own key: save", servKey.POST(req("/api/account/serv-key", "POST", { key: own })));
+      state.user = await fresh(maya);
+      await hit("own key: account", account.GET(req("/api/account")));
+      await hit("own key: chat", chat.POST(req("/api/chat", "POST", { content: "Blurbs for my shop, please." })));
+      useChunks = ["Meet the mug. ", "Come and hold one!"];
+      await hit("own key: use", helperUse.POST(req("/api/helpers/own-key-helper/use", "POST", { input: "The Alder mug" }), { params: { slug: "own-key-helper" } }));
+      await hit("own key: remove", servKey.DELETE(req("/api/account/serv-key", "DELETE")));
+      state.user = await fresh(maya);
+      await hit("own key removed: account", account.GET(req("/api/account")));
+    } finally {
+      vi.stubGlobal("fetch", base);
+      vi.stubEnv("OPENSERV_KEY_ENC_KEY", "");
+    }
+
+    // It was used: the check and every call of the chat and the use went to SERV on it.
+    expect(auths.filter((a) => a === `Bearer ${own}`).length).toBe(4);
+    expect(JSON.parse(bodies.find((b) => b.label === "own key: account")!.body).servKey).toEqual({ last4: own.slice(-4) });
+    expect(JSON.parse(bodies.find((b) => b.label === "own key removed: account")!.body).servKey).toBeNull();
+    expect(bodies.find((b) => b.label === "own key: use")!.body).toContain("event: done");
+    const pieces = Array.from({ length: own.length - 7 }, (_, i) => own.slice(i, i + 8));
+    expect(bodies.length - mark).toBe(6);
+    for (const { label, body } of bodies) {
+      for (const text of texts(body)) for (const piece of pieces) expect(text.includes(piece), `${label} carries part of an own key`).toBe(false);
+    }
+    for (const line of logged) for (const piece of pieces) expect(line.includes(piece), "a log line carries part of an own key").toBe(false);
+    expect(logged.length).toBeGreaterThanOrEqual(markLog);
+  });
+
+  it("shows a waiting account's email to an admin's waiting list, and nowhere else", async () => {
+    jo = await addUser(db, "jo.park", "maker_2207", "waiting");
+    vi.stubEnv("ADMIN_USER_IDS", maya.id);
+    resetPaymentsConfig();
+    setChainClient(new FakeChain());
+    try {
+      state.user = jo;
+      await hit("waitlist: account", account.GET(req("/api/account")));
+      await hit("waitlist: chat while waiting", chat.POST(req("/api/chat", "POST", { content: "Hello" })));
+      state.user = sam;
+      await hit("waitlist: admin as sam", adminRoute.GET(req("/api/admin")));
+      await hit("waitlist: approve as sam", adminAccess.POST(req(`/api/admin/access/${jo.id}`, "POST", { action: "approve" }), { params: { id: jo.id } }));
+      state.user = maya;
+      await hit("waitlist: admin", adminRoute.GET(req("/api/admin")));
+      await hit("waitlist: approve", adminAccess.POST(req(`/api/admin/access/${jo.id}`, "POST", { action: "approve" }), { params: { id: jo.id } }));
+    } finally {
+      vi.stubEnv("ADMIN_USER_IDS", "");
+      resetPaymentsConfig();
+      setChainClient(null);
+    }
+    const said = (label: string) => bodies.find((b) => b.label === label)!.body;
+    expect(JSON.parse(said("waitlist: account")).access).toBe("waiting");
+    expect(JSON.parse(said("waitlist: chat while waiting")).access).toBe("waiting");
+    expect(JSON.parse(said("waitlist: admin")).admin.access.waiting).toEqual([{ id: jo.id, handle: "maker_2207", email: jo.email, joinedAt: expect.any(String) }]);
+    expect(JSON.parse(said("waitlist: approve")).admin.access.waiting).toEqual([]);
+  });
+
   it("never sends any part of anyone's email, except the account menu's own to its owner", async () => {
-    const everyone = [maya, sam];
+    const everyone = [maya, sam, ...(jo ? [jo] : [])];
+    // The account menu shows its owner their own; an admin's waiting list shows a waiting account's.
+    const shown = (label: string, who: schema.User | null, u: schema.User) =>
+      ((label === "account" || label.endsWith(": account")) && who?.id === u.id) || (label === "waitlist: admin" && u.id === jo?.id);
     for (const { label, body, who } of bodies) {
-      const others = label === "account" && who ? everyone.filter((u) => u.id !== who.id) : everyone;
+      const others = everyone.filter((u) => !shown(label, who, u));
       for (const text of texts(body)) expect(emailIn(text, others), `${label}: ${body.slice(0, 160)}`).toBeNull();
     }
     for (const line of logged) expect(emailIn(line, everyone), line).toBeNull();

@@ -147,3 +147,12 @@ describe("the sketch schema", () => {
     expect(JSON.stringify(SKETCH_SCHEMA.schema)).not.toContain("null");
   });
 });
+
+describe("the default kind", () => {
+  it("is a one-shot answer helper, unless the person mentions a schedule or something to keep watching", () => {
+    expect(PLAN_PROMPT).toContain("Kind is answer unless they mention a schedule (digest) or something to keep watching (watcher).");
+    const kind = SKETCH_SCHEMA.schema.properties.kind as { description: string };
+    expect(kind.description).toMatch(/^answer \(the default\) replies once/);
+    expect(kind.description).toContain("watcher only when they mention something to monitor; digest only when they mention a schedule");
+  });
+});

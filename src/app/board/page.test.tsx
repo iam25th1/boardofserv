@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { PublicHelperDTO } from "@/lib/types";
 import BoardPage from "./page";
 
@@ -59,6 +61,19 @@ async function settle(ms = 0) {
 }
 
 describe("the board", () => {
+  it("shows a helper's one line in full, all 160 characters", async () => {
+    motion(true);
+    const line = `${"A friendly blurb for each thing you sell, ".repeat(4)}warm and short`.slice(0, 160);
+    expect(line).toHaveLength(160);
+    board = [{ ...helper("shop-blurbs", "Shop blurbs"), description: line }];
+    render(<BoardPage />);
+    await settle();
+    expect(screen.getByText(line)).toBeInTheDocument();
+    // Nothing cuts it short on screen either.
+    const css = readFileSync(join(__dirname, "board.module.css"), "utf8");
+    expect(css).not.toMatch(/line-clamp|text-overflow/);
+  });
+
   it("shows each helper as a card linking to its page, in the order given", async () => {
     motion(true);
     render(<BoardPage />);

@@ -3,9 +3,14 @@ import { describe, expect, it } from "vitest";
 import {
   contextFor,
   CUT_OFF_NOTE,
+  DOLPHIN_BASE_URL,
+  DOLPHIN_MODEL,
   modelConfig,
+  modelPrices,
   NO_MODEL_ERROR,
+  REPLIES_UNAVAILABLE,
   streamReply,
+  userError,
   type ChatMessage,
   type ModelConfig,
   type Provider,
@@ -297,5 +302,89 @@ describe("contextFor", () => {
       12,
     );
     expect(out[1]?.content).toBe("Half a reply");
+  });
+});
+
+describe("Dolphin, second in the order", () => {
+  const ALL = { SERV_API_KEY: "k", DOLPHIN_API_KEY: "d", FALLBACK_BASE_URL: "https://b.test/v1", FALLBACK_API_KEY: "f", FALLBACK_MODEL: "m" };
+
+  it("comes after SERV and before the backup, which still needs all three FALLBACK_* values", () => {
+    expect(modelConfig(ALL).providers.map((p) => p.id)).toEqual(["serv", "dolphin", "fallback"]);
+    expect(modelConfig({ ...ALL, FALLBACK_MODEL: "" }).providers.map((p) => p.id)).toEqual(["serv", "dolphin"]);
+    expect(modelConfig({ DOLPHIN_API_KEY: "d" }).providers.map((p) => p.id)).toEqual(["dolphin"]);
+    expect(modelConfig({ SERV_API_KEY: "k" }).providers.map((p) => p.id)).toEqual(["serv"]);
+  });
+
+  it("uses the base url and model from Dolphin's docs unless DOLPHIN_* says otherwise, and asks for usage", () => {
+    expect(modelConfig(ALL).providers[1]).toEqual({
+      id: "dolphin",
+      label: "Dolphin",
+      baseUrl: "https://lighthouse.dphn.ai/run/text-v/v1",
+      apiKey: "d",
+      model: "deepseek-ai/DeepSeek-V4.1-Flash",
+      askForUsage: true,
+    });
+    expect(DOLPHIN_BASE_URL).toBe("https://lighthouse.dphn.ai/run/text-v/v1");
+    expect(DOLPHIN_MODEL).toBe("deepseek-ai/DeepSeek-V4.1-Flash");
+    expect(modelConfig({ DOLPHIN_API_KEY: "d", DOLPHIN_BASE_URL: "https://dolphin.test/v1/", DOLPHIN_MODEL: "other" }).providers[0]).toMatchObject({
+      baseUrl: "https://dolphin.test/v1",
+      model: "other",
+    });
+  });
+
+  it("answers when SERV fails before its first token, and the backup only when Dolphin fails too", async () => {
+    const [serv, dolphin, backup] = modelConfig(ALL).providers;
+    const first = mockFetch(
+      () => refused(503),
+      () => streamed(["From", " Dolphin"]),
+    );
+    const viaDolphin = await run(config([serv!, dolphin!, backup!]), first.fetchImpl);
+    expect(first.calls.map((c) => new URL(c.url).host)).toEqual(["inference-api.openserv.ai", "lighthouse.dphn.ai"]);
+    expect(first.calls[1]!.headers.get("authorization")).toBe("Bearer d");
+    expect(first.calls[1]!.body).toMatchObject({ model: DOLPHIN_MODEL, stream_options: { include_usage: true } });
+    expect(viaDolphin.start).toMatchObject({ provider: "dolphin", label: "Dolphin" });
+    expect(viaDolphin.result).toMatchObject({ outcome: "fell_back", provider: "dolphin", model: DOLPHIN_MODEL, promptTokens: 120 });
+
+    const second = mockFetch(
+      () => refused(402),
+      () => refused(429),
+      () => streamed(["From the backup"]),
+    );
+    const viaBackup = await run(config([serv!, dolphin!, backup!]), second.fetchImpl);
+    expect(second.calls.map((c) => new URL(c.url).host)).toEqual(["inference-api.openserv.ai", "lighthouse.dphn.ai", "b.test"]);
+    expect(viaBackup.result).toMatchObject({ provider: "fallback", failures: [{ provider: "serv", status: 402 }, { provider: "dolphin", status: 429 }] });
+  });
+
+  it("is left out, with the backup, for someone on their own SERV key", () => {
+    const own = modelConfig(ALL, { servKey: "own-key" });
+    expect(own.ownKey).toBe(true);
+    expect(own.providers).toEqual([{ id: "serv", label: "SERV Reasoning", baseUrl: "https://inference-api.openserv.ai/v1", apiKey: "own-key", model: "claude-haiku-4.5", askForUsage: false }]);
+    expect(modelConfig({ DOLPHIN_API_KEY: "d" }, { servKey: "own-key" }).providers.map((p) => p.id)).toEqual(["serv"]);
+    expect(modelConfig(ALL).ownKey).toBe(false);
+  });
+});
+
+describe("modelPrices", () => {
+  it("prices SERV at 1.25 and 6.50, Dolphin at 0.01 and 0.07, the backup like SERV, each changeable", () => {
+    expect(modelPrices({})).toEqual({ serv: { input: 1.25, output: 6.5 }, dolphin: { input: 0.01, output: 0.07 }, fallback: { input: 1.25, output: 6.5 } });
+    expect(modelPrices({ DOLPHIN_PRICE_OUTPUT_PER_M: "0.2", FALLBACK_PRICE_INPUT_PER_M: "0.15", SERV_PRICE_INPUT_PER_M: "nope" })).toEqual({
+      serv: { input: 1.25, output: 6.5 },
+      dolphin: { input: 0.01, output: 0.2 },
+      fallback: { input: 0.15, output: 6.5 },
+    });
+  });
+});
+
+describe("userError", () => {
+  it("is one plain sentence, never a status or a setting", () => {
+    expect(REPLIES_UNAVAILABLE).toBe("Replies aren't available right now. Try again in a few minutes.");
+    expect(userError([{ provider: "serv", kind: "status", status: 402 }])).toBe(REPLIES_UNAVAILABLE);
+    expect(userError([], false, "The helper could not answer just now.")).toBe("The helper could not answer just now.");
+  });
+
+  it("tells someone on their own key what they can fix", () => {
+    expect(userError([{ provider: "serv", kind: "status", status: 402 }], true)).toMatch(/^Your SERV key is out of credit\./);
+    expect(userError([{ provider: "serv", kind: "status", status: 401 }], true)).toBe("SERV didn't accept your key. Check it in the account menu.");
+    expect(userError([{ provider: "serv", kind: "timeout" }], true)).toBe(REPLIES_UNAVAILABLE);
   });
 });
