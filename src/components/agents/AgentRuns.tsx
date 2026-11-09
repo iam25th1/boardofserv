@@ -30,7 +30,7 @@ export function AgentRuns({ load }: { load: () => Promise<JobSummaryDTO[]> }) {
       <ol>
         {jobs.map((j) => (
           <li key={j.id}>
-            <Link href={`/jobs/${j.id}`}>{STATUS[j.status]}</Link>
+            <Link href={`/app/jobs/${j.id}`}>{STATUS[j.status]}</Link>
             <span>
               {j.mine ? "yours" : "someone else's"}, started {j.started}, {j.stepCount} {j.stepCount === 1 ? "step" : "steps"}, {seconds(j.ms)}, {dollars(j.costUsd)}
             </span>

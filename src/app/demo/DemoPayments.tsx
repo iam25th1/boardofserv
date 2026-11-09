@@ -1,11 +1,11 @@
 "use client";
 import { useRef } from "react";
 import { TopBar, TopLink } from "@/components/chat/TopBar";
-import { AdminBody, type AdminApi } from "@/app/admin/AdminView";
-import { WalletBody, type QrPath, type WalletApi } from "@/app/wallet/WalletView";
+import { AdminBody, type AdminApi } from "@/app/app/admin/AdminView";
+import { WalletBody, type QrPath, type WalletApi } from "@/app/app/wallet/WalletView";
 import type { AdminDTO, PaymentsDTO, WalletDTO } from "@/lib/types";
-import wallet from "@/app/wallet/wallet.module.css";
-import admin from "@/app/admin/admin.module.css";
+import wallet from "@/app/app/wallet/wallet.module.css";
+import admin from "@/app/app/admin/admin.module.css";
 
 // Development only: the wallet and admin pages with canned data, so they can
 // be reviewed and screenshotted without a sign-in or a chain.
@@ -84,6 +84,7 @@ const adminFor = (treasury: string): AdminDTO => ({
   },
   spend: { today: 0.4213, limit: 2, resetsAt: new Date(Date.UTC(2026, 10, 9)).toISOString() },
   codeFallbacks: { last30Days: 1, total: 3 },
+  support: [{ id: "s1", from: "@sam_rivera", text: "My restock agent paused after I disconnected Google. Is that expected?", at: new Date(Date.UTC(2026, 10, 9, 10)).toISOString() }],
   network: "base-sepolia",
   networkLabel: "Base Sepolia",
   chainId: 84532,
@@ -128,7 +129,7 @@ export function DemoPayments({ view, qr, treasury }: { view: "wallet" | "admin";
   const styles = view === "wallet" ? wallet : admin;
   return (
     <div className={styles.page}>
-      <TopBar agents={<TopLink href="/chat">Your agents</TopLink>} />
+      <TopBar agents={<TopLink href="/app/chat">Your agents</TopLink>} />
       <main className={styles.col}>
         <header className={styles.head}>
           <h1>{view === "wallet" ? "Your wallet" : "Admin"}</h1>

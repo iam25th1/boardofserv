@@ -60,6 +60,8 @@ const CSP = [
   "manifest-src 'self'",
 ].join("; ");
 
+export const MOVED_TO_APP = ["chat", "board", "agents", "installations", "approvals", "jobs", "wallet", "connections", "admin"];
+
 export const SECURITY_HEADERS = (production) => [
   { key: "Content-Security-Policy", value: production ? CSP : "frame-ancestors 'none'" },
   { key: "X-Frame-Options", value: "DENY" },
@@ -85,6 +87,15 @@ const nextConfig = {
   },
   async headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS(process.env.NODE_ENV === "production") }];
+  },
+  // The app moved under /app. Old addresses (bookmarks, links in messages,
+  // published pages) move there for good, query string and all. Nothing
+  // outside services call is here: /api, /h/:slug and /login stay put.
+  async redirects() {
+    return MOVED_TO_APP.flatMap((page) => [
+      { source: `/${page}`, destination: `/app/${page}`, permanent: true },
+      { source: `/${page}/:path*`, destination: `/app/${page}/:path*`, permanent: true },
+    ]);
   },
 };
 

@@ -8,6 +8,11 @@
   padding: var(--s-4);
   background-color: var(--scrim);
   animation: scrimFade var(--dur) var(--ease);
+  transition: opacity 150ms var(--ease);
+}
+.scrim[data-closing="true"] {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .panel {

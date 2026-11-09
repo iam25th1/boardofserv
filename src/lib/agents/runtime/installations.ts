@@ -1,6 +1,6 @@
 import "server-only";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { agentApprovals, agentInstallations, agentJobs, agents, agentTriggers, agentVersions, type Agent, type AgentInstallation, type AgentVersion, type SheetGrant } from "../../db/schema";
+import { agentApprovals, agentInstallations, agentJobs, agents, agentTriggers, agentVersions, rentals, type Agent, type AgentInstallation, type AgentVersion, type SheetGrant } from "../../db/schema";
 import { GoogleRevoked, GoogleUnavailable } from "../../google/oauth";
 import { isSheetAnswer, parseSheetLink, sheetLink } from "../../google/sheetLink";
 import { SheetRefused, sheetInfo } from "../../google/sheets";
@@ -257,6 +257,9 @@ export async function control(rt: Runtime, l: Loaded, action: Control): Promise<
   }
   if (action === "resume") {
     if (i.status !== "paused") throw new ControlRefused("It isn't paused.");
+    // A rented one whose week went unpaid resumes from Rented, which pays it.
+    const [unpaid] = await rt.db.select({ id: rentals.id }).from(rentals).where(and(eq(rentals.installationId, i.id), eq(rentals.status, "unpaid")));
+    if (unpaid) throw new ControlRefused("This week's rent isn't paid. Top up your wallet, then resume it from Rented: that pays the week.");
     const missing = await missingConnections(rt, i.ownerUserId, d);
     if (missing.length) throw new ControlRefused(`Connect ${missing.map((p) => SERVICE_NAME[p]).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
     const [row] = await rt.db.update(agentInstallations).set({ status: "active", pausedReason: null, updatedAt: now }).where(here).returning();

@@ -69,7 +69,7 @@ export function InstallationView({ initial, api, children }: { initial: Installa
         <ApprovalCard
           key={a.id}
           approval={a}
-          jobHref={api.jobHref ? api.jobHref(a.jobId) : `/jobs/${a.jobId}`}
+          jobHref={api.jobHref ? api.jobHref(a.jobId) : `/app/jobs/${a.jobId}`}
           onAnswer={async (answer) => {
             await api.answer(a.id, answer);
             await refresh();

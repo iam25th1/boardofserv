@@ -391,11 +391,18 @@ export const holds = pgTable(
       .notNull()
       .references(() => users.id),
     status: text("status", { enum: HOLD_STATUSES }).notNull().default("held"),
+    // What it is for: a helper's use ("use", swept after ten minutes), a
+    // week's rent ("rent", captured at once) or a rented agent's fee for
+    // one job ("job_fee", settled when the job ends). Not a checked column:
+    // a deploy's schema push adds columns but doesn't change checks.
+    kind: text("kind").notNull().default("use"),
+    jobId: uuid("job_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     settledAt: timestamp("settled_at", { withTimezone: true }),
   },
   (t) => ({
     byStatus: index("holds_status_idx").on(t.status, t.createdAt),
+    byKind: index("holds_kind_idx").on(t.kind, t.status),
     knownCurrency: check("holds_currency", sql`${t.currency} in ('USDC', 'SERV')`),
     knownStatus: check("holds_status", sql`${t.status} in ('held', 'captured', 'released')`),
     positive: check("holds_amount_positive", sql`${t.amount} > 0`),
@@ -606,6 +613,8 @@ export const agentJobs = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     status: text("status", { enum: JOB_STATUSES }).notNull().default("queued"),
+    // The hold for a rented agent's fee per job, while it runs.
+    feeHoldId: uuid("fee_hold_id"),
     // What started it: { kind: "schedule" | "check" | "message" | "manual" | "test", ... }.
     trigger: jsonb("trigger").$type<Record<string, unknown>>().notNull(),
     // json, not jsonb: kept exactly as written, keys in their order, so a
@@ -913,6 +922,184 @@ export const googleOAuthStates = pgTable("google_oauth_states", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+// What people send the bot with /support: kept for the admin page. The
+// account when the chat is linked, else the Telegram name they go by.
+export const supportMessages = pgTable(
+  "support_messages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    telegramName: text("telegram_name"),
+    text: text("text").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ byCreated: index("support_messages_created_idx").on(t.createdAt) }),
+);
+
+// An agent on the board for rent: which published version new renters
+// get, and its price in USDC minor units (6 decimals) a week, with an
+// optional fee per job. 0 is free (the examples, for testing). Unlisted
+// agents keep their renters but take no new ones.
+export const agentListings = pgTable(
+  "agent_listings",
+  {
+    agentId: uuid("agent_id")
+      .primaryKey()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => agentVersions.id, { onDelete: "cascade" }),
+    weeklyPrice: numeric("weekly_price", { precision: 78, scale: 0 }).notNull().default("0"),
+    jobFee: numeric("job_fee", { precision: 78, scale: 0 }).notNull().default("0"),
+    listed: boolean("listed").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byListed: index("agent_listings_listed_idx").on(t.listed, t.weeklyPrice),
+    priced: check("agent_listings_prices", sql`${t.weeklyPrice} >= 0 and ${t.jobFee} >= 0`),
+  }),
+);
+
+// Renting an agent: one renter's weekly rental of a maker's agent, at the
+// prices it was rented at (USDC minor units). Each week is charged from
+// the renter's balance through the ledger (90% to the maker, 10% to the
+// platform), at most once (rental_charges). status: active (paid up),
+// unpaid (a week's rent couldn't be paid: its installation is paused),
+// ended (cancelled and its last paid week over). renews: false once the
+// renter cancels; it runs to the end of the week they paid for.
+export const RENTAL_STATUSES = ["active", "unpaid", "ended"] as const;
+export const rentals = pgTable(
+  "rentals",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => agentVersions.id, { onDelete: "cascade" }),
+    renterUserId: uuid("renter_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    makerUserId: uuid("maker_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    installationId: uuid("installation_id").references(() => agentInstallations.id, { onDelete: "set null" }),
+    weeklyPrice: numeric("weekly_price", { precision: 78, scale: 0 }).notNull(),
+    jobFee: numeric("job_fee", { precision: 78, scale: 0 }).notNull().default("0"),
+    status: text("status", { enum: RENTAL_STATUSES }).notNull().default("active"),
+    renews: boolean("renews").notNull().default(true),
+    paidUntil: timestamp("paid_until", { withTimezone: true }).notNull(),
+    weeksPaid: integer("weeks_paid").notNull().default(0),
+    // A newer version its maker published, waiting for the renter to update or stay.
+    offeredVersionId: uuid("offered_version_id").references(() => agentVersions.id, { onDelete: "set null" }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byRenter: index("rentals_renter_idx").on(t.renterUserId, t.createdAt),
+    byAgent: index("rentals_agent_idx").on(t.agentId),
+    due: index("rentals_due_idx").on(t.status, t.paidUntil),
+    knownStatus: check("rentals_status", sql`${t.status} in ('active', 'unpaid', 'ended')`),
+    priced: check("rentals_prices", sql`${t.weeklyPrice} >= 0 and ${t.jobFee} >= 0`),
+  }),
+);
+
+// Each week of a rental charged, once: the week's number from the start,
+// the amount and the hold it was captured through (none when free).
+export const rentalCharges = pgTable(
+  "rental_charges",
+  {
+    rentalId: uuid("rental_id")
+      .notNull()
+      .references(() => rentals.id, { onDelete: "cascade" }),
+    week: integer("week").notNull(),
+    amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
+    holdId: uuid("hold_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.rentalId, t.week] }) }),
+);
+
+// The request board: someone asks for an agent (what it should do, what
+// it should connect to, what they'd pay a week), others say "me too", and
+// makers offer one of their published agents with a note and a price.
+// Accepting an offer rents that agent at the offer's price.
+export const REQUEST_STATUSES = ["open", "accepted", "closed"] as const;
+export const requests = pgTable(
+  "requests",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    need: text("need").notNull(),
+    detail: text("detail").notNull().default(""),
+    connects: jsonb("connects").$type<("telegram" | "sheets" | "web")[]>().notNull().default([]),
+    // What they'd pay a week, USDC minor units; null when they didn't say.
+    budget: numeric("budget", { precision: 78, scale: 0 }),
+    status: text("status", { enum: REQUEST_STATUSES }).notNull().default("open"),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byStatus: index("requests_status_idx").on(t.status, t.createdAt),
+    byUser: index("requests_user_idx").on(t.userId),
+    knownStatus: check("requests_status", sql`${t.status} in ('open', 'accepted', 'closed')`),
+    budgeted: check("requests_budget", sql`${t.budget} is null or ${t.budget} >= 0`),
+  }),
+);
+
+export const requestVotes = pgTable(
+  "request_votes",
+  {
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.requestId, t.userId] }) }),
+);
+
+export const OFFER_STATUSES = ["open", "accepted", "withdrawn"] as const;
+export const requestOffers = pgTable(
+  "request_offers",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" }),
+    makerUserId: uuid("maker_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    note: text("note").notNull().default(""),
+    weeklyPrice: numeric("weekly_price", { precision: 78, scale: 0 }).notNull(),
+    jobFee: numeric("job_fee", { precision: 78, scale: 0 }).notNull().default("0"),
+    status: text("status", { enum: OFFER_STATUSES }).notNull().default("open"),
+    rentalId: uuid("rental_id").references(() => rentals.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byRequest: index("request_offers_request_idx").on(t.requestId, t.createdAt),
+    oncePerAgent: uniqueIndex("request_offers_agent_once").on(t.requestId, t.agentId),
+    knownStatus: check("request_offers_status", sql`${t.status} in ('open', 'accepted', 'withdrawn')`),
+    priced: check("request_offers_prices", sql`${t.weeklyPrice} >= 0 and ${t.jobFee} >= 0`),
+  }),
+);
+
+export type Request = typeof requests.$inferSelect;
+export type RequestOffer = typeof requestOffers.$inferSelect;
+
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;
 export type Message = typeof messages.$inferSelect;
@@ -927,3 +1114,5 @@ export type AgentTrigger = typeof agentTriggers.$inferSelect;
 export type AgentMessage = typeof agentMessages.$inferSelect;
 export type AgentApproval = typeof agentApprovals.$inferSelect;
 export type Connection = typeof connections.$inferSelect;
+export type AgentListing = typeof agentListings.$inferSelect;
+export type Rental = typeof rentals.$inferSelect;

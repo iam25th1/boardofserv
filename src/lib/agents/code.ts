@@ -37,6 +37,7 @@ export const CODE_PROMPT = [
   "Write `async function run(input, tools)`. input holds the step's inputs by name; return an object with exactly the step's outputs by name.",
   "Call only the tools listed, always with await. Plain JavaScript (ES2020): no TypeScript, no imports, no require, no fetch, no console, no timers, no globals.",
   "Keep it short, and handle missing or odd values without throwing where you can.",
+  "Text it writes for people never uses em dashes: use a colon or a comma.",
 ].join("\n");
 
 export const REVIEW_PROMPT = [

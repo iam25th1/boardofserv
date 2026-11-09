@@ -31,7 +31,7 @@ describe("the connections page", () => {
     } satisfies ConnectionsApi;
     render(<ConnectionsView api={api} connect={{ telegram: () => <p>link it here</p> }} />);
     expect(await screen.findByText("@shop")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Fabric restock" })).toHaveAttribute("href", "/installations/i1");
+    expect(screen.getByRole("link", { name: "Fabric restock" })).toHaveAttribute("href", "/app/installations/i1");
     expect(screen.getByText("It isn't set up on this server.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     expect(screen.getByText("Fabric restock will pause until you connect it again.")).toBeInTheDocument();
@@ -59,10 +59,10 @@ describe("the connections page", () => {
     const assign = vi.fn();
     vi.stubGlobal("location", { ...window.location, assign });
     const start = vi.fn(async () => ({ url: "https://accounts.google.com/o/oauth2/v2/auth?state=x" }));
-    render(<GoogleConnect start={start} returnTo="/agents/a1?setup=1" />);
+    render(<GoogleConnect start={start} returnTo="/app/agents/a1?setup=1" />);
     fireEvent.click(screen.getByRole("button", { name: "Connect Google" }));
     await waitFor(() => expect(assign).toHaveBeenCalledWith("https://accounts.google.com/o/oauth2/v2/auth?state=x"));
-    expect(start).toHaveBeenCalledWith("/agents/a1?setup=1");
+    expect(start).toHaveBeenCalledWith("/app/agents/a1?setup=1");
     cleanup();
     render(<GoogleConnect start={async () => Promise.reject(new Error("Google isn't set up here."))} />);
     fireEvent.click(screen.getByRole("button", { name: "Connect Google" }));

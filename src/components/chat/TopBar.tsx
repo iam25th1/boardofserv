@@ -13,7 +13,7 @@ export function TopBar({ agents, account, here }: { agents: React.ReactNode; acc
     <header className={styles.top}>
       <Wordmark />
       {agents}
-      <TopLink href="/board" current={here === "board"}>
+      <TopLink href="/app/board" current={here === "board"}>
         Board
       </TopLink>
       <div className={styles.end}>

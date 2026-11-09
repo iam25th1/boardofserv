@@ -180,3 +180,22 @@ button {
     scroll-behavior: auto !important;
   }
 }
+
+/* The app's page wrapper (app/app/template.tsx): it fills the shell's main
+   area, so the chat can still fill the window. */
+.page-in {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* On touch screens nothing you type in is under 16px: iOS zooms in on a
+   smaller field when it is focused, and the page jumps. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  textarea,
+  select {
+    font-size: max(16px, 1em) !important;
+  }
+}

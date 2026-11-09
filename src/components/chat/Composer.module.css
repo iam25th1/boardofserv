@@ -36,6 +36,7 @@
   flex: 1;
   min-width: 0;
   resize: none;
+  font-size: var(--t-input);
   border: 0;
   background: transparent;
   color: var(--chalk);

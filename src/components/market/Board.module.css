@@ -1,0 +1,273 @@
+/* The board: agents and helpers as short chalk cards, filters beside. */
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  max-width: 520px;
+  padding: 8px 14px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--line);
+  color: var(--chalk-3);
+  transition: border-color var(--dur) var(--ease);
+}
+.search:focus-within {
+  border-color: var(--chalk-3);
+}
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  outline: none;
+  font-size: var(--t-input);
+  color: var(--chalk);
+}
+.search input::placeholder {
+  color: var(--chalk-3);
+}
+
+.sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+}
+.sectionHead {
+  margin-bottom: var(--s-3);
+  font-family: var(--font-hand);
+  font-weight: var(--w-medium);
+  font-size: var(--t-hand-lg);
+  color: var(--chalk-2);
+}
+.grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 14px;
+}
+
+/* A short card chalked on the slate. */
+.card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--s-4) 18px;
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-lg);
+  color: var(--chalk);
+  text-decoration: none;
+  transition:
+    border-color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+.card:hover {
+  border-color: var(--chalk-3);
+  background: var(--dust);
+}
+.card strong {
+  font-weight: var(--w-semibold);
+  font-size: var(--t-md);
+  line-height: var(--lh-snug);
+}
+.line {
+  width: 96px;
+  height: 6px;
+  overflow: visible;
+}
+.line path {
+  fill: none;
+  stroke: var(--chalk-3);
+  stroke-width: var(--stroke);
+  stroke-linecap: round;
+}
+.card p {
+  flex: 1;
+  font-size: var(--t-sm);
+  line-height: var(--lh-snug);
+  color: var(--chalk-2);
+  /* The whole line, up to 160 characters: never cut off. */
+  overflow-wrap: anywhere;
+}
+.card small {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  font-weight: var(--w-medium);
+  line-height: 1;
+  color: var(--chalk-3);
+}
+/* A paid helper's price per use, plain beside the handwriting. */
+.card small.price {
+  font-family: var(--font-body);
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.loading {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-2);
+  color: var(--chalk-2);
+}
+
+/* An agent's card: a heavier line, the price at its head, what it
+   connects to, and the slot its scores will fill. */
+.card[data-kind="agent"] {
+  border-width: var(--stroke);
+}
+.cardHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px var(--s-3);
+}
+.cardHead .price {
+  font-size: var(--t-xs);
+  color: var(--chalk);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.connects {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.connects li {
+  padding: 1px 9px;
+  border: 1px dashed var(--chalk-3);
+  border-radius: var(--r-full);
+  font-size: var(--t-2xs);
+  color: var(--chalk-2);
+}
+.cardFoot {
+  margin-top: auto;
+  padding-top: var(--s-2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px var(--s-3);
+}
+.card small.trust {
+  color: var(--chalk-3);
+  opacity: 0.85;
+}
+
+/* Filters, beside the board on a wide screen, above it on a phone. */
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.filters fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.filters legend {
+  margin-bottom: var(--s-2);
+  font-size: var(--t-xs);
+  font-weight: var(--w-medium);
+  color: var(--chalk-2);
+}
+.segments {
+  position: relative;
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  padding: 2px;
+}
+.segments label {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  min-height: 34px;
+  border-radius: var(--r-full);
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.segments label[data-on="true"] {
+  background: var(--chalk);
+  color: var(--slate);
+  font-weight: var(--w-medium);
+}
+.segments input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.segments label:has(input:focus-visible) {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 34px;
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+.check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--chalk);
+}
+.range {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-sm);
+  color: var(--chalk-3);
+}
+.range input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--slate-2);
+  color: var(--chalk);
+  font: inherit;
+  font-size: var(--t-input);
+}
+.range input:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.hint {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+@media (max-width: 900px) {
+  .filters {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--s-3) var(--s-5);
+    padding-bottom: var(--s-4);
+    border-bottom: 1px dashed var(--line);
+  }
+  .filters fieldset {
+    flex: 1 1 180px;
+  }
+  .hint {
+    flex-basis: 100%;
+  }
+}

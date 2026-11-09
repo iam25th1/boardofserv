@@ -8,7 +8,7 @@ import styles from "./ConnectionsView.module.css";
 // write the ones you give an agent) and your email address (to show which
 // account is connected).
 
-export function GoogleConnect({ start, returnTo = "/connections" }: { start: (returnTo: string) => Promise<{ url: string }>; returnTo?: string }) {
+export function GoogleConnect({ start, returnTo = "/app/connections" }: { start: (returnTo: string) => Promise<{ url: string }>; returnTo?: string }) {
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
   const go = async () => {

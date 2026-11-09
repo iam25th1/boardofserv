@@ -27,7 +27,7 @@
 .select {
   width: 100%;
   font: inherit;
-  font-size: var(--t-base);
+  font-size: var(--t-input);
   color: var(--chalk);
   background-color: var(--slate-2);
   border: thin solid var(--line);

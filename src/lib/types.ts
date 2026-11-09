@@ -110,6 +110,8 @@ export interface AgentBuilderDTO {
   // definition (for the settings form) and the bench's sample settings to
   // start the answers from. Null before the first is published.
   runnable: { version: number; definition: AgentDefinition; defaults: Record<string, unknown> } | null;
+  // Its place on the board for rent, once its maker put it there.
+  listing: MakerListingDTO | null;
 }
 
 // One of the maker's agents on their own agents page.
@@ -122,6 +124,8 @@ export interface AgentListItemDTO {
   draft: boolean;
   steps: number;
   updatedAt: string;
+  // On the board for rent, and how many rent it now; null when it isn't.
+  board: { renters: number } | null;
 }
 
 // One owner's running copy of an agent, as its owner sees it. Only ever
@@ -158,6 +162,99 @@ export interface InstallationDTO {
   recentJobs: JobSummaryDTO[];
   // The questions its jobs wait on.
   approvals: ApprovalDTO[];
+}
+
+// An agent on the board, for anyone: what it does, what it connects to,
+// its price (USDC minor units, with the decimals) and who made it. Never
+// its code, its prompts or anyone's data. Quality and trust scores come
+// later: null until then ("not enough reviewed jobs yet").
+export interface AgentListingDTO {
+  id: string;
+  name: string;
+  does: string;
+  connects: ("telegram" | "sheets" | "web")[];
+  weeklyPrice: string;
+  jobFee: string;
+  decimals: number;
+  renters: number;
+  maker: string;
+  version: number;
+  quality: number | null;
+  trust: number | null;
+  createdAt: string;
+}
+
+// An agent's own page: the listing, and the plan in plain words. Steps are
+// titles (and a decision's outcomes), never code or prompts.
+export interface AgentPageDTO extends AgentListingDTO {
+  done: string;
+  runs: string[];
+  steps: { kind: "works" | "decides" | "acts"; title: string; outcomes: string[] }[];
+  // What the renter answers at setup.
+  asks: { label: string; help: string; kind: string }[];
+  needs: { telegram: boolean; google: boolean };
+  // What it never does without the renter's yes, and all it may ever do.
+  neverWithoutAsking: string[];
+  canOnly: string[];
+  // The viewer made it (they run it from their builder, not by renting).
+  mine: boolean;
+  // The viewer's rental of it, while it lasts.
+  rentalId: string | null;
+}
+
+// An agent its maker has put on the board for rent: the price (USDC minor
+// units), and the published version renters get.
+export interface MakerListingDTO {
+  weeklyPrice: string;
+  jobFee: string;
+  decimals: number;
+  listed: boolean;
+  version: number;
+}
+
+// One of the renter's rentals, as only they see it. status: "setup" until
+// they set it up, "testing" until they make it live, then "active" or
+// "paused"; "unpaid" when a week's rent couldn't be paid (paused until
+// they top up and resume); "cancelling" when it stops at paidUntil;
+// "ended" after.
+export interface RentalDTO {
+  id: string;
+  agentId: string;
+  name: string;
+  does: string;
+  maker: string;
+  version: number;
+  status: "setup" | "testing" | "active" | "paused" | "unpaid" | "cancelling" | "ended";
+  pausedReason: string | null;
+  weeklyPrice: string;
+  jobFee: string;
+  decimals: number;
+  paidUntil: string;
+  renews: boolean;
+  weeksPaid: number;
+  installationId: string | null;
+  createdAt: string;
+  // When it runs next (live and not paused), and how many of its questions
+  // wait for the renter's answer.
+  nextRunAt: string | null;
+  waiting: number;
+  // A newer version its maker published, waiting for the renter to update
+  // to it or stay; breaking says why updating needs setting up again.
+  offer: { version: number; breaking: string | null } | null;
+}
+
+// One rental on its own page: the rental, its money (USDC minor units) and
+// how its installation is doing (null until it is set up).
+export interface RentalDetailDTO extends RentalDTO {
+  money: {
+    // Every week charged and every fee per job taken, since it started.
+    spentSoFar: string;
+    // This week's rent and the fees taken since it began.
+    thisWeek: string;
+    // Fees set aside for jobs running now.
+    feesHeld: string;
+  };
+  installation: InstallationDTO | null;
 }
 
 // One of the owner's connections, as only they see it: the service, the
@@ -357,6 +454,9 @@ export interface AdminDTO {
   // How often SERV wrote a code step because Dolphin failed twice on it:
   // in the last 30 days, and in all.
   codeFallbacks: { last30Days: number; total: number };
+  // What people sent the bot with /support, newest first: who (a handle,
+  // or the Telegram name of an unlinked chat) and what.
+  support: { id: string; from: string; text: string; at: string }[];
   network: "base-sepolia" | "base";
   networkLabel: string;
   chainId: number;
@@ -416,3 +516,64 @@ export type ChatEvent =
   | { type: "done"; messageId?: string; source: string; label: string }
   // `limit` when a day's limit refused the turn before anything was stored.
   | { type: "error"; message: string; limit?: "site" | "chat" };
+
+// A maker's view of their agent on the board: who rents it (by handle),
+// what it earned them each week (their 90%, USDC minor units), how its
+// renters' jobs went in the last 30 days and where failing ones failed (by
+// step: never the renter's data), and each published version with how
+// many run it.
+export interface MakerDashboardDTO {
+  agentId: string;
+  name: string;
+  listing: MakerListingDTO | null;
+  decimals: number;
+  renters: { handle: string; since: string; status: RentalDTO["status"]; version: number; weeksPaid: number }[];
+  // The last eight weeks, oldest first, each starting on a Monday.
+  earnings: { week: string; amount: string }[];
+  earnedTotal: string;
+  jobs: { done: number; failed: number };
+  failures: { step: string; count: number }[];
+  versions: { number: number; publishedAt: string | null; renters: number; offered: number }[];
+}
+
+// A request on the request board, for anyone: what someone wants an agent
+// for, what it should connect to and what they'd pay a week (USDC minor
+// units, or null), how many said "me too" and how many offers it has.
+export interface RequestDTO {
+  id: string;
+  need: string;
+  detail: string;
+  connects: ("telegram" | "sheets" | "web")[];
+  budget: string | null;
+  decimals: number;
+  by: string;
+  status: "open" | "accepted" | "closed";
+  meToo: number;
+  offers: number;
+  createdAt: string;
+  // The viewer's own request, and whether they said "me too".
+  mine: boolean;
+  votedByMe: boolean;
+}
+
+// A maker's offer on a request: one of their published agents, as the
+// board shows it, with a note and the price they offer it at.
+export interface OfferDTO {
+  id: string;
+  agent: { id: string; name: string; does: string; connects: ("telegram" | "sheets" | "web")[]; version: number; listed: boolean };
+  maker: string;
+  note: string;
+  weeklyPrice: string;
+  jobFee: string;
+  decimals: number;
+  status: "open" | "accepted" | "withdrawn";
+  createdAt: string;
+  // The viewer made this offer.
+  mine: boolean;
+}
+
+// A request on its own page, with its offers (withdrawn ones left out).
+export interface RequestPageDTO {
+  request: RequestDTO;
+  offers: OfferDTO[];
+}

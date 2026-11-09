@@ -3,6 +3,7 @@ import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { agentInstallations, agentJobs, agentJobSteps, agentVersions, users, type AgentInstallation, type AgentJob } from "../../db/schema";
 import type { AgentDefinition, DecisionStepDef } from "../definition";
 import { askServ, readDecision, runSteps, startState, typedRules, type Decided, type EngineResult, type RunEvent, type RunState } from "../runner";
+import { FEE_SHORT, holdJobFee } from "../../market/charges";
 import { pauseForOwner } from "./approvals";
 import type { Runtime } from "./context";
 import { JobTools } from "./tools";
@@ -127,6 +128,12 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
   const definition = row?.version.definition;
   if (!row || !definition) return finish(rt, job, worker, null, { status: "failed", reason: "Its agent version isn't there any more." });
   const { installation, version, owner } = row;
+  // A rented agent's fee for this job, held from its renter before the job
+  // first starts (settled when it ends: see market/charges.ts).
+  if (!job.state) {
+    const fee = await holdJobFee(rt, job);
+    if (fee.how === "short") return finish(rt, job, worker, null, { status: "failed", reason: FEE_SHORT(fee.fee) });
+  }
 
   const state: RunState = job.state ?? startState(definition, startingBag(definition, installation, job.trigger as JobTrigger));
   const save = async (s: RunState) => {

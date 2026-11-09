@@ -12,7 +12,7 @@ export async function POST(req: Request) {
   const rt = serverRuntime();
   const body = (await req.json().catch(() => ({}))) as { returnTo?: unknown };
   try {
-    const { url, state } = await startGoogle(rt, user.id, typeof body.returnTo === "string" ? body.returnTo : "/connections");
+    const { url, state } = await startGoogle(rt, user.id, typeof body.returnTo === "string" ? body.returnTo : "/app/connections");
     const secure = rt.services.google!.redirectUri.startsWith("https:") ? "; Secure" : "";
     return Response.json(
       { url },

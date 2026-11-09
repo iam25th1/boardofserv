@@ -69,6 +69,19 @@ import * as telegramWebhook from "@/app/api/telegram/webhook/route";
 import * as googleStart from "@/app/api/connections/google/start/route";
 import * as googleCallback from "@/app/api/connections/google/callback/route";
 import * as sheetsInspect from "@/app/api/sheets/inspect/route";
+import * as marketAgent from "@/app/api/market/agents/[id]/route";
+import * as marketRent from "@/app/api/market/agents/[id]/rent/route";
+import * as agentListing from "@/app/api/agents/[id]/listing/route";
+import * as rentalsRoute from "@/app/api/rentals/route";
+import * as rentalRoute from "@/app/api/rentals/[id]/route";
+import * as rentalInstall from "@/app/api/rentals/[id]/install/route";
+import * as rentalControl from "@/app/api/rentals/[id]/control/route";
+import * as rentalVersion from "@/app/api/rentals/[id]/version/route";
+import * as agentDashboard from "@/app/api/agents/[id]/dashboard/route";
+import * as requestsRoute from "@/app/api/requests/route";
+import * as requestRoute from "@/app/api/requests/[id]/route";
+import * as requestOffersRoute from "@/app/api/requests/[id]/offers/route";
+import * as offerRoute from "@/app/api/offers/[id]/route";
 import { fakeNet, fakeSheetUrl } from "./fakeNet";
 import { keep } from "@/lib/connections/vault";
 
@@ -148,6 +161,19 @@ const ROUTES: Record<string, object> = {
   "connections/google/start": googleStart,
   "connections/google/callback": googleCallback,
   "sheets/inspect": sheetsInspect,
+  "market/agents/[id]": marketAgent,
+  "market/agents/[id]/rent": marketRent,
+  "agents/[id]/listing": agentListing,
+  "rentals": rentalsRoute,
+  "rentals/[id]": rentalRoute,
+  "rentals/[id]/install": rentalInstall,
+  "rentals/[id]/control": rentalControl,
+  "rentals/[id]/version": rentalVersion,
+  "agents/[id]/dashboard": agentDashboard,
+  "requests": requestsRoute,
+  "requests/[id]": requestRoute,
+  "requests/[id]/offers": requestOffersRoute,
+  "offers/[id]": offerRoute,
 };
 
 // Google, for this test: Maya's and Sam's own spreadsheets, and the token
@@ -669,7 +695,7 @@ describe("a helper's instructions stay on the server", () => {
       google.on("https://oauth2.googleapis.com/token", () =>
         Response.json({ access_token: VAULT_ACCESS, refresh_token: VAULT_REFRESH, expires_in: 3600, scope: "openid email https://www.googleapis.com/auth/spreadsheets", id_token: `x.${Buffer.from(JSON.stringify({ email: "maya@sheets.test" })).toString("base64url")}.y` }),
       );
-      const started = await hit("connections: google start", googleStart.POST(req("/api/connections/google/start", "POST", { returnTo: "/connections" })));
+      const started = await hit("connections: google start", googleStart.POST(req("/api/connections/google/start", "POST", { returnTo: "/app/connections" })));
       const googleState = new URL((JSON.parse(await started.clone().text()) as { url: string }).url).searchParams.get("state")!;
       expect(started.headers.get("set-cookie")).toContain("HttpOnly");
       const callback = (cookie: string | null, q: string) => googleCallback.GET(new Request(`http://localhost/api/connections/google/callback?${q}`, { headers: cookie ? { cookie } : {} }));
@@ -751,6 +777,77 @@ describe("a helper's instructions stay on the server", () => {
       await hit("agent: fix", agentFix.POST(req(`/api/agents/${id}/fix`, "POST", { message: "it ignored delivery time" }), p));
       await jobFor((await draftOf(id))!.id);
       await hit("agent: board", board.GET(req("/api/board")));
+      await hit("market: an agent that isn't on the board", marketAgent.GET(req(`/api/market/agents/${id}`), { params: { id } }));
+
+      // Maya puts it on the board; Sam rents it and sets it up with his own
+      // sheet. The listing, its page and Sam's rental never carry its code
+      // or prompts, and Maya never sees Sam's sheet or his rental.
+      await hit("market: list it", agentListing.POST(req(`/api/agents/${id}/listing`, "POST", { weeklyPrice: "0", jobFee: "0", listed: true }), p));
+      await hit("market: board with it", board.GET(req("/api/board")));
+      await hit("market: maya's own page", marketAgent.GET(req(`/api/market/agents/${id}`), p));
+      await hit("market: maya rents her own", marketRent.POST(req(`/api/market/agents/${id}/rent`, "POST"), p));
+      state.user = sam;
+      await hit("market: sam's page", marketAgent.GET(req(`/api/market/agents/${id}`), p));
+      const rented = JSON.parse(await (await hit("market: sam rents", marketRent.POST(req(`/api/market/agents/${id}/rent`, "POST"), p))).clone().text()).rental as { id: string };
+      const rp = { params: { id: rented.id } };
+      await hit("market: sam's rentals", rentalsRoute.GET(req("/api/rentals")));
+      await hit("market: sam's rental", rentalRoute.GET(req(`/api/rentals/${rented.id}`), rp));
+      await hit(
+        "market: sam sets it up",
+        rentalInstall.POST(req(`/api/rentals/${rented.id}/install`, "POST", { settings: { stock_sheet: samTab(SAM_PRIVATE), orders_sheet: samTab("Orders"), suppliers_sheet: samTab("Suppliers") }, rules: {}, timezone: "UTC" }), rp),
+      );
+      await hit("market: sam's rental set up", rentalRoute.GET(req(`/api/rentals/${rented.id}`), rp));
+      await hit("market: sam's page renting", marketAgent.GET(req(`/api/market/agents/${id}`), p));
+      await hit("market: sam pauses", rentalControl.POST(req(`/api/rentals/${rented.id}/control`, "POST", { action: "pause" }), rp));
+      await hit("market: sam cancels", rentalControl.POST(req(`/api/rentals/${rented.id}/control`, "POST", { action: "cancel" }), rp));
+      await hit("market: sam answers no offer", rentalVersion.POST(req(`/api/rentals/${rented.id}/version`, "POST", { choice: "update" }), rp));
+      await hit("market: sam's dashboard of maya's agent", agentDashboard.GET(req(`/api/agents/${id}/dashboard`), p));
+      await hit("market: sam lists maya's agent", agentListing.POST(req(`/api/agents/${id}/listing`, "POST", { weeklyPrice: "0", jobFee: "0", listed: false }), p));
+      // The request board: Sam asks, Maya offers the agent; nobody's offer
+      // or request carries its code, its prompts or anyone's email.
+      const asked = JSON.parse(await (await hit("requests: sam asks", requestsRoute.POST(req("/api/requests", "POST", { need: "Reorder fabric when it runs low", detail: "From my stock tab", connects: ["sheets"], budget: "6" })))).clone().text()) as { id: string };
+      const qp = { params: { id: asked.id } };
+      await hit("requests: sam's own", requestsRoute.GET(req("/api/requests?mine=1")));
+      await hit("requests: sam says me too to his own", requestRoute.POST(req(`/api/requests/${asked.id}`, "POST", { action: "metoo" }), qp));
+      state.user = maya;
+      await hit("requests: maya's board", requestsRoute.GET(req("/api/requests")));
+      await hit("requests: maya says me too", requestRoute.POST(req(`/api/requests/${asked.id}`, "POST", { action: "metoo" }), qp));
+      const offered = JSON.parse(await (await hit("requests: maya offers", requestOffersRoute.POST(req(`/api/requests/${asked.id}/offers`, "POST", { agentId: id, note: "It does this.", weeklyPrice: "0" }), qp))).clone().text()) as { offers: { id: string }[] };
+      const op = { params: { id: offered.offers[0]!.id } };
+      await hit("requests: maya accepts her own offer", offerRoute.POST(req(`/api/offers/${op.params.id}`, "POST", { action: "accept" }), op));
+      await hit("requests: maya closes sam's", requestRoute.POST(req(`/api/requests/${asked.id}`, "POST", { action: "close" }), qp));
+      state.user = sam;
+      await hit("requests: sam's page", requestRoute.GET(req(`/api/requests/${asked.id}`), qp));
+      await hit("requests: sam accepts while renting it", offerRoute.POST(req(`/api/offers/${op.params.id}`, "POST", { action: "accept" }), op));
+      await hit("requests: sam withdraws maya's offer", offerRoute.POST(req(`/api/offers/${op.params.id}`, "POST", { action: "withdraw" }), op));
+      await hit("requests: sam offers maya's agent", requestOffersRoute.POST(req(`/api/requests/${asked.id}/offers`, "POST", { agentId: id, weeklyPrice: "0" }), qp));
+      state.user = null;
+      await hit("requests: signed out board", requestsRoute.GET(req("/api/requests?sort=newest")));
+      await hit("requests: signed out page", requestRoute.GET(req(`/api/requests/${asked.id}`), qp));
+      await hit("requests: signed out asks", requestsRoute.POST(req("/api/requests", "POST", { need: "x" })));
+      await hit("requests: signed out me too", requestRoute.POST(req(`/api/requests/${asked.id}`, "POST", { action: "metoo" }), qp));
+      await hit("requests: signed out offers", requestOffersRoute.POST(req(`/api/requests/${asked.id}/offers`, "POST", { agentId: id, weeklyPrice: "0" }), qp));
+      await hit("requests: signed out accepts", offerRoute.POST(req(`/api/offers/${op.params.id}`, "POST", { action: "accept" }), op));
+      state.user = maya;
+      await hit("requests: maya withdraws", offerRoute.POST(req(`/api/offers/${op.params.id}`, "POST", { action: "withdraw" }), op));
+      state.user = sam;
+      await hit("requests: sam closes", requestRoute.POST(req(`/api/requests/${asked.id}`, "POST", { action: "close" }), qp));
+      for (const who of [maya, null]) {
+        state.user = who;
+        const tag = who ? "maya" : "signed out";
+        await hit(`market: ${tag} opens sam's rental`, rentalRoute.GET(req(`/api/rentals/${rented.id}`), rp));
+        await hit(`market: ${tag} sets up sam's rental`, rentalInstall.POST(req(`/api/rentals/${rented.id}/install`, "POST", { settings: {}, rules: {}, timezone: "UTC" }), rp));
+        await hit(`market: ${tag} cancels sam's rental`, rentalControl.POST(req(`/api/rentals/${rented.id}/control`, "POST", { action: "cancel" }), rp));
+        await hit(`market: ${tag} rentals`, rentalsRoute.GET(req("/api/rentals")));
+        await hit(`market: ${tag} answers sam's offer`, rentalVersion.POST(req(`/api/rentals/${rented.id}/version`, "POST", { choice: "stay" }), rp));
+      }
+      state.user = maya;
+      await hit("market: maya's dashboard", agentDashboard.GET(req(`/api/agents/${id}/dashboard`), p));
+      state.user = null;
+      await hit("market: signed out dashboard", agentDashboard.GET(req(`/api/agents/${id}/dashboard`), p));
+      await hit("market: signed out rents", marketRent.POST(req(`/api/market/agents/${id}/rent`, "POST"), p));
+      await hit("market: signed out lists", agentListing.POST(req(`/api/agents/${id}/listing`, "POST", { weeklyPrice: "0", jobFee: "0", listed: false }), p));
+      state.user = maya;
       // Someone else, and nobody.
       for (const who of [sam, null]) {
         state.user = who;
@@ -790,7 +887,7 @@ describe("a helper's instructions stay on the server", () => {
     }
 
     // The maker's own builder does show the code and the prompts.
-    const builder = new Set(["agent: builder", "agent: save", "agent: publish"]);
+    const builder = new Set(["agent: builder", "agent: save", "agent: publish", "market: list it"]);
     for (const label of builder) {
       const body = bodies.find((b) => b.label === label)!.body;
       expect(body, label).toContain(CODE_MARKER);
@@ -823,11 +920,18 @@ describe("a helper's instructions stay on the server", () => {
     const googleState = new URL((JSON.parse(started.body) as { url: string }).url).searchParams.get("state")!;
     expect(bodies.filter((b) => b.body.includes(googleState) || (b.head.includes(googleState) && b !== started)).map((b) => b.label)).toEqual(["connections: google start"]);
     // Each owner's spreadsheet: never in the other's responses, nor in the
-    // maker's view of someone else's job.
+    // maker's view of someone else's job. What Sam gave the agent he rents
+    // (his tab, his sheet) reaches nobody but Sam: not its maker, not the
+    // board, its page, its listing or the request board, and nobody signed
+    // out.
     for (const b of bodies) {
       if (b.who?.id === sam.id) expect(b.body.includes(MAYA_SHEET), `${b.label} shows sam maya's sheet`).toBe(false);
-      if (b.who?.id === maya.id) expect(b.body.includes(SAM_SHEET), `${b.label} shows maya sam's sheet`).toBe(false);
+      if (b.who?.id !== sam.id) {
+        expect(b.body.includes(SAM_SHEET), `${b.label} shows sam's sheet`).toBe(false);
+        expect(b.body.includes(SAM_PRIVATE), `${b.label} shows sam's tab`).toBe(false);
+      }
     }
+    expect(bodies.filter((b) => b.label.startsWith("market:") || b.label.startsWith("requests:")).length).toBeGreaterThan(30);
     // No job ever carries a connection secret in what it saved.
     const saved = JSON.stringify(await db.select({ state: schema.agentJobs.state }).from(schema.agentJobs));
     for (const secret of [String(VAULT_CHAT), VAULT_REFRESH, VAULT_ACCESS, "sam-refresh", "sam-access"]) expect(saved.includes(secret), secret).toBe(false);
@@ -851,6 +955,35 @@ describe("a helper's instructions stay on the server", () => {
     for (const label of ["agent: maker sees sam's job", "agent: maker's jobs with sam's", "agent: installation after a job", "agent: questions"]) expect(said(label), label).not.toContain(SAM_PRIVATE);
     expect(said("agent: sam sees maya's job")).toBe('{"error":"Not found"}');
     expect(said("agent: sam answers maya's question")).toBe('{"error":"Not found"}');
+    // Renting: Sam's rental is his alone, and the maker can't rent her own.
+    expect(said("market: maya rents her own")).toContain("It's yours");
+    expect(said("market: sam rents")).toContain('"status":"setup"');
+    expect(said("market: sam's rental")).toContain('"setup":{');
+    expect(said("market: sam sets it up")).toContain(SAM_PRIVATE);
+    expect(said("market: sam's page renting")).toContain(`"rentalId":"${JSON.parse(said("market: sam rents")).rental.id}"`);
+    expect(said("market: sam cancels")).toContain('"status":"cancelling"');
+    expect(said("market: sam lists maya's agent")).toBe('{"error":"Not found"}');
+    for (const label of ["market: maya opens sam's rental", "market: maya sets up sam's rental", "market: maya cancels sam's rental"]) expect(said(label), label).toBe('{"error":"Not found"}');
+    expect(said("market: maya rentals")).toBe('{"rentals":[]}');
+    expect(said("market: sam answers no offer")).toBe('{"error":"There\'s no new version waiting for you."}');
+    expect(said("market: maya answers sam's offer")).toBe('{"error":"Not found"}');
+    expect(said("market: sam's dashboard of maya's agent")).toBe('{"error":"Not found"}');
+    expect(said("market: signed out dashboard")).toBe('{"error":"Not signed in"}');
+    // The request board.
+    expect(said("requests: sam says me too to his own")).toBe('{"error":"It\'s your own request."}');
+    expect(said("requests: maya offers")).toContain('"note":"It does this."');
+    expect(said("requests: maya accepts her own offer")).toBe('{"error":"Not found"}');
+    expect(said("requests: maya closes sam's")).toBe('{"error":"Not found"}');
+    expect(said("requests: sam accepts while renting it")).toContain("You rent it already");
+    expect(said("requests: sam withdraws maya's offer")).toBe('{"error":"Not found"}');
+    expect(said("requests: sam offers maya's agent")).toBe('{"error":"It\'s your own request: build it, and run it from its builder."}');
+    expect(said("requests: signed out page")).toContain('"meToo":1');
+    for (const label of ["requests: signed out asks", "requests: signed out me too", "requests: signed out offers", "requests: signed out accepts"]) expect(said(label), label).toBe('{"error":"Not signed in"}');
+    expect(said("requests: sam closes")).toContain('"status":"closed"');
+    // Maya's dashboard knows Sam by his handle, and nothing of his own.
+    expect(said("market: maya's dashboard")).toContain('"handle":"maker_1234"');
+    for (const secret of [SAM_PRIVATE, SAM_SHEET, sam.email]) expect(said("market: maya's dashboard")).not.toContain(secret);
+    expect(said("market: signed out rentals")).toBe('{"error":"Not signed in"}');
     // Sam's list has his own copy only, never Maya's.
     const mayas = JSON.parse(bodies.find((b) => b.label === "agent: installation")!.body).installation.id as string;
     expect((JSON.parse(bodies.find((b) => b.label === "agent: sam installations")!.body).installations as { id: string }[]).map((i) => i.id)).not.toContain(mayas);

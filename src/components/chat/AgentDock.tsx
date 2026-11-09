@@ -104,7 +104,7 @@ export function AgentDock({ sketch, agent, sketching = false, onKind, onPlan, pl
         </button>
         {onKind && <KindSwitch kind={sketch.kind} onKind={onKind} locked={planned ? "Planned as an agent: start a new conversation for another kind" : null} />}
         {action === "open" && agent ? (
-          <Link ref={(el) => void (actionRef.current = el)} className={frame.publish} href={`/agents/${agent.id}`}>
+          <Link ref={(el) => void (actionRef.current = el)} className={frame.publish} href={`/app/agents/${agent.id}`}>
             Open
           </Link>
         ) : action === "plan" ? (

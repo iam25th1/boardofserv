@@ -1,12 +1,9 @@
 import { redirect } from "next/navigation";
+import { Landing } from "@/components/landing/Landing";
 
-// The app lives at /chat. The query string is kept, so development links like
-// /?sketch=demo still reach the chat with their flag.
+// The public front page. (Development links like /?sketch=demo still reach
+// the chat with their flag.)
 export default function Home({ searchParams }: { searchParams: Record<string, string | string[] | undefined> }) {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(searchParams)) {
-    for (const v of Array.isArray(value) ? value : value === undefined ? [] : [value]) query.append(key, v);
-  }
-  const qs = query.toString();
-  redirect(qs ? `/chat?${qs}` : "/chat");
+  if (typeof searchParams.sketch === "string") redirect(`/app/chat?sketch=${encodeURIComponent(searchParams.sketch)}`);
+  return <Landing />;
 }

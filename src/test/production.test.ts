@@ -220,7 +220,7 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
   });
 
   it("?sketch fixtures are not served and not in the build", async () => {
-    for (const path of ["/?sketch=demo", "/chat?sketch=ready", "/board?sketch=live"]) {
+    for (const path of ["/?sketch=demo", "/app/chat?sketch=ready", "/app/board?sketch=live"]) {
       const res = await fetch(`${base}${path}`, { redirect: "manual" });
       expect(await res.text()).not.toContain(SKETCH_MARKER);
     }
@@ -241,7 +241,7 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
     expect(await res.json()).toEqual({ ok: false, database: "down", network: "Base Sepolia", payments: "off" });
   });
 
-  it.each(["/", "/login", "/board", "/api/health"])("%s carries the security headers", async (path) => {
+  it.each(["/", "/login", "/app/board", "/api/health"])("%s carries the security headers", async (path) => {
     const res = await fetch(`${base}${path}`, { redirect: "manual" });
     const csp = res.headers.get("content-security-policy") ?? "";
     expect(csp).toContain("frame-ancestors 'none'");

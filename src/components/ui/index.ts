@@ -22,4 +22,5 @@ export { Tooltip } from "./Tooltip";
 export type { TooltipProps } from "./Tooltip";
 
 export { Skeleton } from "./Skeleton";
+export { SkeletonCards, SkeletonRows, SkeletonPanel } from "./Skeletons";
 export type { SkeletonProps } from "./Skeleton";

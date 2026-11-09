@@ -23,6 +23,16 @@ import { DELETE as deleteConversation } from "./conversations/[id]/route";
 import { PATCH as setKind } from "./conversations/[id]/sketch/route";
 import { GET as admin } from "./admin/route";
 import { POST as decideAccess } from "./admin/access/[id]/route";
+import { POST as rentAgent } from "./market/agents/[id]/rent/route";
+import { POST as listAgent } from "./agents/[id]/listing/route";
+import { POST as installRentalRoute } from "./rentals/[id]/install/route";
+import { POST as controlRental } from "./rentals/[id]/control/route";
+import { POST as versionRental } from "./rentals/[id]/version/route";
+import { POST as askRoute } from "./requests/route";
+import { POST as requestAction } from "./requests/[id]/route";
+import { POST as offerRoute } from "./requests/[id]/offers/route";
+import { POST as offerAction } from "./offers/[id]/route";
+import { publishedAgent } from "@/test/runtimeFixtures";
 
 // Phase 0's protections through the real routes, on an in-memory Postgres
 // with the real migrations: the daily message limit, the site's spend
@@ -163,7 +173,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await client.exec(
-    "delete from helper_uses; delete from reply_usage; delete from helper_prices; delete from published_helpers; delete from agent_sketches; delete from messages; delete from conversations; delete from users;",
+    "delete from request_votes; delete from request_offers; delete from requests; delete from rental_charges; delete from rentals; delete from agent_listings; delete from agent_versions; delete from agents; delete from helper_uses; delete from reply_usage; delete from helper_prices; delete from published_helpers; delete from agent_sketches; delete from messages; delete from conversations; delete from users;",
   );
   ana = await addUser(db, "ana");
   ben = await addUser(db, "ben");
@@ -581,5 +591,79 @@ describe("a helper's one line", () => {
     expect((await ok.json()).helper.description).toBe(line);
     const long = await publish(json("/api/helpers", "POST", { conversationId: await answerSketch(ana), description: `${line}A`, inputHint: "A product" }));
     expect(long.status).toBe(400);
+  });
+});
+
+describe("the market", () => {
+  // Ben's agent on the board, a request of Ben's with Ben's offer on it,
+  // and a rental of it for whoever asks.
+  async function market() {
+    const p = await publishedAgent(db, ben);
+    await db.insert(schema.agentListings).values({ agentId: p.agent.id, versionId: p.version.id, weeklyPrice: "0" });
+    const [request] = await db.insert(schema.requests).values({ userId: ana.id, need: "Count sign-ups" }).returning();
+    const [offer] = await db.insert(schema.requestOffers).values({ requestId: request!.id, makerUserId: ben.id, agentId: p.agent.id, weeklyPrice: "0" }).returning();
+    return { agentId: p.agent.id, requestId: request!.id, offerId: offer!.id };
+  }
+
+  it("turns a waiting account away from renting, setting up, asking, offering and accepting", async () => {
+    const m = await market();
+    const jo = await addUser(db, "jo", "maker_2207", "waiting");
+    const [rental] = await db.insert(schema.rentals).values({ agentId: m.agentId, versionId: (await db.select().from(schema.agentVersions))[0]!.id, renterUserId: jo.id, makerUserId: ben.id, weeklyPrice: "0", status: "unpaid", paidUntil: new Date() }).returning();
+    const [joAgent] = await db.insert(schema.agents).values({ ownerUserId: jo.id, name: "Mine" }).returning();
+    state.user = jo;
+    const r = { params: { id: rental!.id } };
+    const waiting = { error: "boardofserv is invite-only for now, and your account is on the list.", access: "waiting" };
+    for (const res of [
+      await rentAgent(json(`/api/market/agents/${m.agentId}/rent`, "POST"), { params: { id: m.agentId } }),
+      await listAgent(json(`/api/agents/${joAgent!.id}/listing`, "POST", { weeklyPrice: "0", jobFee: "0", listed: true }), { params: { id: joAgent!.id } }),
+      await installRentalRoute(json(`/api/rentals/${rental!.id}/install`, "POST", { settings: {}, rules: {}, timezone: "UTC" }), r),
+      await controlRental(json(`/api/rentals/${rental!.id}/control`, "POST", { action: "resume" }), r),
+      await versionRental(json(`/api/rentals/${rental!.id}/version`, "POST", { choice: "update" }), r),
+      await askRoute(json("/api/requests", "POST", { need: "Something" })),
+      await requestAction(json(`/api/requests/${m.requestId}`, "POST", { action: "metoo" }), { params: { id: m.requestId } }),
+      await offerRoute(json(`/api/requests/${m.requestId}/offers`, "POST", { agentId: joAgent!.id, weeklyPrice: "0" }), { params: { id: m.requestId } }),
+      await offerAction(json(`/api/offers/${m.offerId}`, "POST", { action: "accept" }), { params: { id: m.offerId } }),
+    ]) {
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual(waiting);
+    }
+    expect(await db.select().from(schema.requests)).toHaveLength(1);
+    // Pausing and cancelling are always allowed.
+    expect((await controlRental(json(`/api/rentals/${rental!.id}/control`, "POST", { action: "cancel" }), r)).status).toBe(200);
+  });
+
+  it("pauses renting, asking and offering once the site's day budget is spent, except on one's own key", async () => {
+    const m = await market();
+    await usageAt(new Date(), { promptTokens: 100_000_000 });
+    const tried = async () => [
+      await rentAgent(json(`/api/market/agents/${m.agentId}/rent`, "POST"), { params: { id: m.agentId } }),
+      await askRoute(json("/api/requests", "POST", { need: "Something" })),
+    ];
+    for (const res of await tried()) {
+      expect(res.status).toBe(429);
+      expect((await res.json()).error).toBe(LIMIT_MESSAGE);
+    }
+    state.user = ben;
+    const offered = await offerRoute(json(`/api/requests/${m.requestId}/offers`, "POST", { agentId: m.agentId, weeklyPrice: "0" }), { params: { id: m.requestId } });
+    expect(offered.status).toBe(429);
+    // "Me too" spends nothing.
+    expect((await requestAction(json(`/api/requests/${m.requestId}`, "POST", { action: "metoo" }), { params: { id: m.requestId } })).status).toBe(200);
+    // On her own key, Ana goes on.
+    state.user = ana;
+    await saveKey(json("/api/account/serv-key", "POST", { key: OWN_KEY }));
+    state.user = (await db.select().from(schema.users).where(eq(schema.users.id, ana.id)))[0];
+    const [rented, asked] = await tried();
+    expect(rented!.status).toBe(201);
+    expect(asked!.status).toBe(201);
+  });
+
+  it("caps each person's market actions a day at the chat's limit", async () => {
+    vi.stubEnv("CHAT_DAILY_LIMIT", "3");
+    // Ana's request on the market counts as one.
+    await market();
+    for (const need of ["One", "Two"]) expect((await askRoute(json("/api/requests", "POST", { need }))).status).toBe(201);
+    const third = await askRoute(json("/api/requests", "POST", { need: "Three" }));
+    expect(third.status).toBe(429);
+    expect((await third.json()).error).toMatch(/^That's 3 things on the market today, the daily limit\./);
   });
 });

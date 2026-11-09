@@ -10,7 +10,7 @@ export default function NotFound() {
         <Wordmark />
         <h1 className={styles.title}>Nothing on this board</h1>
         <p className={styles.note}>this page was wiped clean</p>
-        <Link href="/chat" className={styles.back}>
+        <Link href="/app/chat" className={styles.back}>
           Back to your agents
         </Link>
       </div>

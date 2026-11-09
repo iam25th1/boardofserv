@@ -201,6 +201,32 @@ deploy again, or `pier restart boardofserv`.
 4. Set `BOS_AGENT_WORKER` back on (remove it, or set it to anything but 0)
    in the dashboard, then restart the service.
 
+### After the deploy that brings the market
+
+1. `pier deploy boardofserv`. The schema push adds the new tables
+   (`agent_listings`, `rentals`, `rental_charges`, `requests`,
+   `request_votes`, `request_offers`, `support_messages`) and columns
+   (`holds.kind`, `holds.job_id`, `agent_jobs.fee_hold_id`). Nothing existing
+   changes.
+2. Check the moved pages: `https://boardofserv.25th.dev/` is the landing
+   page, and `/chat` answers 308 to `/app/chat`. The Telegram webhook, the
+   Google callback and `/api/health` didn't move, so nothing outside needs
+   changing. Privy's allowed origin is the same site.
+3. Sign in once as the admin (the first account in `ADMIN_USER_IDS`), then
+   put the example agents on the board, from the deploy folder with the
+   production environment:
+
+   ```sh
+   cd ~/.boardofserv/app
+   set -a; . ~/boardofserv/.env.local; set +a
+   npx vite-node --config vitest.config.ts scripts/import-examples.ts
+   ```
+
+   It makes no model call and prints each example and whether it was put on
+   the board or was there already.
+4. Fill in the support email and response time on `/support`, and have the
+   draft terms and privacy pages reviewed before taking them out of draft.
+
 ## Logs
 
 ```sh

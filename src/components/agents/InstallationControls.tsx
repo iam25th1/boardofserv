@@ -31,7 +31,7 @@ export function when(iso: string | null, timezone: string): string {
   }
 }
 
-export function Glance({ data, jobHref = (id) => `/jobs/${id}` }: { data: InstallationDTO; jobHref?: (jobId: string) => string }) {
+export function Glance({ data, jobHref = (id) => `/app/jobs/${id}` }: { data: InstallationDTO; jobHref?: (jobId: string) => string }) {
   return (
     <dl className={styles.glance}>
       <div>

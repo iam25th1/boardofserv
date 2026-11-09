@@ -39,7 +39,7 @@ const idToken = (email: string) => `x.${Buffer.from(JSON.stringify({ email })).t
 
 describe("connecting Google", () => {
   it("asks for sheets and lasting access, with a state tied to this browser", async () => {
-    const { url, state } = await startGoogle(rt, owner.id, "/installations/abc");
+    const { url, state } = await startGoogle(rt, owner.id, "/app/installations/abc");
     const u = new URL(url);
     expect(u.origin + u.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
     expect(Object.fromEntries(u.searchParams)).toMatchObject({
@@ -57,14 +57,14 @@ describe("connecting Google", () => {
   });
 
   it("keeps the tokens when the code comes back to the browser that started, once", async () => {
-    const { state } = await startGoogle(rt, owner.id, "/connections");
+    const { state } = await startGoogle(rt, owner.id, "/app/connections");
     const sent: Record<string, unknown>[] = [];
     rt.net.on("https://oauth2.googleapis.com/token", (req) => {
       sent.push(req.json());
       return Response.json({ access_token: "acc-1", refresh_token: "ref-1", expires_in: 3599, scope: "openid https://www.googleapis.com/auth/spreadsheets email", id_token: idToken("shop@example.com") });
     });
     const done = await finishGoogle(rt, { state, cookie: state, code: "the-code", error: null });
-    expect(done).toEqual({ ownerUserId: owner.id, returnTo: "/connections" });
+    expect(done).toEqual({ ownerUserId: owner.id, returnTo: "/app/connections" });
     expect(sent[0]).toMatchObject({ code: "the-code", grant_type: "authorization_code", client_secret: "test-google-secret", redirect_uri: "https://boardofserv.test/api/connections/google/callback" });
     expect(await secretOf(rt, owner.id, "google")).toMatchObject({ refreshToken: "ref-1", accessToken: "acc-1" });
     const [c] = await db.select().from(schema.connections).where(eq(schema.connections.ownerUserId, owner.id));
@@ -74,15 +74,15 @@ describe("connecting Google", () => {
   });
 
   it("refuses a state from another browser, one too old, a refusal at Google, and access without sheets", async () => {
-    const a = await startGoogle(rt, owner.id, "/connections");
+    const a = await startGoogle(rt, owner.id, "/app/connections");
     await expect(finishGoogle(rt, { state: a.state, cookie: "someone-else", code: "c", error: null })).rejects.toThrow(/didn't start in this browser/);
     await expect(finishGoogle(rt, { state: a.state, cookie: null, code: "c", error: null })).rejects.toThrow(/didn't start in this browser/);
-    const b = await startGoogle(rt, owner.id, "/connections");
+    const b = await startGoogle(rt, owner.id, "/app/connections");
     rt.clock.move(10 * 60_000 + 1);
     await expect(finishGoogle(rt, { state: b.state, cookie: b.state, code: "c", error: null })).rejects.toThrow(/took too long/);
-    const c = await startGoogle(rt, owner.id, "/connections");
+    const c = await startGoogle(rt, owner.id, "/app/connections");
     await expect(finishGoogle(rt, { state: c.state, cookie: c.state, code: null, error: "access_denied" })).rejects.toThrow("You said no at Google, so nothing was connected.");
-    const d = await startGoogle(rt, owner.id, "/connections");
+    const d = await startGoogle(rt, owner.id, "/app/connections");
     rt.net.on("https://oauth2.googleapis.com/token", () => Response.json({ access_token: "a", refresh_token: "r", expires_in: 3600, scope: "openid email" }));
     await expect(finishGoogle(rt, { state: d.state, cookie: d.state, code: "c", error: null })).rejects.toThrow(/tick the box for Google Sheets/);
   });
@@ -92,7 +92,7 @@ describe("connecting Google", () => {
     const [row] = await db.select().from(schema.googleOAuthStates).orderBy(schema.googleOAuthStates.createdAt);
     expect(row).toBeTruthy();
     rt.net.on("https://oauth2.googleapis.com/token", () => Response.json({ access_token: "a", refresh_token: "r", expires_in: 3600, scope: "https://www.googleapis.com/auth/spreadsheets" }));
-    expect((await finishGoogle(rt, { state, cookie: state, code: "c", error: null })).returnTo).toBe("/connections");
+    expect((await finishGoogle(rt, { state, cookie: state, code: "c", error: null })).returnTo).toBe("/app/connections");
   });
 });
 

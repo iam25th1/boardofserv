@@ -4,7 +4,8 @@ import Link from "next/link";
 import type { AccountDTO } from "@/lib/types";
 import { Button } from "@/components/ui";
 import { SignOutIcon } from "@/components/icons";
-import { animateDrop, animateStateChange } from "@/lib/motion";
+import { animateOpenFrom, animateStateChange } from "@/lib/motion";
+import { usePresence } from "@/lib/usePresence";
 import { normalHandle } from "@/lib/handles";
 import { HandleInput, useHandleStatus, type HandleCheck } from "./HandleField";
 import styles from "./AccountMenu.module.css";
@@ -30,12 +31,13 @@ const CREDIT_TEXT: Record<CreditState, string> = {
   unknown: "Credit unknown",
 };
 
-// The account menu at the right of the top bar. The avatar ring follows the
-// agents popover's language: a solid ring when all is well, a dashed one when
-// something is waiting on you (a linked OpenServ account low on credit).
+// The account menu at the right of the top bar: the account's initial in a
+// ring and its @handle beside it. The ring follows the agents popover's
+// language: solid when all is well, dashed when something is waiting on you
+// (a linked OpenServ account low on credit).
 export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, onSaveHandle, onSaveServKey, onRemoveServKey, startOpen }: Props) {
   const [open, setOpen] = useState(Boolean(startOpen));
-  const panel = useRef<HTMLDivElement>(null);
+  const { shown, ref: panel } = usePresence<HTMLDivElement>(open);
   const wrap = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const panelId = useId();
@@ -43,9 +45,10 @@ export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, 
   const credit: CreditState | null = account?.linked ? account.balance : null;
   const needsYou = credit === "low";
 
+  // It opens from the account button and fades away when it closes.
   useEffect(() => {
-    if (open && panel.current) animateDrop(panel.current);
-  }, [open]);
+    if (open && panel.current) animateOpenFrom(panel.current, trigger.current);
+  }, [open, panel]);
 
   // A quiet cue on the avatar when the credit state changes under the user,
   // for example after a reply spends the last of it.
@@ -75,7 +78,8 @@ export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, 
   }, [open]);
 
   const email = account?.email ?? "Signed in";
-  const initial = (account?.email ?? "b").charAt(0).toUpperCase();
+  const handle = account?.handle ?? null;
+  const initial = (handle ?? account?.email ?? "b").charAt(0).toUpperCase();
 
   return (
     <div className={styles.wrap} ref={wrap}>
@@ -86,16 +90,21 @@ export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, 
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-controls={panelId}
-        aria-label={`Account, ${email}${credit ? `. ${CREDIT_TEXT[credit]}` : ""}`}
+        aria-label={`Account${handle ? `, @${handle}` : ""}, ${email}${credit ? `. ${CREDIT_TEXT[credit]}` : ""}`}
         data-needs-you={needsYou ? "true" : "false"}
       >
         <span className={styles.avatar} aria-hidden="true">
           {initial}
         </span>
+        {handle && (
+          <span className={styles.handle} aria-hidden="true">
+            @{handle}
+          </span>
+        )}
       </button>
 
-      {open && (
-        <div className={styles.panel} ref={panel} id={panelId}>
+      {shown && (
+        <div className={styles.panel} ref={panel} id={panelId} aria-hidden={open ? undefined : true} style={open ? undefined : { pointerEvents: "none" }}>
           <div className={styles.section}>
             <p className={styles.label}>Signed in as</p>
             <p className={styles.value}>{email}</p>
@@ -127,17 +136,17 @@ export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, 
           <div className={styles.section}>
             <p className={styles.label}>Wallet and agents</p>
             <div className={styles.links}>
-              <Link className={styles.topup} href="/wallet">
+              <Link className={styles.topup} href="/app/wallet">
                 Balance, top up and earnings
               </Link>
-              <Link className={styles.topup} href="/agents">
+              <Link className={styles.topup} href="/app/agents">
                 Agents you&apos;re building
               </Link>
-              <Link className={styles.topup} href="/connections">
+              <Link className={styles.topup} href="/app/connections">
                 Connections: Telegram and Google
               </Link>
               {account?.admin && (
-                <Link className={styles.topup} href="/admin">
+                <Link className={styles.topup} href="/app/admin">
                   Admin
                 </Link>
               )}

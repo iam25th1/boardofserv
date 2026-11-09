@@ -153,8 +153,11 @@ function words(v: unknown): string {
   return String(v);
 }
 
-// Words for a message to the owner, from whatever the step reads.
+// Words for a message to the owner, from whatever the step reads: a lone
+// piece of text as it is, anything else labelled.
 function summary(input: Record<string, unknown>): string {
+  const values = Object.values(input);
+  if (values.length === 1 && typeof values[0] === "string") return values[0].slice(0, 3000);
   return Object.entries(input)
     .map(([k, v]) => `${k.replace(/_/g, " ")}: ${words(v)}`)
     .join("\n")

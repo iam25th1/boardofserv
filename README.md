@@ -4,9 +4,10 @@ Live at **https://boardofserv.25th.dev** (Base Sepolia), served from this Mac
 by Pier: see [docs/DEPLOY-PIER.md](docs/DEPLOY-PIER.md).
 
 A chat where you describe an agent in plain English and it gets built for you on
-[OpenServ](https://openserv.ai). This is phase 1, the app shell: email login,
-linking each user to their own OpenServ account, and the conversation. Building
-agents is the next phase. The chat is the product, so it got the most care.
+[OpenServ](https://openserv.ai), and a market where makers rent agents out by
+the week and people ask for the ones they need. The public landing page is at
+`/` (with `/about`, `/terms`, `/privacy` and `/support`); the app lives under
+`/app`.
 
 ## Stack
 
@@ -778,6 +779,105 @@ calls); with `TELEGRAM_BOT_TOKEN` and `LIVE_TELEGRAM_CHAT` it asks in that
 real chat too. A production
 build has none of this (`src/test/demo-unreachable.test.ts` checks the
 build).
+
+## The market
+
+### Routes
+
+The landing page is `/`; it never redirects, and a signed-in visitor gets an
+"Open the app" button. The app's pages moved under `/app`, and their old
+addresses redirect there permanently (308), queries kept: `/chat` to
+`/app/chat`, and the same for `board`, `agents`, `installations`,
+`approvals`, `jobs`, `wallet`, `connections` and `admin`, each with every
+path under it (`next.config.mjs`). Helper pages stay at `/h/[slug]`. Every
+`/api` path stays where it was, above all the ones outside services call:
+the Telegram webhook (`/api/telegram/webhook`), Google's callback
+(`/api/connections/google/callback`) and `/api/health`.
+
+New pages: `/app/board` (agents and helpers), `/app/board/agents/[id]` (an
+agent's page), `/app/rentals` and `/app/rentals/[id]` (what you rent),
+`/app/rentals/[id]/setup`, `/app/agents/[id]/dashboard` (the maker's view),
+`/app/requests` and `/app/requests/[id]`.
+
+### Listing and renting
+
+From an agent's builder, once a version is published, its maker puts it on
+the board for rent at a weekly price in USDC and, if they like, a fee per
+job (`POST /api/agents/:id/listing`). The board (`GET /api/board`) lists
+agents with what they do, what they connect to, their prices, how many rent
+them, their maker and a quality and trust placeholder ("not enough reviewed
+jobs yet"), filtered by connection, price and kind, with a search. An
+agent's page (`GET /api/market/agents/:id`) shows its steps in plain words,
+what it asks at setup, what it never does without asking and all it can
+ever do: never its code, its prompts or its test bench.
+
+Renting (`POST /api/market/agents/:id/rent`) charges the first week from the
+renter's balance through the ledger the way a paid use is charged: held,
+then captured, 90% to the maker and 10% to the platform. Each week is
+charged once (`rental_charges`). The renter then sets it up with the guided
+setup, as its owner (`POST /api/rentals/:id/install`), given only what setup
+needs (name, questions, rules, schedule, connections). The worker's cycle
+renews each week while the balance covers it; when it doesn't, the rental
+is unpaid and its installation pauses with a plain message and a top-up
+link, and resuming from the rental pays the week first. Cancelling stops
+renewal at the end of the paid week. A fee per job is held before the job
+first runs, captured when it finishes and released when it fails or is
+stopped; test runs are free, and a balance that doesn't cover the fee fails
+the job before it does anything (`src/lib/market/charges.ts`,
+`rentals.ts`).
+
+The renter's pages show its state and controls (run now, pause, resume,
+cancel, keep renting), the paid week, the next run, questions waiting,
+recent jobs with their timelines, and the money: this week's cost, spent so
+far, fees set aside, and the renewal date (`GET /api/rentals`,
+`GET /api/rentals/:id`, `POST /api/rentals/:id/control`).
+
+### The maker's dashboard and versions
+
+`GET /api/agents/:id/dashboard` (maker only): earnings by week (the maker's
+share of rent and fees), renters by handle, renters' jobs finished in the
+last 30 days, failures grouped by the step that failed (never by what the
+job saw), versions and who runs each, and its runs for real with renters'
+data hidden. Publishing a new version moves the board to it and offers it to
+everyone renting an older one, on their rental page and in Telegram; each
+updates or stays (`POST /api/rentals/:id/version`). An update keeps their
+answers; a breaking one (a setup question added, removed or changed, or a
+new connection) stops what runs and asks for setting up again.
+
+### The request board
+
+Anyone can browse `/app/requests`, most wanted or newest first. Signed in,
+people ask for an agent (`POST /api/requests`: what it should do, details,
+connections, a weekly budget), say "me too", and makers offer one of their
+published agents with a note and a price (`POST /api/requests/:id/offers`).
+The one who asked accepts an offer (`POST /api/offers/:id`), which rents
+that agent at the offer's price, or closes the request.
+
+### Limits
+
+Invite-only covers renting, setting up, resuming, listing, asking, "me too",
+offering and accepting. Each person's market actions a day (rentals, requests,
+offers, "me too") are capped at `CHAT_DAILY_LIMIT`, counted on their own.
+Once the site's day budget (`DAILY_SPEND_LIMIT_USD`) is spent, renting,
+setting up, resuming, asking and offering pause like chat does, except on
+one's own SERV key (`src/lib/market/limits.ts`).
+
+### The examples on the board
+
+Three examples go on the board free, owned by the first account in
+`ADMIN_USER_IDS`: the restock agent, a morning sheet report (a short summary
+of what changed in a sheet, on Telegram) and an enquiry follow-up (drafts a
+reply to the oldest new enquiry in a sheet and asks before recording it as
+ready to send). The two new ones were built through the real pipeline by
+`scripts/seed-examples.ts` (`SEED_EXAMPLE=sheet-report` or
+`lead-followup`, with the same budgets and call list as `seed-restock.ts`).
+`scripts/import-examples.ts` puts all three on the board from their saved
+files, with no model call; running it again changes nothing.
+
+### Seeing it without a sign-in
+
+In development, `/demo?market=board|agent|rentals|rental|maker|requests|request`
+shows each market screen with sample data.
 
 ## Payments
 

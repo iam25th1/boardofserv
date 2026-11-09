@@ -98,7 +98,7 @@ describe("a paid helper's page", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: "USDC" }));
     expect(screen.getByText(/0.25 USDC a use, 0.10 USDC left. Not enough for a use./)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Top up" }).getAttribute("href")).toBe("/wallet");
+    expect(screen.getByRole("link", { name: "Top up" }).getAttribute("href")).toBe("/app/wallet");
     fireEvent.change(screen.getByLabelText("What to give Shop blurbs"), { target: { value: "Hi" } });
     expect((screen.getByRole("button", { name: "Ask" }) as HTMLButtonElement).disabled).toBe(true);
   });

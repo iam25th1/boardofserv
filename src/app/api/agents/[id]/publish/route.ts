@@ -1,13 +1,16 @@
 import { builderOf } from "@/lib/agents/builderData";
 import { ownedAgent } from "@/lib/agents/owned";
+import { serverRuntime } from "@/lib/agents/runtime/context";
 import { draftOf, publishDraft } from "@/lib/agents/store";
+import { offerVersion } from "@/lib/market/versions";
 
 export const runtime = "nodejs";
 
 // Publish the draft as a version that never changes again. It shows as "in
-// testing" on the maker's own agents page; it doesn't go on the board for
-// renting yet. Only a planned draft, not building, with every code step's
-// code approved, can be published.
+// testing" on the maker's own agents page until its maker lists it for
+// rent; once listed, new renters get the newest version and those renting
+// an older one are offered it (update or stay). Only a planned draft, not
+// building, with every code step's code approved, can be published.
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const who = await ownedAgent(req, params.id);
   if ("refused" in who) return who.refused;
@@ -21,5 +24,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
   const published = await publishDraft(who.agent.id);
   if (!published) return Response.json({ error: "It could not be published just now. Try again." }, { status: 409 });
+  await offerVersion(serverRuntime(), who.agent.id, published);
   return Response.json({ builder: await builderOf(who.agent, published) });
 }

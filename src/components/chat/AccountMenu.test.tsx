@@ -40,11 +40,13 @@ afterEach(() => {
 describe("Your handle", () => {
   it("shows the handle, and says when it was picked at random", () => {
     open();
-    expect(screen.getByText("@maker_4821")).toBeInTheDocument();
+    // On the button and in the menu.
+    expect(screen.getAllByText("@maker_4821")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: /^Account, @maker_4821/ })).toBeInTheDocument();
     expect(screen.getByText("picked at random")).toBeInTheDocument();
     cleanup();
     open({ ...ACCOUNT, handle: "maya_r", handleChosen: true });
-    expect(screen.getByText("@maya_r")).toBeInTheDocument();
+    expect(screen.getAllByText("@maya_r")).toHaveLength(2);
     expect(screen.queryByText("picked at random")).toBeNull();
   });
 
@@ -119,7 +121,7 @@ describe("Your handle", () => {
     type("something_else");
     fireEvent.keyDown(input(), { key: "Escape" });
     expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.getByText("@maker_4821")).toBeInTheDocument();
+    expect(screen.getAllByText("@maker_4821")).toHaveLength(2);
     expect(screen.getByText("Signed in as")).toBeInTheDocument();
   });
 });

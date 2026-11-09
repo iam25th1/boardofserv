@@ -28,7 +28,7 @@ export async function GET(req: Request) {
     return back(done.returnTo, { google: "connected" });
   } catch (err) {
     if (err instanceof CallbackRefused) return back(err.returnTo, { google: "refused", why: err.message });
-    if (err instanceof GoogleUnavailable) return back("/connections", { google: "refused", why: "Google couldn't be reached just now. Try again in a minute." });
+    if (err instanceof GoogleUnavailable) return back("/app/connections", { google: "refused", why: "Google couldn't be reached just now. Try again in a minute." });
     throw err;
   }
 }

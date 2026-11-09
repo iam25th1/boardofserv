@@ -1,4 +1,5 @@
 import "server-only";
+import { fixDashes } from "../../dashes";
 import { eq, sql } from "drizzle-orm";
 import { agentFetchDays, agentInstallations, agentMessages, agentToolDays, type AgentInstallation, type AgentJob, type SheetGrant } from "../../db/schema";
 import { GoogleRevoked, GoogleUnavailable, REVOKED_REASON } from "../../google/oauth";
@@ -54,7 +55,7 @@ export class JobTools implements ToolHost {
       const parsed = TOOL_ARGS["telegram.ask"].safeParse(args);
       if (!parsed.success) throw new ToolError(tool, "telegram.ask was called wrongly: it takes { question, choices? }.");
       // The owner's answer, once it has come; until then the job waits.
-      if (!approval) throw new Paused({ kind: "ask", question: parsed.data.question, choices: parsed.data.choices?.length ? parsed.data.choices : ["Yes", "No"] });
+      if (!approval) throw new Paused({ kind: "ask", question: fixDashes(parsed.data.question), choices: parsed.data.choices?.length ? parsed.data.choices : ["Yes", "No"] });
       if (approval.answer === null) throw new Declined(null);
       return { answer: approval.answer };
     }
@@ -81,7 +82,8 @@ export class JobTools implements ToolHost {
       if (!parsed.success) throw new ToolError(tool, "telegram.send was called wrongly: it takes { text }.");
       // To the owner's message box, and their linked Telegram chat: the
       // only place it can go (telegram/deliver.ts).
-      await this.rt.db.insert(agentMessages).values({ installationId: this.installation.id, from: "agent", text: parsed.data.text, jobId: this.job?.id ?? null, tgState: "pending", createdAt: this.rt.now() });
+      // Words people read carry no em dashes, as in chat.
+      await this.rt.db.insert(agentMessages).values({ installationId: this.installation.id, from: "agent", text: fixDashes(parsed.data.text), jobId: this.job?.id ?? null, tgState: "pending", createdAt: this.rt.now() });
       return { sent: true };
     }
     const mock = await this.mocks();

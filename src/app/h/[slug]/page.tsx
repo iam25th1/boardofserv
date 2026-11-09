@@ -2,10 +2,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
-import { TopBar, TopLink } from "@/components/chat/TopBar";
+import { Page } from "@/components/shell/Page";
 import { Message } from "@/components/chat/Message";
 import { Thinking } from "@/components/chat/Thinking";
-import { Button, Textarea } from "@/components/ui";
+import { Button, Textarea, SkeletonPanel } from "@/components/ui";
 import { privyAppId } from "@/lib/privy-config";
 import { formatAmount } from "@/lib/money";
 import { fetchHelper, type HelperPage } from "@/lib/publicApi";
@@ -37,9 +37,7 @@ export default function HelperPageView({ params }: { params: { slug: string } })
   }, [load]);
 
   return (
-    <div className={styles.page}>
-      <TopBar agents={<TopLink href="/chat">Your agents</TopLink>} />
-      <main className={styles.col}>
+    <Page>
         {failed ? (
           <div className={styles.gone}>
             <p>This helper could not load.</p>
@@ -48,18 +46,18 @@ export default function HelperPageView({ params }: { params: { slug: string } })
             </Button>
           </div>
         ) : page === null ? (
-          <p className={styles.loading}>getting the helper</p>
+          <SkeletonPanel label="Getting the helper" lines={4} />
         ) : "missing" in page ? (
           <div className={styles.gone}>
             <h1>Nothing on this board</h1>
             <p className={styles.note}>no helper goes by that name</p>
-            <Link href="/board">See the board</Link>
+            <Link href="/app/board">See the board</Link>
           </div>
         ) : "takenDown" in page ? (
           <div className={styles.gone}>
             <h1>{page.takenDown}</h1>
             <p>This helper was taken down.</p>
-            <Link href="/board">See what else is on the board</Link>
+            <Link href="/app/board">See what else is on the board</Link>
           </div>
         ) : (
           <>
@@ -79,8 +77,7 @@ export default function HelperPageView({ params }: { params: { slug: string } })
             )}
           </>
         )}
-      </main>
-    </div>
+    </Page>
   );
 }
 
@@ -302,7 +299,7 @@ function UsePanel({ helper, onPrices }: { helper: PublicHelperDTO; onPrices: (pr
             {paid && short && balances && (
               <>
                 {" "}
-                <Link href="/wallet">Top up</Link>
+                <Link href="/app/wallet">Top up</Link>
               </>
             )}
           </p>

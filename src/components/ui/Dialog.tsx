@@ -1,7 +1,8 @@
 "use client";
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { animateEnter } from "@/lib/motion";
+import { animateOpenFrom } from "@/lib/motion";
+import { usePresence } from "@/lib/usePresence";
 import styles from "./Dialog.module.css";
 
 export interface DialogProps {
@@ -15,8 +16,10 @@ export interface DialogProps {
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+// It opens from the control that opened it (growing from that side) and
+// fades out when it closes, rather than popping.
 export function Dialog({ open, onClose, title, children, actions }: DialogProps) {
-  const panelRef = React.useRef<HTMLDivElement>(null);
+  const { shown, ref: panelRef } = usePresence<HTMLDivElement>(open);
   const titleId = React.useId();
   const [mounted, setMounted] = React.useState(false);
 
@@ -29,7 +32,7 @@ export function Dialog({ open, onClose, title, children, actions }: DialogProps)
     const panel = panelRef.current;
     if (!panel) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    animateEnter(panel);
+    animateOpenFrom(panel, previouslyFocused);
     panel.focus();
 
     function onKeyDown(e: KeyboardEvent) {
@@ -63,16 +66,16 @@ export function Dialog({ open, onClose, title, children, actions }: DialogProps)
       document.removeEventListener("keydown", onKeyDown);
       previouslyFocused?.focus?.();
     };
-  }, [open, mounted, onClose]);
+  }, [open, mounted, onClose, panelRef]);
 
-  if (!open || !mounted) return null;
+  if (!shown || !mounted) return null;
 
   function onScrimMouseDown(e: React.MouseEvent<HTMLDivElement>) {
     if (e.target === e.currentTarget) onClose();
   }
 
   return createPortal(
-    <div className={styles.scrim} onMouseDown={onScrimMouseDown}>
+    <div className={styles.scrim} onMouseDown={onScrimMouseDown} data-closing={open ? undefined : "true"}>
       <div
         ref={panelRef}
         className={styles.panel}
