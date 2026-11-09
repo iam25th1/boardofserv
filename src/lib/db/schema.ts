@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { CURRENCIES } from "../money";
 
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
@@ -9,7 +9,12 @@ import { CURRENCIES } from "../money";
 //
 // The handle is the user's public name (without the @), unique ignoring case.
 // New users get a random one like maker_4821 until they choose their own (see
-// handles.ts). The email is never public: only its owner's account menu shows it.
+// handles.ts). The email is never public: only its owner's account menu shows
+// it, and the admin's list of accounts waiting to get in.
+//
+// access: while INVITE_ONLY is on, every account starts "waiting" and sees
+// the waitlist until an admin approves it ("approved") or turns it away
+// ("rejected"); see access.ts. Admins are always let in.
 export const users = pgTable(
   "users",
   {
@@ -22,6 +27,14 @@ export const users = pgTable(
     // OpenServ linkage.
     openservUserId: text("openserv_user_id"),
     openservKeyEncrypted: text("openserv_key_encrypted"),
+    // The user's own SERV inference key, encrypted the same way, and its last
+    // four characters, the only part ever shown. With it set, their chat and
+    // helper uses run on it (see servKey.ts).
+    servKeyEncrypted: text("serv_key_encrypted"),
+    servKeyLast4: text("serv_key_last4"),
+    access: text("access", { enum: ["waiting", "approved", "rejected"] }).notNull().default("waiting"),
+    accessDecidedBy: uuid("access_decided_by").references((): AnyPgColumn => users.id),
+    accessDecidedAt: timestamp("access_decided_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
@@ -61,7 +74,10 @@ export const messages = pgTable(
 );
 
 // One row per reply, to keep model usage visible. Never any message text.
-// provider is "serv", "fallback" or "demo", or null when nothing answered.
+// The row is written as the turn starts (so turns running at the same time
+// all count against the person's daily limit) and finished when it ends.
+// provider is "serv", "dolphin", "fallback" or "demo", or null when nothing
+// answered.
 // outcome: "ok" (the first provider answered), "fell_back" (a later one did)
 // or "failed" (nothing answered, or the reply was cut off mid-stream). Token
 // counts are whatever the provider reported, null when it reported none.
@@ -69,11 +85,19 @@ export const messages = pgTable(
 // reply then failed (older rows, from before the plan ran first, have null
 // when no reply was given).
 // Rows outlive their conversation, which is set to null when it is deleted.
+// user_id (null on rows from before it was kept) is who the turn was for, so
+// the daily limit survives a deleted conversation. kind is "reply" for a
+// chat turn, "compile" for the call that writes a published helper's
+// instructions (its tokens in the reply columns). own_key marks a call made
+// on the person's own SERV key: it is not counted against anything.
 export const replyUsage = pgTable(
   "reply_usage",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    kind: text("kind", { enum: ["reply", "compile"] }).notNull().default("reply"),
+    ownKey: boolean("own_key").notNull().default(false),
     provider: text("provider"),
     model: text("model"),
     promptTokens: integer("prompt_tokens"),
@@ -89,9 +113,16 @@ export const replyUsage = pgTable(
     extractCompletionTokens: integer("extract_completion_tokens"),
     extractMs: integer("extract_ms"),
     extractOutcome: text("extract_outcome", { enum: ["ok", "fell_back", "failed"] }),
+    // Which provider and model the plan call ran on (null on older rows, from
+    // before Dolphin, when it could only be SERV or the backup).
+    extractProvider: text("extract_provider"),
+    extractModel: text("extract_model"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
-  (t) => ({ byCreated: index("reply_usage_created_idx").on(t.createdAt) }),
+  (t) => ({
+    byCreated: index("reply_usage_created_idx").on(t.createdAt),
+    byUserDay: index("reply_usage_user_idx").on(t.userId, t.createdAt),
+  }),
 );
 
 // The agent being sketched in a conversation, one row per conversation. Each
@@ -114,6 +145,8 @@ export const agentSketches = pgTable("agent_sketches", {
   gives: text("gives"),
   asking: text("asking", { enum: ["watches", "when", "how", "tells", "takes", "does", "gives"] }),
   live: boolean("live").notNull().default(false),
+  // The maker picked the kind on the dock; the plan leaves it alone from then on.
+  kindChosen: boolean("kind_chosen").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -150,6 +183,8 @@ export const publishedHelpers = pgTable(
 // latency and outcome ("ok", "blocked" when the answer was stopped for
 // leaking its instructions, "failed" when no answer came). Never the input or
 // the answer. The rows also count each user's uses for the daily limit.
+// provider and model say what answered (null on older rows, which were all
+// SERV); own_key marks a use made on the person's own SERV key.
 export const helperUses = pgTable(
   "helper_uses",
   {
@@ -160,6 +195,9 @@ export const helperUses = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     promptTokens: integer("prompt_tokens"),
     completionTokens: integer("completion_tokens"),
+    provider: text("provider"),
+    model: text("model"),
+    ownKey: boolean("own_key").notNull().default(false),
     latencyMs: integer("latency_ms").notNull(),
     outcome: text("outcome", { enum: ["ok", "blocked", "failed"] }).notNull(),
     // The hold that pays for a paid use; null for a free one. Only free uses

@@ -31,7 +31,8 @@ export const SKETCH_SCHEMA = {
       kind: {
         type: "string",
         enum: [...SKETCH_KINDS, "none"],
-        description: "watcher reacts, digest summarizes, helper is an ongoing bot, answer replies once to what it is given",
+        description:
+          "answer (the default) replies once to what it is given; watcher only when they mention something to monitor; digest only when they mention a schedule; helper is an ongoing bot",
       },
       watches: text("what it monitors"),
       when: text("what triggers it"),

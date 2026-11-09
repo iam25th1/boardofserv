@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/chat/EmptyState";
 import { TopBar } from "@/components/chat/TopBar";
 import { Chips } from "@/components/chat/Chips";
 import { SketchDock } from "@/components/chat/SketchDock";
+import { chatLimitMessage, LIMIT_MESSAGE, messagesLeft } from "@/lib/limits";
 import { sketchFromDTO, type AgentSketch } from "@/lib/agentSketch";
 import type { StreamingView } from "@/components/chat/MessageList";
 import shell from "@/components/chat/ChatShell.module.css";
@@ -94,6 +95,7 @@ export function DemoHarness({
   sketchMode,
   backup,
   sketching,
+  limit = null,
 }: {
   state: string;
   balance: "ok" | "low";
@@ -104,6 +106,8 @@ export function DemoHarness({
   sketchMode?: string;
   backup?: boolean;
   sketching?: boolean;
+  // The composer's line: messages left today, or "paused" for the site's limit.
+  limit?: number | "paused" | null;
 }) {
   // Dev harness only: render after mount so the seeded, time-based data never
   // causes a server and client hydration mismatch.
@@ -111,6 +115,7 @@ export function DemoHarness({
   useEffect(() => setMounted(true), []);
   const replay = useReplay(state === "replay", repeat);
   const [sketch, setSketch] = useState<AgentSketch | null>(null);
+  const [servKey, setServKey] = useState<{ last4: string } | null>(null);
   useEffect(() => {
     if (process.env.NODE_ENV === "development" && (sketchMode === "demo" || sketchMode === "ready")) {
       void import("@/lib/agentSketch.fixture").then((f) => setSketch(sketchMode === "ready" ? f.ethWatcherReady : f.ethWatcher));
@@ -141,6 +146,7 @@ export function DemoHarness({
     openservUserId: "134829",
     linked: true,
     balance,
+    servKey,
   };
 
   const partial = "Here is what your agent would do.\n\n## A watcher for ETH\n\n1. Check the ETH price every minute.\n2. Compare it to the price";
@@ -173,12 +179,13 @@ export function DemoHarness({
         account={
           <AccountMenu
             account={account}
-            linking={false}
-            onLink={() => {}}
             onSignOut={() => {}}
             onOpenShortcuts={() => {}}
             checkHandle={demoCheckHandle}
             onSaveHandle={async () => {}}
+            // The SERV key is kept in this page only: its last four characters.
+            onSaveServKey={async (key) => setServKey({ last4: key.slice(-4) })}
+            onRemoveServKey={async () => setServKey(null)}
             startOpen={menuOpen}
           />
         }
@@ -200,6 +207,9 @@ export function DemoHarness({
       <Composer
         conversationKey="demo"
         busy={Boolean(streaming)}
+        disabled={limit === "paused" || limit === 0}
+        placeholder={limit === "paused" || limit === 0 ? "Back after midnight UTC" : undefined}
+        notice={limit === "paused" ? LIMIT_MESSAGE : limit === 0 ? chatLimitMessage({ limit: 30 }) : limit !== null ? messagesLeft(limit) : null}
         onSend={() => {}}
         onStop={() => {}}
         dock={
@@ -209,6 +219,7 @@ export function DemoHarness({
               canSwitch={sketchMode === "demo" || sketchMode === "ready"}
               sketching={sketching}
               onToggle={(live) => setSketch({ ...sketch, live })}
+              onKind={(kind) => setSketch({ ...sketch, kind })}
             />
           )
         }

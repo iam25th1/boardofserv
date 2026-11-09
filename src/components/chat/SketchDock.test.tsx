@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { sketchFromDTO } from "@/lib/agentSketch";
 import type { SketchDTO } from "@/lib/types";
 import { SketchDock } from "./SketchDock";
@@ -45,5 +45,24 @@ describe("SketchDock", () => {
     );
     expect([...container.querySelectorAll("svg text")].map((t) => t.textContent)).toEqual(["watch", "decide", "tell you"]);
     expect([...container.querySelectorAll("[data-field] small")].map((s) => s.textContent)).toEqual(["Keeps an eye on", "Acts when", "Checks", "Reaches you on"]);
+  });
+
+  it("has a small kind switch the maker can change, and none while its helper is on the board", () => {
+    const onKind = vi.fn();
+    render(<SketchDock sketch={sketchFromDTO(blurb)} onKind={onKind} />);
+    const kind = screen.getByRole("combobox", { name: "Kind" });
+    expect(kind).toHaveValue("answer");
+    expect([...kind.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["answer", "watcher", "digest", "helper"]);
+    fireEvent.change(kind, { target: { value: "digest" } });
+    expect(onKind).toHaveBeenCalledWith("digest");
+    cleanup();
+
+    render(<SketchDock sketch={sketchFromDTO({ ...blurb, gives: "the blurb", asking: null })} onKind={onKind} published="shop-blurb-writer" />);
+    expect(screen.getByRole("combobox", { name: "Kind" })).toBeDisabled();
+    cleanup();
+
+    // The development fixtures have no switch.
+    render(<SketchDock sketch={sketchFromDTO(blurb)} />);
+    expect(screen.queryByRole("combobox", { name: "Kind" })).toBeNull();
   });
 });

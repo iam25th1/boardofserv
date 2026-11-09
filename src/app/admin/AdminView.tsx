@@ -6,8 +6,9 @@ import type { AdminDTO, AdminWithdrawalDTO } from "@/lib/types";
 import type { useApi } from "@/lib/useApi";
 import styles from "./admin.module.css";
 
-// The admin page's body: the books, approvals, unmatched deposits, payout
-// history and the pause switch.
+// The admin page's body: today's model spend, accounts waiting to get in,
+// the books, approvals, unmatched deposits, payout history and the pause
+// switch.
 
 const STATUS_TEXT: Record<AdminWithdrawalDTO["status"], string> = {
   awaiting_approval: "waiting for approval",
@@ -19,9 +20,14 @@ const STATUS_TEXT: Record<AdminWithdrawalDTO["status"], string> = {
   failed: "failed, given back",
 };
 
+// Dollars to the cent, or to a hundredth of a cent below one cent.
+function usd(n: number): string {
+  return n > 0 && n < 0.01 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`;
+}
+
 // What the admin page asks of the server. The page passes the real calls;
 // the development demo passes canned ones.
-export type AdminApi = Pick<ReturnType<typeof useApi>, "getAdmin" | "adminPause" | "adminDecide">;
+export type AdminApi = Pick<ReturnType<typeof useApi>, "getAdmin" | "adminPause" | "adminDecide" | "adminAccess">;
 
 export function AdminBody({ api }: { api: AdminApi }) {
   const [data, setData] = useState<AdminDTO | null>(null);
@@ -68,8 +74,59 @@ export function AdminBody({ api }: { api: AdminApi }) {
       </a>
     ) : null;
 
+  const spent = data.spend.today >= data.spend.limit;
   return (
     <>
+      <section className={styles.section} aria-labelledby="spend-h">
+        <h2 id="spend-h">Model spend today</h2>
+        <p className={styles.spend}>
+          <strong>{usd(data.spend.today)}</strong> of {usd(data.spend.limit)}
+        </p>
+        <p className={styles.quiet}>
+          Estimated from the tokens each model reported, at the prices set for it. Own-key use is not counted. The day ends at midnight UTC.
+        </p>
+        {spent && <p className={styles.alert}>The limit is reached: chat, publishing and helper uses are paused until midnight UTC, except for people using their own SERV key.</p>}
+      </section>
+
+      <section className={styles.section} aria-labelledby="access-h">
+        <h2 id="access-h">Waiting to get in</h2>
+        <p className={styles.quiet}>
+          {data.access.inviteOnly
+            ? "Invite-only is on: an account sees the waitlist until it is approved here."
+            : "Invite-only is off (INVITE_ONLY), so everyone is let in. Accounts still start out waiting."}
+        </p>
+        {data.access.waiting.length === 0 ? (
+          <p className={styles.quiet}>Nobody waiting.</p>
+        ) : (
+          <ul className={styles.rows}>
+            {data.access.waiting.map((u) => (
+              <li key={u.id}>
+                <span>
+                  <strong>@{u.handle}</strong>
+                </span>
+                {u.email && <span className={styles.mono}>{u.email}</span>}
+                <time className={styles.quiet} dateTime={u.joinedAt}>
+                  joined {new Date(u.joinedAt).toLocaleString()}
+                </time>
+                <span className={styles.actions}>
+                  <Button size="sm" disabled={busy !== null} onClick={() => void act(u.id, () => api.adminAccess(u.id, "approve"), `@${u.handle} is in.`)}>
+                    Approve
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy !== null}
+                    onClick={() => void act(u.id, () => api.adminAccess(u.id, "reject"), `@${u.handle} was turned away.`)}
+                  >
+                    Reject
+                  </Button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <p className={styles.quiet}>
         {data.networkLabel} (chain {data.chainId}). Treasury <span className={styles.mono}>{data.treasury ?? "not set"}</span>
       </p>

@@ -50,13 +50,15 @@ afterEach(() => {
 });
 
 describe("development-only routes in production", () => {
+  // Importing the demo pulls in every chat component, which can take more than
+  // the default five seconds on a busy machine.
   it("/demo is a 404 in production, whatever it is asked for", async () => {
     vi.stubEnv("NODE_ENV", "production");
     const { default: DemoPage } = await import("@/app/demo/page");
-    for (const searchParams of [{}, { pay: "wallet" }, { pay: "admin" }, { sketch: "demo" }]) {
+    for (const searchParams of [{}, { pay: "wallet" }, { pay: "admin" }, { sketch: "demo" }, { left: "paused" }]) {
       expect(() => DemoPage({ searchParams })).toThrow(expect.objectContaining({ digest: "NEXT_NOT_FOUND" }));
     }
-  });
+  }, 30_000);
 });
 
 describe("GET /api/health", () => {

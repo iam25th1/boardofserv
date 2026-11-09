@@ -1,15 +1,18 @@
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { db } from "@/lib/db";
-import { conversations, messages, publishedHelpers, users } from "@/lib/db/schema";
+import { conversations, messages, publishedHelpers, replyUsage, users } from "@/lib/db/schema";
 import { compileHelper, freeSlug, guardLine, liveHelperFor, newCanary, PUBLIC_COLUMNS, withPrices } from "@/lib/helpers";
 import { PricesBody, readPrices } from "@/lib/payments/prices";
 import { setPrices } from "@/lib/payments/uses";
 import { isUniqueViolation } from "@/lib/users";
-import { modelConfig } from "@/lib/model";
-import { fieldsOf } from "@/lib/sketchFields";
+import { describeFailures, modelConfig, userError } from "@/lib/model";
+import { DESCRIPTION_MAX, fieldsOf } from "@/lib/sketchFields";
 import { loadSketch } from "@/lib/sketchStore";
+import { servKeyOf } from "@/lib/servKey";
+import { refusal } from "@/lib/spend";
 
 export const runtime = "nodejs";
 
@@ -23,7 +26,7 @@ const oneLine = (max: number) =>
 
 const Body = z.object({
   conversationId: z.string().uuid(),
-  description: oneLine(140),
+  description: oneLine(DESCRIPTION_MAX),
   inputHint: oneLine(80),
   // A price per use in each currency the maker accepts, in minor units.
   prices: PricesBody.optional(),
@@ -35,6 +38,9 @@ const Body = z.object({
 export async function POST(req: Request) {
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+  // Not let in yet: nothing here runs for a waiting account.
+  const shut = notLetIn(user);
+  if (shut) return shut;
 
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "A description and a hint are required" }, { status: 400 });
@@ -53,20 +59,41 @@ export async function POST(req: Request) {
   }
   const live = await liveHelperFor(conversationId);
   if (live) return Response.json({ error: "This helper is already on the board.", helper: live }, { status: 409 });
+  const config = modelConfig(process.env, { servKey: servKeyOf(user) });
+  const no = await refusal(user.id, { ownKey: Boolean(config.ownKey) });
+  if (no) return Response.json(no, { status: 429 });
 
   const history = await db
     .select({ role: messages.role, content: messages.content })
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(asc(messages.createdAt));
-  const config = modelConfig();
   const controller = new AbortController();
   req.signal.addEventListener("abort", () => controller.abort());
-  const { prompt } = await compileHelper(sketch, history, { config, signal: controller.signal });
+  const { prompt, result } = await compileHelper(sketch, history, { config, signal: controller.signal });
+  // The compile call's tokens count towards the day's spend.
+  try {
+    await db.insert(replyUsage).values({
+      conversationId,
+      userId: user.id,
+      kind: "compile",
+      ownKey: Boolean(config.ownKey),
+      provider: result.provider,
+      model: result.model,
+      promptTokens: result.promptTokens,
+      completionTokens: result.completionTokens,
+      totalMs: result.totalMs,
+      outcome: result.outcome,
+    });
+  } catch (err) {
+    console.error("compile usage not recorded", err instanceof Error ? err.message : "unknown error");
+  }
   if (!prompt) {
+    // The details stay in the server's log.
+    console.error(`publish: no instructions written. ${result.content ? "The model's answer did not validate." : describeFailures(result.failures, config.firstTokenTimeoutMs)}`);
     const error = config.providers.length
-      ? "Its instructions could not be written just now. Try again in a minute."
-      : "No model is set up, so the helper can't be published yet.";
+      ? userError(result.failures, Boolean(config.ownKey), "Its instructions could not be written just now. Try again in a minute.")
+      : "Publishing isn't available right now. Try again in a few minutes.";
     return Response.json({ error }, { status: 502 });
   }
 

@@ -19,7 +19,7 @@ const checkHandle = vi.fn(async (handle: string) => (handle === "maya" ? { avail
 const onSaveHandle = vi.fn(async () => {});
 
 function open(account = ACCOUNT) {
-  render(<AccountMenu account={account} linking={false} onLink={() => {}} onSignOut={() => {}} checkHandle={checkHandle} onSaveHandle={onSaveHandle} startOpen />);
+  render(<AccountMenu account={account} onSignOut={() => {}} checkHandle={checkHandle} onSaveHandle={onSaveHandle} startOpen />);
 }
 
 const input = () => screen.getByLabelText("Your handle");
@@ -121,5 +121,76 @@ describe("Your handle", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.getByText("@maker_4821")).toBeInTheDocument();
     expect(screen.getByText("Signed in as")).toBeInTheDocument();
+  });
+});
+
+describe("Your SERV key", () => {
+  const onSaveServKey = vi.fn(async (_key: string) => {});
+  const onRemoveServKey = vi.fn(async () => {});
+
+  function openWithKey(account: AccountDTO) {
+    render(<AccountMenu account={account} onSignOut={() => {}} onSaveServKey={onSaveServKey} onRemoveServKey={onRemoveServKey} startOpen />);
+  }
+
+  beforeEach(() => {
+    onSaveServKey.mockReset();
+    onSaveServKey.mockResolvedValue(undefined);
+    onRemoveServKey.mockReset();
+    onRemoveServKey.mockResolvedValue(undefined);
+  });
+
+  it("offers your own SERV key where linking OpenServ was", () => {
+    openWithKey(ACCOUNT);
+    expect(screen.getByRole("button", { name: "Use your own SERV key" })).toBeInTheDocument();
+    expect(screen.queryByText(/Link your OpenServ account/)).toBeNull();
+    expect(screen.queryByText("OpenServ account")).toBeNull();
+    // Nothing waits on you for not linking.
+    expect(screen.getByRole("button", { name: /^Account/ })).toHaveAttribute("data-needs-you", "false");
+  });
+
+  it("takes the key in a masked field and hands it over once, then forgets it", async () => {
+    openWithKey(ACCOUNT);
+    fireEvent.click(screen.getByRole("button", { name: "Use your own SERV key" }));
+    const field = screen.getByLabelText("Your SERV key");
+    expect(field).toHaveAttribute("type", "password");
+    expect(field).toHaveAttribute("autocomplete", "off");
+    expect(screen.getByText(/only its last four characters are ever shown/i)).toBeInTheDocument();
+    fireEvent.change(field, { target: { value: "  sk-own-abcd1234  " } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+    expect(onSaveServKey).toHaveBeenCalledWith("sk-own-abcd1234");
+    expect(screen.queryByLabelText("Your SERV key")).toBeNull();
+    expect(screen.queryByDisplayValue("sk-own-abcd1234")).toBeNull();
+  });
+
+  it("keeps the field open with the reason when the key is turned away", async () => {
+    onSaveServKey.mockRejectedValue(new Error("SERV didn't accept that key. Check it and try again."));
+    openWithKey(ACCOUNT);
+    fireEvent.click(screen.getByRole("button", { name: "Use your own SERV key" }));
+    fireEvent.change(screen.getByLabelText("Your SERV key"), { target: { value: "sk-wrong-key" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("SERV didn't accept that key. Check it and try again.");
+    expect(screen.getByLabelText("Your SERV key")).toBeInTheDocument();
+  });
+
+  it("shows a saved key by its last four characters, and removes it", async () => {
+    openWithKey({ ...ACCOUNT, servKey: { last4: "9f2c" } });
+    expect(screen.getByText("Your SERV key")).toBeInTheDocument();
+    expect(screen.getByText("9f2c")).toBeInTheDocument();
+    expect(screen.getByText(/no daily limit/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Use your own SERV key" })).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    });
+    expect(onRemoveServKey).toHaveBeenCalledOnce();
+  });
+
+  it("still shows an OpenServ account linked before", () => {
+    openWithKey({ ...ACCOUNT, linked: true, openservUserId: "4821", balance: "ok" });
+    expect(screen.getByText("OpenServ account")).toBeInTheDocument();
+    expect(screen.getByText("Linked (4821)")).toBeInTheDocument();
   });
 });

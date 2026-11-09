@@ -112,7 +112,7 @@ beforeAll(async () => {
   db = drizzle(client, { schema });
   state.db = db;
   await migrate(db, { migrationsFolder: join(__dirname, "../lib/db/migrations") });
-  [state.user] = await db.insert(schema.users).values({ privyUserId: "did:privy:live", email: "live@example.com", handle: "live" }).returning();
+  [state.user] = await db.insert(schema.users).values({ privyUserId: "did:privy:live", email: "live@example.com", handle: "live", access: "approved" }).returning();
   vi.stubEnv("CHAT_MAX_TOKENS", "400");
   vi.stubEnv("SKETCH_MAX_TOKENS", "200");
   vi.stubEnv("FALLBACK_API_KEY", "");

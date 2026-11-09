@@ -99,6 +99,34 @@
       "when": 1793667582634,
       "tag": "0013_withdrawal_sender",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794189667952,
+      "tag": "0014_usage_spend",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1794189858330,
+      "tag": "0015_own_serv_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794190004779,
+      "tag": "0016_invite_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794190337877,
+      "tag": "0017_sketch_kind_chosen",
+      "breakpoints": true
     }
   ]
 }

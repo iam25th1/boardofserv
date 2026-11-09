@@ -1,0 +1,52 @@
+/* The waitlist: the same slate and chalk as the sign-in setup screen. */
+.page {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  padding: var(--s-6) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-6) max(var(--gutter), env(safe-area-inset-left, 0px));
+}
+
+.col {
+  width: 100%;
+  max-width: var(--col);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.title {
+  margin-top: var(--s-5);
+  font-weight: var(--w-semibold);
+  font-size: var(--t-hero);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.03em;
+}
+
+.note {
+  font-family: var(--font-hand);
+  font-weight: var(--w-medium);
+  font-size: var(--t-hand-lg);
+  color: var(--chalk-2);
+}
+
+.body {
+  max-width: 52ch;
+  color: var(--chalk-2);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  margin-top: var(--s-2);
+}
+
+.link {
+  color: var(--chalk);
+  text-decoration: underline;
+  text-decoration-style: dashed;
+  text-underline-offset: 4px;
+}

@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useApi } from "@/lib/useApi";
-import { useOpenServLink } from "@/lib/useOpenServLink";
 import type { AccountDTO, ConversationDTO } from "@/lib/types";
 import { Button, Dialog, TextInput, useToast } from "@/components/ui";
 import { AgentsPill, type AgentsPillHandle } from "./AgentsPill";
@@ -18,13 +17,13 @@ import { PublishSheet, type PublishEdits } from "./PublishSheet";
 import { PriceFields, draftsOf, readPrices, type PriceDrafts } from "./PriceFields";
 import { fetchHelper, fetchPayments } from "@/lib/publicApi";
 import { sketchFromDTO, type AgentSketch } from "@/lib/agentSketch";
+import { chatLimitMessage, FEW_MESSAGES, LIMIT_MESSAGE, messagesLeft } from "@/lib/limits";
 import type { CurrencyDTO, PublicHelperDTO, SketchDTO } from "@/lib/types";
 import type { MessageView } from "./Message";
 import styles from "./ChatShell.module.css";
 
-export function ChatShell() {
+export function ChatShell({ initialAccount = null }: { initialAccount?: AccountDTO | null } = {}) {
   const api = useApi();
-  const link = useOpenServLink();
   const { logout } = usePrivy();
   const toast = useToast();
 
@@ -34,8 +33,7 @@ export function ChatShell() {
   const [streaming, setStreaming] = useState<StreamingView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [account, setAccount] = useState<AccountDTO | null>(null);
-  const [linking, setLinking] = useState(false);
+  const [account, setAccount] = useState<AccountDTO | null>(initialAccount);
   const [shortcuts, setShortcuts] = useState(false);
   // The active conversation's stored sketch, updated by each reply.
   const [sketch, setSketch] = useState<SketchDTO | null>(null);
@@ -67,6 +65,10 @@ export function ChatShell() {
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  // A turn the day's limits refused before it was stored, until the account
+  // says so too; and its text, put back in the composer.
+  const [refused, setRefused] = useState<string | null>(null);
+  const [putBack, setPutBack] = useState<{ text: string; nonce: number } | null>(null);
 
   const stopRef = useRef<(() => void) | null>(null);
   // Deltas are gathered and applied once per animation frame, so a fast
@@ -86,6 +88,7 @@ export function ChatShell() {
   const refreshAccount = useCallback(async () => {
     try {
       setAccount(await api.getAccount());
+      setRefused(null);
     } catch {
       setAccount(null);
     }
@@ -174,7 +177,7 @@ export function ChatShell() {
   }, [abortReply]);
 
   const run = useCallback(
-    (body: { conversationId?: string; content?: string; regenerate?: boolean; editMessageId?: string }) => {
+    (body: { conversationId?: string; content?: string; regenerate?: boolean; editMessageId?: string }, sent?: { id: string; text: string }) => {
       const turn = ++turnRef.current;
       setBusy(true);
       setError(null);
@@ -261,6 +264,17 @@ export function ChatShell() {
           setStreaming(null);
           setBusy(false);
           if (stopRef.current === stopThis) stopRef.current = null;
+          if (e.limit) {
+            // Nothing was stored: the message goes back into the composer and
+            // the limit shows under it.
+            setRefused(e.message);
+            if (sent) {
+              setMessages((prev) => prev.filter((m) => m.id !== sent.id));
+              setPutBack({ text: sent.text, nonce: Date.now() });
+            }
+            void refreshAccount();
+            return;
+          }
           setError(e.message);
         }
       });
@@ -273,7 +287,7 @@ export function ChatShell() {
     (text: string) => {
       const optimistic: MessageView = { id: crypto.randomUUID(), role: "user", content: text };
       setMessages((prev) => [...prev, optimistic]);
-      run({ conversationId: activeId ?? undefined, content: text });
+      run({ conversationId: activeId ?? undefined, content: text }, { id: optimistic.id, text });
     },
     [activeId, run],
   );
@@ -309,18 +323,21 @@ export function ChatShell() {
     if (activeId) run({ conversationId: activeId, regenerate: true });
   }, [activeId, run]);
 
-  const doLink = useCallback(async () => {
-    setLinking(true);
-    try {
-      await link();
+  // Use your own SERV key, or stop: either way the limits shown change.
+  const saveServKey = useCallback(
+    async (key: string) => {
+      await api.setServKey(key);
       await refreshAccount();
-      toast.show({ title: "OpenServ account linked" });
-    } catch {
-      toast.show({ title: "Could not link OpenServ. Try again.", tone: "danger" });
-    } finally {
-      setLinking(false);
-    }
-  }, [link, refreshAccount, toast]);
+      toast.show({ title: "Your SERV key is in use" });
+    },
+    [api, refreshAccount, toast],
+  );
+
+  const removeServKey = useCallback(async () => {
+    await api.removeServKey();
+    await refreshAccount();
+    toast.show({ title: "Your SERV key is removed" });
+  }, [api, refreshAccount, toast]);
 
   const doRename = useCallback(async () => {
     if (!renameId || !renameValue.trim()) return;
@@ -362,6 +379,25 @@ export function ChatShell() {
       }
     },
     [api, activeId, toast, refreshConversations, saveHandle],
+  );
+
+  // The maker switches the sketch's kind on the dock: shown at once, put
+  // back if the server says no.
+  const doKind = useCallback(
+    async (kind: NonNullable<SketchDTO["kind"]>) => {
+      const id = activeId;
+      if (!id || !sketch) return;
+      const before = sketch;
+      setSketch({ ...sketch, kind, kindChosen: true });
+      try {
+        const saved = await api.setSketchKind(id, kind);
+        if (activeRef.current === id) setSketch(saved);
+      } catch (err) {
+        if (activeRef.current === id) setSketch(before);
+        toast.show({ title: err instanceof Error ? err.message : "The kind could not be changed. Try again.", tone: "danger" });
+      }
+    },
+    [api, activeId, sketch, toast],
   );
 
   const doUnpublish = useCallback(async () => {
@@ -443,6 +479,10 @@ export function ChatShell() {
   }, [startNew]);
 
 
+  // The day's limits, from the account: own-key accounts have none.
+  const blocked = refused ?? (account?.paused ? LIMIT_MESSAGE : account?.chat?.remaining === 0 ? chatLimitMessage(account.chat) : null);
+  const notice = blocked ?? (account?.chat && account.chat.remaining < FEW_MESSAGES ? messagesLeft(account.chat.remaining) : null);
+
   return (
     <div className={styles.app}>
       <TopBar
@@ -467,18 +507,18 @@ export function ChatShell() {
         account={
           <AccountMenu
             account={account}
-            linking={linking}
-            onLink={doLink}
             onSignOut={() => void logout()}
             onOpenShortcuts={() => setShortcuts(true)}
             checkHandle={api.checkHandle}
             onSaveHandle={saveHandle}
+            onSaveServKey={saveServKey}
+            onRemoveServKey={removeServKey}
           />
         }
       />
 
       {messages.length === 0 && !streaming ? (
-        <EmptyState onPick={send} disabled={busy} />
+        <EmptyState onPick={send} disabled={busy || Boolean(blocked)} />
       ) : (
         <MessageList
           messages={messages}
@@ -497,6 +537,11 @@ export function ChatShell() {
       <Composer
         conversationKey={activeId ?? "new"}
         busy={busy}
+        disabled={Boolean(blocked) && !busy}
+        placeholder={blocked ? "Back after midnight UTC" : undefined}
+        notice={notice}
+        prefill={putBack?.text}
+        prefillNonce={putBack?.nonce}
         onSend={send}
         onStop={stop}
         dock={
@@ -509,6 +554,7 @@ export function ChatShell() {
               sketch={sketchFromDTO(sketch)}
               sketching={sketchingTurn !== null}
               published={published?.slug ?? null}
+              onKind={(kind) => void doKind(kind)}
               onPublish={() => {
                 setPublishError(null);
                 setSheetOpen(true);

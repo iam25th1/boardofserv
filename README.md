@@ -55,8 +55,23 @@ in the `boardofserv_boardofserv_pgdata` volume either way.
   `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`.
 - `DATABASE_URL`: defaults to the Docker Postgres above.
 - `SERV_API_KEY`: SERV Reasoning, which answers the chat. Server only.
+- `DOLPHIN_API_KEY`, and optionally `DOLPHIN_BASE_URL` and `DOLPHIN_MODEL`
+  (defaults: `https://lighthouse.dphn.ai/run/text-v/v1` and
+  `deepseek-ai/DeepSeek-V4.1-Flash`, from Dolphin's docs): the chat's second
+  model, tried when SERV fails before its first token. Server only.
 - `FALLBACK_BASE_URL`, `FALLBACK_API_KEY`, `FALLBACK_MODEL`, `FALLBACK_LABEL`:
-  an OpenAI-compatible backup, tried when SERV fails before its first token.
+  an OpenAI-compatible backup, tried last, and only with all three of the
+  first set.
+- `INVITE_ONLY` (optional, on unless `0`, `false`, `no` or `off`): accounts
+  wait for an admin's approval before they can chat (see "Invite-only").
+- `CHAT_DAILY_LIMIT` (optional, default 30): messages each person may send a
+  day. `DAILY_SPEND_LIMIT_USD` (optional, default 5): the most the site
+  spends a day on the operator's model keys (see "Spend limits" below).
+- `SERV_PRICE_INPUT_PER_M`, `SERV_PRICE_OUTPUT_PER_M` (defaults 1.25 and
+  6.5), `DOLPHIN_PRICE_INPUT_PER_M`, `DOLPHIN_PRICE_OUTPUT_PER_M` (0.01 and
+  0.07) and `FALLBACK_PRICE_INPUT_PER_M`, `FALLBACK_PRICE_OUTPUT_PER_M`
+  (SERV's): what each model costs in US dollars per million tokens, for the
+  daily spend estimate.
 - `MODEL_FIRST_TOKEN_TIMEOUT_MS` (optional, default 20000): how long a model
   may stay silent before the reply moves on to the backup or is cut off.
 - `CHAT_HISTORY_MESSAGES` (optional, default 12) and `CHAT_MAX_TOKENS`
@@ -83,24 +98,52 @@ server and checks). `GET /api/health` answers
 503 with `ok: false` while the database can't be reached; it never carries an
 address, a version or an error.
 
-## How a user signs in and links OpenServ
+## How a user signs in, and their own SERV key
 
 1. The user signs in with an email code through Privy and gets an embedded EOA.
-2. Linking is optional: chatting never needs it. When the user links OpenServ
-   from the account menu, that wallet signs OpenServ's SIWE message in the
-   browser.
-3. The server completes sign-in (`/auth/wallet/verify`), receives the user's
-   OpenServ API key, encrypts it with `OPENSERV_KEY_ENC_KEY`, and stores only the
-   ciphertext. The key is decrypted on the server when a request to OpenServ is
-   made, and never sent to the browser.
+   Privy loads from its own site, which Brave's shields or an ad blocker can
+   stop. If it isn't ready within 10 seconds, the sign-in and chat pages say
+   "Sign-in couldn't load. If you use Brave or an ad blocker, allow this site,
+   then try again." with a Retry button that loads the page again.
+2. Chatting needs nothing else: it runs on the site's own model keys, within
+   the daily limits below.
+3. "Use your own SERV key" in the account menu takes the user's own SERV
+   inference key. The server checks it with one request of one output token,
+   on that key's own credit (`src/lib/servKey.ts`): SERV must answer 200, so a
+   refused key or one out of credit is turned away with a plain sentence. The
+   key is then encrypted with `OPENSERV_KEY_ENC_KEY`, only the ciphertext and
+   its last four characters are stored, and the menu shows it as "Ending abcd"
+   with Remove. From then on the user's chat turns, plan calls, publishing and
+   helper uses go to SERV on their key and nowhere else (no Dolphin, no
+   backup), with no daily message limit, outside the site's spend limit and
+   never paused by it.
+
+### Invite-only
+
+`INVITE_ONLY` (on unless set to `0`, `false`, `no` or `off`). Every account
+starts out waiting, accounts from before this too. A signed-in account an
+admin hasn't approved sees a waitlist screen in place of the chat, and the
+routes that call a model (chat, publishing, using a helper, saving a SERV key)
+answer 403. The board, the helper pages and the wallet stay open, signed in
+or not. /admin lists the accounts waiting to get in, oldest first, by handle
+and email, with Approve and Reject; it is the one place an email is shown to
+anyone but its owner. Admins (`ADMIN_USER_IDS`) are always let in.
+
+Linking an OpenServ account (the embedded wallet signing OpenServ's SIWE
+message, the server storing the API key that sign-in returns, encrypted) is
+no longer offered in the account menu. Its code (`src/lib/useOpenServLink.ts`,
+`/api/openserv/link/*`) and stored keys are kept, and an account linked
+before still shows as linked.
 
 ## Security
 
 This app holds access to every user's OpenServ account, so secrets never leave
 the server:
 
-- Each OpenServ key is encrypted at rest (AES-256-GCM, `src/lib/crypto.ts`) and
-  decrypted only on the server.
+- Each OpenServ key and each user's own SERV key is encrypted at rest
+  (AES-256-GCM, `src/lib/crypto.ts`) and decrypted only on the server. A SERV
+  key is shown to its owner as its last four characters and is never in a
+  response or a log line (`src/test/secrecy.test.ts`).
 - Server modules import `server-only`, so an accidental client import fails the
   build rather than shipping a secret to the browser.
 - `src/test/secret-leak.test.ts` fails the build if a Client Component imports a
@@ -144,16 +187,31 @@ What is locked down, and what isn't yet:
 
 `src/lib/model.ts` holds an ordered list of OpenAI-compatible providers: SERV
 Reasoning (`https://inference-api.openserv.ai/v1`, model `claude-haiku-4.5`,
-`SERV_API_KEY` as a bearer token) first, then the backup from `FALLBACK_*`.
-Replies stream from whichever answers first.
+`SERV_API_KEY` as a bearer token) first, then Dolphin (`DOLPHIN_API_KEY`,
+model `deepseek-ai/DeepSeek-V4.1-Flash` by default), then the backup from
+`FALLBACK_*`. Replies stream from whichever answers first. A published
+helper's uses go to SERV only, since only SERV knows its Prompt Guard.
+
+Dolphin's model reasons before it answers, and its reasoning counts against
+the token cap: with a small cap, as on the plan call, it can spend all of it
+reasoning and send back no text, which counts as an empty reply. Dolphin
+reports usage when asked (`stream_options.include_usage`).
 
 - Before the first token, a network error, a timeout, a 5xx, a 429, a 402 or an
   empty reply moves on to the next provider. Each provider is tried once per
   reply, so a 402 (out of credit) is never retried. Any other refusal stops.
 - After the first token nothing is retried. The reply ends with "Reply cut off.
   Try again."
-- If nothing answers, the thread shows a plain error that says what happened
-  and what to do. There is no fake reply.
+- If nothing answers, the thread says "Replies aren't available right now.
+  Try again in a few minutes." What happened (which provider, which status)
+  goes to the server's log only. Someone on their own SERV key is told when
+  SERV refused it or it ran out of credit, since they can fix that. There is
+  no fake reply.
+- No reply or helper answer shows an em dash: each is replaced as it streams
+  (`src/lib/dashes.ts`), with a comma between words, a hyphen between numbers
+  or at the start of a line, and nothing before punctuation or a line's end.
+  Code blocks and inline code are left as they are. Replies stored before
+  this are shown the same way.
 - Every request carries a system message, and json schemas lose their numeric
   range keywords: the rules SERV enforces. The chat switches no paid add-on on
   (no Prompt Guard, Shadow Agent or Kronos). A published helper's use declares
@@ -163,9 +221,32 @@ Replies stream from whichever answers first.
 
 Usage stays low: one short system prompt (`src/lib/systemPrompt.ts`) plus the
 last 12 messages (older history is dropped, not summarised), and replies capped
-at 700 tokens. Each reply writes one `reply_usage` row: conversation, provider,
-model, prompt and completion tokens when reported, time to first token, total
-time and outcome (ok, fell back, failed). It never stores message text.
+at 700 tokens. Each reply writes one `reply_usage` row: conversation, the
+person it was for, provider, model, prompt and completion tokens when
+reported, the plan call's tokens, provider and model, time to first token,
+total time and outcome (ok, fell back, failed). Publishing writes one for its
+compile call (kind `compile`), and each helper use one `helper_uses` row with
+its provider and model. None of them stores message text.
+
+### Spend limits
+
+`src/lib/spend.ts`. Days run midnight to midnight UTC.
+
+- Each person may send `CHAT_DAILY_LIMIT` messages a day (default 30): every
+  chat turn counts (a new message, an edit or a regenerate) unless it failed,
+  counted from `reply_usage`, so deleting a conversation gives none back. Under
+  10 left, a quiet line under the composer says how many; at none, the composer
+  says when they come back.
+- The site may spend `DAILY_SPEND_LIMIT_USD` a day (default 5) on the
+  operator's keys. Spend is an estimate: the tokens every reply, plan call,
+  compile call and helper use recorded, priced per model by `*_PRICE_*`.
+  Once it is reached, chat, publishing and helper uses pause for everyone with
+  "boardofserv has hit today's limit. It resets at midnight UTC." /admin shows
+  today's spend against the limit.
+- Someone using their own SERV key has no daily message limit, is never
+  paused, and nothing they do counts towards the site's spend (`own_key`).
+- A refused turn is refused before anything is stored, and its text goes back
+  into the composer.
 
 ## Design
 
@@ -188,6 +269,14 @@ asked something once and answers once: it is described by what it takes, what
 it does and what it gives back, and its dock reads takes / does / gives. Once
 those are set, the reply asks for the rules and the voice it should keep,
 which stay in the conversation.
+
+A one-shot answer helper is the default: the plan picks a watcher or a digest
+only when the person mentions something to monitor or a schedule, and a sketch
+the plan names no kind for is an answer helper. The dock has a small kind
+switch (answer, watcher, digest, helper) the maker can change
+(`PATCH /api/conversations/:id/sketch`); once they do, the plan keeps their
+choice (`kind_chosen`). A helper on the board keeps its kind until it is taken
+down.
 
 The agent sketch dock fills in from the conversation. Each turn makes two
 calls, plan first and reply second. The plan is one non-streaming call with a
@@ -238,9 +327,12 @@ their own.
 
 When an answer helper's fields are all set, the dock's switch becomes a
 Publish button (other kinds keep "Switching on comes in the next update").
-Publish opens a confirm sheet: the public name, a one-line description and a
-"what to type" hint the maker can edit, and a note that their instructions
-stay private. Confirming runs one compile call (strict json_schema, `COMPILE_MAX_TOKENS`,
+Publish opens a confirm sheet: the public name, a one-line description (up to
+160 characters, shown in full on the board and the helper's page) and a "what
+to type" hint the maker can edit, and a note that their instructions stay
+private. While the maker's handle is still the random one, the sheet asks them
+to keep it or choose their own, and says "We picked this one at random" only
+while the field still holds it. Confirming runs one compile call (strict json_schema, `COMPILE_MAX_TOKENS`,
 default 600): from the sketch and the conversation's recent messages, the
 model writes the helper's private system prompt (rules, voice, format, what to
 refuse). A line with a per-helper random canary is appended, which the helper
@@ -493,7 +585,9 @@ until then). The amount is debited at once, with a pending row
 
 `/admin` is for the users named in `ADMIN_USER_IDS` (boardofserv user ids or
 Privy user ids, comma separated); everyone else gets a 404, and the account
-menu links to it only for them. It shows, per currency, the treasury's
+menu links to it only for them. It opens with today's model spend against
+`DAILY_SPEND_LIMIT_USD` and the accounts waiting to get in (approve or
+reject). Then, per currency, the treasury's
 balance on chain, the total owed (every balance plus withdrawals not yet
 paid out), the difference (the platform's fees and anything unmatched; it
 must never go below zero, and the page says so loudly if it does) and the
@@ -502,10 +596,12 @@ reject), unmatched deposits, payout history with transaction links (a queued
 payout can be cancelled there, and a stuck one marked failed), and the switch
 that pauses every payout,
 which takes effect at the next payout step without a restart. Users appear by
-handle only.
+handle only, except in the waiting list, which shows each account's email so
+the admin knows who is asking.
 
 - `GET /api/admin`, `POST /api/admin/pause`, `POST /api/admin/withdrawals/:id`
-  (`approve`, `reject` to reject or cancel before it is sent, or `fail`).
+  (`approve`, `reject` to reject or cancel before it is sent, or `fail`),
+  `POST /api/admin/access/:id` (`approve` or `reject` a waiting account).
 
 ### Payment tests
 

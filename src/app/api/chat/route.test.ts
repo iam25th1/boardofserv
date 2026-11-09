@@ -98,7 +98,7 @@ beforeAll(async () => {
   client = new PGlite();
   state.db = drizzle(client, { schema });
   await migrate(state.db, { migrationsFolder: join(__dirname, "../../../lib/db/migrations") });
-  [state.user] = await state.db.insert(schema.users).values({ privyUserId: "did:privy:test", email: "maya@example.com", handle: "maya" }).returning();
+  [state.user] = await state.db.insert(schema.users).values({ privyUserId: "did:privy:test", email: "maya@example.com", handle: "maya", access: "approved" }).returning();
   vi.stubEnv("SERV_API_KEY", "test-serv-key");
   vi.stubEnv("FALLBACK_API_KEY", "");
   vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
@@ -157,6 +157,7 @@ describe("a chat turn with a sketch", () => {
       gives: null,
       asking: "how",
       live: false,
+      kindChosen: false,
     });
 
     // Two calls: the strict JSON plan, then the streamed reply, which knows

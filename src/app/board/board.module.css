@@ -102,10 +102,8 @@
   font-size: var(--t-sm);
   line-height: var(--lh-snug);
   color: var(--chalk-2);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  /* The whole line, up to 160 characters: never cut off. */
+  overflow-wrap: anywhere;
 }
 .card small {
   font-family: var(--font-hand);

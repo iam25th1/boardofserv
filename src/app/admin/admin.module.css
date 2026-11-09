@@ -131,3 +131,15 @@
   gap: var(--s-2);
   flex-basis: 100%;
 }
+
+/* Today's spend: the figure large, the limit beside it. */
+.spend {
+  font-size: var(--t-md);
+  color: var(--chalk-2);
+}
+.spend strong {
+  font-size: var(--t-xl);
+  font-weight: var(--w-semibold);
+  color: var(--chalk);
+  font-variant-numeric: tabular-nums;
+}

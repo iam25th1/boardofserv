@@ -155,6 +155,7 @@ describe("mergeSketch", () => {
     gives: null,
     asking: "tells",
     live: false,
+    kindChosen: false,
   };
   const reply = (p: Partial<ParsedSketch>): ParsedSketch => ({
     name: null,
@@ -172,9 +173,9 @@ describe("mergeSketch", () => {
   });
 
   it("takes every value from the first sketch", () => {
-    expect(mergeSketch(null, reply({ name: "A", watches: "B", asking: "when" }))).toEqual({
+    expect(mergeSketch(null, reply({ name: "A", kind: "watcher", watches: "B", asking: "when" }))).toEqual({
       name: "A",
-      kind: null,
+      kind: "watcher",
       watches: "B",
       when: null,
       how: null,
@@ -184,7 +185,14 @@ describe("mergeSketch", () => {
       gives: null,
       asking: "when",
       live: false,
+      kindChosen: false,
     });
+  });
+
+  it("makes a sketch the plan names no kind for a one-shot answer helper, and keeps a kind the maker chose", () => {
+    expect(mergeSketch(null, reply({ name: "A" }))).toMatchObject({ kind: "answer", kindChosen: false });
+    expect(mergeSketch({ ...stored, kind: "digest" }, reply({ kind: "watcher" })).kind).toBe("watcher");
+    expect(mergeSketch({ ...stored, kind: "digest", kindChosen: true }, reply({ kind: "answer" }))).toMatchObject({ kind: "digest", kindChosen: true });
   });
 
   it("never lets a null wipe a stored value", () => {

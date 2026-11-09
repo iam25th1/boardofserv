@@ -159,6 +159,23 @@ describe("publishing from the chat", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("says the handle was picked at random only while the field still holds it, and takes 160 characters of one line", async () => {
+    api.account = { email: "maya@example.com", handle: "maker_4821", handleChosen: false, walletAddress: null, openservUserId: null, linked: false, balance: "unknown" };
+    await openBlurb();
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    const sheet = screen.getByRole("dialog", { name: "Put it on the board" });
+    const field = within(sheet).getByLabelText("Your handle");
+    const random = /We picked this one at random/;
+    expect(within(sheet).getByText(random)).toBeInTheDocument();
+    fireEvent.change(field, { target: { value: "maya_r" } });
+    expect(within(sheet).queryByText(random)).toBeNull();
+    expect(within(sheet).getByText("The board shows it as the maker.")).toBeInTheDocument();
+    fireEvent.change(field, { target: { value: "Maker_4821" } });
+    expect(within(sheet).getByText(random)).toBeInTheDocument();
+
+    expect(within(sheet).getByLabelText("One line about it")).toHaveAttribute("maxLength", "160");
+  });
+
   it("doesn't publish when the handle can't be saved", async () => {
     api.account = { email: "maya@example.com", handle: "maker_4821", handleChosen: false, walletAddress: null, openservUserId: null, linked: false, balance: "unknown" };
     await openBlurb();
