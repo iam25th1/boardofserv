@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { ControlRefused } from "@/lib/agents/runtime/installations";
+import { marketRefusal } from "@/lib/market/limits";
 import { RENTAL_ACTIONS, rentalControl, rentalDetail, rentalOf, RentRefused } from "@/lib/market/rentals";
 
 export const runtime = "nodejs";
@@ -22,7 +22,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!parsed.success) return Response.json({ error: "Say pause, resume, cancel or renew." }, { status: 400 });
   // Running costs model spend: only for accounts let in.
   if (parsed.data.action === "resume" || parsed.data.action === "renew") {
-    const shut = notLetIn(user);
+    const shut = await marketRefusal(rt, user, { spends: parsed.data.action === "resume" });
     if (shut) return shut;
   }
   try {

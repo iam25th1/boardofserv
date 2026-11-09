@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { rentalDTOs } from "@/lib/market/rentals";
+import { marketRefusal } from "@/lib/market/limits";
 import { acceptOffer, RequestRefused, withdrawOffer } from "@/lib/market/requests";
 
 export const runtime = "nodejs";
@@ -22,7 +22,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       await withdrawOffer(rt, user.id, params.id);
       return Response.json({ ok: true });
     }
-    const shut = notLetIn(user);
+    const shut = await marketRefusal(rt, user, { counted: true, spends: true });
     if (shut) return shut;
     const rental = await acceptOffer(rt, user.id, params.id);
     return Response.json({ rental: (await rentalDTOs(rt, [rental]))[0] }, { status: 201 });

@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { serverRuntime } from "@/lib/agents/runtime/context";
+import { marketRefusal } from "@/lib/market/limits";
 import { closeRequest, meToo, requestPage, RequestRefused } from "@/lib/market/requests";
 
 export const runtime = "nodejs";
@@ -23,11 +23,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Say metoo, unmetoo or close." }, { status: 400 });
+  const rt = serverRuntime();
   if (parsed.data.action === "metoo") {
-    const shut = notLetIn(user);
+    const shut = await marketRefusal(rt, user, { counted: true });
     if (shut) return shut;
   }
-  const rt = serverRuntime();
   try {
     if (parsed.data.action === "close") await closeRequest(rt, user.id, params.id);
     else await meToo(rt, user.id, params.id, parsed.data.action === "metoo");

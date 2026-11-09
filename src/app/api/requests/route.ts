@@ -1,9 +1,9 @@
 import { z } from "zod";
-import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { parseAmount } from "@/lib/money";
 import { USDC_DECIMALS } from "@/lib/market/charges";
+import { marketRefusal } from "@/lib/market/limits";
 import { DETAIL_MAX, NEED_MAX, postRequest, requestBoard, RequestRefused, requestsOf } from "@/lib/market/requests";
 
 export const runtime = "nodejs";
@@ -34,7 +34,8 @@ const Body = z.object({
 export async function POST(req: Request) {
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
-  const shut = notLetIn(user);
+  const rt = serverRuntime();
+  const shut = await marketRefusal(rt, user, { counted: true, spends: true });
   if (shut) return shut;
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Say what you need, and what it should connect to." }, { status: 400 });
@@ -42,7 +43,7 @@ export async function POST(req: Request) {
   const budget = budgetText ? parseAmount(budgetText, USDC_DECIMALS) : null;
   if (budgetText && budget === null) return Response.json({ error: "Write the weekly budget like 5 or 7.50, in USDC, or leave it empty." }, { status: 400 });
   try {
-    const row = await postRequest(serverRuntime(), user.id, { need: parsed.data.need, detail: parsed.data.detail, connects: parsed.data.connects, budget });
+    const row = await postRequest(rt, user.id, { need: parsed.data.need, detail: parsed.data.detail, connects: parsed.data.connects, budget });
     return Response.json({ id: row.id }, { status: 201 });
   } catch (err) {
     if (err instanceof RequestRefused) return Response.json({ error: err.message }, { status: err.status });

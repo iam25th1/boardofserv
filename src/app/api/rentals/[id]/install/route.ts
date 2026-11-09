@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { installationDTO, InstallRefused, loadInstallation } from "@/lib/agents/runtime/installations";
+import { marketRefusal } from "@/lib/market/limits";
 import { installRental, rentalOf, RentRefused } from "@/lib/market/rentals";
 
 export const runtime = "nodejs";
@@ -21,9 +21,9 @@ const Body = z.object({
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
-  const shut = notLetIn(user);
-  if (shut) return shut;
   const rt = serverRuntime();
+  const shut = await marketRefusal(rt, user, { spends: true });
+  if (shut) return shut;
   const r = await rentalOf(rt, user.id, params.id);
   if (!r) return Response.json({ error: "Not found" }, { status: 404 });
   const parsed = Body.safeParse(await req.json().catch(() => null));

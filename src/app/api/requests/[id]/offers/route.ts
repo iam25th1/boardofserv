@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { serverRuntime } from "@/lib/agents/runtime/context";
+import { marketRefusal } from "@/lib/market/limits";
 import { makeOffer, NOTE_MAX, requestPage, RequestRefused } from "@/lib/market/requests";
 import { paymentsConfig } from "@/lib/payments/config";
 import { priceProblem } from "@/lib/payments/uses";
@@ -21,7 +21,8 @@ const Body = z.object({
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
-  const shut = notLetIn(user);
+  const rt = serverRuntime();
+  const shut = await marketRefusal(rt, user, { counted: true, spends: true });
   if (shut) return shut;
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Pick one of your agents, and say its price a week in USDC." }, { status: 400 });
@@ -32,7 +33,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const problem = amount > 0n ? priceProblem("USDC", amount) : null;
     if (problem) return Response.json({ error: problem }, { status: 400 });
   }
-  const rt = serverRuntime();
   try {
     await makeOffer(rt, user.id, params.id, { agentId: parsed.data.agentId, note: parsed.data.note, weeklyPrice, jobFee });
   } catch (err) {
