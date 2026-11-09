@@ -165,7 +165,7 @@ describe("what agents send", () => {
 
   it("stays in the app when the owner has no Telegram linked", async () => {
     const u = await addUser(db, "tg.unlinked");
-    const inst = await installed(rt, u, await notifierAgent(u, "Quiet"));
+    const inst = await installed(rt, u, await notifierAgent(u, "Quiet"), {}, { telegram: false });
     await enqueue(rt, inst, { kind: "message", text: "hi" });
     await runOnce();
     await deliverTelegram(rt);

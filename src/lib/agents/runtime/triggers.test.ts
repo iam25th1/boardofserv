@@ -97,17 +97,13 @@ describe("a value check", () => {
   return { holds: low.length > 0, value: low.map((r) => r.fabric) };
 }`;
   const code = { ...RESTOCK_CODE, is_low: { spec: "", status: "approved" as const, source: IS_LOW, rounds: 1, note: null, updatedAt: "" } };
-  const setStock = (id: string, metres: number[]) =>
-    db
-      .update(schema.agentInstallations)
-      .set({
-        mocks: {
-          sheets: { Stock: metres.map((m, i) => ({ fabric: `Fabric ${i}`, metres: m, minimum: 10 })), Orders: [], Suppliers: [] },
-          search: {},
-          wallet: { balanceUsdc: 0 },
-        },
-      })
-      .where(eq(schema.agentInstallations.id, id));
+  // The owner's stock, in their own Google Sheet.
+  const setStock = async (id: string, metres: number[]) => {
+    const [i] = await db.select().from(schema.agentInstallations).where(eq(schema.agentInstallations.id, id));
+    const g = i!.sheets.stock_sheet!;
+    const rows = metres.map((m, n) => ({ fabric: `Fabric ${n}`, metres: m, minimum: 10 }));
+    rt.net.sheets.get(g.spreadsheetId)!.tabs.find((t) => t.title === g.tab)!.values = [["fabric", "metres", "minimum"], ...rows.map((r) => [r.fabric, r.metres, r.minimum])];
+  };
 
   it("fires only when the condition turns true, not on every check while it stays true", async () => {
     const inst = await installed(rt, owner, await publishedAgent(db, owner, { definition: checking(), code }));

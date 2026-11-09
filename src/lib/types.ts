@@ -137,7 +137,8 @@ export interface InstallationDTO {
   needs: { telegram: boolean; google: boolean };
   missing: ("telegram" | "google")[];
   timezone: string;
-  settings: { key: string; label: string; value: unknown }[];
+  // A sheet setting also says which spreadsheet and tab it was given.
+  settings: { key: string; label: string; value: unknown; sheet?: { title: string; tab: string; link: string } }[];
   rules: { key: string; label: string; type: string; value: string }[];
   minGapMinutes: number;
   dailySpendUsd: number;

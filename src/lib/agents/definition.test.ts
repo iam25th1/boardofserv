@@ -24,7 +24,7 @@ describe("the agent format", () => {
     expect(d.format).toBe(1);
     expect(d.job.done).toMatch(/order recorded/);
     expect(d.triggers).toEqual([{ kind: "schedule", every: "day", at: "08:00", description: "Every morning at eight" }]);
-    expect(d.settings.map((s) => s.key)).toEqual(["stock_sheet", "orders_sheet"]);
+    expect(d.settings.map((s) => s.key)).toEqual(["stock_sheet", "orders_sheet", "suppliers_sheet"]);
     expect(d.rules[0]).toEqual({ key: "approval_over_usdc", label: "Ask me before orders over", type: "usdc", value: "250", help: "Orders over this wait for your yes." });
     expect(d.memory[0]!.key).toBe("last_order");
     expect(d.steps.map((s) => s.kind)).toEqual(["code", "code", "decision", "action", "decision", "action"]);

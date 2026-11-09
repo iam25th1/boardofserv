@@ -30,6 +30,8 @@ export interface BuilderApi {
   // Run the newest published version for real, for the maker; resolves once
   // it is installed (and the page has moved on).
   install?: (answers: InstallAnswers) => Promise<void>;
+  // A Google Sheet's tabs, for a sheet setting.
+  inspectSheet?: (url: string) => Promise<{ title: string; tabs: { id: number; title: string }[] }>;
 }
 
 const SECTIONS = [
@@ -238,14 +240,14 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
           )}
         </div>
       </header>
-      {installing && api.install && data.runnable && (
+      {installing && api.install && api.inspectSheet && data.runnable && (
         <section className={styles.section} aria-label="Run it for real">
           <h2>Run version {data.runnable.version} for real</h2>
           <p className={styles.quiet}>
-            It runs on its own from now on: on its schedule, when its value check turns true, or when you message it. Sheets, Telegram, search and the wallet are
-            still stand-ins; web pages and what it remembers are real.
+            It runs on its own from now on: on its schedule, when its value check turns true, or when you message it. Your Google Sheets, Telegram, web pages and
+            what it remembers are real; search and the wallet are still stand-ins.
           </p>
-          <InstallForm definition={data.runnable.definition} defaults={data.runnable.defaults} onInstall={api.install} onCancel={() => setInstalling(false)} />
+          <InstallForm definition={data.runnable.definition} defaults={data.runnable.defaults} onInstall={api.install} onCancel={() => setInstalling(false)} inspectSheet={api.inspectSheet} />
         </section>
       )}
       {headSaid && (

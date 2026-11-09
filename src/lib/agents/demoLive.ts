@@ -11,7 +11,7 @@ import restock from "./examples/restock.json";
 import { SUPPLIERS_HTML } from "./examples/supplierPage";
 import type { Decided } from "./runner";
 import { answer } from "./runtime/approvals";
-import type { Runtime } from "./runtime/context";
+import { DEFAULT_CAPS, type Runtime } from "./runtime/context";
 import { control, install, installationDTO, loadInstallation, type Control } from "./runtime/installations";
 import { jobFor, jobsOfInstallation } from "./runtime/views";
 import { jobWorker } from "./runtime/worker";
@@ -76,7 +76,7 @@ async function start(origin: string): Promise<Demo> {
     decide: standIn,
     web: { allowOrigins: [origin] },
     fetchesPerDay: 10_000,
-    services: { fetch: (...args) => fetch(...args), telegramToken: null, google: null, braveKey: null },
+    services: { fetch: (...args) => fetch(...args), telegramToken: null, google: null, braveKey: null, caps: DEFAULT_CAPS },
     log: (line) => console.info(`demo: ${line}`),
   };
   const [owner] = await db.insert(schema.users).values({ privyUserId: "did:demo:shop", handle: "fabric_shop", access: "approved" }).returning();

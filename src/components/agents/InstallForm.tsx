@@ -3,6 +3,8 @@ import { useMemo, useState } from "react";
 import type { AgentDefinition } from "@/lib/agents/definition";
 import { checkAnswers, DEFAULT_DAILY_SPEND_USD, DEFAULT_MIN_GAP_MINUTES, MAX_DAILY_SPEND_USD, type InstallAnswers } from "@/lib/agents/settingsForm";
 import { Button, TextInput } from "@/components/ui";
+import { isSheetAnswer } from "@/lib/google/sheetLink";
+import { SheetField, type SheetInfo } from "./SheetField";
 import styles from "./InstallForm.module.css";
 
 // The form an owner fills in to run an agent for real: a field per settings
@@ -35,16 +37,19 @@ export function InstallForm({
   defaults,
   onInstall,
   onCancel,
+  inspectSheet,
 }: {
   definition: AgentDefinition;
   // Answers to start from: the test bench's sample settings.
   defaults: Record<string, unknown>;
   onInstall: (answers: InstallAnswers) => Promise<void>;
   onCancel?: () => void;
+  // Opens a Google Sheet's link on the owner's Google access: its tabs.
+  inspectSheet: (url: string) => Promise<SheetInfo>;
 }) {
   const schedule = d.triggers.find((t) => t.kind === "schedule");
   const [settings, setSettings] = useState<Record<string, unknown>>(() =>
-    Object.fromEntries(d.settings.map((s) => [s.key, s.type === "boolean" ? Boolean(defaults[s.key]) : asText(defaults[s.key])])),
+    Object.fromEntries(d.settings.map((s) => [s.key, s.type === "boolean" ? Boolean(defaults[s.key]) : s.type === "sheet" ? (isSheetAnswer(defaults[s.key]) ? defaults[s.key] : null) : asText(defaults[s.key])])),
   );
   const [rules, setRules] = useState<Record<string, string>>(() => Object.fromEntries(d.rules.map((r) => [r.key, r.value])));
   const [timezone, setTimezone] = useState(browserZone);
@@ -102,32 +107,51 @@ export function InstallForm({
       {d.settings.length > 0 && (
         <fieldset className={styles.group}>
           <legend>Its settings</legend>
-          {d.settings.map((s) => (
-            <label key={s.key} className={styles.field}>
-              <span className={styles.label}>{s.label}</span>
-              {s.type === "boolean" ? (
-                <input type="checkbox" checked={Boolean(settings[s.key])} onChange={(e) => setSettings({ ...settings, [s.key]: e.target.checked })} />
-              ) : s.type === "choice" ? (
-                <select className={styles.select} value={asText(settings[s.key])} onChange={(e) => setSettings({ ...settings, [s.key]: e.target.value })}>
-                  <option value="">Pick one</option>
-                  {s.choices.map((c) => (
-                    <option key={c}>{c}</option>
-                  ))}
-                </select>
-              ) : (
-                <TextInput
-                  type={s.type === "number" ? "number" : s.type === "url" ? "url" : "text"}
-                  value={asText(settings[s.key])}
-                  placeholder={s.type === "list" ? "separated by commas" : undefined}
-                  aria-invalid={Boolean(errors[s.key])}
-                  aria-describedby={errors[s.key] ? `err-${s.key}` : undefined}
-                  onChange={(e) => setSettings({ ...settings, [s.key]: e.target.value })}
+          {d.settings.map((s) =>
+            s.type === "sheet" ? (
+              // Its own controls (a link, a button, a tab to pick): not one label.
+              <div key={s.key} className={styles.field}>
+                <label className={styles.label} htmlFor={`setting-${s.key}`}>
+                  {s.label}
+                </label>
+                <SheetField
+                  id={`setting-${s.key}`}
+                  value={isSheetAnswer(settings[s.key]) ? (settings[s.key] as { url: string; tab: string }) : null}
+                  onChange={(v) => setSettings((now) => ({ ...now, [s.key]: v }))}
+                  inspect={inspectSheet}
+                  invalid={Boolean(errors[s.key])}
+                  describedBy={errors[s.key] ? `err-${s.key}` : undefined}
                 />
-              )}
-              <span className={styles.help}>{s.help}</span>
-              {err(s.key)}
-            </label>
-          ))}
+                <span className={styles.help}>{s.help}</span>
+                {err(s.key)}
+              </div>
+            ) : (
+              <label key={s.key} className={styles.field}>
+                <span className={styles.label}>{s.label}</span>
+                {s.type === "boolean" ? (
+                  <input type="checkbox" checked={Boolean(settings[s.key])} onChange={(e) => setSettings({ ...settings, [s.key]: e.target.checked })} />
+                ) : s.type === "choice" ? (
+                  <select className={styles.select} value={asText(settings[s.key])} onChange={(e) => setSettings({ ...settings, [s.key]: e.target.value })}>
+                    <option value="">Pick one</option>
+                    {s.choices.map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <TextInput
+                    type={s.type === "number" ? "number" : s.type === "url" ? "url" : "text"}
+                    value={asText(settings[s.key])}
+                    placeholder={s.type === "list" ? "separated by commas" : undefined}
+                    aria-invalid={Boolean(errors[s.key])}
+                    aria-describedby={errors[s.key] ? `err-${s.key}` : undefined}
+                    onChange={(e) => setSettings({ ...settings, [s.key]: e.target.value })}
+                  />
+                )}
+                <span className={styles.help}>{s.help}</span>
+                {err(s.key)}
+              </label>
+            ),
+          )}
         </fieldset>
       )}
       {d.rules.length > 0 && (

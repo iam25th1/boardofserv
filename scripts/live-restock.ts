@@ -21,7 +21,7 @@ import type { AgentDefinition } from "@/lib/agents/definition";
 import restock from "@/lib/agents/examples/restock.json";
 import { SUPPLIERS_HTML } from "@/lib/agents/examples/supplierPage";
 import { answer, approvalsOf } from "@/lib/agents/runtime/approvals";
-import type { Runtime } from "@/lib/agents/runtime/context";
+import { DEFAULT_CAPS, type Runtime } from "@/lib/agents/runtime/context";
 import { install } from "@/lib/agents/runtime/installations";
 import { jobWorker } from "@/lib/agents/runtime/worker";
 import type { BenchData, StepCode } from "@/lib/agents/types";
@@ -58,7 +58,7 @@ async function main() {
     record: async () => {},
     web: { allowOrigins: [origin] },
     fetchesPerDay: 100,
-    services: { fetch: (...args) => fetch(...args), telegramToken: null, google: null, braveKey: null },
+    services: { fetch: (...args) => fetch(...args), telegramToken: null, google: null, braveKey: null, caps: DEFAULT_CAPS },
     log: (line) => console.log(line),
   };
   const [owner] = await db.insert(schema.users).values({ privyUserId: "did:live:shop", handle: "fabric_shop", access: "approved" }).returning();

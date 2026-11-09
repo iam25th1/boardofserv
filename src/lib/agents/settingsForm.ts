@@ -1,4 +1,5 @@
 import type { AgentDefinition, Rule, Setting } from "./definition";
+import { isSheetAnswer, parseSheetLink } from "../google/sheetLink";
 import { z } from "zod";
 
 // The form an owner fills in to run an agent: one field per settings
@@ -77,8 +78,15 @@ export function settingValue(s: SettingDef, raw: unknown): { value: unknown } | 
       if (text && text.length <= 2000 && isHttpUrl(text)) return { value: text };
       return { error: "Give a web address starting with http:// or https://." };
     case "sheet":
+      // For real: a Google Sheet's link and the tab picked from it. On the
+      // test bench, a sample sheet's name.
+      if (isSheetAnswer(raw)) {
+        if (!parseSheetLink(raw.url)) return { error: "Paste the link of a Google Sheet (docs.google.com/spreadsheets/...)." };
+        if (!raw.tab.trim() || raw.tab.length > 100) return { error: "Pick one of its tabs." };
+        return { value: { url: raw.url.trim(), tab: raw.tab.trim() } };
+      }
       if (text && text.length <= 80) return { value: text };
-      return { error: "Give the sheet's name." };
+      return { error: "Paste the link of a Google Sheet, then pick its tab." };
     default:
       if (text && text.length <= 500) return { value: text };
       return { error: text ? "That's too long." : "This one needs an answer." };

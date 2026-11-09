@@ -50,6 +50,7 @@ function Builder({ id }: { id: string }) {
         const installed = await api.installAgent(id, answers);
         router.push(`/installations/${installed.id}`);
       },
+      inspectSheet: api.inspectSheet,
     }),
     [api, id, router],
   );

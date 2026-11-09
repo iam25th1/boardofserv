@@ -4,6 +4,14 @@ import type { AgentDefinition } from "../agents/definition";
 import type { BenchData, RunState, StepCode } from "../agents/types";
 import { CURRENCIES } from "../money";
 
+// One tab of a Google Sheet an owner gave an installation.
+export interface SheetGrant {
+  spreadsheetId: string;
+  title: string;
+  tab: string;
+  tabId: number;
+}
+
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
 // embedded wallet address and, encrypted, the OpenServ API key that this
 // wallet's SIWE sign-in produced. The key is ciphertext only (see crypto.ts);
@@ -544,6 +552,10 @@ export const agentInstallations = pgTable(
     // went away), in plain words for its owner; null when they paused it.
     pausedReason: text("paused_reason"),
     settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+    // The Google Sheets tabs its owner gave it, by sheet setting: the only
+    // ones its sheet tools reach. The setting's value (what code sees) is
+    // the tab's name.
+    sheets: jsonb("sheets").$type<Record<string, SheetGrant>>().notNull().default({}),
     rules: jsonb("rules").$type<Record<string, string>>().notNull().default({}),
     memory: jsonb("memory").$type<Record<string, unknown>>().notNull().default({}),
     mocks: jsonb("mocks").$type<Pick<BenchData, "sheets" | "search" | "wallet">>().notNull(),
@@ -744,6 +756,20 @@ export const agentApprovals = pgTable(
   }),
 );
 
+// Calls an installation's agent made to an outside service each day (UTC),
+// by tool, for its daily caps (sheets, web search). The site's own total
+// per tool is kept under the nil installation id.
+export const agentToolDays = pgTable(
+  "agent_tool_days",
+  {
+    installationId: uuid("installation_id").notNull(),
+    day: text("day").notNull(),
+    tool: text("tool").notNull(),
+    calls: integer("calls").notNull().default(0),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.installationId, t.day, t.tool] }) }),
+);
+
 // Pages an installation's agent fetched (web.fetch) each day (UTC), for
 // its daily limit.
 export const agentFetchDays = pgTable(
@@ -844,6 +870,19 @@ export const telegramPending = pgTable(
   },
   (t) => ({ byOwner: index("telegram_pending_owner_idx").on(t.ownerUserId, t.createdAt) }),
 );
+
+// Connecting Google: the state of a sign-in on its way, as a hash, tied to
+// the owner who started it. It works once, within ten minutes.
+export const googleOAuthStates = pgTable("google_oauth_states", {
+  stateHash: text("state_hash").primaryKey(),
+  ownerUserId: uuid("owner_user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  returnTo: text("return_to").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
 
 export type User = typeof users.$inferSelect;
 export type Conversation = typeof conversations.$inferSelect;

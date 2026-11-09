@@ -67,3 +67,12 @@
   justify-content: flex-end;
   gap: var(--s-2);
 }
+.sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.sheet .row > :first-child {
+  flex: 1 1 14rem;
+  min-width: 0;
+}

@@ -32,7 +32,12 @@ export interface Services {
   telegramToken: string | null;
   google: { clientId: string; clientSecret: string; redirectUri: string } | null;
   braveKey: string | null;
+  // Each installation's calls a day to Google Sheets and to web search,
+  // and the whole site's searches a day.
+  caps: { sheetCalls: number; searches: number; siteSearches: number };
 }
+
+export const DEFAULT_CAPS = { sheetCalls: 500, searches: 50, siteSearches: 1000 };
 
 export function servicesFrom(env: Env = process.env): Services {
   const app = (env.APP_URL || APP_URL).replace(/\/+$/, "");
@@ -41,6 +46,11 @@ export function servicesFrom(env: Env = process.env): Services {
     telegramToken: env.TELEGRAM_BOT_TOKEN || null,
     google: env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET, redirectUri: `${app}/api/connections/google/callback` } : null,
     braveKey: env.BRAVE_SEARCH_API_KEY || null,
+    caps: {
+      sheetCalls: whole(env.AGENT_SHEET_CALLS_PER_DAY, DEFAULT_CAPS.sheetCalls),
+      searches: whole(env.AGENT_SEARCHES_PER_DAY, DEFAULT_CAPS.searches),
+      siteSearches: whole(env.SITE_SEARCHES_PER_DAY, DEFAULT_CAPS.siteSearches),
+    },
   };
 }
 

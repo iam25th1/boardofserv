@@ -1,5 +1,5 @@
 {
-  "note": "Built by scripts/seed-restock.ts: planned by SERV, code written by Dolphin and reviewed by SERV, decisions recorded from one live run.",
+  "note": "Built by scripts/seed-restock.ts: planned by SERV, code written by Dolphin and reviewed by SERV, decisions recorded from one live run. Its two sheet settings became Google Sheet tabs (type sheet) by hand in phase 3; their values, the tab names, are what the code reads, as before.",
   "builtAt": "2026-11-09T13:24:24.054Z",
   "interview": {
     "name": "Fabric restock",
@@ -39,9 +39,9 @@
     "settings": [
       {
         "key": "stock_sheet",
-        "label": "Name of the Stock sheet",
-        "type": "text",
-        "help": "Sheet with columns: fabric, metres, minimum",
+        "label": "Stock sheet",
+        "type": "sheet",
+        "help": "A Google Sheet tab with columns: fabric, metres, minimum",
         "choices": []
       },
       {
@@ -53,9 +53,9 @@
       },
       {
         "key": "orders_sheet",
-        "label": "Name of the Orders sheet",
-        "type": "text",
-        "help": "Sheet where order rows are added",
+        "label": "Orders sheet",
+        "type": "sheet",
+        "help": "A Google Sheet tab where order rows are added",
         "choices": []
       },
       {

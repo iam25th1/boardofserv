@@ -1,9 +1,10 @@
 "use client";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
 import { TopBar, TopLink } from "@/components/chat/TopBar";
 import { ConnectionsView, type ConnectionsApi } from "@/components/connections/ConnectionsView";
+import { GoogleConnect } from "@/components/connections/GoogleConnect";
 import { TelegramLink } from "@/components/connections/TelegramLink";
 import { privyAppId } from "@/lib/privy-config";
 import { useApi } from "@/lib/useApi";
@@ -38,8 +39,37 @@ function SignedIn() {
   );
 }
 
+// Back from Google: how it went, from the address, said once.
+function useGoogleReturn(): string | null {
+  const [said, setSaid] = useState<string | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const how = q.get("google");
+    if (!how) return;
+    setSaid(how === "connected" ? "Google is connected." : (q.get("why") ?? "Google wasn't connected.").slice(0, 300));
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
+  return said;
+}
+
 function Connections() {
   const api = useApi();
+  const back = useGoogleReturn();
   const view: ConnectionsApi = useMemo(() => ({ load: api.listConnections, disconnect: api.disconnect }), [api]);
-  return <ConnectionsView api={view} connect={{ telegram: (refresh) => <TelegramLink getCode={api.telegramCode} refresh={refresh} /> }} />;
+  return (
+    <>
+      {back && (
+        <p className={styles.note} role="status">
+          {back}
+        </p>
+      )}
+      <ConnectionsView
+        api={view}
+        connect={{
+          telegram: (refresh) => <TelegramLink getCode={api.telegramCode} refresh={refresh} />,
+          google: () => <GoogleConnect start={api.googleStart} />,
+        }}
+      />
+    </>
+  );
 }

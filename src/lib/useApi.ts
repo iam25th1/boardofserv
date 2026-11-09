@@ -37,6 +37,10 @@ export function useApi() {
       disconnect: (provider: ConnectionDTO["provider"]) => json<{ revoked: boolean | null; paused: number }>(`/api/connections?provider=${provider}`, { method: "DELETE" }),
       // A one-time code to send the bot from the chat to link.
       telegramCode: () => json<{ code: string; link: string; bot: string; expiresAt: string }>("/api/connections/telegram/code", { method: "POST" }),
+      // A Google Sheet's name and tabs, opened on the owner's Google access.
+      inspectSheet: (url: string) => json<{ title: string; tabs: { id: number; title: string }[] }>("/api/sheets/inspect", { method: "POST", body: JSON.stringify({ url }) }),
+      // Where to go to connect Google (the browser goes there next).
+      googleStart: (returnTo: string) => json<{ url: string }>("/api/connections/google/start", { method: "POST", body: JSON.stringify({ returnTo }) }),
       listConversations: () => json<{ conversations: ConversationDTO[] }>("/api/conversations").then((d) => d.conversations),
       createConversation: () => json<{ conversation: ConversationDTO }>("/api/conversations", { method: "POST" }).then((d) => d.conversation),
       renameConversation: (id: string, title: string) =>

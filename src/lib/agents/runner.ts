@@ -63,6 +63,15 @@ export class Declined extends Error {
   }
 }
 
+// Something the job needs went away for good (the owner's Google access
+// was revoked): it stops here, saying why, and nothing more is done.
+export class Halted extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "Halted";
+  }
+}
+
 // Something outside the agent failed: worth another try later.
 export class InfraError extends Error {
   constructor(message: string) {
@@ -173,6 +182,7 @@ type Invoked =
   | { kind: "error"; message: string; infra: boolean }
   | { kind: "paused"; ask: Ask }
   | { kind: "declined"; answer: string | null }
+  | { kind: "halted"; reason: string }
   | { kind: "diverged" };
 
 export async function runSteps(o: EngineOptions): Promise<EngineResult> {
@@ -244,6 +254,10 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
           await o.save?.(state);
           return { kind: "paused", ask: err.ask };
         }
+        if (err instanceof Halted) {
+          emit(null, err.message);
+          return { kind: "halted", reason: err.message };
+        }
         if (err instanceof Declined) {
           state.journal[i] = { tool, args, approval: { answer: err.answer }, result: null };
           await o.save?.(state);
@@ -268,6 +282,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       }
       const halt = new AbortController();
       let paused: { ask: Ask; index: number } | null = null;
+      let halted: string | null = null;
       let diverged = false;
       let infraFault = false;
       const result = await runInSandbox(entry.source, input, {
@@ -288,6 +303,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
             throw new ToolError(tool, r.message);
           }
           if (r.kind === "paused") paused = { ask: r.ask, index };
+          else if (r.kind === "halted") halted = r.reason;
           else diverged = true;
           halt.abort();
           return new Promise(() => {});
@@ -296,6 +312,10 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       if (paused) {
         const p = paused as { ask: Ask; index: number };
         return pause(p.ask, p.index);
+      }
+      if (halted) {
+        done("failed", null, null, halted);
+        return end("stopped", "stop", halted);
       }
       if (diverged) {
         done("failed", null, null, DIVERGED);
@@ -364,6 +384,10 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       const prior = state.journal[0];
       const r = await invoke(action.tool, prior?.tool === action.tool ? prior.args : args.args);
       if (r.kind === "paused") return pause(r.ask, 0);
+      if (r.kind === "halted") {
+        done("failed", null, null, r.reason);
+        return end("stopped", "stop", r.reason);
+      }
       if (r.kind === "diverged") {
         done("failed", null, null, DIVERGED);
         return end("failed", "logic", `"${step.title}" failed: ${DIVERGED}`);

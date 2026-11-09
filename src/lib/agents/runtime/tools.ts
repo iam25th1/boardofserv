@@ -1,17 +1,21 @@
 import "server-only";
 import { eq, sql } from "drizzle-orm";
-import { agentFetchDays, agentInstallations, agentMessages, type AgentInstallation, type AgentJob } from "../../db/schema";
+import { agentFetchDays, agentInstallations, agentMessages, agentToolDays, type AgentInstallation, type AgentJob, type SheetGrant } from "../../db/schema";
+import { GoogleRevoked, GoogleUnavailable, REVOKED_REASON } from "../../google/oauth";
+import { readTab, SheetRefused, writeTab, type SheetRow } from "../../google/sheets";
 import type { AgentDefinition, AgentStep, ToolName } from "../definition";
-import { Declined, InfraError, Paused, typedRules, type ToolHost } from "../runner";
+import { Declined, Halted, InfraError, Paused, typedRules, type ToolHost } from "../runner";
 import { MAX_MEMORY_BYTES, memoryProblem, MockTools, TOOL_ARGS, ToolError } from "../toolbox";
 import { emptyBench } from "../types";
 import type { Runtime } from "./context";
 import { fetchPage, WebUnreachable } from "./webFetch";
 
-// A job's tools (and a value check's, with no job). The ones that are
-// still stand-ins (sheets, search, the wallet) answer like the test bench's
-// mocks, from the installation's own copy of the bench's data, and what
-// they change is kept on the installation for its next job. A message to
+// A job's tools (and a value check's, with no job). Sheets are real: the
+// owner's own Google Sheets, only the tabs they gave this installation,
+// within a number of calls a day. The ones that are still stand-ins
+// (search, the wallet) answer like the test bench's mocks, from the
+// installation's own copy of the bench's data, and what they change is
+// kept on the installation for its next job. A message to
 // the owner (telegram.send) goes to the installation's in-app message box
 // and to the owner's linked Telegram chat, and nowhere else.
 // Memory is real: what the agent remembers for this owner, on their
@@ -65,6 +69,7 @@ export class JobTools implements ToolHost {
       if (over && !approval) throw new Paused({ kind: "over_limit", question: over, choices: ["Yes", "No"] });
       if (over && !isYes(approval!.answer)) throw new Declined(approval!.answer);
     }
+    if (tool === "sheets.read" || tool === "sheets.write") return this.sheet(tool, args);
     if (tool === "memory.get" || tool === "memory.set") return this.memory(tool, args);
     if (tool === "web.fetch") return this.fetch(args);
     if (tool === "telegram.send") {
@@ -77,13 +82,56 @@ export class JobTools implements ToolHost {
     }
     const mock = await this.mocks();
     const result = await mock.call(tool, args);
-    if (tool === "sheets.write" || tool === "wallet.pay") {
+    if (tool === "wallet.pay") {
       await this.rt.db
         .update(agentInstallations)
         .set({ mocks: mock.kept, updatedAt: this.rt.now() })
         .where(eq(agentInstallations.id, this.installation.id));
     }
     return result;
+  }
+
+  // One more call of a kind today, within its limit: false when the limit
+  // is reached. The site's own total is kept under the nil id.
+  private async take(tool: string, limit: number, id = this.installation.id): Promise<boolean> {
+    const day = this.rt.now().toISOString().slice(0, 10);
+    const taken = await this.rt.db
+      .insert(agentToolDays)
+      .values({ installationId: id, day, tool, calls: 1 })
+      .onConflictDoUpdate({ target: [agentToolDays.installationId, agentToolDays.day, agentToolDays.tool], set: { calls: sql`${agentToolDays.calls} + 1` }, setWhere: sql`${agentToolDays.calls} < ${limit}` })
+      .returning({ calls: agentToolDays.calls });
+    return taken.length > 0;
+  }
+
+  // The tab a sheet tool names: by its name (the value of a sheet setting)
+  // or by the setting itself. Only the tabs the owner gave this
+  // installation; any other name is refused, whatever the code passes.
+  private grant(name: string): SheetGrant {
+    const grants = Object.entries((this.installation.sheets ?? {}) as Record<string, SheetGrant>);
+    const byKey = grants.find(([k]) => k === name)?.[1];
+    if (byKey) return byKey;
+    const byTab = grants.filter(([, g]) => g.tab === name).map(([, g]) => g);
+    if (byTab.length && byTab.every((g) => g.spreadsheetId === byTab[0]!.spreadsheetId)) return byTab[0]!;
+    const given = [...new Set(grants.map(([, g]) => `"${g.tab}"`))];
+    throw new ToolError("sheets", given.length ? `This agent wasn't given a sheet called "${name}". It was given ${given.join(", ")}.` : "This agent wasn't given any sheets.");
+  }
+
+  private async sheet(tool: "sheets.read" | "sheets.write", args: unknown): Promise<unknown> {
+    const parsed = TOOL_ARGS[tool].safeParse(args);
+    if (!parsed.success) throw new ToolError(tool, tool === "sheets.read" ? "sheets.read was called wrongly: it takes { sheet }." : "sheets.write was called wrongly: it takes { sheet, rows, mode? }.");
+    const g = this.grant(parsed.data.sheet);
+    const limit = this.rt.services.caps.sheetCalls;
+    if (!(await this.take("sheets", limit))) throw new ToolError(tool, `It reached its limit of ${limit} sheet calls today.`);
+    try {
+      if (tool === "sheets.read") return { rows: await readTab(this.rt, this.installation.ownerUserId, g) };
+      const w = parsed.data as unknown as { rows: SheetRow[]; mode?: "append" | "replace" };
+      return { written: await writeTab(this.rt, this.installation.ownerUserId, g, w.rows, w.mode ?? "append") };
+    } catch (err) {
+      if (err instanceof GoogleRevoked) throw new Halted(REVOKED_REASON);
+      if (err instanceof GoogleUnavailable) throw new InfraError(err.message);
+      if (err instanceof SheetRefused) throw new ToolError(tool, err.message);
+      throw err;
+    }
   }
 
   // A real page, within the installation's pages a day. A page that can't
