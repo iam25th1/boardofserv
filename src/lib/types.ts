@@ -58,6 +58,8 @@ export interface SketchDTO {
   // The one field the latest reply asks about.
   asking: "watches" | "when" | "how" | "tells" | "takes" | "does" | "gives" | null;
   live: boolean;
+  // The maker picked the kind on the dock: the plan no longer changes it.
+  kindChosen?: boolean;
 }
 
 // A published helper as anyone may see it: never its instructions.

@@ -8,8 +8,8 @@ import { compileHelper, freeSlug, guardLine, liveHelperFor, newCanary, PUBLIC_CO
 import { PricesBody, readPrices } from "@/lib/payments/prices";
 import { setPrices } from "@/lib/payments/uses";
 import { isUniqueViolation } from "@/lib/users";
-import { modelConfig } from "@/lib/model";
-import { fieldsOf } from "@/lib/sketchFields";
+import { describeFailures, modelConfig, userError } from "@/lib/model";
+import { DESCRIPTION_MAX, fieldsOf } from "@/lib/sketchFields";
 import { loadSketch } from "@/lib/sketchStore";
 import { servKeyOf } from "@/lib/servKey";
 import { refusal } from "@/lib/spend";
@@ -26,7 +26,7 @@ const oneLine = (max: number) =>
 
 const Body = z.object({
   conversationId: z.string().uuid(),
-  description: oneLine(140),
+  description: oneLine(DESCRIPTION_MAX),
   inputHint: oneLine(80),
   // A price per use in each currency the maker accepts, in minor units.
   prices: PricesBody.optional(),
@@ -89,9 +89,11 @@ export async function POST(req: Request) {
     console.error("compile usage not recorded", err instanceof Error ? err.message : "unknown error");
   }
   if (!prompt) {
+    // The details stay in the server's log.
+    console.error(`publish: no instructions written. ${result.content ? "The model's answer did not validate." : describeFailures(result.failures, config.firstTokenTimeoutMs)}`);
     const error = config.providers.length
-      ? "Its instructions could not be written just now. Try again in a minute."
-      : "No model is set up, so the helper can't be published yet.";
+      ? userError(result.failures, Boolean(config.ownKey), "Its instructions could not be written just now. Try again in a minute.")
+      : "Publishing isn't available right now. Try again in a few minutes.";
     return Response.json({ error }, { status: 502 });
   }
 

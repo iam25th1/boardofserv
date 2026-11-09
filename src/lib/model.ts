@@ -210,7 +210,8 @@ export interface ReplyResult {
   totalMs: number;
   cutOff: boolean;
   failures: Failure[];
-  // A plain message for the thread when no reply streamed at all.
+  // What went wrong when no reply streamed at all, with the details, for the
+  // server's log. People see userError's plain sentence instead.
   error: string | null;
 }
 
@@ -356,6 +357,20 @@ export function describeFailures(failures: Failure[], timeoutMs: number): string
   if (failures.some((f) => f.kind === "status" && !fallsBack(f))) todo = "Check the model settings on the server, then try again.";
   else if (failures.some((f) => f.kind === "status" && f.status === 402)) todo = "Top up SERV credit, then try again.";
   return `${what}, so there is no reply. ${todo}`;
+}
+
+// What a person is told when no model answered: one plain sentence, never a
+// status code or a setting. The details go to the server's log. On their own
+// SERV key, they are told what they can fix themselves.
+export const REPLIES_UNAVAILABLE = "Replies aren't available right now. Try again in a few minutes.";
+
+export function userError(failures: Failure[], ownKey = false, general = REPLIES_UNAVAILABLE): string {
+  if (ownKey) {
+    const statuses = failures.flatMap((f) => (f.kind === "status" ? [f.status] : []));
+    if (statuses.includes(402)) return "Your SERV key is out of credit. Top it up, or remove it in the account menu to go back to boardofserv's own.";
+    if (statuses.includes(401) || statuses.includes(403)) return "SERV didn't accept your key. Check it in the account menu.";
+  }
+  return general;
 }
 
 // Stream one reply through the providers in order. Never throws for a model

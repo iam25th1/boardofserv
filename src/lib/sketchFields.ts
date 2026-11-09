@@ -21,3 +21,7 @@ export type SketchFieldKey = (typeof SKETCH_FIELDS)[number];
 export function fieldsOf(kind: SketchDTO["kind"]): readonly SketchFieldKey[] {
   return kind === "answer" ? ANSWER_FIELDS : AGENT_FIELDS;
 }
+
+// The most a published helper's one line about it may hold, on the publish
+// sheet and on the server. The board and the helper page show all of it.
+export const DESCRIPTION_MAX = 160;

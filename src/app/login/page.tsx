@@ -6,9 +6,11 @@ import { usePrivy } from "@privy-io/react-auth";
 import { createScope, createTimeline, stagger, svg, utils } from "animejs";
 import { Button } from "@/components/ui";
 import { Wordmark } from "@/components/chat/Wordmark";
+import { SignInStalled } from "@/components/SignInStalled";
 import { SignInUnset } from "@/components/SignInUnset";
 import { REDUCED_MOTION, ease } from "@/lib/motion";
 import { privyAppId } from "@/lib/privy-config";
+import { usePrivyStalled } from "@/lib/usePrivyStalled";
 import styles from "./login.module.css";
 
 // Where sign-in may send someone back to: only our own helper pages, the
@@ -25,6 +27,7 @@ function SignIn() {
   const { ready, authenticated, login } = usePrivy();
   const router = useRouter();
   const root = useRef<HTMLElement>(null);
+  const stalled = usePrivyStalled(ready);
 
   useEffect(() => {
     if (!ready || !authenticated) return;
@@ -65,9 +68,13 @@ function SignIn() {
           Tell boardofserv what you want to automate in plain English, and it builds the agent for you on OpenServ.
         </p>
         <div data-rise>
-          <Button onClick={login} disabled={!ready}>
-            Continue with email
-          </Button>
+          {stalled ? (
+            <SignInStalled align="start" />
+          ) : (
+            <Button onClick={login} disabled={!ready}>
+              Continue with email
+            </Button>
+          )}
         </div>
         <p className={styles.fineprint} data-rise>
           You sign in with an email code. No wallet or crypto knowledge needed.

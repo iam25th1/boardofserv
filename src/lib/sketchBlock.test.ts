@@ -155,6 +155,7 @@ describe("mergeSketch", () => {
     gives: null,
     asking: "tells",
     live: false,
+    kindChosen: false,
   };
   const reply = (p: Partial<ParsedSketch>): ParsedSketch => ({
     name: null,
@@ -172,9 +173,9 @@ describe("mergeSketch", () => {
   });
 
   it("takes every value from the first sketch", () => {
-    expect(mergeSketch(null, reply({ name: "A", watches: "B", asking: "when" }))).toEqual({
+    expect(mergeSketch(null, reply({ name: "A", kind: "watcher", watches: "B", asking: "when" }))).toEqual({
       name: "A",
-      kind: null,
+      kind: "watcher",
       watches: "B",
       when: null,
       how: null,
@@ -184,6 +185,7 @@ describe("mergeSketch", () => {
       gives: null,
       asking: "when",
       live: false,
+      kindChosen: false,
     });
   });
 

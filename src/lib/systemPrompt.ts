@@ -66,4 +66,7 @@ export function replySystemPrompt(sketch: SketchDTO | null, plan: TurnPlan | nul
 
 // The plan: the sketch as JSON, plus the next question and its buttons. Kept
 // to the minimum: what each field means lives in the schema's descriptions.
-export const PLAN_PROMPT = 'Update the sketch of the agent the person is describing from what they said. Keep known values unless they changed them. Use a few plain words per field and "" if unknown.';
+// A one-shot answer helper is the default kind; a watcher or a digest only
+// when the person mentions something to monitor or a schedule.
+export const PLAN_PROMPT =
+  'Update the sketch of the agent the person is describing from what they said. Keep known values unless they changed them. Use a few plain words per field and "" if unknown. Kind is answer unless they mention a schedule (digest) or something to keep watching (watcher).';

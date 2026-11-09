@@ -157,6 +157,7 @@ describe("a chat turn with a sketch", () => {
       gives: null,
       asking: "how",
       live: false,
+      kindChosen: false,
     });
 
     // Two calls: the strict JSON plan, then the streamed reply, which knows

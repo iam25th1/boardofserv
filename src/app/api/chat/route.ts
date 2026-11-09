@@ -2,9 +2,10 @@ import { and, asc, desc, eq, gt } from "drizzle-orm";
 import { z } from "zod";
 import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
+import { DashFix } from "@/lib/dashes";
 import { db } from "@/lib/db";
 import { conversations, messages, replyUsage, type Message } from "@/lib/db/schema";
-import { contextFor, CUT_OFF_SUFFIX, modelConfig, streamReply, type ChatMessage, type JsonResult, type ReplyResult } from "@/lib/model";
+import { contextFor, CUT_OFF_SUFFIX, modelConfig, streamReply, userError, type ChatMessage, type JsonResult, type ReplyResult } from "@/lib/model";
 import { mergeSketch, SketchSplitter } from "@/lib/sketchBlock";
 import { planTurn } from "@/lib/sketchPlan";
 import { loadSketch, saveSketch } from "@/lib/sketchStore";
@@ -147,6 +148,8 @@ export async function POST(req: Request) {
       // Replies no longer write a sketch, but if one still carries the old
       // block or bare sketch JSON, the splitter keeps it off the screen.
       const split = new SketchSplitter();
+      // No em dashes on screen, code left alone (dashes.ts).
+      const dashes = new DashFix();
       let full = "";
       const show = (text: string) => {
         if (!text) return;
@@ -162,22 +165,25 @@ export async function POST(req: Request) {
           label = ev.label;
           send("meta", { conversationId: cid, source, label });
         } else if (ev.type === "delta") {
-          show(split.push(ev.text));
+          show(dashes.push(split.push(ev.text)));
         } else {
           result = ev.result;
         }
       }
       const { rest } = split.finish();
       if (result?.cutOff) {
+        show(dashes.finish());
         // Cut off inside the block means the reply itself was complete.
         if (!split.inBlock) show(CUT_OFF_SUFFIX);
       } else {
-        show(rest);
+        show(dashes.push(rest) + dashes.finish());
       }
 
       if (!full.trim()) {
         await finishUsage(usageId, result, plan.result, plan.sketch !== null);
-        send("error", { message: result?.error ?? "The reply could not be completed. You can retry." });
+        // The details stay in the server's log; the thread gets one plain sentence.
+        console.error(`chat: no reply. ${result?.error ?? "The reply ended with nothing to show."}`);
+        send("error", { message: userError(result?.failures ?? [], ownKey) });
         if (open) ctrl.close();
         return;
       }

@@ -381,6 +381,25 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
     [api, activeId, toast, refreshConversations, saveHandle],
   );
 
+  // The maker switches the sketch's kind on the dock: shown at once, put
+  // back if the server says no.
+  const doKind = useCallback(
+    async (kind: NonNullable<SketchDTO["kind"]>) => {
+      const id = activeId;
+      if (!id || !sketch) return;
+      const before = sketch;
+      setSketch({ ...sketch, kind, kindChosen: true });
+      try {
+        const saved = await api.setSketchKind(id, kind);
+        if (activeRef.current === id) setSketch(saved);
+      } catch (err) {
+        if (activeRef.current === id) setSketch(before);
+        toast.show({ title: err instanceof Error ? err.message : "The kind could not be changed. Try again.", tone: "danger" });
+      }
+    },
+    [api, activeId, sketch, toast],
+  );
+
   const doUnpublish = useCallback(async () => {
     const c = conversations.find((x) => x.id === unpublishId);
     setUnpublishId(null);
@@ -535,6 +554,7 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
               sketch={sketchFromDTO(sketch)}
               sketching={sketchingTurn !== null}
               published={published?.slug ?? null}
+              onKind={(kind) => void doKind(kind)}
               onPublish={() => {
                 setPublishError(null);
                 setSheetOpen(true);

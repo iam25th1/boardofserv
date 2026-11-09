@@ -2,6 +2,7 @@
 import { useEffect, useId, useState } from "react";
 import { Button, Dialog, TextInput } from "@/components/ui";
 import { normalHandle } from "@/lib/handles";
+import { DESCRIPTION_MAX } from "@/lib/sketchFields";
 import type { CurrencyDTO } from "@/lib/types";
 import { HandleInput, useHandleStatus, type HandleCheck } from "./HandleField";
 import { PriceFields, readPrices, type PriceDrafts } from "./PriceFields";
@@ -112,12 +113,17 @@ export function PublishSheet({ open, name, description, inputHint, handle, check
               disabled={busy}
               describedBy={`${handleId}-note`}
             />
-            <small id={`${handleId}-note`}>We picked this one at random. Keep it or choose your own; the board shows it as the maker.</small>
+            <small id={`${handleId}-note`}>
+              {/* "At random" only while the draft is still the handle we gave them. */}
+              {normalHandle(draft) === current
+                ? "We picked this one at random. Keep it or choose your own; the board shows it as the maker."
+                : "The board shows it as the maker."}
+            </small>
           </div>
         )}
         <div className={styles.field}>
           <label htmlFor={lineId}>One line about it</label>
-          <TextInput id={lineId} value={line} maxLength={140} onChange={(e) => setLine(e.target.value)} disabled={busy} />
+          <TextInput id={lineId} value={line} maxLength={DESCRIPTION_MAX} onChange={(e) => setLine(e.target.value)} disabled={busy} />
         </div>
         <div className={styles.field}>
           <label htmlFor={hintId}>What to type</label>

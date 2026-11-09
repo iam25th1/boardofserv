@@ -1,5 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { getUserFromRequest } from "@/lib/auth-route";
+import { fixDashes } from "@/lib/dashes";
 import { db } from "@/lib/db";
 import { conversations, messages } from "@/lib/db/schema";
 import { liveHelperFor } from "@/lib/helpers";
@@ -19,7 +20,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     .from(messages)
     .where(eq(messages.conversationId, params.id))
     .orderBy(asc(messages.createdAt));
+  // Replies stored before em dashes were taken out are shown without them too.
+  const shown = rows.map((m) => (m.role === "assistant" ? { ...m, content: fixDashes(m.content) } : m));
   // The conversation's agent sketch comes with it, or null when there is
   // none, and the helper published from it while that is on the board.
-  return Response.json({ messages: rows, sketch: await loadSketch(params.id), published: await liveHelperFor(params.id) });
+  return Response.json({ messages: shown, sketch: await loadSketch(params.id), published: await liveHelperFor(params.id) });
 }

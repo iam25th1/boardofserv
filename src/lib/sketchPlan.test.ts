@@ -24,6 +24,7 @@ const stored: SketchDTO = {
   gives: null,
   asking: "how",
   live: false,
+  kindChosen: false,
 };
 const TURN = { stored, previous: "How often should it check the price?", said: "Every 5 minutes" };
 

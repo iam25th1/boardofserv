@@ -26,6 +26,7 @@
 }
 .head p {
   color: var(--chalk-2);
+  overflow-wrap: anywhere;
 }
 .head small {
   font-family: var(--font-hand);

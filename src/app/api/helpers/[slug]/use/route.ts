@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
+import { DashFix } from "@/lib/dashes";
 import { finishUse, helperSecret, quotaFor, startUse } from "@/lib/helpers";
 import { BLOCKED_MESSAGE, LeakGuard } from "@/lib/leakGuard";
-import { CUT_OFF_SUFFIX, modelConfig, SERV_PROMPT_GUARD, streamReply, type ReplyResult } from "@/lib/model";
+import { CUT_OFF_SUFFIX, modelConfig, SERV_PROMPT_GUARD, streamReply, userError, type ReplyResult } from "@/lib/model";
 import { CURRENCIES, formatAmount, type Currency } from "@/lib/money";
 import { paymentsConfig } from "@/lib/payments/config";
 import { balancesOf } from "@/lib/payments/ledger";
@@ -109,6 +110,9 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
         }
       };
       const guard = new LeakGuard(helper.systemPrompt, helper.canary);
+      // The guard reads the model's own words; people see them with no em
+      // dashes (dashes.ts).
+      const dashes = new DashFix();
       let shown = "";
       const show = (text: string) => {
         if (!text) return;
@@ -126,12 +130,13 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
         )) {
           if (ev.type === "start") send("meta", { source: ev.provider, label: ev.label });
           else if (ev.type === "delta") {
-            show(guard.push(ev.text).text);
+            show(dashes.push(guard.push(ev.text).text));
             // Stop the model as soon as the answer leaks.
             if (guard.blocked) break;
           } else result = ev.result;
         }
-        if (!guard.blocked) show(guard.finish().text);
+        // What the guard already let through is shown in full, blocked or not.
+        show(guard.blocked ? dashes.finish() : dashes.push(guard.finish().text) + dashes.finish());
       } catch {
         // Whatever broke, the use still ends with an event and a record.
         controller.abort();
@@ -161,7 +166,10 @@ export async function POST(req: Request, { params }: { params: { slug: string } 
       else if (shown.trim()) {
         if (result?.cutOff) show(CUT_OFF_SUFFIX);
         send("done", after);
-      } else send("error", { message: "The helper could not answer just now. Try again in a minute.", ...after });
+      } else {
+        console.error(`helper use: no answer. ${result?.error ?? "The answer ended with nothing to show."}`);
+        send("error", { message: userError(result?.failures ?? [], ownKey, "The helper could not answer just now. Try again in a minute."), ...after });
+      }
       if (open) ctrl.close();
     },
     cancel() {

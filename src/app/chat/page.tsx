@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { ChatShell } from "@/components/chat/ChatShell";
 import { Wordmark } from "@/components/chat/Wordmark";
+import { SignInStalled } from "@/components/SignInStalled";
 import { SignInUnset } from "@/components/SignInUnset";
 import { Waitlist } from "@/components/Waitlist";
 import { privyAppId } from "@/lib/privy-config";
 import type { AccountDTO } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
+import { usePrivyStalled } from "@/lib/usePrivyStalled";
 import styles from "./chat.module.css";
 
 export default function ChatPage() {
@@ -27,15 +29,17 @@ function SignedInChat() {
     if (ready && !authenticated) router.replace(`/login${window.location.search}`);
   }, [ready, authenticated, router]);
 
-  if (!ready || !authenticated) return <Loading />;
+  const stalled = usePrivyStalled(ready);
+  if (!ready || !authenticated) return <Loading stalled={stalled} />;
   return <LetIn />;
 }
 
-function Loading() {
+// Waiting on Privy, or, after ten seconds of it, why it may not be coming.
+function Loading({ stalled = false }: { stalled?: boolean }) {
   return (
     <main className={styles.loading}>
       <Wordmark />
-      <p className={styles.loadingText}>getting your workspace ready</p>
+      {stalled ? <SignInStalled /> : <p className={styles.loadingText}>getting your workspace ready</p>}
     </main>
   );
 }

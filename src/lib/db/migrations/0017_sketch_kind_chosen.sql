@@ -1,0 +1,1 @@
+ALTER TABLE "agent_sketches" ADD COLUMN "kind_chosen" boolean DEFAULT false NOT NULL;

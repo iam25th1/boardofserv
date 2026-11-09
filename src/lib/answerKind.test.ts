@@ -59,7 +59,7 @@ describe("the plan for an answer helper", () => {
       })) as unknown as typeof fetch;
     const { sketch } = await planTurn({ stored: null, previous: null, said: "Write blurbs for my shop" }, { config, signal: new AbortController().signal, fetchImpl });
     expect(sketch).toMatchObject({ kind: "answer", takes: "a product name and a few facts", asking: "gives", choices: ["The blurb", "Three options"] });
-    expect(mergeSketch(null, sketch!)).toEqual(blurb);
+    expect(mergeSketch(null, sketch!)).toEqual({ ...blurb, kindChosen: false });
   });
 
   it("sends the stored answer fields to the next plan", () => {

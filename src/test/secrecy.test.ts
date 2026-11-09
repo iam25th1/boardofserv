@@ -20,6 +20,7 @@ import * as board from "@/app/api/board/route";
 import * as chat from "@/app/api/chat/route";
 import * as conversationMessages from "@/app/api/conversations/[id]/messages/route";
 import * as conversation from "@/app/api/conversations/[id]/route";
+import * as conversationSketch from "@/app/api/conversations/[id]/sketch/route";
 import * as conversations from "@/app/api/conversations/route";
 import * as helper from "@/app/api/helpers/[slug]/route";
 import * as helperUse from "@/app/api/helpers/[slug]/use/route";
@@ -66,6 +67,7 @@ const ROUTES: Record<string, object> = {
   "conversations": conversations,
   "conversations/[id]": conversation,
   "conversations/[id]/messages": conversationMessages,
+  "conversations/[id]/sketch": conversationSketch,
   "helpers": helpers,
   "helpers/[slug]": helper,
   "helpers/[slug]/use": helperUse,
@@ -238,6 +240,7 @@ describe("a helper's instructions stay on the server", () => {
     await hit("conversations", conversations.GET(req("/api/conversations")));
     await hit("new conversation", conversations.POST(req("/api/conversations", "POST")));
     await hit("messages", conversationMessages.GET(req(`/api/conversations/${cid}/messages`), { params: { id: cid } }));
+    await hit("kind on the board", conversationSketch.PATCH(req(`/api/conversations/${cid}/sketch`, "PATCH", { kind: "watcher" }), { params: { id: cid } }));
     await hit("rename", conversation.PATCH(req(`/api/conversations/${cid}`, "PATCH", { title: "Shop blurbs, renamed" }), { params: { id: cid } }));
     await hit("chat", chat.POST(req("/api/chat", "POST", { conversationId: cid, content: "Also refuse gift cards." })));
     await hit("account", account.GET(req("/api/account")));

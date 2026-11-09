@@ -145,6 +145,8 @@ export const agentSketches = pgTable("agent_sketches", {
   gives: text("gives"),
   asking: text("asking", { enum: ["watches", "when", "how", "tells", "takes", "does", "gives"] }),
   live: boolean("live").notNull().default(false),
+  // The maker picked the kind on the dock; the plan leaves it alone from then on.
+  kindChosen: boolean("kind_chosen").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

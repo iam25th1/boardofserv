@@ -3,6 +3,9 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { AccountDTO, AdminDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, MessageDTO, PublicHelperDTO, QuotaDTO, SketchDTO, WalletDTO } from "./types";
 
+// When the server sends no sentence of its own: never a status code.
+const SOMETHING_WRONG = "Something went wrong. Try again in a few minutes.";
+
 // Every request carries the Privy access token as a bearer, which the server
 // verifies. The token is the only credential the browser holds; the OpenServ
 // key stays on the server.
@@ -23,7 +26,7 @@ export function useApi() {
   return useMemo(() => {
     const json = async <T,>(p: string, init?: RequestInit): Promise<T> => {
       const res = await authed(p, init);
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Request failed (${res.status})`);
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? SOMETHING_WRONG);
       return res.json() as Promise<T>;
     };
     return {
@@ -31,6 +34,8 @@ export function useApi() {
       createConversation: () => json<{ conversation: ConversationDTO }>("/api/conversations", { method: "POST" }).then((d) => d.conversation),
       renameConversation: (id: string, title: string) =>
         json<{ conversation: ConversationDTO }>(`/api/conversations/${id}`, { method: "PATCH", body: JSON.stringify({ title }) }).then((d) => d.conversation),
+      setSketchKind: (id: string, kind: NonNullable<SketchDTO["kind"]>) =>
+        json<{ sketch: SketchDTO }>(`/api/conversations/${id}/sketch`, { method: "PATCH", body: JSON.stringify({ kind }) }).then((d) => d.sketch),
       deleteConversation: (id: string) => json<{ ok: boolean }>(`/api/conversations/${id}`, { method: "DELETE" }),
       getConversation: (id: string) =>
         json<{ messages: MessageDTO[]; sketch: SketchDTO | null; published: PublicHelperDTO | null }>(`/api/conversations/${id}/messages`),
@@ -44,7 +49,7 @@ export function useApi() {
         const res = await authed("/api/helpers", { method: "POST", body: JSON.stringify(body) });
         const data = (await res.json().catch(() => ({}))) as { helper?: PublicHelperDTO; error?: string };
         if (data.helper && (res.ok || res.status === 409)) return data.helper;
-        throw new Error(data.error ?? `Request failed (${res.status})`);
+        throw new Error(data.error ?? SOMETHING_WRONG);
       },
       unpublishHelper: (slug: string) => json<{ ok: boolean }>(`/api/helpers/${encodeURIComponent(slug)}`, { method: "DELETE" }),
       setPrices: (slug: string, prices: Partial<Record<"USDC" | "SERV", string | null>>) =>

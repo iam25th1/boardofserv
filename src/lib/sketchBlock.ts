@@ -188,11 +188,13 @@ export function parseSketchBlock(raw: string | null): ParsedSketch | null {
 
 // A plan's sketch merged into the stored one. A value from the model replaces
 // the stored value (the person changed their mind); a null never wipes one.
-// "asking" always comes from the latest plan, and only when it names a field
-// of the sketch's kind (an answer helper is never asked how often it checks).
-// Choices are not stored.
+// The kind is a one-shot answer helper until the plan says otherwise, and
+// once the maker picks it on the dock, it stays theirs. "asking" always comes
+// from the latest plan, and only when it names a field of the sketch's kind
+// (an answer helper is never asked how often it checks). Choices are not
+// stored.
 export function mergeSketch(stored: SketchDTO | null, parsed: ParsedSketch): SketchDTO {
-  const kind = parsed.kind ?? stored?.kind ?? null;
+  const kind = stored?.kindChosen ? stored.kind : (parsed.kind ?? stored?.kind ?? "answer");
   return {
     name: parsed.name ?? stored?.name ?? null,
     kind,
@@ -205,5 +207,6 @@ export function mergeSketch(stored: SketchDTO | null, parsed: ParsedSketch): Ske
     gives: parsed.gives ?? stored?.gives ?? null,
     asking: parsed.asking && fieldsOf(kind).includes(parsed.asking) ? parsed.asking : null,
     live: stored?.live ?? false,
+    kindChosen: stored?.kindChosen ?? false,
   };
 }

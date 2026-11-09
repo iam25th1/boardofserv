@@ -101,6 +101,10 @@ address, a version or an error.
 ## How a user signs in, and their own SERV key
 
 1. The user signs in with an email code through Privy and gets an embedded EOA.
+   Privy loads from its own site, which Brave's shields or an ad blocker can
+   stop. If it isn't ready within 10 seconds, the sign-in and chat pages say
+   "Sign-in couldn't load. If you use Brave or an ad blocker, allow this site,
+   then try again." with a Retry button that loads the page again.
 2. Chatting needs nothing else: it runs on the site's own model keys, within
    the daily limits below.
 3. "Use your own SERV key" in the account menu takes the user's own SERV
@@ -198,8 +202,16 @@ reports usage when asked (`stream_options.include_usage`).
   reply, so a 402 (out of credit) is never retried. Any other refusal stops.
 - After the first token nothing is retried. The reply ends with "Reply cut off.
   Try again."
-- If nothing answers, the thread shows a plain error that says what happened
-  and what to do. There is no fake reply.
+- If nothing answers, the thread says "Replies aren't available right now.
+  Try again in a few minutes." What happened (which provider, which status)
+  goes to the server's log only. Someone on their own SERV key is told when
+  SERV refused it or it ran out of credit, since they can fix that. There is
+  no fake reply.
+- No reply or helper answer shows an em dash: each is replaced as it streams
+  (`src/lib/dashes.ts`), with a comma between words, a hyphen between numbers
+  or at the start of a line, and nothing before punctuation or a line's end.
+  Code blocks and inline code are left as they are. Replies stored before
+  this are shown the same way.
 - Every request carries a system message, and json schemas lose their numeric
   range keywords: the rules SERV enforces. The chat switches no paid add-on on
   (no Prompt Guard, Shadow Agent or Kronos). A published helper's use declares
@@ -258,6 +270,14 @@ it does and what it gives back, and its dock reads takes / does / gives. Once
 those are set, the reply asks for the rules and the voice it should keep,
 which stay in the conversation.
 
+A one-shot answer helper is the default: the plan picks a watcher or a digest
+only when the person mentions something to monitor or a schedule, and a sketch
+the plan names no kind for is an answer helper. The dock has a small kind
+switch (answer, watcher, digest, helper) the maker can change
+(`PATCH /api/conversations/:id/sketch`); once they do, the plan keeps their
+choice (`kind_chosen`). A helper on the board keeps its kind until it is taken
+down.
+
 The agent sketch dock fills in from the conversation. Each turn makes two
 calls, plan first and reply second. The plan is one non-streaming call with a
 strict json_schema. It sees only the stored sketch, the reply the person is
@@ -307,9 +327,12 @@ their own.
 
 When an answer helper's fields are all set, the dock's switch becomes a
 Publish button (other kinds keep "Switching on comes in the next update").
-Publish opens a confirm sheet: the public name, a one-line description and a
-"what to type" hint the maker can edit, and a note that their instructions
-stay private. Confirming runs one compile call (strict json_schema, `COMPILE_MAX_TOKENS`,
+Publish opens a confirm sheet: the public name, a one-line description (up to
+160 characters, shown in full on the board and the helper's page) and a "what
+to type" hint the maker can edit, and a note that their instructions stay
+private. While the maker's handle is still the random one, the sheet asks them
+to keep it or choose their own, and says "We picked this one at random" only
+while the field still holds it. Confirming runs one compile call (strict json_schema, `COMPILE_MAX_TOKENS`,
 default 600): from the sketch and the conversation's recent messages, the
 model writes the helper's private system prompt (rules, voice, format, what to
 refuse). A line with a per-helper random canary is appended, which the helper

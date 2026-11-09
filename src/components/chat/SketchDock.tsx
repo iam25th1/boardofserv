@@ -15,12 +15,13 @@ import {
   type NodeKey,
 } from "@/lib/agentSketch";
 import { animatePop, dustIn, ease, prefersReducedMotion } from "@/lib/motion";
+import type { SketchKind } from "@/lib/sketchFields";
 import styles from "./SketchDock.module.css";
 
 // The agent sketch, docked on top of the composer as one piece: name and
-// status, the diagram (watch / decide / tell you for an agent, takes / does /
-// gives for an answer helper), the on/off switch, and the details panel that
-// opens when you tap the name. Agents cannot run yet, so the switch only
+// status, a small switch for its kind, the diagram (watch / decide / tell you
+// for an agent, takes / does / gives for an answer helper), the on/off
+// switch, and the details panel that opens when you tap the name. Agents cannot run yet, so the switch only
 // works for the development fixtures (canSwitch); a real sketch keeps it
 // disabled and its status line says why. A ready answer helper has a Publish
 // button in the switch's place, and once published a link to its page.
@@ -59,9 +60,14 @@ interface Props {
   // board, and what Publish does.
   published?: string | null;
   onPublish?: () => void;
+  // The maker switches the kind. Without it the kind is not shown.
+  onKind?: (kind: SketchKind) => void;
 }
 
-export function SketchDock({ sketch, canSwitch = false, sketching = false, onToggle, published = null, onPublish }: Props) {
+// The kinds the maker can switch between, in the words the dock uses.
+const KINDS: SketchKind[] = ["answer", "watcher", "digest", "helper"];
+
+export function SketchDock({ sketch, canSwitch = false, sketching = false, onToggle, published = null, onPublish, onKind }: Props) {
   const root = useRef<HTMLDivElement>(null);
   const details = useRef<HTMLUListElement>(null);
   const links = useRef<ReturnType<typeof svg.createDrawable> | null>(null);
@@ -226,6 +232,29 @@ export function SketchDock({ sketch, canSwitch = false, sketching = false, onTog
             {sketching ? <span className={styles.sketching}>sketching...</span> : statusLine(sketch, paused, canSwitch, Boolean(published))}
           </small>
         </button>
+        {onKind && (
+          <label className={styles.kind}>
+            <span className="visually-hidden">Kind</span>
+            <select
+              value={sketch.kind ?? ""}
+              onChange={(e) => onKind(e.target.value as SketchKind)}
+              // A helper on the board keeps its kind until it is taken down.
+              disabled={Boolean(published)}
+              title={published ? "Take it off the board to change its kind" : "What kind of agent this is"}
+            >
+              {!sketch.kind && (
+                <option value="" disabled>
+                  kind
+                </option>
+              )}
+              {KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <svg className={`${styles.flow} chalky`} viewBox="0 0 208 44" aria-hidden="true" focusable="false">
           {LINK_D.map((d, i) => (
             <path key={d} className={styles.link} d={d} data-link={i} />
