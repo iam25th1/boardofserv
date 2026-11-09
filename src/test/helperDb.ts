@@ -14,8 +14,14 @@ export async function testDb(): Promise<{ client: PGlite; db: PgliteDatabase<typ
   return { client, db };
 }
 
-export async function addUser(db: PgliteDatabase<typeof schema>, name: string, handle = name): Promise<schema.User> {
-  const [user] = await db.insert(schema.users).values({ privyUserId: `did:privy:${name}`, email: `${name}@example.com`, handle }).returning();
+// Let in by default: invite-only gets its own tests.
+export async function addUser(
+  db: PgliteDatabase<typeof schema>,
+  name: string,
+  handle = name,
+  access: schema.User["access"] = "approved",
+): Promise<schema.User> {
+  const [user] = await db.insert(schema.users).values({ privyUserId: `did:privy:${name}`, email: `${name}@example.com`, handle, access }).returning();
   return user!;
 }
 

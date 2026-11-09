@@ -132,7 +132,7 @@ export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, 
               </Link>
               {account?.admin && (
                 <Link className={styles.topup} href="/admin">
-                  Payments admin
+                  Admin
                 </Link>
               )}
             </div>

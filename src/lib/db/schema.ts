@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, type AnyPgColumn } from "drizzle-orm/pg-core";
 import { CURRENCIES } from "../money";
 
 // A user of boardofserv, keyed by their Privy user id. We store the Privy
@@ -9,7 +9,12 @@ import { CURRENCIES } from "../money";
 //
 // The handle is the user's public name (without the @), unique ignoring case.
 // New users get a random one like maker_4821 until they choose their own (see
-// handles.ts). The email is never public: only its owner's account menu shows it.
+// handles.ts). The email is never public: only its owner's account menu shows
+// it, and the admin's list of accounts waiting to get in.
+//
+// access: while INVITE_ONLY is on, every account starts "waiting" and sees
+// the waitlist until an admin approves it ("approved") or turns it away
+// ("rejected"); see access.ts. Admins are always let in.
 export const users = pgTable(
   "users",
   {
@@ -27,6 +32,9 @@ export const users = pgTable(
     // helper uses run on it (see servKey.ts).
     servKeyEncrypted: text("serv_key_encrypted"),
     servKeyLast4: text("serv_key_last4"),
+    access: text("access", { enum: ["waiting", "approved", "rejected"] }).notNull().default("waiting"),
+    accessDecidedBy: uuid("access_decided_by").references((): AnyPgColumn => users.id),
+    accessDecidedAt: timestamp("access_decided_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },

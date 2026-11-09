@@ -5,6 +5,7 @@ import { db } from "../db";
 import { balances, deposits, ledgerEntries, users, withdrawals, type User } from "../db/schema";
 import type { Currency } from "../money";
 import { dailySpendLimitUsd, nextReset, spendToday } from "../spend";
+import { inviteOnly, waitingAccounts } from "../access";
 import type { AdminDTO, AdminWithdrawalDTO } from "../types";
 import { chainError, type ChainClient } from "./chain";
 import { enabledCurrencies, paymentsConfig, type PaymentsConfig } from "./config";
@@ -104,6 +105,7 @@ export async function adminDTO(chain: ChainClient, config: PaymentsConfig = paym
   const signer = treasurySigner(config);
   const now = new Date();
   return {
+    access: { inviteOnly: inviteOnly(), waiting: await waitingAccounts() },
     spend: { today: await spendToday(now), limit: dailySpendLimitUsd(), resetsAt: nextReset(now).toISOString() },
     network: config.network,
     networkLabel: config.networkLabel,

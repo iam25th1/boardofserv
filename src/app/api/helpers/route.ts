@@ -1,5 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { db } from "@/lib/db";
 import { conversations, messages, publishedHelpers, replyUsage, users } from "@/lib/db/schema";
@@ -37,6 +38,9 @@ const Body = z.object({
 export async function POST(req: Request) {
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+  // Not let in yet: nothing here runs for a waiting account.
+  const shut = notLetIn(user);
+  if (shut) return shut;
 
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "A description and a hint are required" }, { status: 400 });

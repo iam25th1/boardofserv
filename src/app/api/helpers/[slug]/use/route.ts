@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { finishUse, helperSecret, quotaFor, startUse } from "@/lib/helpers";
 import { BLOCKED_MESSAGE, LeakGuard } from "@/lib/leakGuard";
@@ -45,6 +46,9 @@ function sse(event: string, data: unknown): string {
 export async function POST(req: Request, { params }: { params: { slug: string } }) {
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Sign in to use this helper." }, { status: 401 });
+  // Not let in yet: nothing here runs for a waiting account.
+  const shut = notLetIn(user);
+  if (shut) return shut;
 
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Give the helper something to work with." }, { status: 400 });

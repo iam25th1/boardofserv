@@ -7,9 +7,10 @@ import { useApi } from "@/lib/useApi";
 import { AdminBody } from "./AdminView";
 import styles from "./admin.module.css";
 
-// Payments admin, for the users named in ADMIN_USER_IDS: the treasury
-// against what it owes, withdrawals waiting for approval, unmatched
-// deposits, payout history, and the switch that pauses every payout.
+// The admin page, for the users named in ADMIN_USER_IDS: today's model spend
+// against the limit, accounts waiting to get in, the treasury against what
+// it owes, withdrawals waiting for approval, unmatched deposits, payout
+// history, and the switch that pauses every payout.
 
 export default function AdminPage() {
   return (
@@ -17,7 +18,7 @@ export default function AdminPage() {
       <TopBar agents={<TopLink href="/chat">Your agents</TopLink>} />
       <main className={styles.col}>
         <header className={styles.head}>
-          <h1>Payments admin</h1>
+          <h1>Admin</h1>
         </header>
         {privyAppId() ? <SignedIn /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}
       </main>

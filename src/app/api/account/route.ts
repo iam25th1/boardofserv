@@ -1,3 +1,4 @@
+import { accessOf } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { decryptSecret } from "@/lib/crypto";
 import { balanceSufficient } from "@/lib/openserv";
@@ -36,6 +37,8 @@ export async function GET(req: Request) {
     linked,
     balance,
     admin: isAdmin(user),
+    // "waiting" or "rejected" while invite-only keeps the account out.
+    access: accessOf(user),
     // Only the last four characters of the user's own SERV key, never more.
     servKey: user.servKeyLast4 ? { last4: user.servKeyLast4 } : null,
     // Own-key accounts have no daily limit and never pause.

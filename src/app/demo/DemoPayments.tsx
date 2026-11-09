@@ -78,6 +78,10 @@ function walletApi(): WalletApi {
 }
 
 const adminFor = (treasury: string): AdminDTO => ({
+  access: {
+    inviteOnly: true,
+    waiting: [{ id: "00000000-0000-4000-8000-000000000001", handle: "maker_2207", email: "jo@example.com", joinedAt: new Date(Date.UTC(2026, 10, 7, 14)).toISOString() }],
+  },
   spend: { today: 0.4213, limit: 2, resetsAt: new Date(Date.UTC(2026, 10, 9)).toISOString() },
   network: "base-sepolia",
   networkLabel: "Base Sepolia",
@@ -112,6 +116,7 @@ function adminApi(treasury: string): AdminApi {
       a = { ...a, approvals: a.approvals.filter((x) => x.id !== id), history: [{ ...w, status, stuck: false }, ...a.history.filter((x) => x.id !== id)] };
       return a;
     },
+    adminAccess: async (id) => (a = { ...a, access: { ...a.access, waiting: a.access.waiting.filter((u) => u.id !== id) } }),
   };
 }
 
@@ -125,7 +130,7 @@ export function DemoPayments({ view, qr, treasury }: { view: "wallet" | "admin";
       <TopBar agents={<TopLink href="/chat">Your agents</TopLink>} />
       <main className={styles.col}>
         <header className={styles.head}>
-          <h1>{view === "wallet" ? "Your wallet" : "Payments admin"}</h1>
+          <h1>{view === "wallet" ? "Your wallet" : "Admin"}</h1>
           {view === "wallet" && <p className={wallet.note}>top up, pay for helpers, withdraw what you earn</p>}
         </header>
         {view === "wallet" ? (

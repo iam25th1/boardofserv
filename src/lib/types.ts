@@ -32,6 +32,8 @@ export interface AccountDTO {
   balance: "ok" | "low" | "unknown";
   // Named in ADMIN_USER_IDS: the account menu links to /admin.
   admin?: boolean;
+  // Whether the account is let in: anything but "approved" sees the waitlist.
+  access?: "approved" | "waiting" | "rejected";
   // The user's own SERV key, as its last four characters, or null.
   servKey?: { last4: string } | null;
   // Messages left today, or null when there is no daily limit.
@@ -155,6 +157,10 @@ export interface AdminWithdrawalDTO extends WithdrawalDTO {
 }
 
 export interface AdminDTO {
+  // Invite-only mode, and the accounts waiting to get in, oldest first. The
+  // one place an email is shown to anyone but its owner: an admin needs it
+  // to know who is asking.
+  access: { inviteOnly: boolean; waiting: { id: string; handle: string; email: string | null; joinedAt: string }[] };
   // Today's estimated model spend on the operator's keys against the daily
   // limit, in US dollars, and when the day ends (midnight UTC).
   spend: { today: number; limit: number; resetsAt: string };

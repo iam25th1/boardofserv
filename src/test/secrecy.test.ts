@@ -35,6 +35,7 @@ import * as withdrawalsRoute from "@/app/api/withdrawals/route";
 import * as adminRoute from "@/app/api/admin/route";
 import * as adminPause from "@/app/api/admin/pause/route";
 import * as adminDecide from "@/app/api/admin/withdrawals/[id]/route";
+import * as adminAccess from "@/app/api/admin/access/[id]/route";
 import * as healthRoute from "@/app/api/health/route";
 
 // A published helper's system prompt and canary never leave the server. This
@@ -79,6 +80,7 @@ const ROUTES: Record<string, object> = {
   "admin": adminRoute,
   "admin/pause": adminPause,
   "admin/withdrawals/[id]": adminDecide,
+  "admin/access/[id]": adminAccess,
   "health": healthRoute,
 };
 
@@ -251,6 +253,7 @@ describe("a helper's instructions stay on the server", () => {
       "admin decide not an admin",
       adminDecide.POST(req(`/api/admin/withdrawals/${cid}`, "POST", { action: "approve" }), { params: { id: cid } }),
     );
+    await hit("admin access not an admin", adminAccess.POST(req(`/api/admin/access/${sam.id}`, "POST", { action: "approve" }), { params: { id: sam.id } }));
     await hit("withdraw", withdrawalsRoute.POST(req("/api/withdrawals", "POST", { currency: "USDC", amount: "5000000", to: `0x${"ab".repeat(20)}`, key: "secrecy-1" })));
     await hit("link start", linkStart.POST(req("/api/openserv/link/start", "POST", { address: "nope" })));
     await hit("link finish", linkFinish.POST(req("/api/openserv/link/finish", "POST", {})));

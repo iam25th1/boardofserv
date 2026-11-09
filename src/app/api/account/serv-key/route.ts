@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { checkServKey, KEY_CHECK_TEXT, removeServKey, saveServKey } from "@/lib/servKey";
 
@@ -12,6 +13,8 @@ const Body = z.object({ key: z.string().trim().min(8).max(400).regex(/^\S+$/) })
 export async function POST(req: Request) {
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+  const shut = notLetIn(user);
+  if (shut) return shut;
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Paste the whole key, with no spaces." }, { status: 400 });
 

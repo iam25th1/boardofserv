@@ -69,6 +69,8 @@ export function useApi() {
       adminPause: (paused: boolean) => json<{ admin: AdminDTO }>("/api/admin/pause", { method: "POST", body: JSON.stringify({ paused }) }).then((d) => d.admin),
       adminDecide: (id: string, action: "approve" | "reject" | "fail") =>
         json<{ admin: AdminDTO }>(`/api/admin/withdrawals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.admin),
+      adminAccess: (id: string, action: "approve" | "reject") =>
+        json<{ admin: AdminDTO }>(`/api/admin/access/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.admin),
       requestWithdrawal: (body: { currency: "USDC" | "SERV"; amount: string; to: string; key: string }) =>
         json<{ wallet: WalletDTO }>("/api/withdrawals", { method: "POST", body: JSON.stringify(body) }).then((d) => d.wallet),
 

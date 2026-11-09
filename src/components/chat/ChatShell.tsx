@@ -22,7 +22,7 @@ import type { CurrencyDTO, PublicHelperDTO, SketchDTO } from "@/lib/types";
 import type { MessageView } from "./Message";
 import styles from "./ChatShell.module.css";
 
-export function ChatShell() {
+export function ChatShell({ initialAccount = null }: { initialAccount?: AccountDTO | null } = {}) {
   const api = useApi();
   const { logout } = usePrivy();
   const toast = useToast();
@@ -33,7 +33,7 @@ export function ChatShell() {
   const [streaming, setStreaming] = useState<StreamingView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [account, setAccount] = useState<AccountDTO | null>(null);
+  const [account, setAccount] = useState<AccountDTO | null>(initialAccount);
   const [shortcuts, setShortcuts] = useState(false);
   // The active conversation's stored sketch, updated by each reply.
   const [sketch, setSketch] = useState<SketchDTO | null>(null);

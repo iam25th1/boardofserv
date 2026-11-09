@@ -62,6 +62,8 @@ in the `boardofserv_boardofserv_pgdata` volume either way.
 - `FALLBACK_BASE_URL`, `FALLBACK_API_KEY`, `FALLBACK_MODEL`, `FALLBACK_LABEL`:
   an OpenAI-compatible backup, tried last, and only with all three of the
   first set.
+- `INVITE_ONLY` (optional, on unless `0`, `false`, `no` or `off`): accounts
+  wait for an admin's approval before they can chat (see "Invite-only").
 - `CHAT_DAILY_LIMIT` (optional, default 30): messages each person may send a
   day. `DAILY_SPEND_LIMIT_USD` (optional, default 5): the most the site
   spends a day on the operator's model keys (see "Spend limits" below).
@@ -111,6 +113,17 @@ address, a version or an error.
    helper uses go to SERV on their key and nowhere else (no Dolphin, no
    backup), with no daily message limit, outside the site's spend limit and
    never paused by it.
+
+### Invite-only
+
+`INVITE_ONLY` (on unless set to `0`, `false`, `no` or `off`). Every account
+starts out waiting, accounts from before this too. A signed-in account an
+admin hasn't approved sees a waitlist screen in place of the chat, and the
+routes that call a model (chat, publishing, using a helper, saving a SERV key)
+answer 403. The board, the helper pages and the wallet stay open, signed in
+or not. /admin lists the accounts waiting to get in, oldest first, by handle
+and email, with Approve and Reject; it is the one place an email is shown to
+anyone but its owner. Admins (`ADMIN_USER_IDS`) are always let in.
 
 Linking an OpenServ account (the embedded wallet signing OpenServ's SIWE
 message, the server storing the API key that sign-in returns, encrypted) is
@@ -549,7 +562,9 @@ until then). The amount is debited at once, with a pending row
 
 `/admin` is for the users named in `ADMIN_USER_IDS` (boardofserv user ids or
 Privy user ids, comma separated); everyone else gets a 404, and the account
-menu links to it only for them. It shows, per currency, the treasury's
+menu links to it only for them. It opens with today's model spend against
+`DAILY_SPEND_LIMIT_USD` and the accounts waiting to get in (approve or
+reject). Then, per currency, the treasury's
 balance on chain, the total owed (every balance plus withdrawals not yet
 paid out), the difference (the platform's fees and anything unmatched; it
 must never go below zero, and the page says so loudly if it does) and the
@@ -558,10 +573,12 @@ reject), unmatched deposits, payout history with transaction links (a queued
 payout can be cancelled there, and a stuck one marked failed), and the switch
 that pauses every payout,
 which takes effect at the next payout step without a restart. Users appear by
-handle only.
+handle only, except in the waiting list, which shows each account's email so
+the admin knows who is asking.
 
 - `GET /api/admin`, `POST /api/admin/pause`, `POST /api/admin/withdrawals/:id`
-  (`approve`, `reject` to reject or cancel before it is sent, or `fail`).
+  (`approve`, `reject` to reject or cancel before it is sent, or `fail`),
+  `POST /api/admin/access/:id` (`approve` or `reject` a waiting account).
 
 ### Payment tests
 
