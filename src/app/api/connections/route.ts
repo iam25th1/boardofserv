@@ -1,6 +1,8 @@
 import { getUserFromRequest } from "@/lib/auth-route";
 import { serverRuntime } from "@/lib/agents/runtime/context";
-import { connectionsOf } from "@/lib/connections/vault";
+import { CONNECTION_PROVIDERS, type ConnectionProvider } from "@/lib/db/schema";
+import { connectionsOf, disconnect } from "@/lib/connections/vault";
+import { farewell } from "@/lib/telegram/farewell";
 
 export const runtime = "nodejs";
 
@@ -14,4 +16,18 @@ export async function GET(req: Request) {
     connections: await connectionsOf(rt, user.id),
     available: { telegram: Boolean(rt.services.telegramToken), google: Boolean(rt.services.google) },
   });
+}
+
+// The owner disconnects a service (?provider=telegram or google): revoked
+// where the service allows it, forgotten here, and every installation that
+// needs it paused.
+export async function DELETE(req: Request) {
+  const user = await getUserFromRequest(req);
+  if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+  const provider = new URL(req.url).searchParams.get("provider") ?? "";
+  if (!(CONNECTION_PROVIDERS as readonly string[]).includes(provider)) return Response.json({ error: "Say which: telegram or google." }, { status: 400 });
+  const rt = serverRuntime();
+  const done = await disconnect(rt, user.id, provider as ConnectionProvider, provider === "telegram" ? farewell(rt) : undefined);
+  if (!done) return Response.json({ error: "It isn't connected." }, { status: 404 });
+  return Response.json(done);
 }

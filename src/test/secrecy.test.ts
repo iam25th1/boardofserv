@@ -64,7 +64,8 @@ import { install } from "@/lib/agents/runtime/installations";
 import { claimJob, enqueue, runJob } from "@/lib/agents/runtime/jobs";
 import * as demoLive from "@/app/api/demo/agent/live/route";
 import * as connectionsRoute from "@/app/api/connections/route";
-import * as connectionRoute from "@/app/api/connections/[provider]/route";
+import * as telegramCode from "@/app/api/connections/telegram/code/route";
+import * as telegramWebhook from "@/app/api/telegram/webhook/route";
 import { keep } from "@/lib/connections/vault";
 
 // A published helper's system prompt and canary never leave the server. This
@@ -138,7 +139,8 @@ const ROUTES: Record<string, object> = {
   "demo/agent": demoAgent,
   "demo/agent/live": demoLive,
   "connections": connectionsRoute,
-  "connections/[provider]": connectionRoute,
+  "connections/telegram/code": telegramCode,
+  "telegram/webhook": telegramWebhook,
 };
 
 // What the connection vault holds for Maya: never in any response or log
@@ -277,6 +279,8 @@ beforeAll(async () => {
   vi.stubEnv("HELPER_DAILY_USES", "6");
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body)) as { stream: boolean; tools?: unknown; response_format?: { json_schema?: { name?: string; schema?: { properties?: { outcome?: { enum?: string[] } } } } } };
+    // Telegram's Bot API: everything it is asked works.
+    if (url.startsWith("https://api.telegram.org/")) return Response.json({ ok: true, result: { username: "bostestbot", message_id: 1 } });
     // Google, revoking a token on disconnect.
     if (url.startsWith("https://oauth2.googleapis.com/revoke")) return new Response("{}", { status: 200 });
     // An agent's build: Dolphin's code and SERV's plan carry markers.
@@ -638,9 +642,20 @@ describe("a helper's instructions stay on the server", () => {
         await (await hit("agent: install", agentInstall.POST(req(`/api/agents/${id}/installations`, "POST", { settings: restockBench().settings, rules: {}, timezone: "UTC" }), p))).clone().text(),
       );
       const ip = { params: { id: installed.installation.id as string } };
-      // Maya links Telegram and Google: the vault holds them.
+      // Maya links Telegram (a code, sent to the bot from her chat) and
+      // Google: the vault holds them.
       vi.stubEnv("OPENSERV_KEY_ENC_KEY", randomBytes(32).toString("base64"));
-      await keep(serverRuntime(), maya.id, "telegram", "@maya", { chatId: VAULT_CHAT, userId: VAULT_CHAT });
+      vi.stubEnv("TELEGRAM_BOT_TOKEN", "123:secrecy-bot-token");
+      vi.stubEnv("TELEGRAM_DEV_WEBHOOK_SECRET", "secrecy-dev-secret");
+      const linkCode = JSON.parse(await (await hit("connections: telegram code", telegramCode.POST(req("/api/connections/telegram/code", "POST")))).clone().text()) as { code: string };
+      const hook = (secret: string | null, update: unknown) =>
+        telegramWebhook.POST(
+          new Request("http://localhost/api/telegram/webhook", { method: "POST", headers: { "content-type": "application/json", ...(secret ? { "x-telegram-bot-api-secret-token": secret } : {}) }, body: JSON.stringify(update) }),
+        );
+      const fromMaya = (update_id: number, text: string) => ({ update_id, message: { message_id: 1, from: { id: VAULT_CHAT, first_name: "Maya", username: "maya" }, chat: { id: VAULT_CHAT, type: "private" }, text } });
+      await hit("telegram: webhook without its secret", hook(null, fromMaya(1, `/start ${linkCode.code}`)));
+      await hit("telegram: webhook with a wrong secret", hook("not-it", fromMaya(2, `/start ${linkCode.code}`)));
+      await hit("telegram: maya links her chat", hook("secrecy-dev-secret", fromMaya(3, `/start ${linkCode.code}`)));
       await keep(serverRuntime(), maya.id, "google", "maya@sheets.test", { refreshToken: VAULT_REFRESH, accessToken: VAULT_ACCESS, expiresAt: Date.now() + 3_600_000, scope: "spreadsheets" });
       await hit("connections: list", connectionsRoute.GET(req("/api/connections")));
       await hit("agent: installations", installationsRoute.GET(req("/api/installations")));
@@ -709,14 +724,14 @@ describe("a helper's instructions stay on the server", () => {
         await hit(`agent: ${tag} maker's jobs`, agentJobs.GET(req(`/api/agents/${id}/jobs`), p));
         await hit(`agent: ${tag} stop`, installationControl.POST(req(`/api/installations/${ip.params.id}/control`, "POST", { action: "stop" }), ip));
         await hit(`connections: ${tag} list`, connectionsRoute.GET(req("/api/connections")));
-        await hit(`connections: ${tag} disconnect`, connectionRoute.DELETE(req("/api/connections/google", "DELETE"), { params: { provider: "google" } }));
+        await hit(`connections: ${tag} disconnect`, connectionsRoute.DELETE(req("/api/connections?provider=google", "DELETE")));
       }
       // Maya disconnects both: what used them pauses, and the vault forgets them.
       state.user = maya;
-      await hit("connections: disconnect google", connectionRoute.DELETE(req("/api/connections/google", "DELETE"), { params: { provider: "google" } }));
-      await hit("connections: disconnect telegram", connectionRoute.DELETE(req("/api/connections/telegram", "DELETE"), { params: { provider: "telegram" } }));
-      await hit("connections: disconnect what isn't there", connectionRoute.DELETE(req("/api/connections/telegram", "DELETE"), { params: { provider: "telegram" } }));
-      await hit("connections: no such service", connectionRoute.DELETE(req("/api/connections/fax", "DELETE"), { params: { provider: "fax" } }));
+      await hit("connections: disconnect google", connectionsRoute.DELETE(req("/api/connections?provider=google", "DELETE")));
+      await hit("connections: disconnect telegram", connectionsRoute.DELETE(req("/api/connections?provider=telegram", "DELETE")));
+      await hit("connections: disconnect what isn't there", connectionsRoute.DELETE(req("/api/connections?provider=telegram", "DELETE")));
+      await hit("connections: no such service", connectionsRoute.DELETE(req("/api/connections?provider=fax", "DELETE")));
       await hit("connections: after", connectionsRoute.GET(req("/api/connections")));
       expect(await db.select().from(schema.connections).where(eq(schema.connections.ownerUserId, maya.id))).toEqual([]);
     } finally {
@@ -749,6 +764,9 @@ describe("a helper's instructions stay on the server", () => {
     expect(bodies.find((b) => b.label === "connections: list")!.body).toContain("maya@sheets.test");
     expect(bodies.find((b) => b.label === "connections: sam list")!.body).not.toContain("@maya");
     expect(bodies.find((b) => b.label === "connections: signed out list")!.body).toBe('{"error":"Not signed in"}');
+    expect(bodies.find((b) => b.label === "telegram: webhook without its secret")!.body).toBe('{"error":"Not allowed"}');
+    expect(bodies.find((b) => b.label === "telegram: webhook with a wrong secret")!.body).toBe('{"error":"Not allowed"}');
+    expect(bodies.find((b) => b.label === "telegram: maya links her chat")!.body).toBe('{"ok":true}');
     expect(bodies.find((b) => b.label === "agent: sam builder")!.body).toBe('{"error":"Not found"}');
     expect(bodies.find((b) => b.label === "agent: sam installation")!.body).toBe('{"error":"Not found"}');
     // Job logs and questions: the owner sees their own data, the maker of

@@ -10,7 +10,9 @@ import type { Runtime } from "./context";
 // Approvals that wait. A job that asks its owner something (telegram.ask),
 // or wants to pay more than a rule allows, pauses as waiting_for_owner, and
 // an approval holds the question, the answers the owner can give and what
-// happens on each. The owner's answer goes into the paused step's journal
+// happens on each. It is asked in the app and, when the owner linked
+// Telegram, in their chat with a button per answer: the first answer, from
+// either, is the one that counts. The owner's answer goes into the paused step's journal
 // as the answer to that very tool call, and the job goes back in the queue:
 // the step runs again from its start, its earlier calls replayed, so it
 // picks up exactly where it paused. With no answer by the time the maker
@@ -82,6 +84,8 @@ export async function pauseForOwner(rt: Runtime, job: AgentJob, worker: string, 
       options,
       noAnswer,
       expiresAt: new Date(now.getTime() + hours(d) * 3_600_000),
+      // Asked in the owner's Telegram chat too (telegram/deliver.ts).
+      tgState: "pending",
       createdAt: now,
     });
   });

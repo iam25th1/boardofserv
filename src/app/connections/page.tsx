@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
 import { TopBar, TopLink } from "@/components/chat/TopBar";
 import { ConnectionsView, type ConnectionsApi } from "@/components/connections/ConnectionsView";
+import { TelegramLink } from "@/components/connections/TelegramLink";
 import { privyAppId } from "@/lib/privy-config";
 import { useApi } from "@/lib/useApi";
 import styles from "../agents/agents.module.css";
@@ -40,5 +41,5 @@ function SignedIn() {
 function Connections() {
   const api = useApi();
   const view: ConnectionsApi = useMemo(() => ({ load: api.listConnections, disconnect: api.disconnect }), [api]);
-  return <ConnectionsView api={view} />;
+  return <ConnectionsView api={view} connect={{ telegram: (refresh) => <TelegramLink getCode={api.telegramCode} refresh={refresh} /> }} />;
 }

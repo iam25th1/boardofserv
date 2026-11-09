@@ -12,7 +12,8 @@ import { fetchPage, WebUnreachable } from "./webFetch";
 // still stand-ins (sheets, search, the wallet) answer like the test bench's
 // mocks, from the installation's own copy of the bench's data, and what
 // they change is kept on the installation for its next job. A message to
-// the owner (telegram.send) goes to the installation's in-app message box.
+// the owner (telegram.send) goes to the installation's in-app message box
+// and to the owner's linked Telegram chat, and nowhere else.
 // Memory is real: what the agent remembers for this owner, on their
 // installation alone. So is web.fetch (webFetch.ts), within a number of
 // pages a day for each installation.
@@ -69,7 +70,9 @@ export class JobTools implements ToolHost {
     if (tool === "telegram.send") {
       const parsed = TOOL_ARGS["telegram.send"].safeParse(args);
       if (!parsed.success) throw new ToolError(tool, "telegram.send was called wrongly: it takes { text }.");
-      await this.rt.db.insert(agentMessages).values({ installationId: this.installation.id, from: "agent", text: parsed.data.text, jobId: this.job?.id ?? null, createdAt: this.rt.now() });
+      // To the owner's message box, and their linked Telegram chat: the
+      // only place it can go (telegram/deliver.ts).
+      await this.rt.db.insert(agentMessages).values({ installationId: this.installation.id, from: "agent", text: parsed.data.text, jobId: this.job?.id ?? null, tgState: "pending", createdAt: this.rt.now() });
       return { sent: true };
     }
     const mock = await this.mocks();

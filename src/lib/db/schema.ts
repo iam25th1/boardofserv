@@ -684,9 +684,15 @@ export const agentMessages = pgTable(
     from: text("from", { enum: ["owner", "agent"] }).notNull(),
     text: text("text").notNull(),
     jobId: uuid("job_id").references(() => agentJobs.id, { onDelete: "set null" }),
+    // A message to the owner, in their Telegram chat too: "pending" until
+    // sent, then "sent", "none" (no Telegram linked) or "failed". A message
+    // from the owner says "telegram" when it came from there.
+    tgState: text("tg_state", { enum: ["pending", "sent", "none", "failed", "telegram"] }),
+    tgAttempts: integer("tg_attempts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
+    tgDue: index("agent_messages_tg_idx").on(t.tgState),
     byInstallation: index("agent_messages_installation_idx").on(t.installationId, t.createdAt),
   }),
 );
@@ -720,9 +726,17 @@ export const agentApprovals = pgTable(
     answer: text("answer"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     answeredAt: timestamp("answered_at", { withTimezone: true }),
+    // The question in the owner's Telegram chat: "pending" until it is
+    // sent there (with a button per answer), "sent" while it waits there,
+    // "closed" once that message shows how it ended, "none" when the owner
+    // has no Telegram linked, "failed" after giving up.
+    tgState: text("tg_state", { enum: ["pending", "sent", "closed", "none", "failed"] }),
+    tgMessageId: integer("tg_message_id"),
+    tgAttempts: integer("tg_attempts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
+    tgDue: index("agent_approvals_tg_idx").on(t.tgState),
     byOwner: index("agent_approvals_owner_idx").on(t.ownerUserId, t.status),
     due: index("agent_approvals_due_idx").on(t.status, t.expiresAt),
     byJob: index("agent_approvals_job_idx").on(t.jobId),
@@ -773,6 +787,62 @@ export const connections = pgTable(
     byLookup: uniqueIndex("connections_lookup_idx").on(t.provider, t.lookup),
     knownProvider: check("connections_provider", sql`${t.provider} in ('telegram', 'google')`),
   }),
+);
+
+// Telegram linking: a one-time code the owner sends the bot (/start CODE)
+// from the chat they want linked. Kept as a hash; it works once, within
+// ten minutes.
+export const telegramLinkCodes = pgTable(
+  "telegram_link_codes",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ byOwner: index("telegram_link_codes_owner_idx").on(t.ownerUserId, t.createdAt) }),
+);
+
+// The webhook's secret, as a hash (one row). scripts/telegram-webhook.ts
+// sets a fresh one; the one before keeps working for a few minutes while
+// Telegram changes over.
+export const telegramWebhook = pgTable(
+  "telegram_webhook",
+  {
+    id: integer("id").primaryKey().default(1),
+    secretHash: text("secret_hash").notNull(),
+    previousHash: text("previous_hash"),
+    setAt: timestamp("set_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ one: check("telegram_webhook_one", sql`${t.id} = 1`) }),
+);
+
+// Updates already handled: Telegram sends one again when it isn't sure it
+// arrived, and it must not start a second job.
+export const telegramUpdates = pgTable("telegram_updates", {
+  updateId: bigint("update_id", { mode: "number" }).primaryKey(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// A message an owner sent the bot while they run several agents that take
+// messages: it waits here while they pick which one it is for.
+export const telegramPending = pgTable(
+  "telegram_pending",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    // The installations offered, in the menu's order.
+    installationIds: jsonb("installation_ids").$type<string[]>().notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({ byOwner: index("telegram_pending_owner_idx").on(t.ownerUserId, t.createdAt) }),
 );
 
 export type User = typeof users.$inferSelect;

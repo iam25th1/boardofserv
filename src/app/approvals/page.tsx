@@ -10,6 +10,8 @@ import { useApi } from "@/lib/useApi";
 import styles from "../agents/agents.module.css";
 
 // The questions the signed-in owner's agents wait on, and the ones answered.
+
+const POLL_MS = 5_000;
 export default function ApprovalsPage() {
   return (
     <div className={styles.page}>
@@ -46,6 +48,13 @@ function List() {
   useEffect(() => {
     void load();
   }, [load]);
+  // An answer given in Telegram shows here on the next look.
+  const waiting = Boolean(list?.some((a) => a.status === "pending"));
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(() => void api.listApprovals().then(setList, () => undefined), POLL_MS);
+    return () => clearInterval(t);
+  }, [api, waiting]);
   if (failed) return <p className={styles.quiet}>These could not load. Try again in a moment.</p>;
   if (!list) return <p className={styles.loading}>getting your questions</p>;
   if (!list.length) return <p className={styles.quiet}>Nothing waits for you.</p>;

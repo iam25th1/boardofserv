@@ -27,10 +27,15 @@ const FOR: Record<Provider, string> = {
 
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
 
-export function ConnectionsView({ api, connect }: { api: ConnectionsApi; connect?: Partial<Record<Provider, React.ReactNode>> }) {
+// How to connect a service that isn't connected: given a way to look again
+// (a link made in Telegram shows up here without a reload).
+export type Connector = (refresh: () => Promise<void>) => React.ReactNode;
+
+export function ConnectionsView({ api, connect }: { api: ConnectionsApi; connect?: Partial<Record<Provider, Connector>> }) {
   const [data, setData] = useState<Awaited<ReturnType<ConnectionsApi["load"]>> | null>(null);
   const [failed, setFailed] = useState(false);
   const load = useCallback(() => api.load().then(setData, () => setFailed(true)), [api]);
+  const refresh = useCallback(() => api.load().then(setData, () => undefined), [api]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -44,7 +49,7 @@ export function ConnectionsView({ api, connect }: { api: ConnectionsApi; connect
             provider={p}
             connection={data.connections.find((c) => c.provider === p) ?? null}
             available={data.available[p]}
-            connect={connect?.[p]}
+            connect={connect?.[p]?.(refresh)}
             onDisconnect={async () => {
               const r = await api.disconnect(p);
               await load();

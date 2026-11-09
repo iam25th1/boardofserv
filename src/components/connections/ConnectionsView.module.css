@@ -85,3 +85,31 @@
   font-size: var(--t-sm);
   color: var(--chalk);
 }
+.code {
+  align-self: flex-start;
+  padding: var(--s-2) var(--s-4);
+  border: var(--stroke) dashed var(--chalk);
+  border-radius: var(--r-md);
+  font-family: var(--font-mono);
+  font-size: var(--t-lg);
+  letter-spacing: 0.06em;
+  user-select: all;
+}
+.open {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border: var(--stroke) solid var(--chalk);
+  border-radius: var(--r-full);
+  color: var(--chalk);
+  font-size: var(--t-sm);
+  text-decoration: none;
+}
+.open:hover {
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+}
+.open:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
