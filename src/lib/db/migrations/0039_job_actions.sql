@@ -1,0 +1,1 @@
+ALTER TABLE "agent_jobs" ADD COLUMN "actions" integer DEFAULT 0 NOT NULL;

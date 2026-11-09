@@ -4,6 +4,7 @@ import { agentJobs, agentMessages, type AgentInstallation, type AgentMessage } f
 import type { AgentDefinition } from "../definition";
 import type { Runtime } from "./context";
 import { enqueue, type JobTrigger } from "./jobs";
+import { jobRoom, pauseFor } from "./rates";
 
 // An installation's in-app message box (Telegram comes later). A message
 // from the owner starts a job at once, with the message as the job's input;
@@ -31,6 +32,11 @@ export async function sendToAgent(rt: Runtime, i: AgentInstallation, d: AgentDef
     .from(agentJobs)
     .where(and(eq(agentJobs.installationId, i.id), eq(agentJobs.status, "queued"), sql`${agentJobs.trigger}->>'kind' = 'message'`));
   if ((waiting?.n ?? 0) >= MAX_WAITING_MESSAGES) throw new MessageRefused(`It has ${MAX_WAITING_MESSAGES} messages waiting already. Give it a moment.`, 429);
+  const room = await jobRoom(rt, i.id);
+  if (!room.ok) {
+    await pauseFor(rt, i.id, room.reason);
+    throw new MessageRefused(room.reason, 429);
+  }
   const now = rt.now();
   const [message] = await rt.db.insert(agentMessages).values({ installationId: i.id, from: "owner", text, createdAt: now }).returning();
   const job = await enqueue(rt, i, { kind: "message", text, messageId: message!.id } as JobTrigger);

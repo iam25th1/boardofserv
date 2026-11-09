@@ -79,6 +79,8 @@ export interface RunState {
   sources?: Record<string, string[]>;
   // The renter let this job go over the weekly model budget.
   budgetOk?: boolean;
+  // How many times each step has started in this job.
+  visits?: Record<string, number>;
 }
 
 // The screen of a step's untrusted inputs takes the step's first journal

@@ -16,6 +16,7 @@ import type { Runtime } from "./context";
 import { approvalsOf } from "./approvals";
 import { enqueue } from "./jobs";
 import { setUpTriggers } from "./triggers";
+import { jobRoom, rateLimits } from "./rates";
 import { jobsOfInstallation, spendToday } from "./views";
 
 // Installations: one owner's running copy of a published agent version.
@@ -294,6 +295,8 @@ export async function control(rt: Runtime, l: Loaded, action: Control): Promise<
   }
   if (action === "run") {
     if (i.status !== "active") throw new ControlRefused("Resume it first.");
+    const room = await jobRoom(rt, i.id);
+    if (!room.ok) throw new ControlRefused(`It has started its limit of ${rateLimits().jobsPerHour} jobs this hour. Try again later.`);
     await enqueue(rt, i, { kind: "manual" });
     return;
   }

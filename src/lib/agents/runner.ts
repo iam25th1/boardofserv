@@ -141,6 +141,8 @@ export interface EngineOptions {
   // Before a decision's model call: whether the week's model budget allows
   // it (a question for the renter when it would go over, or why it stops).
   budget?: () => Promise<{ ask: { question: string; reason: string } } | { stop: string } | null>;
+  // How often one job may start the same step (a loop stops there).
+  maxVisits?: number;
   // Hand failures outside the agent back to be tried again (jobs), rather
   // than ending the run (the bench).
   retryInfra?: boolean;
@@ -264,6 +266,9 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
     const left = d.limits.maxRunSeconds * 1000 - elapsed();
     if (left <= 0) return end("stopped", "limit", `It reached its limit of ${d.limits.maxRunSeconds} seconds.`);
     if (!state.resumed) {
+      const visits = (state.visits ??= {});
+      visits[step.id] = (visits[step.id] ?? 0) + 1;
+      if (o.maxVisits && visits[step.id]! > o.maxVisits) return end("stopped", "limit", `It went round to "${step.title}" ${o.maxVisits} times in one job, so it stopped there.`);
       state.steps += 1;
       state.journal = [];
       state.resumed = true;

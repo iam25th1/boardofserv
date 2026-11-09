@@ -628,6 +628,8 @@ export const agentJobs = pgTable(
     // When its model cost was charged to its renter (agents whose renters
     // pay their jobs' model cost); none until then, or never.
     modelSettledAt: timestamp("model_settled_at", { withTimezone: true }),
+    // Actions it took (anything that writes, sends or spends), for its limit.
+    actions: integer("actions").notNull().default(0),
     // What started it: { kind: "schedule" | "check" | "message" | "manual" | "test", ... }.
     trigger: jsonb("trigger").$type<Record<string, unknown>>().notNull(),
     // json, not jsonb: kept exactly as written, keys in their order, so a

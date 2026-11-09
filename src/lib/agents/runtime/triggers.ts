@@ -5,6 +5,7 @@ import type { AgentDefinition } from "../definition";
 import { typedRules } from "../runner";
 import { runInSandbox } from "../sandbox";
 import { checkInterval, nextRun, scheduleSpec } from "../schedule";
+import { jobRoom, pauseFor } from "./rates";
 import type { Runtime } from "./context";
 import { enqueue } from "./jobs";
 import { JobTools } from "./tools";
@@ -99,6 +100,11 @@ export async function fireDue(rt: Runtime, limit = 20): Promise<number> {
         .from(agentJobs)
         .where(and(eq(agentJobs.installationId, i.id), eq(agentJobs.status, "queued"), isNull(agentJobs.startedAt), sql`${agentJobs.trigger}->>'kind' = 'schedule'`));
       if ((waiting?.n ?? 0) > 0) continue;
+      const room = await jobRoom(rt, i.id);
+      if (!room.ok) {
+        await pauseFor(rt, i.id, room.reason);
+        continue;
+      }
       await enqueue(rt, i, { kind: "schedule", at: row.nextAt.toISOString() });
       started += 1;
       continue;
@@ -109,6 +115,11 @@ export async function fireDue(rt: Runtime, limit = 20): Promise<number> {
       .set({ holds: found.error ? row.holds : found.holds, note: found.error })
       .where(and(eq(agentTriggers.installationId, row.installationId), eq(agentTriggers.index, row.index)));
     if (!found.error && found.holds && row.holds !== true) {
+      const room = await jobRoom(rt, i.id);
+      if (!room.ok) {
+        await pauseFor(rt, i.id, room.reason);
+        continue;
+      }
       await enqueue(rt, i, { kind: "check", watch: t.watch, value: found.value });
       started += 1;
     }

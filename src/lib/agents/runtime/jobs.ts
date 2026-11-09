@@ -7,6 +7,7 @@ import { FEE_SHORT, holdJobFee } from "../../market/charges";
 import { pauseForOwner } from "./approvals";
 import { screenText } from "../screen";
 import { budgetGate, meter, type Scope } from "../metering";
+import { pauseOnRepeatedFailure, rateLimits } from "./rates";
 import type { Runtime } from "./context";
 import { JobTools } from "./tools";
 import { spendToday } from "./views";
@@ -204,6 +205,7 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
           reason: r.reason || "It reads like instructions to the agent.",
         };
       },
+      maxVisits: rateLimits().stepVisits,
       retryInfra: true,
     });
   } catch (err) {
@@ -236,6 +238,7 @@ async function finish(rt: Runtime, job: AgentJob, worker: string, state: RunStat
         .update(agentJobs)
         .set({ status: "failed", reason: `${how.retry} It was tried ${MAX_ATTEMPTS} times.`, attempts, state, claimedBy: null, finishedAt: now, updatedAt: now })
         .where(mine);
+      await pauseOnRepeatedFailure(rt, job.installationId);
       return;
     }
     // The step runs again; calls that failed outside the agent are made again.
@@ -249,10 +252,13 @@ async function finish(rt: Runtime, job: AgentJob, worker: string, state: RunStat
       .where(mine);
     return;
   }
-  await rt.db
+  const ended = await rt.db
     .update(agentJobs)
     .set({ status: how.status, reason: how.reason, state, claimedBy: null, finishedAt: now, updatedAt: now, ...(state ? { costUsd: state.costUsd.toFixed(6) } : {}) })
-    .where(mine);
+    .where(mine)
+    .returning({ id: agentJobs.id });
+  // Failing the same way again and again pauses the installation.
+  if (ended.length && how.status === "failed") await pauseOnRepeatedFailure(rt, job.installationId);
 }
 
 // The job's step log, written as the run's events come: a row per step

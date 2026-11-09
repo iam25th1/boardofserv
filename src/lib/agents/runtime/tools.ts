@@ -11,6 +11,7 @@ import { askGuard, GUARD_DOWN, guardKey, type GuardInput, type GuardResult } fro
 import { budgetGate, meter } from "../metering";
 import type { Risk } from "../toolbox";
 import { unknownContacts } from "../untrusted";
+import { outboundRoom, pauseFor, takeAction } from "./rates";
 import { MAX_MEMORY_BYTES, memoryProblem, MockTools, TOOL_ARGS, ToolError } from "../toolbox";
 import { emptyBench } from "../types";
 import type { Runtime } from "./context";
@@ -58,6 +59,22 @@ export class JobTools implements ToolHost {
   private known(): string {
     const trigger = this.job?.trigger as { kind?: string; text?: string } | undefined;
     return JSON.stringify([this.installation.settings, this.installation.rules, trigger?.kind === "message" ? trigger.text ?? "" : ""]);
+  }
+
+  // Its limits: actions in a job, messages to its renter in an hour. Past
+  // one, the installation pauses and this job stops here, saying why.
+  private async withinLimits(risk: Risk): Promise<void> {
+    if (risk === "outbound") {
+      const room = await outboundRoom(this.rt, this.installation.id);
+      if (!room.ok) {
+        await pauseFor(this.rt, this.installation.id, room.reason);
+        throw new Halted(room.reason);
+      }
+    }
+    if (this.job) {
+      const took = await takeAction(this.rt, this.job.id, this.installation.id);
+      if (!took.ok) throw new Halted(took.reason);
+    }
   }
 
   private async ownerOf(): Promise<User> {
@@ -120,6 +137,7 @@ export class JobTools implements ToolHost {
       // stop one that shouldn't be asked, and asking is what it does.
       const strange = unknownContacts(args, this.known());
       if (!approval) {
+        await this.withinLimits("outbound");
         const g = await this.guard(step, tool, "outbound", args, ctx);
         if (g.verdict === "block") throw new Blocked(g.reason);
       }
@@ -137,6 +155,7 @@ export class JobTools implements ToolHost {
     }
     const risk = riskOf(this.definition, step, tool);
     if (risk === "read") return this.use(step, tool, args);
+    if (!approval) await this.withinLimits(risk);
     // Anything that changes, says or spends something waits for the
     // renter's yes when the platform's floor or their own settings say so,
     // or when spending would take the job's or the day's total over a
