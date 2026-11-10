@@ -799,7 +799,10 @@ suppliers' page the demo serves itself, with a stand-in for SERV, so it
 needs no database and no keys. `scripts/live-restock.ts` runs it as a job
 with SERV deciding for real (`SERV_API_KEY`, `LIVE_SERV_BUDGET`, default 6
 calls); with `TELEGRAM_BOT_TOKEN` and `LIVE_TELEGRAM_CHAT` it asks in that
-real chat too. A production
+real chat too. `scripts/live-enquiry.ts` runs the Enquiry follow-up live on
+its test bench twice, the owner answering Yes and then No, with SERV making
+its two decisions (`LIVE_SERV_BUDGET`, default 4 calls), and checks the row
+each answer writes. A production
 build has none of this (`src/test/demo-unreachable.test.ts` checks the
 build).
 
