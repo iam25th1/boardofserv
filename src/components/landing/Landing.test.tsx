@@ -55,13 +55,32 @@ describe("the front page", () => {
   it("names what powers it as words, and keeps to what is true", () => {
     const { container } = render(<Landing />);
     const powered = screen.getByRole("heading", { name: "Powered by" }).closest("section")!;
-    for (const name of ["SERV Reasoning", "Dolphin", "Base", "USDC", "Telegram", "Google Sheets"]) expect(powered).toHaveTextContent(name);
+    for (const name of ["SERV Reasoning", "Dolphin", "Reppo", "Base", "USDC", "Telegram", "Google Sheets"]) expect(powered).toHaveTextContent(name);
+    expect(powered).toHaveTextContent("Reppo checks the quality of agents' work");
     expect(powered.querySelector("img")).toBeNull();
     const text = container.textContent ?? "";
     expect(text).toContain("90% of each week's rent is yours");
     expect(text).not.toContain(String.fromCharCode(0x2014));
     // Every drawing says what it shows.
     for (const svg of container.querySelectorAll("svg[role='img']")) expect(svg.getAttribute("aria-label")).toBeTruthy();
+  });
+});
+
+describe("the beta", () => {
+  it("is tagged beside the mark, and said near the top: it runs on test money", () => {
+    render(<Landing />);
+    const header = screen.getAllByRole("banner")[0]!;
+    expect(within(header).getByText("beta")).toBeInTheDocument();
+    const hero = screen.getByRole("heading", { level: 1 }).closest("section")!;
+    expect(hero).toHaveTextContent("It's a beta: it runs on test money (test USDC on Base Sepolia, worth nothing)");
+  });
+
+  it("names trust scores, spending limits and Reppo's quality scores beside approvals and your rules", () => {
+    render(<Landing />);
+    const safety = screen.getByRole("heading", { name: "Your rules, your data" }).closest("section")!;
+    for (const point of ["Your rules.", "Approvals.", "Spending limits.", "Trust scores.", "Quality scores."]) expect(safety).toHaveTextContent(point);
+    expect(safety).toHaveTextContent("a score from 300 to 850");
+    expect(safety).toHaveTextContent("Reppo reviews a sample of each agent's jobs");
   });
 });
 

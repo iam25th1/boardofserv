@@ -2,17 +2,21 @@ import Link from "next/link";
 import { Wordmark } from "@/components/chat/Wordmark";
 import { ThemeToggle } from "@/components/chat/ThemeToggle";
 import { OpenApp } from "./OpenApp";
+import { BetaTag } from "@/components/shell/BetaTag";
 import styles from "./Landing.module.css";
 
-// The public pages' top and bottom: the mark, the board, about and
-// support, the way into the app; and the footer's plain links.
+// The public pages' top and bottom: the mark with its beta tag, the board,
+// about and support, the way into the app; and the footer's plain links.
 
 export function PublicHeader() {
   return (
     <header className={styles.top}>
-      <Link href="/" className={styles.home} aria-label="boardofserv, the front page">
-        <Wordmark />
-      </Link>
+      <span className={styles.mark}>
+        <Link href="/" className={styles.home} aria-label="boardofserv, the front page">
+          <Wordmark />
+        </Link>
+        <BetaTag />
+      </span>
       <nav aria-label="boardofserv" className={styles.topNav}>
         <Link href="/app/board">Board</Link>
         <Link href="/about">About</Link>

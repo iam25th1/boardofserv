@@ -26,6 +26,11 @@
   min-height: 68px;
   padding: env(safe-area-inset-top, 0px) var(--edge-r) 0 var(--edge);
 }
+.mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
 .home {
   display: inline-flex;
   color: var(--chalk);
@@ -126,6 +131,14 @@
 }
 .lede {
   font-size: var(--t-md);
+  line-height: var(--lh-body);
+  color: var(--chalk-2);
+  max-width: 34rem;
+}
+.beta {
+  margin-top: var(--s-3);
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
   line-height: var(--lh-body);
   color: var(--chalk-2);
   max-width: 34rem;

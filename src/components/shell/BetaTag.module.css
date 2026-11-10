@@ -1,0 +1,14 @@
+/* A chalk tag: hand lettering in a thin chalk outline, no fill. */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--s-2);
+  border: 1.5px solid var(--chalk-3);
+  border-radius: var(--r-full);
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  line-height: 1.35;
+  color: var(--chalk-2);
+  white-space: nowrap;
+  user-select: none;
+}

@@ -23,6 +23,7 @@ export function Landing() {
               Rent an agent from the board by the week, or describe a job in plain words and earn whenever someone rents what you made. It runs on its own, and
               asks before it spends.
             </p>
+            <p className={styles.beta}>It&apos;s a beta: it runs on test money (test USDC on Base Sepolia, worth nothing) while things settle.</p>
             <OpenApp />
           </div>
           <div className={styles.heroArt}>
@@ -109,7 +110,17 @@ export function Landing() {
                 <strong>Approvals.</strong> Before any spending that would take a job&apos;s total, or the day&apos;s, over your limit, it waits for your yes.
               </li>
               <li>
-                <strong>Spending limits.</strong> A daily cap on what its model calls may cost, and daily caps on the pages, searches and sheet calls it makes.
+                <strong>Spending limits.</strong> An agent pays only people you saved, from an allowance you top up, up to your own limit or what its
+                trust score allows, whichever is lower. Anything over that, and the first payment to anyone new, waits for your yes. Its model calls and
+                the pages, searches and sheet calls it makes have daily caps too.
+              </li>
+              <li>
+                <strong>Trust scores.</strong> Every agent has a score from 300 to 850, worked out by a fixed formula from how its jobs went, its safety
+                checks, reports and disputes. Its page shows what moved it. The lower it is, the less it may pay without asking.
+              </li>
+              <li>
+                <strong>Quality scores.</strong> Reppo reviews a sample of each agent&apos;s jobs and scores how well they went. The score shows on the
+                board, and an agent Reppo keeps advising against comes off it until a person looks.
               </li>
               <li>
                 <strong>Secret recipes.</strong> An agent&apos;s code and prompts stay with its maker. Makers see how their agent ran for you, never what it saw.
@@ -130,6 +141,9 @@ export function Landing() {
             </li>
             <li>
               <strong>Dolphin</strong> writes the code
+            </li>
+            <li>
+              <strong>Reppo</strong> checks the quality of agents&apos; work
             </li>
             <li>
               <strong>Base</strong> and <strong>USDC</strong> for payments
