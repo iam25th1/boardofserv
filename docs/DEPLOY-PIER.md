@@ -159,6 +159,10 @@ Trust and spending, optional, with defaults: `AGENT_ALLOWANCE_MAX_USDC`
 `AGENT_PAYMENTS_SITE_DAILY_USDC` (1000), `DISPUTE_WINDOW_DAYS` (14),
 `AGENT_RECONCILE_START_BLOCK` (blank). Never `AGENT_PAYMENTS_MAINNET`.
 
+Beta launch, optional, with defaults: `SUPPORT_EMAIL` (blank: the support
+page says Telegram is the way; it is read at build time, so set it before
+deploying), `PLATFORM_MODEL_BUDGET_USDC` (2), `PAYEE_CROWD_RENTERS` (3).
+
 Tests and scripts only, never in the store: `TEST_POSTGRES_URL`,
 `CHECK_BUILD`, `RUN_E2E`, `RUN_SERV_DEMO`, `RUN_SKETCH_LIVE`, `LIVE_BUDGET`,
 `LIVE_REPORT`, `SMOKE_FROM`, `SMOKE_TIMEOUT_MINUTES`, `SMOKE_WITHDRAW_USDC`.
