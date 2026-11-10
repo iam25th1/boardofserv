@@ -88,18 +88,28 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
     }
   }, [api]);
 
+  // The chat keeps its own copy of the account (its limits, the publish
+  // sheet) and the shell keeps one for the account menu. The shell's comes
+  // down by the effect below; what the chat learns goes up where it learns
+  // it. Kept in step by an effect each way, the two copies (each read from
+  // the server on load, so never the same object) swapped places on every
+  // render, for good: the page never settled, and a link's navigation, which
+  // waits for it to, never happened.
+  const shell = useShellAccount();
+  const shareAccount = shell.setAccount;
+
   const refreshAccount = useCallback(async () => {
     try {
-      setAccount(await api.getAccount());
+      const fresh = await api.getAccount();
+      setAccount(fresh);
+      shareAccount(fresh);
       setRefused(null);
     } catch {
       setAccount(null);
     }
-  }, [api]);
+  }, [api, shareAccount]);
 
-  // The shell's account menu asks for the shortcuts; the shell's account
-  // follows what the chat learns about it, and the other way round.
-  const shell = useShellAccount();
+  // The shell's account menu asks for the shortcuts.
   useEffect(() => {
     const open = () => setShortcuts(true);
     window.addEventListener(SHORTCUTS_EVENT, open);
@@ -108,10 +118,6 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
   useEffect(() => {
     if (shell.account) setAccount(shell.account);
   }, [shell.account]);
-  useEffect(() => {
-    if (account) shell.setAccount(account);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account]);
 
   useEffect(() => {
     void refreshConversations();
@@ -375,8 +381,9 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
     async (handle: string) => {
       const saved = await api.setHandle(handle);
       setAccount((a) => a && { ...a, handle: saved.handle, handleChosen: saved.handleChosen });
+      shareAccount((a) => a && { ...a, handle: saved.handle, handleChosen: saved.handleChosen });
     },
-    [api],
+    [api, shareAccount],
   );
 
   // Publish the active conversation's answer helper with the sheet's edits,
