@@ -249,7 +249,7 @@ export function Everything() {
           </p>
         </Reveal>
       </main>
-      <PublicFooter />
+      <PublicFooter here="/everything" />
     </div>
   );
 }

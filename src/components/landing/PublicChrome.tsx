@@ -6,7 +6,8 @@ import { BetaTag } from "@/components/shell/BetaTag";
 import styles from "./Landing.module.css";
 
 // The public pages' top and bottom: the mark with its beta tag, the board,
-// about and support, the way into the app; and the footer's plain links.
+// about and support, the way into the app; and the footer's way to the
+// whole explainer above its plain links.
 
 export function PublicHeader() {
   return (
@@ -30,35 +31,41 @@ export function PublicHeader() {
   );
 }
 
-export function PublicFooter() {
+// `here` marks the explainer's own page, where the button points at itself.
+export function PublicFooter({ here }: { here?: string }) {
   return (
     <footer className={styles.footer}>
       <div className={styles.footerMark}>
         <Wordmark />
         <p>Small agents for one job each, made by people, rented by the week.</p>
       </div>
-      <nav aria-label="More" className={styles.footerNav}>
-        <ul>
-          <li>
-            <Link href="/app/board">The board</Link>
-          </li>
-          <li>
-            <Link href="/app/chat">Make an agent</Link>
-          </li>
-          <li>
-            <Link href="/about">About</Link>
-          </li>
-          <li>
-            <Link href="/support">Support</Link>
-          </li>
-          <li>
-            <Link href="/terms">Using the beta</Link>
-          </li>
-          <li>
-            <Link href="/privacy">Your data</Link>
-          </li>
-        </ul>
-      </nav>
+      <div className={styles.footerEnd}>
+        <Link href="/everything" className={styles.guide} aria-current={here === "/everything" ? "page" : undefined}>
+          Everything you need to know
+        </Link>
+        <nav aria-label="More" className={styles.footerNav}>
+          <ul>
+            <li>
+              <Link href="/app/board">The board</Link>
+            </li>
+            <li>
+              <Link href="/app/chat">Make an agent</Link>
+            </li>
+            <li>
+              <Link href="/about">About</Link>
+            </li>
+            <li>
+              <Link href="/support">Support</Link>
+            </li>
+            <li>
+              <Link href="/terms">Using the beta</Link>
+            </li>
+            <li>
+              <Link href="/privacy">Your data</Link>
+            </li>
+          </ul>
+        </nav>
+      </div>
     </footer>
   );
 }
