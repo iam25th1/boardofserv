@@ -153,3 +153,11 @@
     display: none;
   }
 }
+
+/* The mark with its beta tag. */
+.mark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-shrink: 0;
+}

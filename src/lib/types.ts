@@ -1,3 +1,4 @@
+import type { MoneyKind } from "./moneyWords";
 import type { SketchFieldKey } from "./sketchFields";
 import type { AgentDefinition } from "./agents/definition";
 import type { BenchData, CodeStatus } from "./agents/types";
@@ -426,6 +427,8 @@ export interface ApprovalDTO {
   // when none was asked for. Never the decision: the answer is.
   opinion?: { state: "checking" | "ready" | "none"; score: number | null; route: "ship" | "review" | "block" | null; reason: string | null } | null;
   options: { label: string; effect: string }[];
+  // For a payment: what the money is (test USDC on Base Sepolia in the beta).
+  money?: MoneyKind | null;
   noAnswer: string;
   status: "pending" | "answered" | "expired" | "cancelled";
   answer: string | null;
@@ -826,6 +829,8 @@ export interface SpendingDTO {
   limit: { perPayment: string; perDay: string; paidToday: string; why: string; band: string; trust: TrustDTO; stopped: string | null };
   // Agent payments paused site wide, and why.
   paused: string | null;
+  // What the money is: test USDC on Base Sepolia in the beta.
+  money: MoneyKind;
   // How many days after a payment or week it can be disputed.
   disputeDays: number;
 }

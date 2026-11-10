@@ -36,6 +36,10 @@
   font-weight: inherit;
   font-size: var(--t-hand-lg);
 }
+.kind {
+  font-size: var(--t-hand-sm);
+  color: var(--chalk-2);
+}
 .quiet {
   font-size: var(--t-sm);
   color: var(--chalk-2);

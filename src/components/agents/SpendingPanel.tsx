@@ -6,6 +6,7 @@ import { formatAmount } from "@/lib/money";
 import { REDUCED_MOTION, ease } from "@/lib/motion";
 import { CANT_PULL_BACK, DISPUTE_REASON_WORDS, NOTE_MAX, NOTE_MIN, REASONS_FOR, RENT_REFUND, type DisputeReason } from "@/lib/spending/disputeWords";
 import type { DisputableDTO, DisputeDTO, ReceiptDTO, SpendingDTO } from "@/lib/types";
+import { moneyNote } from "@/lib/moneyWords";
 import styles from "./SpendingPanel.module.css";
 
 // What an agent may spend, for its renter: the allowance it pays from
@@ -59,6 +60,7 @@ export function SpendingPanel({ api, disabled }: { api: SpendingApi; disabled?: 
   return (
     <section className={styles.panel} aria-labelledby="spending-h">
       <h2 id="spending-h">Spending</h2>
+      <p className={styles.quiet}>{moneyNote(data.money)}</p>
       <Allowance data={data} api={api} disabled={disabled} onChange={setData} />
       <Limit data={data} />
       <Payees data={data} api={api} disabled={disabled} onChange={setData} />
@@ -118,7 +120,7 @@ function Allowance({ data, api, disabled, onChange }: { data: SpendingDTO; api: 
     <div className={styles.block}>
       <h3>Its allowance</h3>
       <p className={styles.big}>
-        <strong>{usdc(data.allowance.available, d)}</strong>
+        <strong>{usdc(data.allowance.available, d)}</strong> <span className={styles.kind}>{data.money.test ? `test, on ${data.money.network}` : `on ${data.money.network}`}</span>
       </p>
       {BigInt(data.allowance.held) > 0n && <p className={styles.quiet}>and {usdc(data.allowance.held, d)} held for a payment on its way</p>}
       <div className={styles.meter} role="img" aria-label={`${usdc(held, d)} of the most it may hold, ${usdc(max, d)}`}>

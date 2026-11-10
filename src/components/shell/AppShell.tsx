@@ -12,6 +12,7 @@ import { privyAppId } from "@/lib/privy-config";
 import { useApi } from "@/lib/useApi";
 import { AccountProvider, useShellAccount } from "./AccountContext";
 import styles from "./AppShell.module.css";
+import { BetaTag } from "./BetaTag";
 
 // One shell for every page of the app: the top bar (the mark, the
 // places, the questions waiting for you, the theme and the account
@@ -76,9 +77,12 @@ function Shell({ children }: { children: React.ReactNode }) {
     <div className={styles.shell} data-fit={fit ? "true" : undefined} ref={ref}>
       <header className={styles.bar}>
         <div className={styles.row}>
-          <Link href="/" className={styles.home} aria-label="boardofserv, the front page">
-            <Wordmark />
-          </Link>
+          <span className={styles.mark}>
+            <Link href="/" className={styles.home} aria-label="boardofserv, the front page">
+              <Wordmark />
+            </Link>
+            <BetaTag />
+          </span>
           <nav className={styles.nav} aria-label="The app">
             <Places path={path} />
           </nav>

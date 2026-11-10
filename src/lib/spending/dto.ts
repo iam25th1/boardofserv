@@ -10,6 +10,7 @@ import { addressesFacts, highRisk, warningOf } from "./addresses";
 import { receiptsOf } from "./receipts";
 import { bandLine, limitWhy, paymentLimits } from "./limits";
 import { paymentsPaused } from "./treasury";
+import { paymentsConfig } from "../payments/config";
 import { disputeWindowDays } from "./disputes";
 
 // An installation's spending, for its renter only (null for anyone else).
@@ -41,6 +42,7 @@ export async function spendingOf(rt: Runtime, user: User, installationId: string
     }),
     limit: { perPayment: l.perPayment.toString(), perDay: l.perDay.toString(), paidToday: l.paidToday.toString(), why: limitWhy(l), band: bandLine(l), trust: l.trust, stopped: l.stopped },
     paused: await paymentsPaused(rt.db),
+    money: { network: (rt.payments?.config ?? paymentsConfig()).networkLabel, test: (rt.payments?.config ?? paymentsConfig()).network !== "base" },
     disputeDays: disputeWindowDays(),
   };
 }

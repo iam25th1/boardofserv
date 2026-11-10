@@ -38,6 +38,14 @@ describe("an approval card", () => {
     render(<ApprovalCard approval={{ ...base, kind: "ask", reason: null }} onAnswer={vi.fn()} />);
     expect(screen.queryByText("Why it asks")).toBeNull();
   });
+
+  it("says a payment's money is test USDC on Base Sepolia, and nothing for anything else", () => {
+    render(<ApprovalCard approval={{ ...base, question: "Pay 2.00 USDC to Weftworks?", money: { network: "Base Sepolia", test: true } }} onAnswer={vi.fn()} />);
+    expect(screen.getByText("Amounts here are test USDC on Base Sepolia, worth nothing while boardofserv is a beta.")).toBeInTheDocument();
+    cleanup();
+    render(<ApprovalCard approval={base} onAnswer={vi.fn()} />);
+    expect(screen.queryByText(/test USDC/)).toBeNull();
+  });
 });
 
 describe("Reppo's second opinion on a card", () => {

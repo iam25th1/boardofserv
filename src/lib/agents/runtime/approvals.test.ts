@@ -171,6 +171,8 @@ describe("a payment over a rule's limit", () => {
     await runOnce(rt);
     expect((await jobOf(big.id)).status).toBe("waiting_for_owner");
     const [a] = await approvalsOf(rt, owner.id, { pendingOnly: true });
+    // A payment's question says what the money is.
+    expect(a!.money).toEqual({ network: "Base Sepolia", test: true });
     // Over the rule and over its trust band too: both say so, and the band.
     expect(a).toMatchObject({
       kind: "safety",

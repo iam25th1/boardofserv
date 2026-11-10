@@ -3,6 +3,7 @@ import type { DisputeList, SpendingApi } from "@/components/agents/SpendingPanel
 import { TRUST_FAIR } from "./demoTrust";
 import { DISPUTE_REASON_WORDS } from "@/lib/spending/disputeWords";
 import { FLAG_WORDS } from "@/lib/spending/addressWords";
+import { BETA_MONEY } from "@/lib/moneyWords";
 
 // The fabric restock agent's spending for the demo: an allowance, two
 // saved payees and one it suggested, receipts (paid, sending and failed),
@@ -71,6 +72,7 @@ export const DEMO_SPENDING: SpendingDTO = {
     stopped: null,
   },
   paused: null,
+  money: BETA_MONEY,
   disputeDays: 14,
 };
 

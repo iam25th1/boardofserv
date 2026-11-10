@@ -35,6 +35,12 @@ async function show(path: string) {
 afterEach(cleanup);
 
 describe("the app shell", () => {
+  it("shows the beta tag beside the mark", async () => {
+    net.account = ACCOUNT;
+    await show("/app/board");
+    expect(within(screen.getByRole("banner")).getByText("beta")).toBeInTheDocument();
+  });
+
   it("has the places, marks where you are, and holds the page", async () => {
     net.account = ACCOUNT;
     await show("/app/installations/abc");

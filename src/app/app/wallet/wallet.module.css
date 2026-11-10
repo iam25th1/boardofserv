@@ -378,3 +378,9 @@
 .field select:disabled {
   opacity: 0.55;
 }
+
+/* What the money is, under the balances. */
+.moneyNote {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
