@@ -119,7 +119,8 @@ Read by the app, not set, so their defaults apply (see `.env.example`):
 `SERV_PRICE_INPUT_PER_M`, `SERV_PRICE_OUTPUT_PER_M`,
 `DOLPHIN_PRICE_INPUT_PER_M`, `DOLPHIN_PRICE_OUTPUT_PER_M`,
 `FALLBACK_PRICE_INPUT_PER_M`, `FALLBACK_PRICE_OUTPUT_PER_M`,
-`MODEL_FIRST_TOKEN_TIMEOUT_MS`, `CHAT_HISTORY_MESSAGES`,
+`MODEL_FIRST_TOKEN_TIMEOUT_MS`, `MODEL_RETRY_ATTEMPTS` (3),
+`MODEL_RETRY_BACKOFF_MS` (500), `CHAT_HISTORY_MESSAGES`,
 `CHAT_MAX_TOKENS`, `COMPILE_MAX_TOKENS`, `SKETCH_MAX_TOKENS` (320),
 `AGENT_PLAN_MAX_TOKENS` (3500), `AGENT_PLAN_TIMEOUT_MS` (120000),
 `DOLPHIN_CODE_TIMEOUT_MS` (240000),
@@ -366,9 +367,10 @@ After the deploy that brings the beta launch, run it once: all three
 examples have new versions (clearer listings; the morning sheet report's
 comparison with yesterday fixed; the enquiry follow-up hears your answer
 and records skipped replies). Each goes through SERV's publish review and
-the listing screen. When SERV gives an empty answer to the screen twice,
-the listing waits in `/app/admin/safety`'s queue as a held listing:
-approve it there and it is back on the board.
+the listing screen. When SERV gives the screen no answer (each call tries
+three times), the worker screens the listing again by itself, 2, 10 and
+30 minutes later; only after that does it wait in `/app/admin/safety`'s
+queue as a held listing: approve it there and it is back on the board.
 
 ### Setting a price on an example
 

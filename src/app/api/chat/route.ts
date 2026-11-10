@@ -13,6 +13,7 @@ import { servKeyOf } from "@/lib/servKey";
 import { refusal } from "@/lib/spend";
 import { replySystemPrompt, type TurnPlan } from "@/lib/systemPrompt";
 import { errorText } from "@/lib/db/errors";
+import { recordAttempts } from "@/lib/modelAttempts";
 
 export const runtime = "nodejs";
 
@@ -181,7 +182,7 @@ export async function POST(req: Request) {
       }
 
       if (!full.trim()) {
-        await finishUsage(usageId, result, plan.result, plan.sketch !== null);
+        await finishUsage(usageId, result, plan.result, plan.sketch !== null, ownKey);
         // The details stay in the server's log; the thread gets one plain sentence.
         console.error(`chat: no reply. ${result?.error ?? "The reply ended with nothing to show."}`);
         send("error", { message: userError(result?.failures ?? [], ownKey) });
@@ -197,7 +198,7 @@ export async function POST(req: Request) {
       // The reply is finished and saved: the browser unlocks the composer and
       // shows the plan's answers under it.
       send("reply_end", { messageId: saved?.id, source, label, choices: turnPlan?.choices ?? [] });
-      await finishUsage(usageId, result, plan.result, plan.sketch !== null);
+      await finishUsage(usageId, result, plan.result, plan.sketch !== null, ownKey);
       send("done", { messageId: saved?.id, source, label });
       if (open) ctrl.close();
     },
@@ -232,7 +233,10 @@ async function startUsage(conversationId: string, userId: string, ownKey: boolea
   }
 }
 
-async function finishUsage(id: string | null, r: ReplyResult | null, x: JsonResult | null, sketchOk: boolean | null): Promise<void> {
+async function finishUsage(id: string | null, r: ReplyResult | null, x: JsonResult | null, sketchOk: boolean | null, ownKey: boolean): Promise<void> {
+  // Each try of the plan call and of the reply, in the attempt log.
+  if (x) await recordAttempts(db as never, x.attempts, { ownKey });
+  if (r) await recordAttempts(db as never, r.attempts, { ownKey });
   if (!id) return;
   try {
     await db

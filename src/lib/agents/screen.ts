@@ -106,7 +106,7 @@ export async function screenText(rt: Runtime, owner: User, text: string, label: 
     { role: "user", content: wrapData(label, text, 12000) },
   ];
   const config = { ...serv.config, firstTokenTimeoutMs: Math.max(serv.config.firstTokenTimeoutMs, 30_000) };
-  const call = await completeJson(messages, { config, schema: SCREEN_SCHEMA, maxTokens: 200, signal: new AbortController().signal, fetchImpl: rt.fetchImpl, servTools: SERV_PROMPT_GUARD });
+  const call = await completeJson(messages, { config, purpose: "screen", schema: SCREEN_SCHEMA, signal: new AbortController().signal, fetchImpl: rt.fetchImpl, servTools: SERV_PROMPT_GUARD });
   await rt.record(owner, call, serv.ownKey, "agent_screen");
   if (run) await meter(rt, run.scope, "screen", call, serv.ownKey);
   else await meterPlatform(rt.db, { purpose: "screen", userId: owner.id, call, ownKey: serv.ownKey, now: rt.now() });

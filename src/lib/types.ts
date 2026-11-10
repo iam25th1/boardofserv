@@ -771,6 +771,10 @@ export interface AdminSafetyDTO {
   // daily budget (USDC minor units).
   calls: { by: "agents" | "boardofserv"; purpose: string; calls: number; tokens: number; cost: string; sitePaid: string }[];
   platform: { today: string; budget: string };
+  // How the model answered this week, by what each call was for (the
+  // SERV client's attempt log): calls and the tries they took, tries whose
+  // answer came back empty, and calls that needed more than one try.
+  answers: { purpose: string; calls: number; attempts: number; empty: number; retried: number }[];
   reviews: { versionId: string; agentId: string; name: string; maker: string; version: number; state: "draft" | "published"; review: VersionReviewDTO }[];
 }
 

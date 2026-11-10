@@ -253,6 +253,40 @@ export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
         ) : (
           <p className={styles.quiet}>No model calls this week.</p>
         )}
+        <h3 className={styles.sub}>How the models answered</h3>
+        <p className={styles.quiet}>
+          An empty answer, or one that can&apos;t be used, is tried again after a short pause, and so is a model that can&apos;t be reached. Out of credit is never tried again.
+        </p>
+        {data.answers.length ? (
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th scope="col">For</th>
+                <th scope="col">Calls</th>
+                <th scope="col">Tries</th>
+                <th scope="col">Empty answers</th>
+                <th scope="col">Tried again</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.answers.map((a) => (
+                <tr key={a.purpose}>
+                  <td>{PURPOSE_WORDS[a.purpose] ?? a.purpose}</td>
+                  <td>{a.calls}</td>
+                  <td>{a.attempts}</td>
+                  <td>
+                    {a.empty} ({rate(a.empty, a.attempts)} of tries)
+                  </td>
+                  <td>
+                    {a.retried} ({rate(a.retried, a.calls)} of calls)
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className={styles.quiet}>No model calls this week.</p>
+        )}
       </section>
       <section className={styles.section} aria-labelledby="reviews-h">
         <h2 id="reviews-h">Code reviews</h2>
@@ -382,7 +416,17 @@ const PURPOSE_WORDS: Record<string, string> = {
   code_review: "Code reviews while building",
   publish_review: "Reviews before publishing",
   post_screen: "Screening posts and listings",
+  chat: "Replies in the chat",
+  helper_use: "Helpers' answers",
+  sketch: "Planning a reply",
+  compile: "Writing a helper's instructions",
+  agent_plan: "Planning an agent",
 };
+
+// A share as a whole percentage, "0%" for none.
+function rate(part: number, whole: number): string {
+  return whole ? `${Math.round((part / whole) * 100)}%` : "0%";
+}
 
 const PAYMENT_ALERT_WORDS: Record<string, string> = {
   low_treasury: "The treasury is low",

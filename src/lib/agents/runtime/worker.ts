@@ -14,6 +14,7 @@ import { deliverTelegram, tidyTelegram } from "../../telegram/deliver";
 import { chargeModelShares, settleJobFees } from "../../market/charges";
 import { resumeAllowances } from "./allowances";
 import { renewDue } from "../../market/rentals";
+import { retryScreens } from "../../safety/screenRetries";
 
 // The agents' job worker: one cycle every few seconds, in the server
 // process (see boot.ts for why), under its own Postgres advisory lock taken
@@ -24,7 +25,8 @@ import { renewDue } from "../../market/rentals";
 // 2. fires the triggers that are due (triggers.ts), expires the approvals
 //    nobody answered in time (approvals.ts), renews rented agents' weeks
 //    and settles their fees per job (market/), and sends what waits to go
-//    out to owners' Telegram chats (telegram/deliver.ts),
+//    out to owners' Telegram chats (telegram/deliver.ts); beside the jobs,
+//    screens again what screening got no answer for (safety/),
 // 3. starts claimed jobs up to the worker's capacity, without waiting for
 //    them: they run on, beating, while the next cycles go by.
 //
@@ -49,6 +51,7 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
   let reppo: Promise<void> | null = null;
   let paying: Promise<void> | null = null;
   let trusting: Promise<void> | null = null;
+  let screening: Promise<void> | null = null;
   const heart = setInterval(() => {
     beat(rt, id, [...running.keys()]).catch(() => undefined);
   }, HEARTBEAT_MS);
@@ -107,6 +110,16 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
             trusting = null;
           });
       }
+      // Listings, requests and offers held for want of an answer from SERV,
+      // screened again when due: beside the jobs, never waited on here.
+      if (!screening) {
+        screening = retryScreens(rt)
+          .then((n) => (n ? rt.log(`screens: ${n} held for want of an answer screened again.`) : undefined))
+          .catch((err: unknown) => rt.log(`screens: screening again broke off: ${err instanceof Error ? err.name : "unknown error"}`))
+          .finally(() => {
+            screening = null;
+          });
+      }
       while (running.size < capacity) {
         const job = await claimJob(rt, id);
         if (!job) break;
@@ -116,7 +129,7 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
         running.set(job.id, run);
       }
     },
-    running: () => [...running.values(), ...(reppo ? [reppo] : []), ...(paying ? [paying] : []), ...(trusting ? [trusting] : [])],
+    running: () => [...running.values(), ...(reppo ? [reppo] : []), ...(paying ? [paying] : []), ...(trusting ? [trusting] : []), ...(screening ? [screening] : [])],
     stop: () => clearInterval(heart),
   };
 }

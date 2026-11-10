@@ -8,6 +8,9 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
+    // The model client's pause between tries, none in tests (the retry
+    // tests set their own).
+    env: { MODEL_RETRY_BACKOFF_MS: "0" },
   },
   resolve: {
     alias: {

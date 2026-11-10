@@ -11,6 +11,8 @@ import { balancesOf } from "@/lib/payments/ledger";
 import { capture, pricesOf, release, reserve, type Hold } from "@/lib/payments/uses";
 import { servKeyOf } from "@/lib/servKey";
 import { refusal } from "@/lib/spend";
+import { db } from "@/lib/db";
+import { recordAttempts } from "@/lib/modelAttempts";
 import type { BalanceDTO, PriceDTO, QuotaDTO } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -127,7 +129,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
             { role: "system", content: helper.systemPrompt },
             { role: "user", content: parsed.data.input },
           ],
-          { config, signal: controller.signal, servTools: SERV_PROMPT_GUARD },
+          { config, signal: controller.signal, servTools: SERV_PROMPT_GUARD, purpose: "helper_use" },
         )) {
           if (ev.type === "start") send("meta", { source: ev.provider, label: ev.label });
           else if (ev.type === "delta") {
@@ -144,6 +146,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       }
 
       const outcome = guard.blocked ? "blocked" : shown.trim() ? "ok" : "failed";
+      if (result) await recordAttempts(db, result.attempts, { ownKey });
       await finishUse(useId, {
         promptTokens: result?.promptTokens ?? null,
         completionTokens: result?.completionTokens ?? null,

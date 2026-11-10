@@ -32,8 +32,10 @@ const BACKUP: Provider = {
 };
 const ASK: ChatMessage[] = [{ role: "user", content: "Watch ETH for me" }];
 
+// One try per provider: these tests are about the order of providers.
+// Trying again has tests of its own (modelRetry.test.ts).
 function config(providers: Provider[], firstTokenTimeoutMs = 20_000): ModelConfig {
-  return { providers, firstTokenTimeoutMs, historyMessages: 12, maxTokens: 700, planMaxTokens: 200 };
+  return { providers, firstTokenTimeoutMs, historyMessages: 12, maxTokens: 700, planMaxTokens: 200, retry: { attempts: 1, backoffMs: 0 } };
 }
 
 const enc = new TextEncoder();

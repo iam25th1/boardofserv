@@ -212,9 +212,21 @@ the token cap: with a small cap, as on the plan call, it can spend all of it
 reasoning and send back no text, which counts as an empty reply. Dolphin
 reports usage when asked (`stream_options.include_usage`).
 
-- Before the first token, a network error, a timeout, a 5xx, a 429, a 402 or an
-  empty reply moves on to the next provider. Each provider is tried once per
-  reply, so a 402 (out of credit) is never retried. Any other refusal stops.
+- Before the first token, a network error, a timeout, a broken stream, a 5xx,
+  a 429 or an empty answer (no content, or for a JSON call an answer that
+  isn't JSON) is tried again on the same provider, three tries in all, 0.5 s
+  and then 1 s apart (`MODEL_RETRY_ATTEMPTS`, `MODEL_RETRY_BACKOFF_MS`), and
+  then moves on to the next provider. A 402 (out of credit) is never tried
+  again: it moves straight on. Any other refusal stops.
+- Each call says what it is for, and sends that purpose's answer limit
+  (`src/lib/modelLimits.ts`), sized to what the answer needs: SERV checks
+  credit against the limit sent, not what is used.
+- Every try is logged (`model_attempts`: purpose, provider, status, time,
+  tokens, which try, empty or not), and the admin's model cost view shows
+  each purpose's empty answer and retry rates.
+- A listing, request or offer that screening got no answer for is screened
+  again by the worker, 2, 10 and 30 minutes later, before it waits for a
+  person in the admin queue.
 - After the first token nothing is retried. The reply ends with "Reply cut off.
   Try again."
 - If nothing answers, the thread says "Replies aren't available right now.

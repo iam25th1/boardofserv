@@ -4,12 +4,13 @@ import { and, count, desc, eq, gte, isNull, ne } from "drizzle-orm";
 import { agentListings, agents, agentVersions, paymentAlerts, reports, reppoEvals, requestOffers, requests, users, type Report, type User } from "../db/schema";
 import { resolveAlert } from "../spending/treasury";
 import { decideDispute, disputeQueue } from "../spending/disputes";
-import { completeJson, SERV_PROMPT_GUARD, type ChatMessage } from "../model";
+import { completeJson, retryable, SERV_PROMPT_GUARD, type ChatMessage } from "../model";
 import type { Runtime } from "../agents/runtime/context";
 import { wrapData } from "../agents/untrusted";
 import type { ModerationQueueDTO } from "../types";
 import { freeze } from "./freeze";
 import { meterPlatform, platformRoom } from "../agents/metering";
+import { clearScreenRetry, pendingScreenRetries, queueScreenRetry, type ScreenSubject } from "./screenRetries";
 
 // Moderation. Before a listing, a request post or an offer goes public,
 // SERV screens it for scams, harmful jobs and other people's personal
@@ -56,8 +57,12 @@ const OBVIOUS: { test: RegExp; reason: string }[] = [
 ];
 
 export const SCREEN_DOWN = "It couldn't be screened just now, so it waits for a person to look.";
+// Held because SERV gave no answer: screened again by itself first.
+export const SCREEN_AGAIN = "It couldn't be screened just now. It is screened again in a few minutes, and a person looks if that fails too.";
 
-export async function screenContent(rt: Runtime, user: User, text: string, label: string): Promise<{ ok: boolean; reason: string }> {
+// unanswered: SERV gave no answer at all (empty, or none, after the call's
+// own tries), so another screen later may well get one (screenRetries.ts).
+export async function screenContent(rt: Runtime, user: User, text: string, label: string): Promise<{ ok: boolean; reason: string; unanswered?: boolean }> {
   for (const o of OBVIOUS) if (o.test.test(text)) return { ok: false, reason: o.reason };
   const serv = rt.serv(user);
   if (!serv || (await rt.siteRefusal(user, serv.ownKey))) return { ok: false, reason: SCREEN_DOWN };
@@ -68,16 +73,11 @@ export async function screenContent(rt: Runtime, user: User, text: string, label
     { role: "user", content: wrapData(label, text, 6000) },
   ];
   const config = { ...serv.config, firstTokenTimeoutMs: Math.max(serv.config.firstTokenTimeoutMs, 30_000) };
-  const ask = async () => {
-    const c = await completeJson(messages, { config, schema: CONTENT_SCHEMA, maxTokens: 120, signal: new AbortController().signal, fetchImpl: rt.fetchImpl, servTools: SERV_PROMPT_GUARD });
-    await rt.record(user, c, serv.ownKey, "agent_screen");
-    await meterPlatform(rt.db, { purpose: "post_screen", userId: user.id, call: c, ownKey: serv.ownKey, now: rt.now() });
-    return c;
-  };
-  let call = await ask();
-  // An empty answer (SERV hiccuped) is asked once more, within the budget,
-  // before a person is asked to look.
-  if (!call.content?.trim() && (await platformRoom(rt.db, serv.ownKey, rt.now()))) call = await ask();
+  // An empty answer is tried again inside the call (model.ts), every try
+  // metered.
+  const call = await completeJson(messages, { config, purpose: "post_screen", schema: CONTENT_SCHEMA, signal: new AbortController().signal, fetchImpl: rt.fetchImpl, servTools: SERV_PROMPT_GUARD });
+  await rt.record(user, call, serv.ownKey, "agent_screen");
+  await meterPlatform(rt.db, { purpose: "post_screen", userId: user.id, call, ownKey: serv.ownKey, now: rt.now() });
   try {
     const p = call.content ? (JSON.parse(call.content) as { verdict?: unknown; reason?: unknown }) : null;
     if (p?.verdict === "ok") return { ok: true, reason: "" };
@@ -85,15 +85,20 @@ export async function screenContent(rt: Runtime, user: User, text: string, label
   } catch {
     // An answer that isn't JSON: a person looks.
   }
-  // SERV answered but not with a verdict (a refusal, most likely): held.
-  return { ok: false, reason: call.content?.trim() ? "It needs a person to look." : SCREEN_DOWN };
+  // SERV answered but not with a verdict (a refusal, most likely): held for
+  // a person. No answer at all (empty, unreachable, busy): held, and
+  // screened again later; out of credit or refused: held for a person.
+  if (call.content?.trim() || call.failures.some((f) => f.kind === "unusable")) return { ok: false, reason: "It needs a person to look." };
+  const unanswered = call.failures.length > 0 && call.failures.every(retryable);
+  return { ok: false, reason: SCREEN_DOWN, ...(unanswered ? { unanswered } : {}) };
 }
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 
 // A listing, screened when it goes on the board and again whenever what it
-// shows changes. Returns how it stands.
-export async function screenListing(rt: Runtime, maker: User, agentId: string): Promise<"ok" | "held" | "hidden"> {
+// shows changes (or, with again, when the worker screens a held one once
+// more). Returns how it stands.
+export async function screenListing(rt: Runtime, maker: User, agentId: string, again = false): Promise<"ok" | "held" | "hidden"> {
   const [row] = await rt.db
     .select({ listing: agentListings, definition: agentVersions.definition })
     .from(agentListings)
@@ -104,25 +109,41 @@ export async function screenListing(rt: Runtime, maker: User, agentId: string): 
   const d = row.definition;
   const text = JSON.stringify({ name: d.name, does: d.job.does, done: d.job.done, steps: d.steps.map((s) => s.title), asks: d.settings.map((s) => s.label), may: d.actions.map((a) => a.description), weeklyPrice: row.listing.weeklyPrice });
   const h = hash(text);
-  if (row.listing.screenHash === h) return row.listing.screen;
+  if (row.listing.screenHash === h && !(again && row.listing.screen === "held")) return row.listing.screen;
   const r = await screenContent(rt, maker, text, "an agent's listing");
-  await rt.db.update(agentListings).set({ screen: r.ok ? "ok" : "held", screenReason: r.ok ? null : r.reason, screenHash: h, updatedAt: rt.now() }).where(eq(agentListings.agentId, agentId));
+  const reason = await afterScreen(rt, "listing", agentId, maker.id, r);
+  await rt.db.update(agentListings).set({ screen: r.ok ? "ok" : "held", screenReason: reason, screenHash: h, updatedAt: rt.now() }).where(eq(agentListings.agentId, agentId));
   return r.ok ? "ok" : "held";
 }
 
 export async function screenRequest(rt: Runtime, user: User, requestId: string, need: string, detail: string): Promise<"ok" | "held"> {
   const r = await screenContent(rt, user, JSON.stringify({ need, detail }), "a request for an agent");
-  await rt.db.update(requests).set({ screen: r.ok ? "ok" : "held", screenReason: r.ok ? null : r.reason }).where(eq(requests.id, requestId));
+  const reason = await afterScreen(rt, "request", requestId, user.id, r);
+  await rt.db.update(requests).set({ screen: r.ok ? "ok" : "held", screenReason: reason }).where(and(eq(requests.id, requestId), ne(requests.screen, "hidden")));
   return r.ok ? "ok" : "held";
 }
 
 export async function screenOffer(rt: Runtime, maker: User, offerId: string, note: string, agent: { name: string; does: string }): Promise<"ok" | "held"> {
   const r = await screenContent(rt, maker, JSON.stringify({ agent: agent.name, does: agent.does, note }), "a maker's offer");
+  const reason = await afterScreen(rt, "offer", offerId, maker.id, r);
   await rt.db
     .update(requestOffers)
-    .set({ screen: r.ok ? "ok" : "held", screenReason: r.ok ? null : r.reason })
+    .set({ screen: r.ok ? "ok" : "held", screenReason: reason })
     .where(and(eq(requestOffers.id, offerId), ne(requestOffers.screen, "hidden")));
   return r.ok ? "ok" : "held";
+}
+
+// A screen's result for the retry list: no answer from SERV puts it there
+// (or keeps it there for another try), anything else takes it off. The
+// reason the poster and the admin queue see, or null when it went through.
+async function afterScreen(rt: Runtime, subject: ScreenSubject, id: string, userId: string, r: { ok: boolean; reason: string; unanswered?: boolean }): Promise<string | null> {
+  if (r.ok) {
+    await clearScreenRetry(rt, subject, id);
+    return null;
+  }
+  if (r.unanswered) return (await queueScreenRetry(rt, subject, id, userId)) ? SCREEN_AGAIN : SCREEN_DOWN;
+  await clearScreenRetry(rt, subject, id);
+  return r.reason;
 }
 
 export class ReportRefused extends Error {
@@ -238,6 +259,8 @@ export async function moderate(rt: Runtime, admin: User, item: QueueItem, action
   }
   else await hideTarget(rt, item.type, item.id);
   if (action === "freeze") await freezeBehind(rt, admin, item.type, item.id, reason);
+  // A person decided: no screening again by itself.
+  await clearScreenRetry(rt, item.type, item.id);
   return true;
 }
 
@@ -274,15 +297,21 @@ export async function moderationQueue(rt: Runtime): Promise<ModerationQueueDTO> 
     .orderBy(desc(reppoEvals.completedAt))
     .limit(100);
   const alerts = await rt.db.select().from(paymentAlerts).where(eq(paymentAlerts.status, "open")).orderBy(desc(paymentAlerts.createdAt)).limit(100);
+  // Held for want of an answer and still to be screened again: not a
+  // person's yet.
+  const pending = await pendingScreenRetries(rt);
+  const waiting = (subject: ScreenSubject, id: string) => !pending.has(`${subject}:${id}`);
   return {
     disputes: await disputeQueue(rt),
     payments: alerts.map((a) => ({ id: a.id, kind: a.kind, message: a.message, details: a.details, at: a.createdAt.toISOString() })),
     blocked: blocked.map((b) => ({ id: b.id, agentId: b.agentId, agent: b.agent, version: b.version, maker: `@${b.maker}`, score: b.score, reason: b.reason ?? "", at: (b.at ?? new Date(0)).toISOString() })),
     reports: await Promise.all(open.map(async ({ r, by }) => ({ id: r.id, kind: r.kind, target: await what(r.kind, r.targetId), targetId: r.targetId, reason: r.reason, reasonWords: REPORT_REASON_WORDS[r.reason], note: r.note, by: `@${by}`, createdAt: r.createdAt.toISOString() }))),
     held: [
-      ...listings.map((l) => ({ type: "listing" as const, id: l.agentId, title: l.name, by: `@${l.maker}`, reason: l.reason ?? "" })),
-      ...posts.map((p) => ({ type: "request" as const, id: p.id, title: p.need, by: `@${p.by}`, reason: p.reason ?? "" })),
-      ...offers.map((o) => ({ type: "offer" as const, id: o.id, title: `${o.name}${o.note ? `: "${o.note.slice(0, 80)}"` : ""}`, by: `@${o.by}`, reason: o.reason ?? "" })),
+      ...listings.filter((l) => waiting("listing", l.agentId)).map((l) => ({ type: "listing" as const, id: l.agentId, title: l.name, by: `@${l.maker}`, reason: l.reason ?? "" })),
+      ...posts.filter((p) => waiting("request", p.id)).map((p) => ({ type: "request" as const, id: p.id, title: p.need, by: `@${p.by}`, reason: p.reason ?? "" })),
+      ...offers
+        .filter((o) => waiting("offer", o.id))
+        .map((o) => ({ type: "offer" as const, id: o.id, title: `${o.name}${o.note ? `: "${o.note.slice(0, 80)}"` : ""}`, by: `@${o.by}`, reason: o.reason ?? "" })),
     ],
   };
 }

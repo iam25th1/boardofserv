@@ -5,12 +5,21 @@ import "server-only";
 // backup named by FALLBACK_* last. A reply streams from the first provider
 // that answers.
 //
-// Before the first token, a network error, a timeout, a 5xx, a 429, a 402 or
-// an empty reply moves on to the next provider. Each provider is tried once
-// per reply, so a 402 (out of credit) is never retried. Any other refusal (a
+// Before the first token, a network error, a timeout, a broken stream, a
+// 5xx, a 429 or an empty answer (no content, or nothing usable: for a JSON
+// call, an answer that isn't JSON) is tried again on the same provider, with
+// a growing pause between tries (ModelConfig.retry: 3 tries, 0.5 s then 1 s,
+// unless set), and then moves on to the next provider. servpit measured SERV
+// answering empty now and then, and answering on the next try. A 402 (out of
+// credit) is never tried again: it moves straight on. Any other refusal (a
 // 400 or a 401, say) stops there: the next provider would refuse the same
 // request. After the first token nothing is retried; the result says it was
 // cut off and the route ends the reply with CUT_OFF_SUFFIX.
+//
+// Every try is an Attempt in the result (its purpose, provider, status,
+// time, tokens, which try it was and whether the answer was empty), which
+// modelAttempts.ts keeps. Each call says what it is for (ModelPurpose), and
+// sends the answer length limit modelLimits.ts sets for that purpose.
 //
 // SERV rules, proven in servpit: every request carries a system message and
 // a json schema carries no numeric range keywords. The chat switches no paid
@@ -21,6 +30,7 @@ import "server-only";
 // here turns SERV's content filter off.
 
 import { SYSTEM_PROMPT } from "./systemPrompt";
+import { ANSWER_LIMITS, type ModelPurpose } from "./modelLimits";
 
 export type ChatRole = "system" | "user" | "assistant";
 export interface ChatMessage {
@@ -37,12 +47,13 @@ export const DOLPHIN_MODEL = "deepseek-ai/DeepSeek-V4.1-Flash";
 export const DOLPHIN_LABEL = "Dolphin";
 const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 20_000;
 // Usage limits: the system prompt plus the last 12 messages go out (older
-// history is dropped, not summarised), and a reply is capped at 700 tokens.
+// history is dropped, not summarised), and a reply is capped at its answer
+// limit (modelLimits.ts).
 const DEFAULT_HISTORY_MESSAGES = 12;
-const DEFAULT_MAX_TOKENS = 700;
-// The plan call answers in a small JSON object (an agent's interview has the
-// most fields to fill).
-const DEFAULT_PLAN_MAX_TOKENS = 320;
+// Tries per provider for one call, and the pause before the second (the
+// third waits twice as long).
+const DEFAULT_RETRY_ATTEMPTS = 3;
+const DEFAULT_RETRY_BACKOFF_MS = 500;
 
 // Appended to a reply that broke off mid-stream. Stored with the reply so it
 // survives a reload, and stripped again before the history goes back to a model.
@@ -68,6 +79,13 @@ export interface Provider {
   askForUsage: boolean;
 }
 
+export interface RetryPolicy {
+  // Tries per provider, the first included.
+  attempts: number;
+  // The pause before the second try; each later one waits that much longer.
+  backoffMs: number;
+}
+
 export interface ModelConfig {
   providers: Provider[];
   // The providers are the person's own SERV key and nothing else.
@@ -76,6 +94,8 @@ export interface ModelConfig {
   historyMessages: number;
   maxTokens: number;
   planMaxTokens: number;
+  // Unset: DEFAULT_RETRY_ATTEMPTS tries, DEFAULT_RETRY_BACKOFF_MS apart.
+  retry?: RetryPolicy;
 }
 
 function positiveInt(raw: string | undefined, fallback: number): number {
@@ -118,9 +138,23 @@ export function modelConfig(env: Record<string, string | undefined> = process.en
     ownKey: Boolean(own.servKey),
     firstTokenTimeoutMs: positiveInt(env.MODEL_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_FIRST_TOKEN_TIMEOUT_MS),
     historyMessages: positiveInt(env.CHAT_HISTORY_MESSAGES, DEFAULT_HISTORY_MESSAGES),
-    maxTokens: positiveInt(env.CHAT_MAX_TOKENS, DEFAULT_MAX_TOKENS),
-    planMaxTokens: positiveInt(env.SKETCH_MAX_TOKENS, DEFAULT_PLAN_MAX_TOKENS),
+    maxTokens: positiveInt(env.CHAT_MAX_TOKENS, ANSWER_LIMITS.chat),
+    planMaxTokens: positiveInt(env.SKETCH_MAX_TOKENS, ANSWER_LIMITS.sketch),
+    retry: {
+      attempts: positiveInt(env.MODEL_RETRY_ATTEMPTS, DEFAULT_RETRY_ATTEMPTS),
+      backoffMs: nonNegativeInt(env.MODEL_RETRY_BACKOFF_MS, DEFAULT_RETRY_BACKOFF_MS),
+    },
   };
+}
+
+function nonNegativeInt(raw: string | undefined, fallback: number): number {
+  const n = Number(raw);
+  return raw?.trim() && Number.isInteger(n) && n >= 0 ? n : fallback;
+}
+
+export function retryPolicy(config: Pick<ModelConfig, "retry">): RetryPolicy {
+  const r = config.retry;
+  return { attempts: Math.max(1, Math.floor(r?.attempts ?? DEFAULT_RETRY_ATTEMPTS)), backoffMs: Math.max(0, r?.backoffMs ?? DEFAULT_RETRY_BACKOFF_MS) };
 }
 
 // What each provider's model costs, in US dollars per million tokens, for the
@@ -196,9 +230,57 @@ export function contextFor(history: ChatMessage[], limit: number): ChatMessage[]
     );
 }
 
+// empty: no content at all. unusable: something, but not what was asked
+// for (a JSON call's answer that isn't JSON: words, a refusal, or JSON cut
+// off). Both are tried again; both count as an empty answer in the log.
 export type Failure =
-  | { provider: Provider["id"]; kind: "network" | "timeout" | "stream" | "empty" }
+  | { provider: Provider["id"]; kind: "network" | "timeout" | "stream" | "empty" | "unusable" }
   | { provider: Provider["id"]; kind: "status"; status: number };
+
+// One try at one provider, for the log (modelAttempts.ts).
+export interface Attempt {
+  purpose: ModelPurpose;
+  provider: Provider["id"];
+  // The HTTP status, or null when no response came.
+  status: number | null;
+  outcome: "ok" | Failure["kind"];
+  ms: number;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  // 0 for the first try at this provider, 1 for the first retry, and so on.
+  retry: number;
+  // No content, or nothing usable.
+  empty: boolean;
+}
+
+// Tried again on the same provider: anything that may answer next time.
+// Never a 402 (out of credit) or another refusal.
+export function retryable(f: Failure): boolean {
+  if (f.kind !== "status") return true;
+  return f.status === 429 || f.status >= 500;
+}
+
+// Waits before the next try, or less if the call is stopped.
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done);
+  });
+}
+
+// One line per try in the server's log, in production (Pier keeps it).
+function logAttempt(a: Attempt): void {
+  if (process.env.NODE_ENV !== "production") return;
+  console.info(
+    `model: ${a.purpose} ${a.provider} try ${a.retry + 1} ${a.outcome}${a.status === null ? "" : ` ${a.status}`} ${a.ms} ms, ${a.promptTokens ?? 0} in, ${a.completionTokens ?? 0} out${a.empty ? ", empty" : ""}`,
+  );
+}
 
 export interface ReplyResult {
   outcome: "ok" | "fell_back" | "failed";
@@ -214,6 +296,8 @@ export interface ReplyResult {
   // What went wrong when no reply streamed at all, with the details, for the
   // server's log. People see userError's plain sentence instead.
   error: string | null;
+  // Every try, in order.
+  attempts: Attempt[];
 }
 
 export type ReplyEvent =
@@ -339,7 +423,7 @@ function providerName(id: Provider["id"], first: boolean): string {
   return first ? "The backup model" : "the backup model";
 }
 
-const KIND_TEXT = { network: "could not be reached", stream: "sent a broken reply", empty: "sent an empty reply" };
+const KIND_TEXT = { network: "could not be reached", stream: "sent a broken reply", empty: "sent an empty reply", unusable: "sent an answer that couldn't be used" };
 
 function failureText(f: Failure, timeoutMs: number): string {
   if (f.kind === "timeout") return `did not answer within ${Math.round(timeoutMs / 1000)} seconds`;
@@ -350,10 +434,12 @@ function failureText(f: Failure, timeoutMs: number): string {
   return `refused the request (${f.status})`;
 }
 
-// What happened and what to do, in one or two plain sentences.
+// What happened and what to do, in one or two plain sentences. The same
+// failure tried again is said once.
 export function describeFailures(failures: Failure[], timeoutMs: number): string {
   if (failures.length === 0) return NO_MODEL_ERROR;
-  const what = failures.map((f, i) => `${providerName(f.provider, i === 0)} ${failureText(f, timeoutMs)}`).join(", and ");
+  const said = failures.map((f, i) => `${providerName(f.provider, i === 0)} ${failureText(f, timeoutMs)}`);
+  const what = said.filter((t, i) => t.toLowerCase() !== said[i - 1]?.toLowerCase()).join(", and ");
   let todo = "Try again in a minute.";
   if (failures.some((f) => f.kind === "status" && !fallsBack(f))) todo = "Check the model settings on the server, then try again.";
   else if (failures.some((f) => f.kind === "status" && f.status === 402)) todo = "Top up SERV credit, then try again.";
@@ -378,12 +464,17 @@ export function userError(failures: Failure[], ownKey = false, general = REPLIES
 // failure: it always ends with an "end" event that says what happened.
 export async function* streamReply(
   messages: ChatMessage[],
-  opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch; servTools?: unknown[] },
+  opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch; servTools?: unknown[]; purpose?: "chat" | "helper_use" },
 ): AsyncGenerator<ReplyEvent> {
   const started = Date.now();
   const { config, signal } = opts;
+  const purpose = opts.purpose ?? "chat";
   const fetchImpl = opts.fetchImpl ?? fetch;
   const failures: Failure[] = [];
+  const attempts: Attempt[] = [];
+  const policy = retryPolicy(config);
+  // A reply from a later provider fell back; one from the first, on any try, didn't.
+  const first = config.providers[0];
   const ended = (r: Partial<ReplyResult>): ReplyEvent => ({
     type: "end",
     result: {
@@ -397,6 +488,7 @@ export async function* streamReply(
       error: null,
       ...r,
       failures,
+      attempts,
       totalMs: Date.now() - started,
     },
   });
@@ -416,42 +508,57 @@ export async function* streamReply(
     return;
   }
 
-  for (const p of config.providers) {
-    let firstTokenMs: number | null = null;
-    const gen = attempt(p, messages, { timeoutMs: config.firstTokenTimeoutMs, maxTokens: config.maxTokens, signal, fetchImpl, servTools: opts.servTools });
-    try {
-      for (;;) {
-        const step = await gen.next();
-        if (step.done) {
-          if (firstTokenMs === null) throw new ProviderFailure("empty");
-          yield ended({ outcome: failures.length ? "fell_back" : "ok", provider: p.id, model: p.model, firstTokenMs, ...step.value });
+  providers: for (const p of config.providers) {
+    for (let retry = 0; ; retry++) {
+      let firstTokenMs: number | null = null;
+      const tried = Date.now();
+      const gen = attempt(p, messages, { timeoutMs: config.firstTokenTimeoutMs, maxTokens: config.maxTokens, signal, fetchImpl, servTools: opts.servTools });
+      const log = (a: Omit<Attempt, "purpose" | "provider" | "ms" | "retry">) => {
+        const entry: Attempt = { purpose, provider: p.id, ms: Date.now() - tried, retry, ...a };
+        attempts.push(entry);
+        logAttempt(entry);
+      };
+      try {
+        for (;;) {
+          const step = await gen.next();
+          if (step.done) {
+            if (firstTokenMs === null) throw new ProviderFailure("empty");
+            log({ status: 200, outcome: "ok", promptTokens: step.value.promptTokens, completionTokens: step.value.completionTokens, empty: false });
+            yield ended({ outcome: p !== first ? "fell_back" : "ok", provider: p.id, model: p.model, firstTokenMs, ...step.value });
+            return;
+          }
+          if (firstTokenMs === null) {
+            firstTokenMs = Date.now() - started;
+            yield { type: "start", provider: p.id, label: p.label };
+          }
+          yield { type: "delta", text: step.value };
+        }
+      } catch (err) {
+        const failure: Failure =
+          err instanceof ProviderFailure && err.kind === "status"
+            ? { provider: p.id, kind: "status", status: err.status ?? 0 }
+            : { provider: p.id, kind: err instanceof ProviderFailure && err.kind !== "status" ? err.kind : "network" };
+        const streamed = firstTokenMs !== null;
+        log({ status: failure.kind === "status" ? failure.status : null, outcome: failure.kind, promptTokens: null, completionTokens: null, empty: failure.kind === "empty" });
+        if (signal.aborted) {
+          // The person pressed stop. Keep what arrived, try nothing else.
+          yield ended(streamed ? { outcome: p !== first ? "fell_back" : "ok", provider: p.id, model: p.model, firstTokenMs } : {});
           return;
         }
-        if (firstTokenMs === null) {
-          firstTokenMs = Date.now() - started;
-          yield { type: "start", provider: p.id, label: p.label };
+        failures.push(failure);
+        if (streamed) {
+          yield ended({ provider: p.id, model: p.model, firstTokenMs, cutOff: true });
+          return;
         }
-        yield { type: "delta", text: step.value };
+        if (retryable(failure) && retry + 1 < policy.attempts) {
+          await pause(policy.backoffMs * (retry + 1), signal);
+          continue;
+        }
+        if (!fallsBack(failure)) break providers;
+        continue providers;
+      } finally {
+        await gen.return({ promptTokens: null, completionTokens: null });
       }
-    } catch (err) {
-      const failure: Failure =
-        err instanceof ProviderFailure && err.kind === "status"
-          ? { provider: p.id, kind: "status", status: err.status ?? 0 }
-          : { provider: p.id, kind: err instanceof ProviderFailure && err.kind !== "status" ? err.kind : "network" };
-      const streamed = firstTokenMs !== null;
-      if (signal.aborted) {
-        // The person pressed stop. Keep what arrived, try nothing else.
-        yield ended(streamed ? { outcome: failures.length ? "fell_back" : "ok", provider: p.id, model: p.model, firstTokenMs } : {});
-        return;
-      }
-      failures.push(failure);
-      if (streamed) {
-        yield ended({ provider: p.id, model: p.model, firstTokenMs, cutOff: true });
-        return;
-      }
-      if (!fallsBack(failure)) break;
-    } finally {
-      await gen.return({ promptTokens: null, completionTokens: null });
     }
   }
   yield ended({ error: describeFailures(failures, config.firstTokenTimeoutMs) });
@@ -467,6 +574,8 @@ export interface JsonResult {
   completionTokens: number | null;
   totalMs: number;
   failures: Failure[];
+  // Every try, in order.
+  attempts: Attempt[];
 }
 
 export function jsonRequestBody(
@@ -487,15 +596,36 @@ export function jsonRequestBody(
   };
 }
 
+// An answer a JSON call can use is JSON. No content (or only blanks) is
+// empty; anything else is unusable.
+export function jsonAnswer(content: string | null | undefined): "ok" | "empty" | "unusable" {
+  if (!content?.trim()) return "empty";
+  try {
+    JSON.parse(content);
+    return "ok";
+  } catch {
+    return "unusable";
+  }
+}
+
+// What every try used, in tokens (each try is paid for), or null when no
+// try reported any.
+function spent(attempts: Attempt[], key: "promptTokens" | "completionTokens"): number | null {
+  const counted = attempts.filter((a) => a[key] !== null);
+  return counted.length ? counted.reduce((t, a) => t + (a[key] ?? 0), 0) : null;
+}
+
 // One non-streaming call for structured JSON, through the same providers in
-// the same order with the same fallback rules as a reply. Never throws for a
-// model failure: the result says what happened.
+// the same order with the same retry and fallback rules as a reply, with the
+// answer limit of its purpose unless one is given. Never throws for a model
+// failure: the result says what happened.
 export async function completeJson(
   messages: ChatMessage[],
   opts: {
     config: ModelConfig;
+    purpose: ModelPurpose;
     schema: { name: string; schema: Record<string, unknown> };
-    maxTokens: number;
+    maxTokens?: number;
     signal: AbortSignal;
     fetchImpl?: typeof fetch;
     servTools?: unknown[];
@@ -503,66 +633,94 @@ export async function completeJson(
 ): Promise<JsonResult> {
   const started = Date.now();
   const fetchImpl = opts.fetchImpl ?? fetch;
+  const maxTokens = opts.maxTokens ?? ANSWER_LIMITS[opts.purpose];
+  const policy = retryPolicy(opts.config);
   const failures: Failure[] = [];
+  const attempts: Attempt[] = [];
+  const first = opts.config.providers[0];
+  // The tokens are every try's, the failed ones' included: each was paid for.
   const done = (r: Partial<JsonResult>): JsonResult => ({
     content: null,
     outcome: "failed",
     provider: null,
     model: null,
-    promptTokens: null,
-    completionTokens: null,
     ...r,
+    promptTokens: spent(attempts, "promptTokens"),
+    completionTokens: spent(attempts, "completionTokens"),
     failures,
+    attempts,
     totalMs: Date.now() - started,
   });
 
-  for (const p of opts.config.providers) {
-    const ctl = new AbortController();
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      ctl.abort();
-    }, opts.config.firstTokenTimeoutMs);
-    const onAbort = () => ctl.abort();
-    opts.signal.addEventListener("abort", onAbort);
-    let failure: Failure;
-    try {
-      const res = await fetchImpl(`${p.baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${p.apiKey}` },
-        body: JSON.stringify(jsonRequestBody(p, messages, opts.schema, opts.maxTokens, opts.servTools)),
-        signal: ctl.signal,
-      });
-      if (!res.ok) {
-        failure = { provider: p.id, kind: "status", status: res.status };
-      } else {
-        const body = (await res.json()) as {
-          choices?: { message?: { content?: string | null } }[];
-          usage?: { prompt_tokens?: number; completion_tokens?: number };
-        };
-        const content = body.choices?.[0]?.message?.content;
-        if (content) {
-          return done({
-            content,
-            outcome: failures.length ? "fell_back" : "ok",
-            provider: p.id,
-            model: p.model,
-            promptTokens: body.usage?.prompt_tokens ?? null,
-            completionTokens: body.usage?.completion_tokens ?? null,
-          });
+  providers: for (const p of opts.config.providers) {
+    for (let retry = 0; ; retry++) {
+      const tried = Date.now();
+      const ctl = new AbortController();
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        ctl.abort();
+      }, opts.config.firstTokenTimeoutMs);
+      const onAbort = () => ctl.abort();
+      opts.signal.addEventListener("abort", onAbort);
+      let failure: Failure;
+      let status: number | null = null;
+      let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+      try {
+        const res = await fetchImpl(`${p.baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${p.apiKey}` },
+          body: JSON.stringify(jsonRequestBody(p, messages, opts.schema, maxTokens, opts.servTools)),
+          signal: ctl.signal,
+        });
+        status = res.status;
+        if (!res.ok) {
+          failure = { provider: p.id, kind: "status", status: res.status };
+        } else {
+          const body = (await res.json()) as {
+            choices?: { message?: { content?: string | null } }[];
+            usage?: { prompt_tokens?: number; completion_tokens?: number };
+          };
+          usage = body.usage;
+          const content = body.choices?.[0]?.message?.content;
+          const answer = jsonAnswer(content);
+          if (answer === "ok") {
+            const entry: Attempt = { purpose: opts.purpose, provider: p.id, status, outcome: "ok", ms: Date.now() - tried, promptTokens: usage?.prompt_tokens ?? null, completionTokens: usage?.completion_tokens ?? null, retry, empty: false };
+            attempts.push(entry);
+            logAttempt(entry);
+            return done({ content: content!, outcome: p !== first ? "fell_back" : "ok", provider: p.id, model: p.model });
+          }
+          failure = { provider: p.id, kind: answer };
         }
-        failure = { provider: p.id, kind: "empty" };
+      } catch {
+        failure = { provider: p.id, kind: timedOut ? "timeout" : "network" };
+      } finally {
+        clearTimeout(timer);
+        opts.signal.removeEventListener("abort", onAbort);
       }
-    } catch {
-      failure = { provider: p.id, kind: timedOut ? "timeout" : "network" };
-    } finally {
-      clearTimeout(timer);
-      opts.signal.removeEventListener("abort", onAbort);
+      const entry: Attempt = {
+        purpose: opts.purpose,
+        provider: p.id,
+        status,
+        outcome: failure.kind,
+        ms: Date.now() - tried,
+        promptTokens: usage?.prompt_tokens ?? null,
+        completionTokens: usage?.completion_tokens ?? null,
+        retry,
+        empty: failure.kind === "empty" || failure.kind === "unusable",
+      };
+      attempts.push(entry);
+      logAttempt(entry);
+      if (opts.signal.aborted) return done({});
+      failures.push(failure);
+      if (retryable(failure) && retry + 1 < policy.attempts) {
+        await pause(policy.backoffMs * (retry + 1), opts.signal);
+        if (opts.signal.aborted) return done({});
+        continue;
+      }
+      if (!fallsBack(failure)) break providers;
+      continue providers;
     }
-    if (opts.signal.aborted) return done({});
-    failures.push(failure);
-    if (!fallsBack(failure)) break;
   }
   return done({});
 }
-

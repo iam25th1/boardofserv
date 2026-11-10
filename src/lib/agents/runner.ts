@@ -614,7 +614,7 @@ export async function askServ(
   };
   // Not streamed: half a minute, not a reply's first-token wait.
   const config = { ...serv, firstTokenTimeoutMs: Math.max(serv.firstTokenTimeoutMs, 30_000) };
-  return completeJson(messages, { config, schema, maxTokens: 200, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
+  return completeJson(messages, { config, purpose: "decision", schema, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
 }
 
 export function costOf(call: JsonResult): number {

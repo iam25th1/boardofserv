@@ -4,6 +4,7 @@ import { decryptSecret, encryptSecret } from "./crypto";
 import { db } from "./db";
 import { users, type User } from "./db/schema";
 import { SERV_BASE_URL, SERV_MODEL } from "./model";
+import { ANSWER_LIMITS } from "./modelLimits";
 
 // A user's own SERV key. With one set, their chat and helper uses run on it
 // (on their own SERV credit), with no daily message limit and outside the
@@ -31,7 +32,7 @@ export async function checkServKey(key: string, fetchImpl: typeof fetch = fetch)
           { role: "system", content: "Reply with one word." },
           { role: "user", content: "Hello" },
         ],
-        max_tokens: 1,
+        max_tokens: ANSWER_LIMITS.key_check,
         stream: false,
       }),
       signal: ctl.signal,

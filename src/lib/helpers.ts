@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "./db";
 import { helperUses, publishedHelpers, users } from "./db/schema";
 import { completeJson, contextFor, type ChatMessage, type JsonResult, type ModelConfig } from "./model";
+import { ANSWER_LIMITS } from "./modelLimits";
 import type { PublicHelperDTO, QuotaDTO, SketchDTO } from "./types";
 import { paymentsConfig } from "./payments/config";
 import { pricesOf, type Price } from "./payments/uses";
@@ -144,7 +145,6 @@ export const COMPILE_SCHEMA = {
 // The rules and voice live in the conversation, so the compile call sees
 // the sketch and the conversation's recent messages.
 const COMPILE_HISTORY_MESSAGES = 40;
-const DEFAULT_COMPILE_MAX_TOKENS = 600;
 
 export function compileInput(sketch: SketchDTO, history: ChatMessage[]): string {
   const said = contextFor(history, COMPILE_HISTORY_MESSAGES)
@@ -165,8 +165,8 @@ export async function compileHelper(
     { role: "user", content: compileInput(sketch, history) },
   ];
   const max = Number(process.env.COMPILE_MAX_TOKENS);
-  const maxTokens = Number.isInteger(max) && max > 0 ? max : DEFAULT_COMPILE_MAX_TOKENS;
-  const result = await completeJson(messages, { ...opts, schema: COMPILE_SCHEMA, maxTokens });
+  const maxTokens = Number.isInteger(max) && max > 0 ? max : ANSWER_LIMITS.compile;
+  const result = await completeJson(messages, { ...opts, purpose: "compile", schema: COMPILE_SCHEMA, maxTokens });
   let prompt: string | null = null;
   try {
     const parsed = Compiled.safeParse(JSON.parse(result.content ?? ""));

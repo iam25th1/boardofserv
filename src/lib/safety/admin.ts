@@ -10,6 +10,7 @@ import { trustAdmin } from "../trust/trust";
 import { weekStart } from "../agents/metering";
 import type { Runtime } from "../agents/runtime/context";
 import type { AdminSafetyDTO } from "../types";
+import { answerRates } from "../modelAttempts";
 
 // The admin's safety page: every version's code review (plain words, never
 // code), and in later sections what costs the most, what is frozen and the
@@ -88,6 +89,7 @@ export async function adminSafety(rt: Runtime): Promise<AdminSafetyDTO> {
       ...ownCalls.map((c) => ({ by: "boardofserv" as const, purpose: c.purpose, calls: c.calls, tokens: c.tokens, cost: c.cost, sitePaid: c.site })),
     ],
     platform: { today: (await platformSpentToday(rt.db, rt.now())).toString(), budget: platformBudget().toString() },
+    answers: await answerRates(rt.db, week),
     reviews: rows.map((r) => ({
       versionId: r.versionId,
       agentId: r.agentId,

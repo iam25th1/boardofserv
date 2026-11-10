@@ -73,7 +73,7 @@ describe("SERV's review", () => {
 
   it("keeps findings in plain words, never code", () => {
     expect(plainWords("Uses `fetch(url)` => sends { data }; const leak = true")).toBe("Uses sends data leak = true");
-    const call = (content: string | null) => ({ content, outcome: "ok" as const, provider: "serv" as const, model: "m", promptTokens: 1, completionTokens: 1, totalMs: 1, failures: [] });
+    const call = (content: string | null) => ({ content, outcome: "ok" as const, provider: "serv" as const, model: "m", promptTokens: 1, completionTokens: 1, totalMs: 1, failures: [], attempts: [] });
     expect(readReview(d, call("nope"))).toBeNull();
     expect(readReview(d, call(JSON.stringify({ findings: [{ step: "x", severity: "fatal", finding: "y" }] })))).toEqual([]);
     // A finding that quotes the code loses the quote: its names, its comments
