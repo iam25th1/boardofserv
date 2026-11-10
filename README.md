@@ -170,8 +170,9 @@ the server:
   sends `Strict-Transport-Security` (two years, with subdomains, not
   preloaded) and a `Permissions-Policy` that turns off the camera,
   microphone, location, payment requests, USB and ad topics.
-- `/_next/image` answers 404 (`src/middleware.ts`): nothing uses next/image,
-  and next 14's image optimizer has advisories only next 16 fixes.
+- `/_next/image` answers 404 (`images.unoptimized` in `next.config.mjs`):
+  nothing uses next/image, and next 14's image optimizer has advisories
+  only next 16 fixes.
 - Every route anyone can reach without signing in is rate limited per
   address (`src/lib/rateLimit.ts`, Cloudflare's `cf-connecting-ip` first):
   a fixed window a minute, then a 429 with `Retry-After`. Signed-in routes

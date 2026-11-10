@@ -172,6 +172,12 @@ describe("security headers", () => {
     expect(dev["Strict-Transport-Security"]).toBeUndefined();
   });
 
+  it("turns the image optimizer off (nothing uses next/image)", async () => {
+    // @ts-expect-error next.config.mjs is plain JavaScript, without types
+    const config = (await import("../../next.config.mjs")).default;
+    expect(config.images).toEqual({ unoptimized: true });
+  });
+
   it("production adds HSTS and a permissions policy that leaves sign-in and the copy buttons alone", async () => {
     // @ts-expect-error next.config.mjs is plain JavaScript, without types
     const { SECURITY_HEADERS } = await import("../../next.config.mjs");

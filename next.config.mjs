@@ -86,6 +86,9 @@ const nextConfig = {
   // Never expose server-only secrets to the client. Only NEXT_PUBLIC_* reach
   // the browser bundle, and those are enumerated in .env.example.
   poweredByHeader: false,
+  // Nothing uses next/image, so the image optimizer is off: /_next/image
+  // answers 404 (next 14's optimizer has advisories only next 16 fixes).
+  images: { unoptimized: true },
   experimental: {
     // Loaded from node_modules at run time, not bundled: pg, the agent
     // sandbox's QuickJS, which reads its WebAssembly file from its package,
