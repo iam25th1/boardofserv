@@ -148,10 +148,12 @@ export async function agentPage(rt: Runtime, agentId: string, viewerId: string |
     const v = rules[key];
     return r ? `"${r.label}" (${r.type === "usdc" && typeof v === "number" ? `${v} USDC` : String(v)} unless you change it)` : key;
   };
+  // An action's own words, without the full stop a maker may have given them.
+  const plain = (words: string) => words.trim().replace(/[.\s]+$/, "");
   const neverWithoutAsking = [
     ...[...new Set(d.actions.filter((a) => spends(a) && a.askOver).map((a) => a.askOver!))].map((k) => `Spend more in one job than your limit ${ruleWords(k)}.`),
     ...[...new Set(d.actions.filter((a) => spends(a) && a.askOverDay).map((a) => a.askOverDay!))].map((k) => `Spend more in a day than your limit ${ruleWords(k)}.`),
-    ...d.actions.filter((a) => a.tool === "telegram.ask").map((a) => `${a.description}: it asks you, and waits for your answer.`),
+    ...d.actions.filter((a) => a.tool === "telegram.ask").map((a) => `${plain(a.description)}: it asks you, and waits for your answer.`),
   ];
   return {
     ...listingDTO(row, renters, quality, (await versionTrust(rt, [row.listing.versionId])).get(row.listing.versionId)),
@@ -164,7 +166,7 @@ export async function agentPage(rt: Runtime, agentId: string, viewerId: string |
     asks: d.settings.map((s) => ({ label: s.label, help: s.help, kind: s.type })),
     needs: connectionsNeeded(d),
     neverWithoutAsking,
-    canOnly: d.actions.map((a) => a.description),
+    canOnly: d.actions.map((a) => plain(a.description)),
     mine: viewerId !== null && viewerId === row.makerId,
     rentalId: viewerId ? await rentalIdOf(rt, agentId, viewerId) : null,
   };

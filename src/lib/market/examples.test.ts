@@ -77,6 +77,54 @@ describe("the example agents", () => {
     }
   });
 
+  it("can afford the decisions they make on a live run", () => {
+    for (const [file, s] of saved) {
+      const d = s.definition as { steps: { kind: string }[]; limits: { maxSpendUsd: number } };
+      if (d.steps.some((x) => x.kind === "decision")) expect(d.limits.maxSpendUsd, file).toBeGreaterThan(0);
+    }
+  });
+
+  it("the morning sheet report compares with what it saved yesterday, in the shape it saves it", async () => {
+    const s = saved.find(([f]) => f === "sheet-report.json")![1];
+    const checked = checkDefinition(s.definition);
+    if (!checked.ok) throw new Error(checked.errors.join(" "));
+    const said: string[] = [];
+    const run = (memory: Record<string, unknown>) =>
+      runAgent({
+        definition: checked.definition,
+        code: s.code as unknown as Record<string, StepCode>,
+        bench: { ...s.bench!, memory },
+        dryRun: true,
+        onEvent: (e: RunEvent) => {
+          if (e.type === "tool" && e.tool === "telegram.send") said.push((e.args as { text: string }).text);
+        },
+      });
+    const first = await run({});
+    expect(said.at(-1)).toMatch(/^First run/);
+    expect(first.memory.yesterday).toMatchObject({ rows: expect.any(Number), totals: expect.any(Object) });
+    // The next morning it reads back what it saved: a comparison, not a first run.
+    await run(first.memory);
+    expect(said.at(-1)).toMatch(/vs yesterday/);
+    expect(said.at(-1)).not.toMatch(/First run/);
+  });
+
+  it("the enquiry follow-up hears your answer, and records the reply either way in the tab you chose", async () => {
+    const s = saved.find(([f]) => f === "lead-followup.json")![1];
+    const checked = checkDefinition(s.definition);
+    if (!checked.ok) throw new Error(checked.errors.join(" "));
+    const d = checked.definition;
+    // Its decision on your answer reads the answer.
+    expect(d.steps.find((x) => x.id === "owner_decision")!.inputs).toEqual(["owner_answer"]);
+    expect(d.steps.find((x) => x.id === "ask_owner_approval")!.outputs).toEqual(["owner_answer"]);
+    for (const [answer, status] of [["approved", "ready to send"], ["rejected", "skipped"]] as const) {
+      const bench = { ...s.bench!, decisions: { ...s.bench!.decisions, check_for_new_enquiry: "enquiry_found", owner_decision: answer } };
+      const end = await runAgent({ definition: d, code: s.code as unknown as Record<string, StepCode>, bench, dryRun: true, onEvent: () => undefined });
+      expect(end.status, `${answer}: ${end.reason}`).toBe("done");
+      const tab = bench.settings.replies_sheet as string;
+      expect(end.sheets[tab]!.at(-1), answer).toMatchObject({ status });
+    }
+  });
+
   it("include the enquiry follow-up on its 15-minute schedule, with its model cost estimate on its listing", async () => {
     const board = await boardAgents(rt);
     const enquiry = board.find((a) => a.name === "Enquiry follow-up")!;

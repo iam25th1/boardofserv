@@ -93,6 +93,17 @@ describe("boardofserv's own calls", () => {
     expect(await platformSpentToday(rt.db, rt.now())).toBe(rows.reduce((t, r) => t + BigInt(r.cost), 0n));
   });
 
+  it("ask SERV once more when a screen's answer comes back empty, and meter both", async () => {
+    const real = rt.fetchImpl;
+    let n = 0;
+    rt.fetchImpl = (async (url: string, init: RequestInit) => {
+      if (JSON.parse(String(init.body)).response_format.json_schema.name === "content_screen" && n++ === 0) return Response.json({ choices: [{ message: { content: "" } }] });
+      return real!(url, init);
+    }) as typeof fetch;
+    expect(await screenContent(rt, maker, "A restock helper.", "a listing")).toEqual({ ok: true, reason: "" });
+    expect((await platformRows()).filter((r) => r.purpose === "post_screen")).toHaveLength(2);
+  });
+
   it("past the platform's daily budget, wait as when SERV can't answer, and make no call", async () => {
     vi.stubEnv("PLATFORM_MODEL_BUDGET_USDC", "0");
     expect(platformBudget()).toBe(0n);
