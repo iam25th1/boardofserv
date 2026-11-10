@@ -58,6 +58,13 @@
     "zod": "4.6.7",
     "viem": "2.57.8",
     "@walletconnect/utils": "2.22.4",
-    "@walletconnect/universal-provider": "2.22.4"
+    "@walletconnect/universal-provider": "2.22.4",
+    "@typescript-eslint/typescript-estree": {
+      "minimatch": "11.0.5"
+    },
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    },
+    "uuid": "11.1.1"
   }
 }
