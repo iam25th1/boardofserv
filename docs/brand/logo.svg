@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <!-- The boardofserv mark in chalk on slate: a little board with a wave on
+       it, roughened like chalk. Rendered to public/brand/logo-120.png (the
+       logo for Google's branding page). -->
+  <defs>
+    <filter id="chalk" x="-10%" y="-10%" width="120%" height="120%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.7" numOctaves="2" seed="7" result="n" />
+      <feDisplacementMap in="SourceGraphic" in2="n" scale="0.9" />
+    </filter>
+  </defs>
+  <rect width="120" height="120" fill="#1d201f" />
+  <g transform="translate(17 17) scale(3.3)" fill="none" stroke="#e9eae4" stroke-width="1.8" stroke-linecap="round" filter="url(#chalk)">
+    <rect x="2" y="4" width="22" height="16" rx="2" />
+    <path d="M7 15c2-4 4-4 6 0s4 4 6 0" />
+    <path d="M9 23h8" />
+  </g>
+</svg>
