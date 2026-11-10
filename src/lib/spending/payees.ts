@@ -70,7 +70,9 @@ const unique = (err: unknown) => {
 };
 
 // Saves a payee, or changes one: the same label with another address is a
-// new payee (the old one removed), so its first payment asks again.
+// new payee (the old one removed), so its first payment asks again; a new
+// label for an address already saved renames it. What a payment to it is
+// judged by is its address (addresses.ts), so a new name changes nothing.
 export async function savePayee(rt: Runtime, owner: User, installationId: string, raw: { label: unknown; address: unknown }): Promise<Payee> {
   await ownInstallation(rt, owner, installationId);
   const label = readLabel(raw.label);
@@ -81,7 +83,16 @@ export async function savePayee(rt: Runtime, owner: User, installationId: string
   const same = list.find((p) => p.label.toLowerCase() === label.toLowerCase());
   if (same && same.address === address && same.status === "active") return same;
   const sameAddress = list.find((p) => p.address === address && p !== same);
-  if (sameAddress?.status === "active") throw new PayeeRefused(`That address is saved already, as "${sameAddress.label}".`, 409);
+  if (sameAddress?.status === "active") {
+    if (same) throw new PayeeRefused(`That address is saved already, as "${sameAddress.label}".`, 409);
+    try {
+      const [renamed] = await rt.db.update(payees).set({ label }).where(eq(payees.id, sameAddress.id)).returning();
+      return renamed!;
+    } catch (err) {
+      if (unique(err)) throw new PayeeRefused("A payee with that name is saved already.", 409);
+      throw err;
+    }
+  }
   if (!same && list.filter((p) => p.status === "active").length >= MAX_PAYEES) throw new PayeeRefused(`An agent can have at most ${MAX_PAYEES} payees.`, 409);
   const now = rt.now();
   try {

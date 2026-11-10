@@ -110,7 +110,7 @@ describe("an agent's payment", () => {
     const asked = (await err(callPay(tools(inst, job), { to: "Weftworks", amountUsdc: 1 }, { key: "first" }))) as Paused;
     expect(asked).toBeInstanceOf(Paused);
     expect(asked.ask.question).toBe("Pay 1.00 USDC to Weftworks (0x0000...0000) from its allowance? Payments on Base can't be pulled back once they're sent.");
-    expect(asked.ask.reason).toContain("It's the first payment to Weftworks: the first one to a payee always asks.");
+    expect(asked.ask.reason).toContain("It's the first payment to this address (Weftworks): the first one to an address always asks.");
     expect(asked.ask.opinion).toMatchObject({ risk: "money" });
     expect(pay.chain.sent).toEqual([]);
     await callPay(tools(inst, job), { to: "Weftworks", amountUsdc: 1 }, { key: "first", approval: { answer: "Yes" } });

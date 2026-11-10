@@ -808,8 +808,9 @@ export interface SpendingDTO {
   entries: { kind: "topup" | "withdraw" | "hold" | "release" | "spend"; amount: string; at: string }[];
   // Who its agent may pay: saved ones, and suggestions waiting for the
   // renter to confirm on screen. paidBefore is false until a first
-  // payment went out (the first always asks).
-  payees: { id: string; label: string; address: string; status: "active" | "suggested"; paidBefore: boolean; createdAt: string }[];
+  // payment to the address went out (the first always asks); warning says
+  // why a payment to the address is high risk and always asks.
+  payees: { id: string; label: string; address: string; status: "active" | "suggested"; paidBefore: boolean; createdAt: string; warning: string | null }[];
   // Every payment its agent made or tried, newest first.
   receipts: ReceiptDTO[];
   // What it may pay without asking now (USDC minor units): the stricter of

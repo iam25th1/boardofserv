@@ -2,6 +2,7 @@ import type { DisputableDTO, DisputeDTO, ReceiptDTO, SpendingDTO } from "@/lib/t
 import type { DisputeList, SpendingApi } from "@/components/agents/SpendingPanel";
 import { TRUST_FAIR } from "./demoTrust";
 import { DISPUTE_REASON_WORDS } from "@/lib/spending/disputeWords";
+import { FLAG_WORDS } from "@/lib/spending/addressWords";
 
 // The fabric restock agent's spending for the demo: an allowance, two
 // saved payees and one it suggested, receipts (paid, sending and failed),
@@ -55,9 +56,9 @@ export const DEMO_SPENDING: SpendingDTO = {
   balanceAvailable: "42500000",
   entries: [],
   payees: [
-    { id: "p-1", label: "Weftworks", address: WEFT, status: "active", paidBefore: true, createdAt: at(400) },
-    { id: "p-2", label: "Loom & Co", address: LOOM, status: "active", paidBefore: false, createdAt: at(80) },
-    { id: "p-3", label: "0x4b1d...93ac", address: "0x4B1D3a5c7E9f0b2D4f6A8c0E2b4D6f8A0c2E93Ac", status: "suggested", paidBefore: false, createdAt: at(2) },
+    { id: "p-1", label: "Weftworks", address: WEFT, status: "active", paidBefore: true, createdAt: at(400), warning: null },
+    { id: "p-2", label: "Loom & Co", address: LOOM, status: "active", paidBefore: false, createdAt: at(80), warning: null },
+    { id: "p-3", label: "0x4b1d...93ac", address: "0x4B1D3a5c7E9f0b2D4f6A8c0E2b4D6f8A0c2E93Ac", status: "suggested", paidBefore: false, createdAt: at(2), warning: FLAG_WORDS.maker_wallet },
   ],
   receipts: RECEIPTS,
   limit: {
@@ -112,7 +113,7 @@ export function demoSpendingApi(): SpendingApi {
     payees: async (b) => {
       if (b.action === "remove") s = { ...s, payees: s.payees.filter((p) => p.id !== b.payeeId) };
       else if (b.action === "confirm") s = { ...s, payees: s.payees.map((p) => (p.id === b.payeeId ? { ...p, label: b.label, status: "active" as const } : p)) };
-      else s = { ...s, payees: [...s.payees, { id: `p-${s.payees.length + 1}`, label: b.label, address: b.address, status: "active" as const, paidBefore: false, createdAt: at(0) }] };
+      else s = { ...s, payees: [...s.payees, { id: `p-${s.payees.length + 1}`, label: b.label, address: b.address, status: "active" as const, paidBefore: false, createdAt: at(0), warning: null }] };
       return s;
     },
     disputes: async () => d,

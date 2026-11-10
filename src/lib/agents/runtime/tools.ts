@@ -7,7 +7,7 @@ import { readTab, SheetRefused, writeTab, type SheetRow } from "../../google/she
 import { braveSearch, SearchRefused, SearchUnavailable } from "../../search/brave";
 import type { AgentDefinition, AgentStep, ToolName } from "../definition";
 import { Blocked, Declined, Halted, InfraError, Paused, type CallContext, type OpinionFacts, type ToolHost } from "../runner";
-import { askGuard, GUARD_DOWN, guardKey, type GuardInput, type GuardResult } from "../guard";
+import { askGuard, GUARD_DOWN, guardArgs, guardKey, type GuardInput, type GuardResult } from "../guard";
 import { budgetGate, costMicros, meter } from "../metering";
 import { audit, lastAsk } from "../audit";
 import type { AgentAudit } from "../../db/schema";
@@ -24,6 +24,8 @@ import { resolvePayee, suggestPayee } from "../../spending/payees";
 import { payeeWords, payFromAllowance, PaymentPending, PaymentRefused } from "../../spending/pay";
 import { usdcWords } from "../../spending/allowance";
 import { bandLine, judgePayment, paymentLimits } from "../../spending/limits";
+import { addressFacts, highRisk, warningOf, type AddressFacts } from "../../spending/addresses";
+import { paymentsNetworkProblem } from "../../spending/treasury";
 import { formatAmount, parseAmount } from "../../money";
 import { fetchPage, WebUnreachable } from "./webFetch";
 
@@ -96,8 +98,8 @@ export class JobTools implements ToolHost {
   // SERV's check of a call that writes, sends or spends: once per call in a
   // run. When SERV can't be reached, can't be paid for today or doesn't
   // answer, the answer is ask, never allow.
-  private async guard(step: AgentStep, tool: ToolName, risk: Risk, args: unknown, ctx: CallContext | undefined): Promise<GuardResult> {
-    const key = guardKey(tool, args);
+  private async guard(step: AgentStep, tool: ToolName, risk: Risk, args: unknown, ctx: CallContext | undefined, payment?: GuardInput["payment"]): Promise<GuardResult> {
+    const key = guardKey(tool, guardArgs({ args, payment }));
     const seen = this.checked.get(key);
     if (seen) return seen;
     const owner = await this.ownerOf();
@@ -110,6 +112,7 @@ export class JobTools implements ToolHost {
       settings: settingsByLabel(this.definition, this.installation),
       inputs: ctx?.inputs ?? {},
       untrusted: ctx?.untrusted ?? [],
+      ...(payment ? { payment } : {}),
     };
     let result: GuardResult;
     if (this.rt.guard) {
@@ -169,7 +172,7 @@ export class JobTools implements ToolHost {
   // A payment's payee and amount, or the step fails: only a saved payee,
   // and an amount in USDC with at most six decimals. An address that isn't
   // saved waits as a suggestion for the renter to confirm on screen.
-  private async paymentOf(step: AgentStep, args: unknown): Promise<{ payee: Payee; amount: bigint; memo: string | null; what: string }> {
+  private async paymentOf(step: AgentStep, args: unknown): Promise<{ payee: Payee; amount: bigint; memo: string | null; what: string; facts: AddressFacts }> {
     const parsed = TOOL_ARGS["wallet.pay"].safeParse(args);
     if (!parsed.success) throw new ToolError("wallet.pay", "wallet.pay was called wrongly: it takes { to, amountUsdc, memo? }.");
     const text = String(parsed.data.amountUsdc);
@@ -182,7 +185,9 @@ export class JobTools implements ToolHost {
     }
     const memo = parsed.data.memo?.trim() ? fixDashes(parsed.data.memo.trim()).slice(0, 200) : null;
     void step;
-    return { payee, amount, memo, what: `Pay ${usdcWords(amount)} to ${payeeWords(payee)} from its allowance? Payments on Base can't be pulled back once they're sent.` };
+    // Judged by its address, never the name it was saved under.
+    const facts = await addressFacts(this.rt, payee.address, this.installation);
+    return { payee, amount, memo, facts, what: `Pay ${usdcWords(amount)} to ${payeeWords(payee)} from its allowance? Payments on Base can't be pulled back once they're sent.` };
   }
 
   // The payment itself, after the guard and any approval: on chain, once.
@@ -284,9 +289,13 @@ export class JobTools implements ToolHost {
     // frozen or held agent can't pay at all, even after a yes.
     const limits = payment ? await paymentLimits(this.rt, this.installation) : null;
     const judged = payment && limits ? judgePayment(limits, payment.amount) : null;
-    if (judged?.refuse) {
-      await this.logged(step, tool, risk, what, { outcome: "failed", reason: judged.refuse });
-      throw new ToolError("wallet.pay", judged.refuse);
+    // Off this network (or off altogether), it can't pay: said at once,
+    // before anyone is asked.
+    const network = payment ? (this.rt.payments ? paymentsNetworkProblem(this.rt.payments.config) : "Payments aren't set up on this site.") : null;
+    const refuse = network ? `${network} Nothing was paid.` : (judged?.refuse ?? null);
+    if (refuse) {
+      await this.logged(step, tool, risk, what, { outcome: "failed", reason: refuse });
+      throw new ToolError("wallet.pay", refuse);
     }
     let g: GuardResult | null = null;
     if (!approval) {
@@ -296,12 +305,22 @@ export class JobTools implements ToolHost {
       const auto = limits ? Number(limits.perPayment) / 1e6 : policy.autoSpendUsdc;
       const amount = payment ? Number(payment.amount) / 1e6 : (spend?.amount ?? 0);
       let strange: string[] = [];
-      if (payment && !payment.payee.firstPaidAt) why.push(`It's the first payment to ${payment.payee.label}: the first one to a payee always asks.`);
+      if (payment && highRisk(payment.facts)) why.unshift(`Careful: ${warningOf(payment.facts)} A payment to this address always asks.`);
+      if (payment && payment.facts.paidBefore === 0) why.push(`It's the first payment to this address (${payment.payee.label}): the first one to an address always asks.`);
       if (risk === "outbound" || risk === "money") {
         strange = unknownContacts(payment ? { memo: (args as { memo?: string }).memo ?? "" } : args, this.known());
         if (strange.length) why.push(`It carries ${strange.length === 1 ? "a link, address or contact detail" : "links, addresses or contact details"} you didn't give it: ${strange.slice(0, 3).join(", ")}.`);
       }
-      g = await this.guard(step, tool, risk, args, ctx);
+      g = await this.guard(
+        step,
+        tool,
+        risk,
+        args,
+        ctx,
+        payment
+          ? { address: payment.payee.address, amountUsdc: formatAmount(payment.amount, 6), memo: payment.memo, paidBefore: payment.facts.paidBefore, lastPaidAt: payment.facts.lastPaidAt, warning: highRisk(payment.facts) ? warningOf(payment.facts) : null }
+          : undefined,
+      );
       if (g.verdict === "block") {
         await this.logged(step, tool, risk, what, { outcome: "blocked", guard: g, reason: g.reason });
         throw new Blocked(g.reason);

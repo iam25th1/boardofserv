@@ -11,7 +11,8 @@ import styles from "./SpendingPanel.module.css";
 // What an agent may spend, for its renter: the allowance it pays from
 // (topped up from their balance, taken back any time), what it may pay
 // without asking now and why (their auto limit or its trust band, the
-// stricter), the payees it may pay, every payment's receipt with its
+// stricter), the payees it may pay (each judged by its address, never its
+// name, with a warning when the address is high risk), every payment's receipt with its
 // transfer on Base, and disputes.
 
 export type PayeeBody = { action: "save"; label: string; address: string } | { action: "remove"; payeeId: string } | { action: "confirm"; payeeId: string; label: string };
@@ -221,6 +222,7 @@ function Payees({ data, api, disabled, onChange }: { data: SpendingDTO; api: Spe
               <Button size="sm" variant="ghost" disabled={disabled || busy !== null} onClick={() => void act(p.id, { action: "remove", payeeId: p.id }, `${p.label} removed: it can't pay them now.`)}>
                 Remove
               </Button>
+              {p.warning && <Warning text={p.warning} />}
             </li>
           ))}
         </ul>
@@ -236,6 +238,7 @@ function Payees({ data, api, disabled, onChange }: { data: SpendingDTO; api: Spe
                 <Button size="sm" variant="ghost" disabled={disabled || busy !== null || !(names[p.id] ?? "").trim()} onClick={() => void act(p.id, { action: "confirm", payeeId: p.id, label: (names[p.id] ?? "").trim() }, "Saved.")}>
                   Save it
                 </Button>
+                {p.warning && <Warning text={p.warning} />}
               </li>
             ))}
           </ul>
@@ -267,6 +270,15 @@ function Payees({ data, api, disabled, onChange }: { data: SpendingDTO; api: Spe
         </p>
       )}
     </div>
+  );
+}
+
+// A payee whose address is high risk: said plainly, whatever its name.
+function Warning({ text }: { text: string }) {
+  return (
+    <p className={styles.warning} role="note">
+      <strong>Careful:</strong> {text} A payment to this address always asks you first, whatever your limits.
+    </p>
   );
 }
 

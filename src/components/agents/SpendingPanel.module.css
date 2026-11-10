@@ -53,6 +53,14 @@
   font-size: var(--t-sm);
   font-weight: var(--w-medium);
 }
+.warning {
+  flex-basis: 100%;
+  padding: var(--s-2) var(--s-3);
+  border: var(--stroke) dashed var(--chalk);
+  border-radius: var(--r-md);
+  font-size: var(--t-sm);
+  max-width: 64ch;
+}
 .mono {
   font-family: var(--font-mono);
   font-size: var(--t-xs);

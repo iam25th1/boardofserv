@@ -73,10 +73,16 @@ describe("saved payees", () => {
     expect((await payeesOf(rt, i.id)).map((p) => p.label)).toEqual(["Weftworks"]);
   });
 
-  it("refuse the same address twice, past the maximum, and anyone else's installation", async () => {
+  it("rename a saved address in place, refuse it under a second name, past the maximum, and anyone else's installation", async () => {
     const i = await inst();
-    await savePayee(rt, renter, i.id, { label: "Mill", address: SUPPLIER });
-    expect((await refusal(savePayee(rt, renter, i.id, { label: "Other mill", address: SUPPLIER })))?.status).toBe(409);
+    const mill = await savePayee(rt, renter, i.id, { label: "Mill", address: SUPPLIER });
+    // A new name for the same address renames it: the same payee, its history kept.
+    const renamed = await savePayee(rt, renter, i.id, { label: "Other mill", address: SUPPLIER });
+    expect(renamed).toMatchObject({ id: mill.id, label: "Other mill", address: SUPPLIER });
+    await savePayee(rt, renter, i.id, { label: "Spare", address: addr(98) });
+    // A name already used for another address, given to this one, is refused.
+    expect((await refusal(savePayee(rt, renter, i.id, { label: "Spare", address: SUPPLIER })))?.status).toBe(409);
+    await removePayee(rt, renter, i.id, (await payeesOf(rt, i.id)).find((p) => p.label === "Spare")!.id);
     for (let n = 1; n < MAX_PAYEES; n++) await savePayee(rt, renter, i.id, { label: `Payee ${n}`, address: addr(100 + n) });
     expect((await refusal(savePayee(rt, renter, i.id, { label: "One more", address: addr(999) })))?.message).toMatch(/at most 20/);
     expect((await refusal(savePayee(rt, other, i.id, { label: "Mine", address: addr(5) })))?.status).toBe(404);
