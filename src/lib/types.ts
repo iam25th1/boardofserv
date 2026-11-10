@@ -711,6 +711,10 @@ export interface ModerationQueueDTO {
   // matching, a transfer nobody here made.
   payments: { id: string; kind: string; message: string; details: Record<string, unknown>; at: string }[];
   blocked: { id: string; agentId: string; agent: string; version: number; maker: string; score: number | null; reason: string; at: string }[];
+  // Renters' open disputes, oldest first, to uphold or reject; upheld rent
+  // disputes waiting for a refund, and whether the ledger can take refunds
+  // yet (scripts/sql/ledger-kinds.sql).
+  disputes: { open: (DisputeDTO & { renter: string; maker: string })[]; waiting: number; ledgerReady: boolean };
 }
 
 // Reppo's quality checks, for the admin: credits used, what is in flight
@@ -792,6 +796,41 @@ export interface SpendingDTO {
   payees: { id: string; label: string; address: string; status: "active" | "suggested"; paidBefore: boolean; createdAt: string }[];
   // Every payment its agent made or tried, newest first.
   receipts: ReceiptDTO[];
+}
+
+// A renter's dispute of an agent payment or a week's rent, and what an
+// admin decided. An upheld rent dispute is refunded through the ledger
+// ("waiting" until the ledger can take refunds); a payment on chain can't
+// be pulled back, so an upheld payment dispute counts against the agent's
+// trust score instead.
+export interface DisputeDTO {
+  id: string;
+  kind: "payment" | "rent";
+  agentName: string;
+  // What is disputed, in words: "5.00 USDC to Weftworks on 9 Nov" or "Rent for week 3".
+  what: string;
+  amount: string;
+  decimals: number;
+  reason: string;
+  reasonWords: string;
+  note: string;
+  status: "open" | "upheld" | "rejected";
+  resolution: string | null;
+  refund: "none" | "waiting" | "done";
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+// Something a renter can still dispute: a confirmed agent payment or a
+// paid rent week, inside the dispute window and not disputed yet.
+export interface DisputableDTO {
+  kind: "payment" | "rent";
+  // The payment's id, or "<rental id>:<week>".
+  id: string;
+  agentName: string;
+  what: string;
+  amount: string;
+  until: string;
 }
 
 // A payment's receipt: what, to whom, by which agent and job, its

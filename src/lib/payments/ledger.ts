@@ -31,15 +31,17 @@ export function isCheckViolation(err: unknown): boolean {
   return code(err) === "23514" || code((err as { cause?: unknown } | null)?.cause) === "23514";
 }
 
-// Kinds that take money away from the user they belong to.
-const DEBITS: readonly LedgerKind[] = ["use_charge", "withdrawal"];
+// Kinds that take money away from the user (or platform) they belong to.
+const DEBITS: readonly LedgerKind[] = ["use_charge", "withdrawal", "earning_reversal", "platform_refund"];
+// The platform's own: its fee, and a fee given back.
+const PLATFORM: readonly LedgerKind[] = ["platform_fee", "platform_refund"];
 
 export interface Entry {
-  // Null only for the platform's fee.
+  // Null only for the platform's fee (and one given back).
   userId: string | null;
   currency: Currency;
   kind: LedgerKind;
-  // Signed: negative for a use's charge and a withdrawal.
+  // Signed: negative for a use's charge, a withdrawal and a reversal.
   amount: bigint;
   referenceId?: string | null;
   key: string;
@@ -52,7 +54,7 @@ export async function post(tx: Exec, e: Entry): Promise<boolean> {
   const amount = minor(e.amount);
   if (amount === 0n) throw new RangeError("A ledger entry can't be zero.");
   if (DEBITS.includes(e.kind) !== amount < 0n) throw new RangeError(`A ${e.kind} entry has the wrong sign.`);
-  if ((e.kind === "platform_fee") !== (e.userId === null)) throw new RangeError("Only the platform's fee has no user.");
+  if (PLATFORM.includes(e.kind) !== (e.userId === null)) throw new RangeError("Only the platform's fee has no user.");
 
   const [row] = await tx
     .insert(ledgerEntries)

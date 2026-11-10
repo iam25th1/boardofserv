@@ -34,7 +34,8 @@ export async function makerDashboard(rt: Runtime, agent: Agent): Promise<MakerDa
     .sort((a, b) => Number(a.status === "ended") - Number(b.status === "ended") || b.since.localeCompare(a.since));
 
   // What it earned the maker: their share of each week's rent and each
-  // fee per job, by the week it was taken.
+  // fee per job, by the week it was taken, less any taken back by an
+  // upheld dispute.
   const rentHolds = rt.db.select({ id: rentalCharges.holdId }).from(rentalCharges).innerJoin(rentals, eq(rentals.id, rentalCharges.rentalId)).where(eq(rentals.agentId, agent.id));
   const feeJobs = rt.db.select({ id: agentJobs.id }).from(agentJobs).innerJoin(agentInstallations, eq(agentInstallations.id, agentJobs.installationId)).where(eq(agentInstallations.agentId, agent.id));
   const earned = await rt.db
@@ -43,7 +44,7 @@ export async function makerDashboard(rt: Runtime, agent: Agent): Promise<MakerDa
     .innerJoin(holds, sql`${holds.id}::text = ${ledgerEntries.referenceId}`)
     .where(
       and(
-        eq(ledgerEntries.kind, "maker_earning"),
+        inArray(ledgerEntries.kind, ["maker_earning", "earning_reversal"]),
         eq(ledgerEntries.userId, agent.ownerUserId),
         eq(holds.status, "captured"),
         sql`(${holds.id} in (${rentHolds}) or ${holds.jobId} in (${feeJobs}))`,

@@ -27,6 +27,7 @@ export const DEMO_SAFETY: AdminSafetyDTO = {
   },
   queue: {
     payments: [],
+    disputes: { open: [], waiting: 0, ledgerReady: true },
     blocked: [
       { id: "b-1", agentId: "a-follow", agent: "Enquiry follow-up", version: 2, maker: "@lena_prints", score: 38, reason: "It recorded a reply as ready to send without the person's yes, which its purpose says it asks for.", at: at(3) },
     ],

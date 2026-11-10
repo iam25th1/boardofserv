@@ -359,12 +359,13 @@ export async function payoutTick(chain: ChainClient = chainClient(), config: Pay
   }
 }
 
-// What a maker has earned in each currency, all time.
+// What a maker has earned in each currency, all time, less what upheld
+// disputes took back.
 export async function earnedOf(userId: string): Promise<Record<Currency, bigint>> {
   const rows = await db
     .select({ currency: ledgerEntries.currency, total: sql<string>`coalesce(sum(${ledgerEntries.amount}::numeric), 0)::text` })
     .from(ledgerEntries)
-    .where(and(eq(ledgerEntries.userId, userId), eq(ledgerEntries.kind, "maker_earning")))
+    .where(and(eq(ledgerEntries.userId, userId), inArray(ledgerEntries.kind, ["maker_earning", "earning_reversal"])))
     .groupBy(ledgerEntries.currency);
   const out = { USDC: 0n, SERV: 0n } as Record<Currency, bigint>;
   for (const r of rows) out[r.currency] = BigInt(r.total);

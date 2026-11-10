@@ -6,6 +6,7 @@ import { beat, claimJob, HEARTBEAT_MS, requeueStale, runJob } from "./jobs";
 import { reppoCycle } from "../../reppo/cycle";
 import { settlePayments } from "../../spending/pay";
 import { reconcile } from "../../spending/reconcile";
+import { refundsWaiting } from "../../spending/disputes";
 import { refreshTrust } from "../../trust/trust";
 import { expireDue } from "./approvals";
 import { fireDue } from "./triggers";
@@ -95,9 +96,11 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
             paying = null;
           });
       }
-      // Trust scores: versions whose jobs finished since, and daily.
+      // Trust scores: versions whose jobs finished since, and daily. And
+      // upheld rent disputes' refunds, once the ledger can take them.
       if (!trusting) {
         trusting = refreshTrust(rt)
+          .then(() => refundsWaiting(rt))
           .then(() => undefined)
           .catch((err: unknown) => rt.log(`trust: refreshing scores broke off: ${err instanceof Error ? err.name : "unknown error"}`))
           .finally(() => {

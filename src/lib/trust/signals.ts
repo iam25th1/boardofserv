@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
-import { agentJobs, agentListings, agentPayments, agents, agentVersions, freezes, rentals, reports, reppoEvals, trustScores, users } from "../db/schema";
+import { agentJobs, agentListings, agentPayments, agents, agentVersions, disputes, freezes, rentals, reports, reppoEvals, trustScores, users } from "../db/schema";
 import type { Runtime } from "../agents/runtime/context";
 import { blockedSince } from "../agents/audit";
 import { TRUST } from "./config";
@@ -9,16 +9,9 @@ import type { Signals } from "./score";
 // What a trust score is computed from, read from what happened: for an
 // agent version (its jobs, payments and Reppo scores, and what is about its
 // agent) or for a maker (all of it, for all of their agents, and their own
-// account). Disputes and refunds are counted by disputes.ts once it adds
-// them (extraSignals).
+// account).
 
 const DAY = 86_400_000;
-
-export type ExtraSignals = (rt: Runtime, scope: { versionIds: string[]; agentIds: string[]; makerId: string | null }, since: { window: Date; recent: Date }) => Promise<Partial<Signals>>;
-const extras: ExtraSignals[] = [];
-export function addSignals(f: ExtraSignals): void {
-  if (!extras.includes(f)) extras.push(f);
-}
 
 async function collect(rt: Runtime, scope: { versionIds: string[]; agentIds: string[]; makerId: string | null; since: Date }): Promise<Signals> {
   const now = rt.now();
@@ -73,6 +66,15 @@ async function collect(rt: Runtime, scope: { versionIds: string[]; agentIds: str
     .from(agentPayments)
     .where(and(scope.makerId ? inArray(agentPayments.agentId, agentIds) : inArray(agentPayments.versionId, versions), gte(agentPayments.createdAt, window)));
 
+  // Upheld disputes: payments (recent window) and rent weeks refunded (window).
+  const [disputed] = await rt.db
+    .select({
+      payments: sql<number>`count(*) filter (where ${disputes.kind} = 'payment' and ${disputes.resolvedAt} >= ${recent.toISOString()}::timestamptz)::int`,
+      rent: sql<number>`count(*) filter (where ${disputes.kind} = 'rent')::int`,
+    })
+    .from(disputes)
+    .where(and(eq(disputes.status, "upheld"), gte(disputes.resolvedAt, window), scope.makerId ? inArray(disputes.agentId, agentIds) : inArray(disputes.versionId, versions)));
+
   const s: Signals = {
     done: jobs?.done ?? 0,
     failed: jobs?.failed ?? 0,
@@ -81,8 +83,8 @@ async function collect(rt: Runtime, scope: { versionIds: string[]; agentIds: str
     reppoReviewed: reppo?.n ?? 0,
     reppoBlocks: reppo?.blocks ?? 0,
     reportsUpheld: reported?.n ?? 0,
-    disputesUpheld: 0,
-    refunds: 0,
+    disputesUpheld: disputed?.payments ?? 0,
+    refunds: disputed?.rent ?? 0,
     freezes: frozen?.n ?? 0,
     frozenNow: (frozen?.now ?? 0) > 0,
     heldNow: (held?.n ?? 0) > 0,
@@ -92,7 +94,6 @@ async function collect(rt: Runtime, scope: { versionIds: string[]; agentIds: str
     paymentsGood: paid?.good ?? 0,
     paymentsFailed: paid?.failed ?? 0,
   };
-  for (const more of extras) Object.assign(s, await more(rt, { versionIds: scope.versionIds, agentIds: scope.agentIds, makerId: scope.makerId }, { window, recent }));
   return s;
 }
 

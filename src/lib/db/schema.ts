@@ -236,7 +236,12 @@ export const helperUses = pgTable(
 // charge and a withdrawal. The platform's own rows (its fee from each paid
 // use) have no user. The idempotency key is unique, so the same credit or
 // payout can never be written twice (see src/lib/payments/ledger.ts).
-export const LEDGER_KINDS = ["deposit", "use_charge", "maker_earning", "platform_fee", "withdrawal", "withdrawal_reversal"] as const;
+// refund, earning_reversal and platform_refund are an upheld rent
+// dispute's refund (spending/disputes.ts): the renter's money back, the
+// maker's share and the platform's reversed. A deploy's schema push doesn't
+// change the checks on an existing table, so they wait for the owner's
+// scripts/sql/ledger-kinds.sql (and refunds wait until it has run).
+export const LEDGER_KINDS = ["deposit", "use_charge", "maker_earning", "platform_fee", "withdrawal", "withdrawal_reversal", "refund", "earning_reversal", "platform_refund"] as const;
 export type LedgerKind = (typeof LEDGER_KINDS)[number];
 
 export const ledgerEntries = pgTable(
@@ -257,11 +262,11 @@ export const ledgerEntries = pgTable(
     knownCurrency: check("ledger_entries_currency", sql`${t.currency} in ('USDC', 'SERV')`),
     knownKind: check(
       "ledger_entries_kind",
-      sql`${t.kind} in ('deposit', 'use_charge', 'maker_earning', 'platform_fee', 'withdrawal', 'withdrawal_reversal')`,
+      sql`${t.kind} in ('deposit', 'use_charge', 'maker_earning', 'platform_fee', 'withdrawal', 'withdrawal_reversal', 'refund', 'earning_reversal', 'platform_refund')`,
     ),
     wholeNumber: check("ledger_entries_amount_whole", sql`${t.amount} ~ '^-?[1-9][0-9]{0,77}$'`),
-    signByKind: check("ledger_entries_sign", sql`(${t.kind} in ('use_charge', 'withdrawal')) = (${t.amount} like '-%')`),
-    platformHasNoUser: check("ledger_entries_platform", sql`(${t.kind} = 'platform_fee') = (${t.userId} is null)`),
+    signByKind: check("ledger_entries_sign", sql`(${t.kind} in ('use_charge', 'withdrawal', 'earning_reversal', 'platform_refund')) = (${t.amount} like '-%')`),
+    platformHasNoUser: check("ledger_entries_platform", sql`(${t.kind} in ('platform_fee', 'platform_refund')) = (${t.userId} is null)`),
   }),
 );
 
@@ -1421,6 +1426,67 @@ export const trustHistory = pgTable(
   },
   (t) => ({ pk: primaryKey({ columns: [t.subject, t.subjectId, t.day] }) }),
 );
+
+// A renter's dispute of an agent payment or a week's rent, with a reason,
+// within the dispute window, for an admin to uphold or reject. An upheld
+// rent dispute is refunded through the ledger (the maker's and platform's
+// shares reversed); an upheld payment dispute counts against the agent's
+// trust score, since a payment on chain can't be pulled back.
+export const DISPUTE_KINDS = ["payment", "rent"] as const;
+export const DISPUTE_REASONS = ["not_done", "not_wanted", "wrong_amount", "wrong_payee", "not_working", "other"] as const;
+export const disputes = pgTable(
+  "disputes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    kind: text("kind", { enum: DISPUTE_KINDS }).notNull(),
+    renterUserId: uuid("renter_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    makerUserId: uuid("maker_user_id")
+      .notNull()
+      .references(() => users.id),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id"),
+    installationId: uuid("installation_id").references(() => agentInstallations.id, { onDelete: "set null" }),
+    // What is disputed: one agent payment, or one week's rent charge.
+    paymentId: uuid("payment_id").references(() => agentPayments.id),
+    rentalId: uuid("rental_id").references(() => rentals.id, { onDelete: "set null" }),
+    week: integer("week"),
+    holdId: uuid("hold_id"),
+    // USDC minor units.
+    amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
+    reason: text("reason", { enum: DISPUTE_REASONS }).notNull(),
+    note: text("note").notNull(),
+    status: text("status", { enum: ["open", "upheld", "rejected"] }).notNull().default("open"),
+    resolution: text("resolution"),
+    resolvedBy: uuid("resolved_by").references(() => users.id),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    // An upheld rent dispute's refund: waiting (for the ledger's new kinds)
+    // or done, with what the maker gave back and what the platform covered.
+    refund: text("refund", { enum: ["none", "waiting", "done"] }).notNull().default("none"),
+    makerReversed: numeric("maker_reversed", { precision: 78, scale: 0 }),
+    platformReversed: numeric("platform_reversed", { precision: 78, scale: 0 }),
+    refundedAt: timestamp("refunded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byStatus: index("disputes_status_idx").on(t.status, t.createdAt),
+    byRenter: index("disputes_renter_idx").on(t.renterUserId, t.createdAt),
+    byAgent: index("disputes_agent_idx").on(t.agentId, t.status),
+    oncePayment: uniqueIndex("disputes_once_payment").on(t.paymentId).where(sql`${t.paymentId} is not null`),
+    onceWeek: uniqueIndex("disputes_once_week").on(t.rentalId, t.week).where(sql`${t.rentalId} is not null`),
+    knownKind: check("disputes_kind", sql`${t.kind} in ('payment', 'rent')`),
+    knownReason: check("disputes_reason", sql`${t.reason} in ('not_done', 'not_wanted', 'wrong_amount', 'wrong_payee', 'not_working', 'other')`),
+    knownStatus: check("disputes_status", sql`${t.status} in ('open', 'upheld', 'rejected')`),
+    knownRefund: check("disputes_refund", sql`${t.refund} in ('none', 'waiting', 'done')`),
+    positive: check("disputes_amount_positive", sql`${t.amount} > 0`),
+    // A payment dispute names its payment; a rent dispute its week.
+    whatItIs: check("disputes_what", sql`(${t.kind} = 'payment' and ${t.paymentId} is not null and ${t.week} is null) or (${t.kind} = 'rent' and ${t.paymentId} is null and ${t.week} is not null)`),
+  }),
+);
+export type Dispute = typeof disputes.$inferSelect;
 
 // Alerts about agent payments for the admin: the treasury running low, a
 // payment and its transfer not matching, a transfer from the treasury

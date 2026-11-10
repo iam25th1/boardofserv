@@ -93,6 +93,8 @@ import * as agentAudit from "@/app/api/agents/[id]/audit/route";
 import * as adminAudit from "@/app/api/admin/audit/route";
 import * as installationAllowance from "@/app/api/installations/[id]/allowance/route";
 import * as installationPayees from "@/app/api/installations/[id]/payees/route";
+import * as disputesRoute from "@/app/api/disputes/route";
+import { refreshTrust } from "@/lib/trust/trust";
 import { fakeNet, fakeSheetUrl } from "./fakeNet";
 import { queueJobEval } from "@/lib/reppo/redact";
 import { submitDue } from "@/lib/reppo/evals";
@@ -199,6 +201,7 @@ const ROUTES: Record<string, object> = {
   "admin/audit": adminAudit,
   "installations/[id]/allowance": installationAllowance,
   "installations/[id]/payees": installationPayees,
+  "disputes": disputesRoute,
 };
 
 // Google, for this test: Maya's and Sam's own spreadsheets, and the token
@@ -801,6 +804,23 @@ describe("a helper's instructions stay on the server", () => {
       await hit("spending: maya's allowance", installationAllowance.GET(req(`/api/installations/${ip.params.id}/allowance`), ip));
       await hit("spending: maya saves a payee", installationPayees.POST(req(`/api/installations/${ip.params.id}/payees`, "POST", { action: "save", label: "Mill", address: "0x0000000000000000000000000000000000000000" }), ip));
       await hit("spending: maya tops up with nothing", installationAllowance.POST(req(`/api/installations/${ip.params.id}/allowance`, "POST", { action: "topup", amount: "1", key: "secrecy-topup-1" }), ip));
+      // A payment its agent made: its receipt (with what the safety check
+      // said) and a dispute of it carry nothing secret.
+      {
+        const inst = (await db.query.agentInstallations.findFirst({ where: eq(schema.agentInstallations.id, ip.params.id) }))!;
+        const payee = (await db.query.payees.findFirst({ where: eq(schema.payees.installationId, inst.id) }))!;
+        const now = new Date();
+        const [pay] = await db
+          .insert(schema.agentPayments)
+          .values({ key: "secrecy:pay", installationId: inst.id, agentId: inst.agentId, versionId: inst.versionId, ownerUserId: maya.id, payeeId: payee.id, payeeLabel: payee.label, toAddress: payee.address, amount: "1500000", chainId: 84532, status: "confirmed", memo: "Linen", guard: "allow", guardReason: "A saved payee, within its limits.", approvedBy: "rules", txHash: `0x${"ab".repeat(32)}`, settledAt: now, createdAt: now, updatedAt: now })
+          .returning();
+        await hit("spending: maya's receipts", installationAllowance.GET(req(`/api/installations/${ip.params.id}/allowance`), ip));
+        await hit("disputes: maya's", disputesRoute.GET(req("/api/disputes")));
+        await hit("disputes: maya disputes a payment", disputesRoute.POST(req("/api/disputes", "POST", { kind: "payment", id: pay!.id, reason: "not_done", note: "The linen never came to the shop." })));
+        await hit("disputes: maya disputes it again", disputesRoute.POST(req("/api/disputes", "POST", { kind: "payment", id: pay!.id, reason: "not_done", note: "The linen never came to the shop." })));
+        await hit("disputes: maya disputes nothing", disputesRoute.POST(req("/api/disputes", "POST", { kind: "rent", id: "nope:1", reason: "not_working", note: "Nothing to see here at all." })));
+        await hit("disputes: maya disputes badly", disputesRoute.POST(req("/api/disputes", "POST", { kind: "planet" })));
+      }
       await hit("agent: message box", installationMessages.GET(req(`/api/installations/${ip.params.id}/messages`), ip));
       await hit("agent: message", installationMessages.POST(req(`/api/installations/${ip.params.id}/messages`, "POST", { text: "Check now please" }), ip));
       await hit("agent: approvals", approvalsRoute.GET(req("/api/approvals")));
@@ -823,6 +843,8 @@ describe("a helper's instructions stay on the server", () => {
       await runJob(rt, (await claimJob(rt, "secrecy"))!, "secrecy");
       await hit("agent: job done", jobRoute.GET(req(`/api/jobs/${jp.params.id}`), jp));
       await hit("agent: installation after a job", installationRoute.GET(req(`/api/installations/${ip.params.id}`), ip));
+      // Trust scores with their factors, explained on every page below.
+      await refreshTrust(rt, 50);
 
       // Sam runs his own copy of Maya's agent, with his own settings.
       const agentRow = (await db.query.agents.findFirst({ where: eq(schema.agents.id, id) }))!;
@@ -933,6 +955,9 @@ describe("a helper's instructions stay on the server", () => {
       await hit("safety: sam reports again", reportsRoute.POST(req("/api/reports", "POST", { kind: "agent", targetId: id, reason: "misleading", note: "Again." })));
       await hit("safety: sam reports nothing", reportsRoute.POST(req("/api/reports", "POST", { kind: "offer", targetId: "nope", reason: "scam", note: "" })));
       await hit("safety: sam reports badly", reportsRoute.POST(req("/api/reports", "POST", { kind: "planet", targetId: id, reason: "scam" })));
+      await hit("disputes: sam's", disputesRoute.GET(req("/api/disputes")));
+      await hit("disputes: sam disputes maya's payment", disputesRoute.POST(req("/api/disputes", "POST", { kind: "payment", id: (await db.query.agentPayments.findFirst())!.id, reason: "not_done", note: "Not mine but trying anyway." })));
+      await hit("disputes: sam disputes his week", disputesRoute.POST(req("/api/disputes", "POST", { kind: "rent", id: `${rented.id}:1`, reason: "not_working", note: "It never ran that week." })));
       await hit("safety: sam moderates", adminModerate.POST(req("/api/admin/moderate", "POST", { type: "listing", id, action: "approve", reason: "Mine now." })));
       // The kill switch is its maker's alone; freezes are admins' alone.
       await hit("safety: sam stops maya's agent", agentKill.POST(req(`/api/agents/${id}/kill`, "POST", { action: "stop" }), p));
@@ -1160,6 +1185,18 @@ describe("a helper's instructions stay on the server", () => {
     expect(said("market: maya's dashboard")).toContain('"route":"block"');
     expect(said("market: maya's dashboard")).toContain("Advised against. It saw: An automated agent ran one job");
     expect(said("market: signed out rentals")).toBe('{"error":"Not signed in"}');
+    // Receipts and disputes are their owner's: Maya's receipt says what the
+    // check said; Sam can't dispute Maya's payment, or see it in his list.
+    expect(said("spending: maya's receipts")).toContain("A saved payee, within its limits.");
+    expect(said("spending: maya's receipts")).toContain("https://sepolia.basescan.org/tx/0x");
+    expect(said("disputes: maya disputes a payment")).toContain('"status":"open"');
+    expect(said("disputes: maya disputes it again")).toContain("You disputed it already");
+    expect(said("disputes: maya disputes nothing")).toContain("nothing of yours like that");
+    expect(said("disputes: sam disputes maya's payment")).toContain("nothing of yours like that");
+    expect(said("disputes: sam's")).not.toContain("Linen");
+    expect(said("disputes: sam's")).not.toContain("The linen never came");
+    // Trust scores explain themselves on the agent's page.
+    expect(said("market: sam's page")).toContain('"factors":[{"key":"payments","words":"1 payment made without a problem"');
     // Sam's list has his own copy only, never Maya's.
     const mayas = JSON.parse(bodies.find((b) => b.label === "agent: installation")!.body).installation.id as string;
     expect((JSON.parse(bodies.find((b) => b.label === "agent: sam installations")!.body).installations as { id: string }[]).map((i) => i.id)).not.toContain(mayas);
