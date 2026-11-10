@@ -245,7 +245,7 @@ function ServKeySection({
             </button>
           )}
         </div>
-        <p className={styles.hint}>Your chats and helper uses run on it, on your own SERV credit, with no daily limit.</p>
+        <p className={styles.hint}>Your chats, helper uses and agents run on it, on your own SERV credit, with no daily limit.</p>
         {error && (
           <p className={styles.keyError} role="alert">
             {error}
