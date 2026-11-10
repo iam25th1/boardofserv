@@ -12,8 +12,11 @@ import { MakerDashboard, type MakerDashboardApi } from "@/components/market/Make
 import type { ApprovalDTO, BudgetDTO, SafetyDTO } from "@/lib/types";
 import { DEMO_DASHBOARD, DEMO_RUNS } from "./demoRentals";
 import { DEMO_AUDIT, DEMO_SAFETY } from "./demoSafety";
+import { demoSpendingApi } from "./demoSpending";
+import { TRUST_FAIR } from "./demoTrust";
+import { SpendingPanel } from "@/components/agents/SpendingPanel";
 
-// /demo?safety=approval, review, budget, kill, held, queue or audit (development
+// /demo?safety=approval, review, budget, spending, kill, held, queue or audit (development
 // only): the safeguards' screens with sample data, to look at and
 // screenshot without a database or a sign-in.
 
@@ -40,8 +43,8 @@ const APPROVALS: ApprovalDTO[] = [
   approval({
     id: "a-0",
     stepTitle: "Pay the supplier",
-    question: "Pay 147.00 USDC to Weftworks?",
-    reason: "It spends more than your auto limit of 50 USDC.",
+    question: "Pay 12.00 USDC to Weftworks (0x0000...0000) from its allowance? Payments on Base can't be pulled back once they're sent.",
+    reason: `It's over the 5.00 USDC a payment that its trust score of ${TRUST_FAIR.score} (${TRUST_FAIR.label}) allows without asking (your own auto limit is 50.00 USDC). With its trust score of ${TRUST_FAIR.score} (${TRUST_FAIR.label}) it may pay up to 5.00 USDC a payment and 20.00 USDC a day without asking.`,
     opinion: { state: "ready", score: 81, route: "review", reason: "The action fits the agent's purpose, but it spends well over the person's own limit and acts on data from outside, so it is worth a closer look." },
   }),
   approval({ id: "a-1", stepTitle: "Record the order", question: 'Add 1 row to "Orders"?', reason: "Safety check: This order is three times larger than any order this shop has recorded." }),
@@ -54,8 +57,8 @@ const APPROVALS: ApprovalDTO[] = [
   approval({
     id: "a-3",
     stepTitle: "Pay the supplier",
-    question: "Pay 147.00 USDC to 0x4b1d...93ac?",
-    reason: "It spends more than your auto limit of 50 USDC. It carries a link, address or contact detail you didn't give it: 0x4b1d...93ac.",
+    question: "Pay 2.00 USDC to Loom & Co (0x8Ba1...BA72) from its allowance? Payments on Base can't be pulled back once they're sent.",
+    reason: `It's the first payment to Loom & Co: the first one to a payee always asks. With its trust score of ${TRUST_FAIR.score} (${TRUST_FAIR.label}) it may pay up to 5.00 USDC a payment and 20.00 USDC a day without asking.`,
     opinion: { state: "checking", score: null, route: null, reason: null },
   }),
 ];
@@ -65,7 +68,7 @@ const SAFETY: SafetyDTO = {
     { tool: "sheets.read", risk: "read", does: "Read every row of a sheet.", floor: null, asks: false, canRaise: false },
     { tool: "sheets.write", risk: "write", does: "Add rows to a sheet, or replace all of its rows.", floor: null, asks: true, canRaise: true },
     { tool: "telegram.send", risk: "outbound", does: "Send the owner a message.", floor: null, asks: false, canRaise: true },
-    { tool: "wallet.pay", risk: "money", does: "Pay someone in USDC from the renter's wallet.", floor: "Asks you before spending more than your auto limit.", asks: false, canRaise: false },
+    { tool: "wallet.pay", risk: "money", does: "Pay someone in USDC from the renter's wallet.", floor: "Asks you before spending more than your auto limit, or than its trust score allows.", asks: false, canRaise: false },
   ],
   autoSpendUsdc: 50,
   maxAutoSpendUsdc: 1000,
@@ -100,6 +103,7 @@ export function DemoSafeguards({ view }: { view: string }) {
     }),
     [],
   );
+  const spendingApi = useMemo(() => demoSpendingApi(), []);
   const review = DEMO_SAFETY.reviews[0]!.review;
   return (
     <AppShell>
@@ -119,6 +123,10 @@ export function DemoSafeguards({ view }: { view: string }) {
         <Page title="Fabric restock" note="what it may do on its own, and its model budget">
           <SafetyPanel safety={SAFETY} save={async () => undefined} />
           <BudgetPanel budget={BUDGET} save={async () => undefined} />
+        </Page>
+      ) : view === "spending" ? (
+        <Page title="Fabric restock" note="its allowance, who it may pay, receipts and disputes">
+          <SpendingPanel api={spendingApi} />
         </Page>
       ) : view === "audit" ? (
         <Page title="Fabric restock" note="every change, message and payment">

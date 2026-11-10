@@ -119,6 +119,9 @@ export class InfraError extends Error {
 export interface CallContext {
   inputs: Record<string, unknown>;
   untrusted: string[];
+  // The call's place in its job (the step's run and the call within it),
+  // the same however often the step is resumed: what makes a payment once.
+  callKey?: string;
 }
 
 export interface ToolHost {
@@ -316,7 +319,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         return prior.error ? { kind: "error", message: prior.error, infra: false } : { kind: "ok", result: prior.result };
       }
       try {
-        const result = await o.tools.call(step, tool, args, prior?.approval, { inputs: input, untrusted: step.inputs.filter((k) => untrusted.has(k)) });
+        const result = await o.tools.call(step, tool, args, prior?.approval, { inputs: input, untrusted: step.inputs.filter((k) => untrusted.has(k)), callKey: `${state.steps}:${step.id}:${i}` });
         state.journal[i] = { tool, args, result: result ?? null, ...(prior?.approval ? { approval: prior.approval } : {}) };
         await o.save?.(state);
         emit(result, null);

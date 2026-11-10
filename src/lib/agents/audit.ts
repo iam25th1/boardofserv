@@ -1,6 +1,6 @@
 import "server-only";
-import { and, asc, desc, eq, lt, type SQL } from "drizzle-orm";
-import { agentAudit, agentInstallations, agents, users, type NewAgentAudit } from "../db/schema";
+import { and, asc, desc, eq, gte, inArray, lt, sql, type SQL } from "drizzle-orm";
+import { agentAudit, agentInstallations, agentJobs, agents, users, type NewAgentAudit } from "../db/schema";
 import type { AuditEntryDTO, AuditPageDTO } from "../types";
 import type { Runtime } from "./runtime/context";
 
@@ -111,4 +111,28 @@ export async function jobActions(rt: Runtime, jobId: string): Promise<Pick<Audit
     .orderBy(asc(agentAudit.seq))
     .limit(60);
   return rows.map((r) => ({ ...r, risk: r.risk as AuditEntryDTO["risk"] }));
+}
+
+// What SERV's check said when a call last waited for its renter's yes in a
+// job's step (for a payment's receipt, once the yes let it run).
+export async function lastAsk(rt: Runtime, jobId: string, step: string): Promise<{ guard: string | null; guardReason: string | null } | null> {
+  const [row] = await rt.db
+    .select({ guard: agentAudit.guard, guardReason: agentAudit.guardReason })
+    .from(agentAudit)
+    .where(and(eq(agentAudit.jobId, jobId), eq(agentAudit.step, step), eq(agentAudit.outcome, "asked")))
+    .orderBy(desc(agentAudit.seq))
+    .limit(1);
+  return row ?? null;
+}
+
+// How many actions the safety check blocked since a time: for one version
+// (by its jobs) or for some agents. For the trust score.
+export async function blockedSince(rt: Runtime, o: { versionId?: string; agentIds?: string[]; since: Date }): Promise<number> {
+  if (!o.versionId && !o.agentIds?.length) return 0;
+  const [row] = await rt.db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(agentAudit)
+    .leftJoin(agentJobs, eq(agentJobs.id, agentAudit.jobId))
+    .where(and(eq(agentAudit.outcome, "blocked"), gte(agentAudit.createdAt, o.since), o.versionId ? eq(agentJobs.versionId, o.versionId) : inArray(agentAudit.agentId, o.agentIds!)));
+  return row?.n ?? 0;
 }

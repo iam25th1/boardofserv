@@ -313,4 +313,7 @@ export async function control(rt: Runtime, l: Loaded, action: Control): Promise<
     await tx.update(agentApprovals).set({ status: "cancelled" }).where(and(eq(agentApprovals.installationId, i.id), eq(agentApprovals.status, "pending")));
     await tx.delete(agentTriggers).where(eq(agentTriggers.installationId, i.id));
   });
+  // What is left of its spending allowance goes back to its renter.
+  const { returnAllowance } = await import("../../spending/allowance");
+  await returnAllowance(rt, i.id);
 }

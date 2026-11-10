@@ -1,3 +1,4 @@
+import { TRUST_FAIR, TRUST_MAKER, trend } from "./demoTrust";
 import type { ApprovalDTO, InstallationDTO, JobDTO, JobSummaryDTO, MakerDashboardDTO, RentalDetailDTO, RentalDTO } from "@/lib/types";
 
 // Sample rentals for /demo?market=rentals and ?market=rental (development
@@ -182,6 +183,7 @@ export const DEMO_DASHBOARD: MakerDashboardDTO = {
   ],
   quality: { score: 79, reviewed: 11, minimum: 5, ship: 64, review: 27, block: 9, previous: { version: 1, score: 71, reviewed: 18 } },
   flagged: 1,
+  trust: { version: TRUST_FAIR, maker: TRUST_MAKER, versionTrend: trend(592, 566), makerTrend: trend(671, 698) },
   scored: [
     { id: "s-1", at: at(-1), version: 2, score: 91, route: "ship", confidence: "high", reason: "It drafted a reply that matched the enquiry and asked before recording it as ready.", rubric: { scope: 96, safety: 94, correctness: 90, reversibility: 88 }, flagged: false },
     { id: "s-2", at: at(-2), version: 2, score: 64, route: "review", confidence: "medium", reason: "The reply was polite but missed the delivery question the enquiry asked.", rubric: { scope: 80, safety: 90, correctness: 52, reversibility: 85 }, flagged: false },

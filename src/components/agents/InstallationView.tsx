@@ -7,12 +7,14 @@ import { ApprovalCard } from "./ApprovalCard";
 import { Controls, Glance, type ControlAction } from "./InstallationControls";
 import { SafetyPanel, type PolicyBody } from "./SafetyPanel";
 import { BudgetPanel } from "./BudgetPanel";
+import { SpendingPanel, type SpendingApi } from "./SpendingPanel";
 import { AuditLog } from "./AuditLog";
 import styles from "./InstallationView.module.css";
 
 // One agent running for its owner: when it runs and when next, the owner's
 // controls, the questions it waits on, its recent jobs and today's spend,
-// its in-app message box, what it remembers, and its settings and rules.
+// its in-app message box, what it remembers, what it may spend (its
+// allowance, payees, receipts and disputes), and its settings and rules.
 // The page polls while it is open.
 
 export interface InstallationApi {
@@ -29,6 +31,8 @@ export interface InstallationApi {
   setBudget?: (modelBudget: string | null) => Promise<InstallationDTO>;
   // Its audit log of guarded actions, a page at a time.
   audit?: (before?: string | null) => Promise<AuditPageDTO>;
+  // Its allowance, payees, receipts and disputes, when it pays.
+  spending?: SpendingApi;
 }
 
 const POLL_MS = 5_000;
@@ -87,6 +91,7 @@ export function InstallationView({ initial, api, children }: { initial: Installa
       ))}
       {children}
       {api.setPolicy && data.safety && <SafetyPanel safety={data.safety} disabled={data.status === "stopped"} save={async (body) => setData(await api.setPolicy!(body))} />}
+      {api.spending && data.safety?.tools.some((t) => t.tool === "wallet.pay") && <SpendingPanel api={api.spending} disabled={data.status === "stopped"} />}
       {api.setBudget && data.budget && <BudgetPanel budget={data.budget} disabled={data.status === "stopped"} save={async (b) => setData(await api.setBudget!(b))} />}
       {api.audit && <AuditLog load={api.audit} view="renter" />}
       {data.takesMessages && <MessageBox messages={messages} send={api.send} onSent={() => void refresh()} disabled={data.status === "stopped"} />}

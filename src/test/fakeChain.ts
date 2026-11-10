@@ -60,8 +60,9 @@ export class FakeChain implements ChainClient {
   }
 
   // A token transfer in a block (the newest by default). Returns its log.
-  transfer(token: Address, from: Address, to: Address, value: bigint, block = this.head): TransferLog {
-    const log = { token, txHash: newHash(), logIndex: this.logIndex++, blockNumber: block, from, to, value };
+  // A mined transaction's transfer carries that transaction's hash.
+  transfer(token: Address, from: Address, to: Address, value: bigint, block = this.head, txHash: Hex = newHash()): TransferLog {
+    const log = { token, txHash, logIndex: this.logIndex++, blockNumber: block, from, to, value };
     this.logs.push(log);
     const fromKey = this.key(token, from);
     this.balances.set(fromKey, (this.balances.get(fromKey) ?? 0n) - value);
@@ -83,7 +84,7 @@ export class FakeChain implements ChainClient {
         this.receipts.set(tx.hash, { status: "reverted", blockNumber: this.head });
         continue;
       }
-      this.transfer(tx.token, tx.from, tx.to, tx.amount, this.head);
+      this.transfer(tx.token, tx.from, tx.to, tx.amount, this.head, tx.hash);
       this.receipts.set(tx.hash, { status: "success", blockNumber: this.head });
     }
     this.head += BigInt(n - 1);
@@ -112,6 +113,15 @@ export class FakeChain implements ChainClient {
     if (q.toBlock - q.fromBlock > MAX_LOG_SPAN) throw new Error("eth_getLogs is limited to a 200 range");
     return this.logs
       .filter((l) => l.token.toLowerCase() === q.token.toLowerCase() && l.to.toLowerCase() === q.to.toLowerCase())
+      .filter((l) => l.blockNumber >= q.fromBlock && l.blockNumber <= q.toBlock && l.blockNumber <= this.head)
+      .map(({ token: _token, ...log }) => log);
+  }
+
+  async transferLogsFrom(q: { token: Address; from: Address; fromBlock: bigint; toBlock: bigint }): Promise<TransferLog[]> {
+    this.calls.push({ method: "transferLogsFrom", args: [q] });
+    if (q.toBlock - q.fromBlock > MAX_LOG_SPAN) throw new Error("eth_getLogs is limited to a 200 range");
+    return this.logs
+      .filter((l) => l.token.toLowerCase() === q.token.toLowerCase() && l.from.toLowerCase() === q.from.toLowerCase())
       .filter((l) => l.blockNumber >= q.fromBlock && l.blockNumber <= q.toBlock && l.blockNumber <= this.head)
       .map(({ token: _token, ...log }) => log);
   }

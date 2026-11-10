@@ -161,3 +161,14 @@
   border-radius: var(--r-lg);
   overflow-wrap: anywhere;
 }
+
+.sub {
+  margin: var(--s-3) 0 0;
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+}
+
+.reason {
+  margin-top: var(--s-1);
+  max-width: 28rem;
+}

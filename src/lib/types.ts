@@ -242,8 +242,8 @@ export interface ScoredJobDTO {
 // An agent on the board, for anyone: what it does, what it connects to,
 // its price (USDC minor units, with the decimals) and who made it. Never
 // its code, its prompts or anyone's data. Its quality is its listed
-// version's, from Reppo (a score once enough jobs were reviewed); trust
-// comes later (null).
+// version's, from Reppo (a score once enough jobs were reviewed); its trust
+// score is its listed version's too (a fixed formula, explained).
 export interface AgentListingDTO {
   id: string;
   name: string;
@@ -256,7 +256,7 @@ export interface AgentListingDTO {
   maker: string;
   version: number;
   quality: QualityDTO;
-  trust: number | null;
+  trust: TrustDTO;
   createdAt: string;
   // A rough weekly model cost (USDC minor units), from how often it runs
   // and the model calls a run makes.
@@ -569,13 +569,29 @@ export interface AdminDTO {
     owed: string;
     // treasury minus owed. Must never be below zero.
     difference: string | null;
-    // The platform's 10% of paid uses, all time.
+    // The platform's 10% of paid uses, all time, less fees given back.
     fees: string;
     problem: string | null;
   }[];
   approvals: AdminWithdrawalDTO[];
   history: AdminWithdrawalDTO[];
+  // Agents' payments from the treasury: the site wide switch, the floor
+  // the treasury keeps, today's payments, and reconciliation with the chain.
+  agentPayments: AgentPaymentsAdminDTO;
   unmatched: { id: string; currency: "USDC" | "SERV"; amount: string; from: string; txHash: string; seenAt: string }[];
+}
+
+export interface AgentPaymentsAdminDTO {
+  // Why they are paused site wide, or null when they run.
+  paused: string | null;
+  // USDC minor units: the least the treasury keeps, and the site's day cap.
+  floor: string;
+  siteCap: string;
+  today: { count: number; total: string; failed: number; inFlight: number };
+  // The block reconciliation reached and when, and its open alerts.
+  reconcile: { block: string | null; at: string | null; open: { id: string; kind: string; message: string; at: string }[] };
+  // Today's payments, newest first.
+  recent: { id: string; agent: string; renter: string; payee: string; amount: string; status: "held" | "broadcast" | "confirmed" | "failed"; txHash: string | null; at: string }[];
 }
 
 // The signed-in user's own money: never anyone else's.
@@ -639,6 +655,9 @@ export interface MakerDashboardDTO {
   scored: ScoredJobDTO[];
   // Jobs Reppo routed to block that an admin hasn't looked at yet.
   flagged: number;
+  // Trust: its listed (or newest) version's and the maker's own, each with
+  // every factor, and their trends (a score a day, oldest first).
+  trust: { version: TrustDTO | null; maker: TrustDTO; versionTrend: { day: string; score: number }[]; makerTrend: { day: string; score: number }[] };
 }
 
 // A request on the request board, for anyone: what someone wants an agent
@@ -704,7 +723,14 @@ export interface ModerationQueueDTO {
   reports: { id: string; kind: "agent" | "maker" | "request" | "offer"; target: string; targetId: string; reason: string; reasonWords: string; note: string; by: string; createdAt: string }[];
   held: { type: "listing" | "request" | "offer"; id: string; title: string; by: string; reason: string }[];
   // Jobs Reppo's quality checks routed to block, with Reppo's reason.
+  // Agent payment alerts: the treasury low, a payment and its transfer not
+  // matching, a transfer nobody here made.
+  payments: { id: string; kind: string; message: string; details: Record<string, unknown>; at: string }[];
   blocked: { id: string; agentId: string; agent: string; version: number; maker: string; score: number | null; reason: string; at: string }[];
+  // Renters' open disputes, oldest first, to uphold or reject; upheld rent
+  // disputes waiting for a refund, and whether the ledger can take refunds
+  // yet (scripts/sql/ledger-kinds.sql).
+  disputes: { open: (DisputeDTO & { renter: string; maker: string })[]; waiting: number; ledgerReady: boolean };
 }
 
 // Reppo's quality checks, for the admin: credits used, what is in flight
@@ -723,6 +749,11 @@ export interface ReppoAdminDTO {
 }
 
 export interface AdminSafetyDTO {
+  // The lowest trust scores, versions and makers, with their biggest factor.
+  trust: {
+    versions: { versionId: string; agent: string; version: number; score: number; label: string; top: string }[];
+    makers: { makerId: string; maker: string; score: number; label: string; top: string }[];
+  };
   reppo: ReppoAdminDTO;
   queue: ModerationQueueDTO;
   // Every freeze, newest first: the admin log.
@@ -762,4 +793,103 @@ export interface AuditPageDTO {
   entries: AuditEntryDTO[];
   // The cursor for older entries, or null at the start of the log.
   next: string | null;
+}
+
+// An installation's spending, for its renter: its allowance (USDC minor
+// units, the decimals given), what they can top it up with, and its recent
+// entries. Later parts add payees, receipts, limits and disputes.
+export interface SpendingDTO {
+  installationId: string;
+  agentName: string;
+  decimals: number;
+  allowance: { available: string; held: string; max: string };
+  // The renter's own balance they can top up from.
+  balanceAvailable: string;
+  entries: { kind: "topup" | "withdraw" | "hold" | "release" | "spend"; amount: string; at: string }[];
+  // Who its agent may pay: saved ones, and suggestions waiting for the
+  // renter to confirm on screen. paidBefore is false until a first
+  // payment went out (the first always asks).
+  payees: { id: string; label: string; address: string; status: "active" | "suggested"; paidBefore: boolean; createdAt: string }[];
+  // Every payment its agent made or tried, newest first.
+  receipts: ReceiptDTO[];
+  // What it may pay without asking now (USDC minor units): the stricter of
+  // the renter's auto limit and its trust band, per payment, and the band's
+  // day; what it paid today; why, in words; and why it can't pay at all.
+  limit: { perPayment: string; perDay: string; paidToday: string; why: string; band: string; trust: TrustDTO; stopped: string | null };
+  // Agent payments paused site wide, and why.
+  paused: string | null;
+  // How many days after a payment or week it can be disputed.
+  disputeDays: number;
+}
+
+// A renter's dispute of an agent payment or a week's rent, and what an
+// admin decided. An upheld rent dispute is refunded through the ledger
+// ("waiting" until the ledger can take refunds); a payment on chain can't
+// be pulled back, so an upheld payment dispute counts against the agent's
+// trust score instead.
+export interface DisputeDTO {
+  id: string;
+  kind: "payment" | "rent";
+  installationId: string | null;
+  agentName: string;
+  // What is disputed, in words: "5.00 USDC to Weftworks on 9 Nov" or "Rent for week 3".
+  what: string;
+  amount: string;
+  decimals: number;
+  reason: string;
+  reasonWords: string;
+  note: string;
+  status: "open" | "upheld" | "rejected";
+  resolution: string | null;
+  refund: "none" | "waiting" | "done";
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+// Something a renter can still dispute: a confirmed agent payment or a
+// paid rent week, inside the dispute window and not disputed yet.
+export interface DisputableDTO {
+  kind: "payment" | "rent";
+  installationId: string | null;
+  // The payment's id, or "<rental id>:<week>".
+  id: string;
+  agentName: string;
+  what: string;
+  amount: string;
+  until: string;
+}
+
+// A payment's receipt: what, to whom, by which agent and job, its
+// transfer on Base (with an explorer link), what the safety check said
+// and who approved it. Nothing here is secret: it is the renter's own.
+export interface ReceiptDTO {
+  id: string;
+  amount: string;
+  decimals: number;
+  payee: { label: string; address: string };
+  agent: string;
+  jobId: string | null;
+  memo: string | null;
+  status: "held" | "broadcast" | "confirmed" | "failed";
+  txHash: string | null;
+  explorer: string | null;
+  network: string;
+  guard: { verdict: string | null; reason: string | null };
+  approval: { by: "renter" | "rules" | null; question: string | null; answer: string | null; at: string | null };
+  error: string | null;
+  createdAt: string;
+  settledAt: string | null;
+}
+
+// A trust score (300 to 850) for an agent version or a maker: a fixed
+// formula, with the factors that explain it (points each, in words; points
+// earned while new are shown but not counted yet) and the spending band it
+// sets (whole USDC an agent may pay without asking, per payment and day).
+export interface TrustDTO {
+  score: number;
+  label: "new" | "low" | "fair" | "good" | "strong" | "excellent";
+  isNew: boolean;
+  factors: { key: string; words: string; points: number; counted: boolean }[];
+  band: { label: string; perPayment: number; perDay: number };
+  computedAt: string | null;
 }

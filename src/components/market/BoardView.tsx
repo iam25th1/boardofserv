@@ -10,6 +10,7 @@ import { REDUCED_MOTION, ease } from "@/lib/motion";
 import type { BoardQuery } from "@/lib/publicApi";
 import type { AgentListingDTO, PublicHelperDTO } from "@/lib/types";
 import { qualityLine } from "./Quality";
+import { trustLine } from "./Trust";
 import styles from "./Board.module.css";
 
 // The board: agents to rent and helpers to try, newest and most rented
@@ -181,6 +182,9 @@ export function AgentCard({ agent: a }: { agent: AgentListingDTO }) {
       </div>
       <small className={styles.trust} data-scored={a.quality.score !== null ? "true" : undefined}>
         {a.quality.score === null ? qualityLine(a.quality) : `Quality ${qualityLine(a.quality)}`}
+      </small>
+      <small className={styles.trust} data-scored="true">
+        {trustLine(a.trust)}
       </small>
     </Link>
   );

@@ -1,0 +1,90 @@
+/* Trust: a score in chalk, its factors as plus and minus lines, a trend. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--slate-2);
+}
+.panel h2 {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+}
+.score {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.score strong {
+  font-family: var(--font-hand);
+  font-size: calc(var(--t-hand) * 2.2);
+  font-weight: var(--w-regular);
+  line-height: 1;
+}
+.score span {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.band {
+  font-size: var(--t-sm);
+  max-width: 64ch;
+}
+.factors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  font-size: var(--t-sm);
+}
+.factors li {
+  display: grid;
+  grid-template-columns: 4.5ch 1fr;
+  gap: var(--s-2);
+  color: var(--chalk-2);
+}
+.factors li[data-counted="false"] {
+  opacity: 0.7;
+}
+.points {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--chalk);
+}
+.factors li[data-sign="down"] .points {
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+}
+.quiet {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+  max-width: 64ch;
+}
+.trend {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.trend svg {
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+}
+.line {
+  fill: none;
+  stroke: var(--chalk);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.hit {
+  fill: transparent;
+}
+.dot {
+  fill: var(--chalk);
+}

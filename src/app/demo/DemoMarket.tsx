@@ -12,6 +12,7 @@ import { MakerDashboard, type MakerDashboardApi } from "@/components/market/Make
 import { RequestsView, type RequestsApi } from "@/components/market/RequestsView";
 import { RequestPageView, type RequestPageApi } from "@/components/market/RequestPageView";
 import { DEMO_REQUEST, DEMO_REQUESTS } from "./demoRequests";
+import { TRUST_FAIR, TRUST_NEW, TRUST_STRONG } from "./demoTrust";
 import type { AgentListingDTO, AgentPageDTO, PublicHelperDTO } from "@/lib/types";
 
 // /demo?market=board, agent, rentals, rental, maker, requests or request
@@ -34,7 +35,7 @@ export const DEMO_AGENTS: AgentListingDTO[] = [
     maker: "maya_r",
     version: 3,
     quality: { score: 88, reviewed: 24, minimum: 5, ship: 83, review: 13, block: 4, previous: { version: 2, score: 81, reviewed: 30 } },
-    trust: null,
+    trust: TRUST_STRONG,
     createdAt: "2026-11-02T09:00:00.000Z",
     modelEstimate: usdc(0.12),
   },
@@ -50,7 +51,7 @@ export const DEMO_AGENTS: AgentListingDTO[] = [
     maker: "sam_rivera",
     version: 1,
     quality: { score: 74, reviewed: 9, minimum: 5, ship: 56, review: 44, block: 0, previous: null },
-    trust: null,
+    trust: TRUST_FAIR,
     createdAt: "2026-11-05T09:00:00.000Z",
     modelEstimate: usdc(0.08),
   },
@@ -66,7 +67,7 @@ export const DEMO_AGENTS: AgentListingDTO[] = [
     maker: "lena_k",
     version: 2,
     quality: { score: null, reviewed: 2, minimum: 5, ship: 50, review: 50, block: 0, previous: null },
-    trust: null,
+    trust: TRUST_NEW,
     createdAt: "2026-11-06T09:00:00.000Z",
     modelEstimate: usdc(0.85),
   },
@@ -82,7 +83,7 @@ export const DEMO_AGENTS: AgentListingDTO[] = [
     maker: "theo_m",
     version: 1,
     quality: { score: null, reviewed: 0, minimum: 5, ship: 0, review: 0, block: 0, previous: null },
-    trust: null,
+    trust: TRUST_NEW,
     createdAt: "2026-11-08T09:00:00.000Z",
     modelEstimate: usdc(0.34),
   },

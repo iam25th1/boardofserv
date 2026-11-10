@@ -9,6 +9,7 @@ import { price } from "./BoardView";
 import { EarningsChart } from "./EarningsChart";
 import { KillSwitch } from "./KillSwitch";
 import { QualityPanel, ScoredJobs } from "./Quality";
+import { TrustPanel } from "./Trust";
 import { AuditLog } from "@/components/agents/AuditLog";
 import { day, RENTAL_WORD } from "./RentalView";
 import styles from "./MakerDashboard.module.css";
@@ -124,6 +125,8 @@ export function MakerDashboard({ id, api }: { id: string; api: MakerDashboardApi
         </p>
       )}
       {d.quality && <QualityPanel q={d.quality} title="Quality of its listed version" />}
+      {d.trust.version && <TrustPanel t={d.trust.version} title="Trust of its listed version" trend={d.trust.versionTrend} />}
+      <TrustPanel t={d.trust.maker} title="Your trust as a maker" trend={d.trust.makerTrend} />
       <ScoredJobs jobs={d.scored} />
       <AgentRuns load={api.runs} />
       {api.audit && <AuditLog load={api.audit} view="maker" />}

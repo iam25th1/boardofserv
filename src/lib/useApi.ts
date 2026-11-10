@@ -3,8 +3,9 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent } from "./agents/types";
 import type { InstallAnswers } from "./agents/settingsForm";
-import type { AccountDTO, AdminDTO, AdminSafetyDTO, AuditPageDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, QuotaDTO, RentalDetailDTO, RentalDTO, RequestDTO, RequestPageDTO, SketchDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, AdminSafetyDTO, AuditPageDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, QuotaDTO, RentalDetailDTO, RentalDTO, RequestDTO, RequestPageDTO, SketchDTO, SpendingDTO, WalletDTO } from "./types";
 import type { SetupShape } from "./agents/definition";
+import type { DisputeList, PayeeBody } from "@/components/agents/SpendingPanel";
 
 // When the server sends no sentence of its own: never a status code.
 const SOMETHING_WRONG = "Something went wrong. Try again in a few minutes.";
@@ -128,6 +129,14 @@ export function useApi() {
         throw Object.assign(new Error(data.error ?? SOMETHING_WRONG), { errors: data.errors });
       },
       listInstallations: () => json<{ installations: InstallationDTO[] }>("/api/installations").then((d) => d.installations),
+      // An installation's spending: allowance, payees, receipts, its limit.
+      getSpending: (id: string) => json<{ spending: SpendingDTO }>(`/api/installations/${encodeURIComponent(id)}/allowance`).then((d) => d.spending),
+      allowance: (id: string, body: { action: "topup" | "withdraw"; amount: string; key: string }) =>
+        json<{ spending: SpendingDTO }>(`/api/installations/${encodeURIComponent(id)}/allowance`, { method: "POST", body: JSON.stringify(body) }).then((d) => d.spending),
+      payees: (id: string, body: PayeeBody) => json<{ spending: SpendingDTO }>(`/api/installations/${encodeURIComponent(id)}/payees`, { method: "POST", body: JSON.stringify(body) }).then((d) => d.spending),
+      // The renter's disputes, and what they can still dispute.
+      listDisputes: () => json<DisputeList>("/api/disputes"),
+      openDispute: (body: { kind: "payment" | "rent"; id: string; reason: string; note: string }) => json<DisputeList>("/api/disputes", { method: "POST", body: JSON.stringify(body) }),
       getInstallation: (id: string) => json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}`).then((d) => d.installation),
       getJob: (id: string) => json<{ job: JobDTO }>(`/api/jobs/${encodeURIComponent(id)}`).then((d) => d.job),
       listInstallationJobs: (id: string) => json<{ jobs: JobSummaryDTO[] }>(`/api/installations/${encodeURIComponent(id)}/jobs`).then((d) => d.jobs),
@@ -206,7 +215,7 @@ export function useApi() {
       makerAudit: (id: string, before?: string | null) =>
         json<{ audit: AuditPageDTO }>(`/api/agents/${encodeURIComponent(id)}/audit${before ? `?before=${encodeURIComponent(before)}` : ""}`).then((d) => d.audit),
       adminAudit: (before?: string | null) => json<{ audit: AuditPageDTO }>(`/api/admin/audit${before ? `?before=${encodeURIComponent(before)}` : ""}`).then((d) => d.audit),
-      adminModerate: (body: { type: "report" | "listing" | "request" | "offer" | "reppo"; id: string; action: "approve" | "hide" | "freeze"; reason: string }) =>
+      adminModerate: (body: { type: "report" | "listing" | "request" | "offer" | "reppo" | "payment" | "dispute"; id: string; action: "approve" | "hide" | "freeze" | "uphold" | "reject"; reason: string }) =>
         json<{ safety: AdminSafetyDTO }>("/api/admin/moderate", { method: "POST", body: JSON.stringify(body) }).then((d) => d.safety),
       report: (body: { kind: "agent" | "maker" | "request" | "offer"; targetId: string; reason: string; note: string }) =>
         json<{ ok: boolean }>("/api/reports", { method: "POST", body: JSON.stringify(body) }).then(() => undefined),
@@ -215,6 +224,8 @@ export function useApi() {
       adminLift: (id: string, reason: string) =>
         json<{ safety: AdminSafetyDTO }>(`/api/admin/freezes/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ reason }) }).then((d) => d.safety),
       adminPause: (paused: boolean) => json<{ admin: AdminDTO }>("/api/admin/pause", { method: "POST", body: JSON.stringify({ paused }) }).then((d) => d.admin),
+      // The site wide switch for agents' payments, with why when pausing.
+      adminAgentPayments: (paused: boolean, reason?: string) => json<{ admin: AdminDTO }>("/api/admin/agent-payments", { method: "POST", body: JSON.stringify({ paused, reason }) }).then((d) => d.admin),
       adminDecide: (id: string, action: "approve" | "reject" | "fail") =>
         json<{ admin: AdminDTO }>(`/api/admin/withdrawals/${encodeURIComponent(id)}`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.admin),
       adminAccess: (id: string, action: "approve" | "reject") =>

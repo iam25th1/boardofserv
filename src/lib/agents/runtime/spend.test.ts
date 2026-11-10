@@ -7,7 +7,7 @@ import * as schema from "@/lib/db/schema";
 import { checkDefinition, type AgentDefinition } from "@/lib/agents/definition";
 import type { StepCode } from "@/lib/agents/types";
 import { addUser, testDb } from "@/test/helperDb";
-import { installed, ownSheet, publishedAgent, sheetRows, testRuntime, type TestRuntime } from "@/test/runtimeFixtures";
+import { allowanceUsdc, installed, ownSheet, publishedAgent, readyToPay, sheetRows, trusted, testRuntime, withPayments, type TestRuntime } from "@/test/runtimeFixtures";
 import { answer, approvalsOf } from "./approvals";
 import { claimJob, enqueue, runJob } from "./jobs";
 
@@ -29,6 +29,9 @@ beforeEach(async () => {
   await db.update(schema.agentJobs).set({ status: "cancelled" }).where(inArray(schema.agentJobs.status, ["queued", "running", "waiting_for_owner"]));
   await db.update(schema.agentInstallations).set({ status: "stopped" });
   rt = testRuntime(db);
+  // Payments go out on a chain in memory, from each installation's allowance.
+  withPayments(rt, { treasuryUsdc: 100_000_000_000n });
+  await client.exec("delete from agent_payments;");
   // SERV judges each line on its own, as it did: every line is within.
   rt.serve = (ids) => (ids.includes("within") ? "within" : ids[0]!);
 });
@@ -58,7 +61,15 @@ async function runOnce() {
   return job;
 }
 const jobOf = async (id: string) => (await db.select().from(schema.agentJobs).where(eq(schema.agentJobs.id, id)))[0]!;
-const walletOf = async (id: string) => (await db.select().from(schema.agentInstallations).where(eq(schema.agentInstallations.id, id)))[0]!.mocks.wallet.balanceUsdc;
+// What its allowance has left, in whole USDC (it starts with 500).
+const walletOf = (id: string) => allowanceUsdc(rt, id);
+const SUPPLIERS = ["Supplier 1", "Supplier 2", "Supplier 3", "Supplier 4", "Supplier 5"];
+async function paying(inst: schema.AgentInstallation) {
+  await readyToPay(rt, inst, { payees: SUPPLIERS, allowanceUsdc: 500 });
+  // Trusted enough that its band (250 USDC a payment) isn't what asks here.
+  await trusted(rt, inst.versionId);
+  return inst;
+}
 const spentBy = (jobId: string) => db.select().from(schema.agentSpend).where(eq(schema.agentSpend.jobId, jobId)).orderBy(asc(schema.agentSpend.createdAt));
 async function yes() {
   const [a] = await approvalsOf(rt, owner.id, { pendingOnly: true });
@@ -89,7 +100,7 @@ const MAKE = `async function run() {
 
 describe("a job's running total", () => {
   it("five actions of 40 against a limit of 50 ask before the second goes through, and each after it", async () => {
-    const inst = await installed(rt, owner, await publishedAgent(db, owner, { definition: fivePayments(), code: { make: ok(MAKE) } }));
+    const inst = await paying(await installed(rt, owner, await publishedAgent(db, owner, { definition: fivePayments(), code: { make: ok(MAKE) } })));
     const job = await enqueue(rt, inst, { kind: "manual" });
     await runOnce();
     expect((await jobOf(job.id)).status).toBe("waiting_for_owner");
@@ -129,7 +140,7 @@ describe("a job's running total", () => {
   for (let n = 1; n <= 5; n++) paid.push((await tools.wallet.pay({ to: "Supplier " + n, amountUsdc: 40 })).txId);
   return { paid };
 }`;
-    const inst = await installed(rt, owner, await publishedAgent(db, owner, { definition: d, code: { pay_all: ok(PAY_ALL) } }));
+    const inst = await paying(await installed(rt, owner, await publishedAgent(db, owner, { definition: d, code: { pay_all: ok(PAY_ALL) } })));
     const job = await enqueue(rt, inst, { kind: "manual" });
     await runOnce();
     expect(await walletOf(inst.id)).toBe(460);
@@ -140,7 +151,7 @@ describe("a job's running total", () => {
   });
 
   it("a no stops the spending there", async () => {
-    const inst = await installed(rt, owner, await publishedAgent(db, owner, { definition: fivePayments(), code: { make: ok(MAKE) } }));
+    const inst = await paying(await installed(rt, owner, await publishedAgent(db, owner, { definition: fivePayments(), code: { make: ok(MAKE) } })));
     const job = await enqueue(rt, inst, { kind: "manual" });
     await runOnce();
     const [a] = await approvalsOf(rt, owner.id, { pendingOnly: true });
@@ -181,10 +192,12 @@ describe("a job's running total", () => {
 
 describe("a day's total", () => {
   it("asks once the installation's spending for the day would go over the daily rule", async () => {
-    const inst = await installed(rt, owner, await publishedAgent(db, owner, { definition: fivePayments(), code: { make: ok(MAKE) } }), {
-      rules: { job_limit: "1000", day_limit: "100" },
-      timezone: "America/New_York",
-    });
+    const inst = await paying(
+      await installed(rt, owner, await publishedAgent(db, owner, { definition: fivePayments(), code: { make: ok(MAKE) } }), {
+        rules: { job_limit: "1000", day_limit: "100" },
+        timezone: "America/New_York",
+      }),
+    );
     // 40 x 5 = 200 a job: within the job's 1000, but over the day's 100 at
     // the third payment.
     const first = await enqueue(rt, inst, { kind: "manual" });
@@ -219,7 +232,7 @@ describe("without limits", () => {
   it("spending goes through without asking", async () => {
     const d = fivePayments();
     const free: AgentDefinition = { ...d, actions: [{ id: "pay", tool: "wallet.pay", description: "Pay a supplier" }] };
-    const inst = await installed(rt, owner, await publishedAgent(db, owner, { definition: free, code: { make: ok(MAKE) } }));
+    const inst = await paying(await installed(rt, owner, await publishedAgent(db, owner, { definition: free, code: { make: ok(MAKE) } })));
     const job = await enqueue(rt, inst, { kind: "manual" });
     await runOnce();
     expect(await jobOf(job.id)).toMatchObject({ status: "done" });

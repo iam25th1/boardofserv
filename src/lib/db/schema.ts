@@ -3,6 +3,7 @@ import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, n
 import type { AgentDefinition } from "../agents/definition";
 import type { BenchData, RunState, StepCode } from "../agents/types";
 import { CURRENCIES } from "../money";
+import { DISPUTE_REASONS } from "../spending/disputeWords";
 
 // One tab of a Google Sheet an owner gave an installation.
 export interface SheetGrant {
@@ -236,7 +237,12 @@ export const helperUses = pgTable(
 // charge and a withdrawal. The platform's own rows (its fee from each paid
 // use) have no user. The idempotency key is unique, so the same credit or
 // payout can never be written twice (see src/lib/payments/ledger.ts).
-export const LEDGER_KINDS = ["deposit", "use_charge", "maker_earning", "platform_fee", "withdrawal", "withdrawal_reversal"] as const;
+// refund, earning_reversal and platform_refund are an upheld rent
+// dispute's refund (spending/disputes.ts): the renter's money back, the
+// maker's share and the platform's reversed. A deploy's schema push doesn't
+// change the checks on an existing table, so they wait for the owner's
+// scripts/sql/ledger-kinds.sql (and refunds wait until it has run).
+export const LEDGER_KINDS = ["deposit", "use_charge", "maker_earning", "platform_fee", "withdrawal", "withdrawal_reversal", "refund", "earning_reversal", "platform_refund"] as const;
 export type LedgerKind = (typeof LEDGER_KINDS)[number];
 
 export const ledgerEntries = pgTable(
@@ -257,11 +263,11 @@ export const ledgerEntries = pgTable(
     knownCurrency: check("ledger_entries_currency", sql`${t.currency} in ('USDC', 'SERV')`),
     knownKind: check(
       "ledger_entries_kind",
-      sql`${t.kind} in ('deposit', 'use_charge', 'maker_earning', 'platform_fee', 'withdrawal', 'withdrawal_reversal')`,
+      sql`${t.kind} in ('deposit', 'use_charge', 'maker_earning', 'platform_fee', 'withdrawal', 'withdrawal_reversal', 'refund', 'earning_reversal', 'platform_refund')`,
     ),
     wholeNumber: check("ledger_entries_amount_whole", sql`${t.amount} ~ '^-?[1-9][0-9]{0,77}$'`),
-    signByKind: check("ledger_entries_sign", sql`(${t.kind} in ('use_charge', 'withdrawal')) = (${t.amount} like '-%')`),
-    platformHasNoUser: check("ledger_entries_platform", sql`(${t.kind} = 'platform_fee') = (${t.userId} is null)`),
+    signByKind: check("ledger_entries_sign", sql`(${t.kind} in ('use_charge', 'withdrawal', 'earning_reversal', 'platform_refund')) = (${t.amount} like '-%')`),
+    platformHasNoUser: check("ledger_entries_platform", sql`(${t.kind} in ('platform_fee', 'platform_refund')) = (${t.userId} is null)`),
   }),
 );
 
@@ -1240,6 +1246,275 @@ export const agentAudit = pgTable(
 );
 export type AgentAudit = typeof agentAudit.$inferSelect;
 export type NewAgentAudit = typeof agentAudit.$inferInsert;
+
+// A spending allowance for each installation (src/lib/spending): what its
+// renter set aside for its agent to pay with, in USDC minor units. The money
+// stays in the renter's own balance, held (so nothing else spends it and
+// it never shows as available), and this row says how much of that hold is
+// this installation's: available to spend, and held for a payment in
+// flight. An agent only ever spends from its own installation's allowance.
+export const allowances = pgTable(
+  "allowances",
+  {
+    installationId: uuid("installation_id").primaryKey(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id),
+    currency: text("currency", { enum: CURRENCIES }).notNull().default("USDC"),
+    available: numeric("available", { precision: 78, scale: 0 }).notNull().default("0"),
+    held: numeric("held", { precision: 78, scale: 0 }).notNull().default("0"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byOwner: index("allowances_owner_idx").on(t.ownerUserId),
+    usdcOnly: check("allowances_usdc", sql`${t.currency} = 'USDC'`),
+    availableNotNegative: check("allowances_available_not_negative", sql`${t.available} >= 0`),
+    heldNotNegative: check("allowances_held_not_negative", sql`${t.held} >= 0`),
+  }),
+);
+
+// Every change to an allowance, once by its key: a top up and a
+// withdrawal (to and from the renter's balance), a hold and its release
+// (a payment in flight), and a spend (a payment that went out). Amounts are
+// positive; the kind says which way. Append-only.
+export const ALLOWANCE_KINDS = ["topup", "withdraw", "hold", "release", "spend"] as const;
+export const allowanceEntries = pgTable(
+  "allowance_entries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    installationId: uuid("installation_id").notNull(),
+    ownerUserId: uuid("owner_user_id").notNull(),
+    kind: text("kind", { enum: ALLOWANCE_KINDS }).notNull(),
+    amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
+    // What it is about: an agent payment's id, or null for a top up.
+    referenceId: text("reference_id"),
+    key: text("key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    once: uniqueIndex("allowance_entries_key_idx").on(t.key),
+    byInstallation: index("allowance_entries_installation_idx").on(t.installationId, t.createdAt),
+    knownKind: check("allowance_entries_kind", sql`${t.kind} in ('topup', 'withdraw', 'hold', 'release', 'spend')`),
+    positive: check("allowance_entries_amount_positive", sql`${t.amount} > 0`),
+  }),
+);
+export type Allowance = typeof allowances.$inferSelect;
+
+// Who an installation's agent may pay: its renter's saved payees, each a
+// label and a Base address (checksummed). An agent pays nobody else. A
+// payee is "active" once its renter saved or confirmed it; one an agent
+// suggested waits as "suggested" until its renter confirms it on screen.
+// Changing a payee's address makes a new payee (the old one "removed"), so
+// its first payment asks again. first_paid_at is null until a payment to it
+// went out: the first one always asks.
+export const payees = pgTable(
+  "payees",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    installationId: uuid("installation_id").notNull(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id),
+    label: text("label").notNull(),
+    address: text("address").notNull(),
+    status: text("status", { enum: ["active", "suggested", "removed"] }).notNull().default("active"),
+    suggestedBy: text("suggested_by"),
+    firstPaidAt: timestamp("first_paid_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+  },
+  (t) => ({
+    byInstallation: index("payees_installation_idx").on(t.installationId, t.status),
+    oneLabel: uniqueIndex("payees_label_idx").on(t.installationId, sql`lower(${t.label})`).where(sql`${t.status} <> 'removed'`),
+    oneAddress: uniqueIndex("payees_address_idx").on(t.installationId, sql`lower(${t.address})`).where(sql`${t.status} <> 'removed'`),
+    knownStatus: check("payees_status", sql`${t.status} in ('active', 'suggested', 'removed')`),
+  }),
+);
+export type Payee = typeof payees.$inferSelect;
+
+// An agent's payment from its installation's allowance to a saved payee:
+// USDC sent from the treasury on Base Sepolia. One row per action, by its
+// key (the job and the call), so an action can never send twice, after a
+// crash or a restart included. held (the allowance holds it), broadcast
+// (signed, its nonce, hash and bytes recorded before it was sent; a resend
+// is the same bytes), confirmed (mined and confirmed: the allowance spent,
+// the renter's ledger charged), failed (reverted, stuck or refused: the
+// hold released, nothing spent). The guard's verdict and the approval are
+// kept for its receipt.
+export const AGENT_PAYMENT_STATUSES = ["held", "broadcast", "confirmed", "failed"] as const;
+export const agentPayments = pgTable(
+  "agent_payments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    key: text("key").notNull(),
+    installationId: uuid("installation_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    versionId: uuid("version_id").notNull(),
+    jobId: uuid("job_id"),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id),
+    payeeId: uuid("payee_id").notNull(),
+    payeeLabel: text("payee_label").notNull(),
+    toAddress: text("to_address").notNull(),
+    amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
+    currency: text("currency", { enum: CURRENCIES }).notNull().default("USDC"),
+    chainId: integer("chain_id").notNull(),
+    memo: text("memo"),
+    status: text("status", { enum: AGENT_PAYMENT_STATUSES }).notNull().default("held"),
+    fromAddress: text("from_address"),
+    nonce: integer("nonce"),
+    txHash: text("tx_hash"),
+    rawTx: text("raw_tx"),
+    sends: integer("sends").notNull().default(0),
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+    blockNumber: numeric("block_number", { precision: 78, scale: 0 }),
+    guard: text("guard"),
+    guardReason: text("guard_reason"),
+    approvalId: uuid("approval_id"),
+    approvedBy: text("approved_by", { enum: ["renter", "rules"] }),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    broadcastAt: timestamp("broadcast_at", { withTimezone: true }),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    // Matched with its transfer on chain and its ledger entries.
+    reconciledAt: timestamp("reconciled_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    once: uniqueIndex("agent_payments_key_idx").on(t.key),
+    // One agent payment in flight from the treasury at a time on a chain
+    // (and, by the treasury's lock, none while a withdrawal is).
+    oneInFlight: uniqueIndex("agent_payments_one_in_flight").on(t.chainId).where(sql`${t.status} = 'broadcast'`),
+    byInstallation: index("agent_payments_installation_idx").on(t.installationId, t.createdAt),
+    byAgent: index("agent_payments_agent_idx").on(t.agentId, t.createdAt),
+    byStatus: index("agent_payments_status_idx").on(t.status, t.updatedAt),
+    byTx: index("agent_payments_tx_idx").on(t.txHash),
+    knownStatus: check("agent_payments_status", sql`${t.status} in ('held', 'broadcast', 'confirmed', 'failed')`),
+    positive: check("agent_payments_amount_positive", sql`${t.amount} > 0`),
+  }),
+);
+export type AgentPayment = typeof agentPayments.$inferSelect;
+
+// Trust scores (src/lib/trust): one row per agent version and per maker,
+// the latest, with the factors that explain it; and one a day for each, so
+// its trend shows. A fixed formula, recomputed after jobs and daily.
+export const trustScores = pgTable(
+  "trust_scores",
+  {
+    subject: text("subject", { enum: ["version", "maker"] }).notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    score: integer("score").notNull(),
+    label: text("label").notNull(),
+    isNew: boolean("is_new").notNull(),
+    factors: jsonb("factors").$type<{ key: string; words: string; points: number; counted: boolean }[]>().notNull().default([]),
+    computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.subject, t.subjectId] }),
+    knownSubject: check("trust_scores_subject", sql`${t.subject} in ('version', 'maker')`),
+    inRange: check("trust_scores_range", sql`${t.score} between 300 and 850`),
+  }),
+);
+export const trustHistory = pgTable(
+  "trust_history",
+  {
+    subject: text("subject").notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    day: text("day").notNull(),
+    score: integer("score").notNull(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.subject, t.subjectId, t.day] }) }),
+);
+
+// A renter's dispute of an agent payment or a week's rent, with a reason,
+// within the dispute window, for an admin to uphold or reject. An upheld
+// rent dispute is refunded through the ledger (the maker's and platform's
+// shares reversed); an upheld payment dispute counts against the agent's
+// trust score, since a payment on chain can't be pulled back.
+export const DISPUTE_KINDS = ["payment", "rent"] as const;
+// The reasons, with their words, are in spending/disputeWords.ts (read on screen too).
+export { DISPUTE_REASONS };
+export const disputes = pgTable(
+  "disputes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    kind: text("kind", { enum: DISPUTE_KINDS }).notNull(),
+    renterUserId: uuid("renter_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    makerUserId: uuid("maker_user_id")
+      .notNull()
+      .references(() => users.id),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id"),
+    installationId: uuid("installation_id").references(() => agentInstallations.id, { onDelete: "set null" }),
+    // What is disputed: one agent payment, or one week's rent charge.
+    paymentId: uuid("payment_id").references(() => agentPayments.id),
+    rentalId: uuid("rental_id").references(() => rentals.id, { onDelete: "set null" }),
+    week: integer("week"),
+    holdId: uuid("hold_id"),
+    // USDC minor units.
+    amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
+    reason: text("reason", { enum: DISPUTE_REASONS }).notNull(),
+    note: text("note").notNull(),
+    status: text("status", { enum: ["open", "upheld", "rejected"] }).notNull().default("open"),
+    resolution: text("resolution"),
+    resolvedBy: uuid("resolved_by").references(() => users.id),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    // An upheld rent dispute's refund: waiting (for the ledger's new kinds)
+    // or done, with what the maker gave back and what the platform covered.
+    refund: text("refund", { enum: ["none", "waiting", "done"] }).notNull().default("none"),
+    makerReversed: numeric("maker_reversed", { precision: 78, scale: 0 }),
+    platformReversed: numeric("platform_reversed", { precision: 78, scale: 0 }),
+    refundedAt: timestamp("refunded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byStatus: index("disputes_status_idx").on(t.status, t.createdAt),
+    byRenter: index("disputes_renter_idx").on(t.renterUserId, t.createdAt),
+    byAgent: index("disputes_agent_idx").on(t.agentId, t.status),
+    oncePayment: uniqueIndex("disputes_once_payment").on(t.paymentId).where(sql`${t.paymentId} is not null`),
+    onceWeek: uniqueIndex("disputes_once_week").on(t.rentalId, t.week).where(sql`${t.rentalId} is not null`),
+    knownKind: check("disputes_kind", sql`${t.kind} in ('payment', 'rent')`),
+    knownReason: check("disputes_reason", sql`${t.reason} in ('not_done', 'not_wanted', 'wrong_amount', 'wrong_payee', 'not_working', 'other')`),
+    knownStatus: check("disputes_status", sql`${t.status} in ('open', 'upheld', 'rejected')`),
+    knownRefund: check("disputes_refund", sql`${t.refund} in ('none', 'waiting', 'done')`),
+    positive: check("disputes_amount_positive", sql`${t.amount} > 0`),
+    // A payment dispute names its payment; a rent dispute its week.
+    whatItIs: check("disputes_what", sql`(${t.kind} = 'payment' and ${t.paymentId} is not null and ${t.week} is null) or (${t.kind} = 'rent' and ${t.paymentId} is null and ${t.week} is not null)`),
+  }),
+);
+export type Dispute = typeof disputes.$inferSelect;
+
+// Alerts about agent payments for the admin: the treasury running low, a
+// payment and its transfer not matching, a transfer from the treasury
+// nobody asked for. An open alert of a pausing kind keeps agent payments
+// paused site wide until an admin resolves it.
+export const paymentAlerts = pgTable(
+  "payment_alerts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    kind: text("kind").notNull(),
+    message: text("message").notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull().default({}),
+    // One open alert per thing it is about.
+    key: text("key").notNull(),
+    status: text("status", { enum: ["open", "resolved"] }).notNull().default("open"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedBy: uuid("resolved_by"),
+    resolution: text("resolution"),
+  },
+  (t) => ({
+    once: uniqueIndex("payment_alerts_key_idx").on(t.key),
+    byStatus: index("payment_alerts_status_idx").on(t.status, t.createdAt),
+    knownStatus: check("payment_alerts_status", sql`${t.status} in ('open', 'resolved')`),
+  }),
+);
 
 // Reppo's evaluations (src/lib/reppo): a finished job's quality, or a
 // second opinion on an action waiting for its renter. One row per thing,

@@ -6,6 +6,13 @@ import type { AdminSafetyDTO, AuditEntryDTO } from "@/lib/types";
 const at = (hoursAgo: number) => new Date(Date.UTC(2026, 10, 9, 12) - hoursAgo * 3_600_000).toISOString();
 
 export const DEMO_SAFETY: AdminSafetyDTO = {
+  trust: {
+    versions: [
+      { versionId: "v-yield", agent: "Instant yield helper", version: 2, score: 388, label: "low", top: "2 reports upheld by an admin this month" },
+      { versionId: "v-follow", agent: "Enquiry follow-up", version: 2, score: 566, label: "fair", top: "31 of 44 jobs finished in the last 90 days (70%)" },
+    ],
+    makers: [{ makerId: "u-fast", maker: "@fast_builds", score: 412, label: "low", top: "1 freeze by an admin in the last 90 days" }],
+  },
   reppo: {
     on: true,
     today: { credits: 2640, evals: 6 },
@@ -19,6 +26,51 @@ export const DEMO_SAFETY: AdminSafetyDTO = {
     creditsPerEval: 440,
   },
   queue: {
+    payments: [],
+    disputes: {
+      open: [
+        {
+          id: "d-1",
+          kind: "payment",
+          installationId: "i-1",
+          agentName: "Fabric restock",
+          what: "4.00 USDC to Weftworks on 2026-11-08",
+          amount: "4000000",
+          decimals: 6,
+          reason: "wrong_payee",
+          reasonWords: "It paid the wrong payee",
+          note: "Weftworks moved their account last month. It paid the old one, and they say nothing arrived.",
+          status: "open",
+          resolution: null,
+          refund: "none",
+          createdAt: at(3),
+          resolvedAt: null,
+          renter: "@harbor_tea",
+          maker: "@lena_prints",
+        },
+        {
+          id: "d-2",
+          kind: "rent",
+          installationId: "i-2",
+          agentName: "Enquiry follow-up",
+          what: "Rent for week 3, paid 2026-11-03",
+          amount: "6000000",
+          decimals: 6,
+          reason: "not_working",
+          reasonWords: "The agent didn't work that week",
+          note: "Every job that week failed at the first step. It never answered a single enquiry.",
+          status: "open",
+          resolution: null,
+          refund: "none",
+          createdAt: at(8),
+          resolvedAt: null,
+          renter: "@sam_rivera",
+          maker: "@lena_prints",
+        },
+      ],
+      waiting: 0,
+      ledgerReady: true,
+    },
     blocked: [
       { id: "b-1", agentId: "a-follow", agent: "Enquiry follow-up", version: 2, maker: "@lena_prints", score: 38, reason: "It recorded a reply as ready to send without the person's yes, which its purpose says it asks for.", at: at(3) },
     ],

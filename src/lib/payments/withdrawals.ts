@@ -1,4 +1,5 @@
 import "server-only";
+import { lockTreasury, nextNonce, treasuryBusy } from "../spending/treasury";
 import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Address, Hex } from "viem";
 import { db } from "../db";
@@ -224,12 +225,8 @@ export async function sendNextPayout(chain: ChainClient, signer: PayoutSigner, c
   const treasury = config.treasury;
   if (!config.enabled || !treasury) return null;
   if (await payoutsPaused()) return null;
-  const [inFlight] = await db
-    .select({ id: withdrawals.id })
-    .from(withdrawals)
-    .where(and(eq(withdrawals.chainId, config.chainId), eq(withdrawals.status, "broadcast")))
-    .limit(1);
-  if (inFlight) return null;
+  // Nothing else in flight from the treasury: a payout, or an agent's payment.
+  if (await treasuryBusy(db, config.chainId)) return null;
   const queued = await db
     .select()
     .from(withdrawals)
@@ -264,35 +261,32 @@ async function trySend(chain: ChainClient, signer: PayoutSigner, config: Payment
     console.warn("payments: the treasury has too little ETH for gas; payouts wait.");
     return null;
   }
-  // The signer's next nonce on chain. Every earlier payout from it is mined
-  // (paid or reverted) before another goes out, so this leaves no gap; ours
-  // is a floor in case the node lags.
-  const from = signer.address.toLowerCase();
-  const [ours] = await db
-    .select({ max: sql<number | null>`max(${withdrawals.nonce})` })
-    .from(withdrawals)
-    .where(and(eq(withdrawals.chainId, config.chainId), eq(withdrawals.fromAddress, from), inArray(withdrawals.status, ["paid", "reverted"])));
-  const afterOurs = ours?.max === null || ours?.max === undefined ? 0 : Number(ours.max) + 1;
-  const nonce = Math.max(await chain.nonce(signer.address, "latest"), afterOurs);
-  const signed = await signer.signTransfer({ chainId: config.chainId, token: c.token, to, amount, nonce, ...fees });
-
-  // Recorded before it is sent: the signer, the nonce, the hash and the
-  // signed bytes. The database refuses this if another payout went in flight
-  // meanwhile.
-  let recorded: { id: string }[];
+  // Decided under the treasury's lock, shared with agents' payments (one
+  // send in flight from it at a time, the next nonce never below one either
+  // used): recorded before it is sent, the signer, the nonce, the hash and
+  // the signed bytes. The database refuses this if another payout went in
+  // flight meanwhile.
+  let recorded: { id: string; raw: Hex } | null;
   try {
-    recorded = await db
-      .update(withdrawals)
-      .set({ status: "broadcast", fromAddress: from, nonce, txHash: signed.hash, rawTx: signed.raw, broadcastAt: new Date(), lastSentAt: new Date(), sends: 1 })
-      .where(and(eq(withdrawals.id, next.id), eq(withdrawals.status, "queued")))
-      .returning({ id: withdrawals.id });
+    recorded = await db.transaction(async (tx) => {
+      await lockTreasury(tx);
+      if (await treasuryBusy(tx, config.chainId)) return null;
+      const nonce = await nextNonce(tx, chain, signer, config.chainId);
+      const signed = await signer.signTransfer({ chainId: config.chainId, token: c.token!, to, amount, nonce, ...fees });
+      const [row] = await tx
+        .update(withdrawals)
+        .set({ status: "broadcast", fromAddress: signer.address.toLowerCase(), nonce, txHash: signed.hash, rawTx: signed.raw, broadcastAt: new Date(), lastSentAt: new Date(), sends: 1 })
+        .where(and(eq(withdrawals.id, next.id), eq(withdrawals.status, "queued")))
+        .returning({ id: withdrawals.id });
+      return row ? { id: row.id, raw: signed.raw } : null;
+    });
   } catch (err) {
     if (err && typeof err === "object" && "code" in err && (err as { code?: unknown }).code === "23505") return null;
     throw err;
   }
-  if (recorded.length === 0) return null;
+  if (!recorded) return null;
   try {
-    await chain.sendRaw(signed.raw);
+    await chain.sendRaw(recorded.raw);
   } catch (err) {
     // Recorded already: the reconcile step sends the same bytes again.
     console.error(`payments: payout not sent yet, will retry: ${chainError(err)}`);
@@ -365,12 +359,13 @@ export async function payoutTick(chain: ChainClient = chainClient(), config: Pay
   }
 }
 
-// What a maker has earned in each currency, all time.
+// What a maker has earned in each currency, all time, less what upheld
+// disputes took back.
 export async function earnedOf(userId: string): Promise<Record<Currency, bigint>> {
   const rows = await db
     .select({ currency: ledgerEntries.currency, total: sql<string>`coalesce(sum(${ledgerEntries.amount}::numeric), 0)::text` })
     .from(ledgerEntries)
-    .where(and(eq(ledgerEntries.userId, userId), eq(ledgerEntries.kind, "maker_earning")))
+    .where(and(eq(ledgerEntries.userId, userId), inArray(ledgerEntries.kind, ["maker_earning", "earning_reversal"])))
     .groupBy(ledgerEntries.currency);
   const out = { USDC: 0n, SERV: 0n } as Record<Currency, bigint>;
   for (const r of rows) out[r.currency] = BigInt(r.total);

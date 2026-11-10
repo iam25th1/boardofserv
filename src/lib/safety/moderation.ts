@@ -1,7 +1,9 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { and, count, desc, eq, gte, isNull, ne } from "drizzle-orm";
-import { agentListings, agents, agentVersions, reports, reppoEvals, requestOffers, requests, users, type Report, type User } from "../db/schema";
+import { agentListings, agents, agentVersions, paymentAlerts, reports, reppoEvals, requestOffers, requests, users, type Report, type User } from "../db/schema";
+import { resolveAlert } from "../spending/treasury";
+import { decideDispute, disputeQueue } from "../spending/disputes";
 import { completeJson, SERV_PROMPT_GUARD, type ChatMessage } from "../model";
 import type { Runtime } from "../agents/runtime/context";
 import { wrapData } from "../agents/untrusted";
@@ -147,8 +149,9 @@ export async function fileReport(rt: Runtime, reporter: User, o: { kind: Report[
   return row;
 }
 
-export type QueueItem = { type: "report" | "listing" | "request" | "offer" | "reppo"; id: string };
-export type Moderation = "approve" | "hide" | "freeze";
+export type QueueItem = { type: "report" | "listing" | "request" | "offer" | "reppo" | "payment" | "dispute"; id: string };
+// Uphold and reject are for disputes alone.
+export type Moderation = "approve" | "hide" | "freeze" | "uphold" | "reject";
 
 // What an item is about: the agent, maker, request or offer, and who is
 // behind it (to freeze).
@@ -172,6 +175,19 @@ async function freezeBehind(rt: Runtime, admin: User, kind: "agent" | "maker" | 
 
 export async function moderate(rt: Runtime, admin: User, item: QueueItem, action: Moderation, reason: string): Promise<boolean> {
   if (!isId(item.id)) return false;
+  if (item.type === "dispute") {
+    // A renter's dispute: upheld (a rent week refunded, a payment counted
+    // against the agent's score) or rejected (spending/disputes.ts).
+    if (action !== "uphold" && action !== "reject") return false;
+    return (await decideDispute(rt, admin, item.id, action, reason)) !== null;
+  }
+  if (action === "uphold" || action === "reject") return false;
+  if (item.type === "payment") {
+    // An admin has looked into a payment alert. Resolving it doesn't start
+    // payments again: that is its own switch, on purpose.
+    if (action !== "approve") return false;
+    return resolveAlert(rt.db, item.id, admin.id, reason, rt.now());
+  }
   if (item.type === "reppo") {
     // A job Reppo routed to block: approve (nothing to do), hide its agent's
     // listing, or freeze the version that ran it.
@@ -246,7 +262,10 @@ export async function moderationQueue(rt: Runtime): Promise<ModerationQueueDTO> 
     .where(and(eq(reppoEvals.kind, "job"), eq(reppoEvals.route, "block"), isNull(reppoEvals.reviewedAt)))
     .orderBy(desc(reppoEvals.completedAt))
     .limit(100);
+  const alerts = await rt.db.select().from(paymentAlerts).where(eq(paymentAlerts.status, "open")).orderBy(desc(paymentAlerts.createdAt)).limit(100);
   return {
+    disputes: await disputeQueue(rt),
+    payments: alerts.map((a) => ({ id: a.id, kind: a.kind, message: a.message, details: a.details, at: a.createdAt.toISOString() })),
     blocked: blocked.map((b) => ({ id: b.id, agentId: b.agentId, agent: b.agent, version: b.version, maker: `@${b.maker}`, score: b.score, reason: b.reason ?? "", at: (b.at ?? new Date(0)).toISOString() })),
     reports: await Promise.all(open.map(async ({ r, by }) => ({ id: r.id, kind: r.kind, target: await what(r.kind, r.targetId), targetId: r.targetId, reason: r.reason, reasonWords: REPORT_REASON_WORDS[r.reason], note: r.note, by: `@${by}`, createdAt: r.createdAt.toISOString() }))),
     held: [
