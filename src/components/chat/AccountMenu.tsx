@@ -139,17 +139,17 @@ export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, 
           <div className={styles.section}>
             <p className={styles.label}>Wallet and agents</p>
             <div className={styles.links}>
-              <Link className={styles.topup} href="/app/wallet" onClick={() => setOpen(false)}>
+              <Link className={styles.link} href="/app/wallet" onClick={() => setOpen(false)}>
                 Balance, top up and earnings
               </Link>
-              <Link className={styles.topup} href="/app/agents" onClick={() => setOpen(false)}>
+              <Link className={styles.link} href="/app/agents" onClick={() => setOpen(false)}>
                 Agents you&apos;re building
               </Link>
-              <Link className={styles.topup} href="/app/connections" onClick={() => setOpen(false)}>
+              <Link className={styles.link} href="/app/connections" onClick={() => setOpen(false)}>
                 Connections: Telegram and Google
               </Link>
               {account?.admin && (
-                <Link className={styles.topup} href="/app/admin" onClick={() => setOpen(false)}>
+                <Link className={styles.link} href="/app/admin" onClick={() => setOpen(false)}>
                   Admin
                 </Link>
               )}

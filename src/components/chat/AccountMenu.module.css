@@ -124,11 +124,27 @@
   background: transparent;
   border-color: var(--chalk-3);
 }
+/* Wallet and agents: rows in the menu's own type, like Keyboard shortcuts
+   and Sign out below them, lined up with the section's label. */
 .links {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
   gap: 2px;
+  margin: var(--s-1) -10px 0;
+}
+.link {
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  color: var(--chalk);
+  font-size: var(--t-sm);
+  text-decoration: none;
+  transition: background-color var(--dur) var(--ease);
+}
+.link:hover {
+  background: var(--dust);
 }
 .topup {
   font-family: var(--font-hand);
