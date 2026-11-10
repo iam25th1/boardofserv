@@ -67,7 +67,7 @@ beforeEach(async () => {
 
 describe("the wallet routes", () => {
   it("say what payments take, in public", async () => {
-    const body = await (await payments()).json();
+    const body = await (await payments(new Request("http://localhost/api/payments"))).json();
     expect(body.payments).toMatchObject({ enabled: true, networkLabel: "Base Sepolia", chainId: 84532, treasury: getAddress(TREASURY), confirmations: 5 });
     expect(body.payments.currencies).toEqual([{ code: "USDC", decimals: 6, token: usdc, withdrawMin: "5000000" }]);
   });
@@ -131,6 +131,6 @@ describe("the wallet routes", () => {
     resetPaymentsConfig();
     expect((await check(req("/api/deposits/check", {}))).status).toBe(503);
     expect((await withdraw(req("/api/withdrawals", { currency: "USDC", amount: "6000000", to: MAYA_WALLET, key: "key-00002" }))).status).toBe(503);
-    expect((await (await payments()).json()).payments).toMatchObject({ enabled: false, treasury: null, currencies: [] });
+    expect((await (await payments(new Request("http://localhost/api/payments"))).json()).payments).toMatchObject({ enabled: false, treasury: null, currencies: [] });
   });
 });

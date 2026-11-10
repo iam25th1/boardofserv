@@ -85,7 +85,7 @@ describe("GET /api/health", () => {
     vi.stubEnv("TREASURY_PRIVATE_KEY", `0x${"ab".repeat(32)}`);
     resetPaymentsConfig();
     const { GET } = await import("@/app/api/health/route");
-    const res = await GET();
+    const res = await GET(new Request("http://localhost/api/health"));
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
     const text = await res.text();
@@ -100,7 +100,7 @@ describe("GET /api/health", () => {
     resetPaymentsConfig();
     state.up = false;
     const { GET } = await import("@/app/api/health/route");
-    const res = await GET();
+    const res = await GET(new Request("http://localhost/api/health"));
     expect(res.status).toBe(503);
     const text = await res.text();
     expect(JSON.parse(text)).toEqual({ ok: false, database: "down", network: "Base Sepolia", payments: "off" });

@@ -451,7 +451,7 @@ describe("a helper's instructions stay on the server", () => {
     await hit("account", account.GET(req("/api/account")));
     await hit("serv key without a key", servKey.POST(req("/api/account/serv-key", "POST", {})));
     await hit("serv key remove", servKey.DELETE(req("/api/account/serv-key", "DELETE")));
-    await hit("health", healthRoute.GET());
+    await hit("health", healthRoute.GET(req("/api/health")));
     await hit("plan a helper's conversation", agentsRoute.POST(req("/api/agents", "POST", { conversationId: cid })));
     await hit("agent that isn't there", agentRoute.GET(req(`/api/agents/${cid}`), { params: { id: cid } }));
     await hit("run an agent that isn't there", agentRun.POST(req(`/api/agents/${cid}/run`, "POST", { dryRun: true }), { params: { id: cid } }));
@@ -491,7 +491,7 @@ describe("a helper's instructions stay on the server", () => {
     await hit("missing page", helper.GET(req("/api/helpers/nope"), { params: { slug: "nope" } }));
     await hit("use signed out", helperUse.POST(req("/api/helpers/shop-blurbs/use", "POST", { input: "hi" }), { params: { slug: "shop-blurbs" } }));
     await hit("uses signed out", uses.GET(req("/api/uses")));
-    await hit("payments", payments.GET());
+    await hit("payments", payments.GET(req("/api/payments")));
     await hit("wallet signed out", wallet.GET(req("/api/wallet")));
     await hit("deposit check signed out", depositsCheck.POST(req("/api/deposits/check", "POST")));
     await hit("withdraw signed out", withdrawalsRoute.POST(req("/api/withdrawals", "POST", {})));
@@ -566,7 +566,7 @@ describe("a helper's instructions stay on the server", () => {
     try {
       // Sam tops up; the maker prices the helper.
       state.user = sam;
-      await hit("pay: payments", payments.GET());
+      await hit("pay: payments", payments.GET(req("/api/payments")));
       await hit("pay: wallet", wallet.GET(req("/api/wallet")));
       await hit("pay: first check", depositsCheck.POST(req("/api/deposits/check", "POST")));
       chain.transfer(usdc, SAM_WALLET, treasury, 30_000_000n);

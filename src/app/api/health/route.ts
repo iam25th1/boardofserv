@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 // For Pier's health check and uptime monitors: ok while the server can reach
 // its database, plus the payments network and whether payments are on.
 // Nothing else: no address, no version, no error text.
-export async function GET(req: Request = new Request("http://localhost/api/health")) {
+export async function GET(req: Request) {
   const limited = rateLimited(req, "health");
   if (limited) return limited;
   const config = paymentsConfig();
