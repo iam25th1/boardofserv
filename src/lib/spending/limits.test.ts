@@ -162,6 +162,18 @@ describe("an agent's payment within its limits", () => {
     await callPay(inst, job, 5);
   });
 
+  it("counts a day per installation, and not payments that failed", async () => {
+    const a = await ready({ score: 520 });
+    const b = await ready({ score: 520 });
+    for (let i = 0; i < 4; i++) await callPay(a.inst, a.job, 5);
+    // The other installation's day is its own.
+    await callPay(b.inst, b.job, 5);
+    expect((await paymentLimits(rt, b.inst)).paidToday).toBe(usdc(5));
+    await db.update(schema.agentPayments).set({ status: "failed" }).where(eq(schema.agentPayments.installationId, a.inst.id));
+    expect((await paymentLimits(rt, a.inst)).paidToday).toBe(0n);
+    await callPay(a.inst, a.job, 5);
+  });
+
   it("lets the strictest win: the renter's lower auto limit asks inside the band", async () => {
     const { inst, job } = await ready({ auto: 2, score: 800 });
     await callPay(inst, job, 2);

@@ -12,6 +12,7 @@ import { balancesOf, post } from "@/lib/payments/ledger";
 import { rent } from "@/lib/market/rentals";
 import { moderate, moderationQueue } from "@/lib/safety/moderation";
 import { versionTrust } from "@/lib/trust/trust";
+import { makerDashboard } from "@/lib/market/dashboard";
 import { savePayee } from "./payees";
 import { decideDispute, DisputeRefused, disputesOf, DISPUTES_PER_30_DAYS, ledgerReady, MAX_OPEN_DISPUTES, openDispute, refundsWaiting } from "./disputes";
 
@@ -157,6 +158,9 @@ describe("deciding a dispute", () => {
     expect(await decideDispute(rt, admin, d.id, "uphold", "Again.")).toBeNull();
     expect(await refundsWaiting(rt)).toBe(0);
     expect((await balancesOf(u.id, exec())).USDC.available).toBe(usdc(50));
+    // The maker's dashboard no longer counts the week's share.
+    const dash = await makerDashboard(rt, r.agent);
+    expect(dash.earnings.reduce((t, w) => t + BigInt(w.amount), 0n)).toBe(0n);
     // It counts against the version's score as a refund.
     const t = (await versionTrust(rt, [r.version.id])).get(r.version.id)!;
     expect(t.factors.find((f) => f.key === "refunds")).toMatchObject({ points: -30, words: "1 week of rent refunded" });

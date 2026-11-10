@@ -132,6 +132,30 @@ describe("an agent's payment", () => {
     for (const bad of [0.0000001, -1, 0, 1e-9]) expect(await err(callPay(tools(inst, job), { to: "Weftworks", amountUsdc: bad })), String(bad)).toBeInstanceOf(ToolError);
   });
 
+  it("pays from its own installation's allowance only: another one's, even the same renter's, is never touched", async () => {
+    const a = await ready({ allowance: 1 });
+    const b = await ready({ allowance: 10 });
+    const out = await err(callPay(tools(a.inst, a.job), { to: "Weftworks", amountUsdc: 5 }));
+    expect((out as Error).message).toMatch(/Its allowance has 1.00 USDC, not the 5.00 USDC/);
+    expect(await allowanceOf(exec(), b.inst.id)).toEqual({ available: usdc(10), held: 0n });
+    // A payee saved on one installation isn't one the other may pay.
+    await db.update(schema.payees).set({ status: "removed" }).where(eq(schema.payees.installationId, b.inst.id));
+    const theirs = await err(callPay(tools(b.inst, b.job), { to: "Weftworks", amountUsdc: 1 }));
+    expect((theirs as Error).message).toMatch(/isn't one of this renter's saved payees/);
+    await callPay(tools(a.inst, a.job), { to: "Weftworks", amountUsdc: 1 });
+    expect(await allowanceOf(exec(), a.inst.id)).toEqual({ available: 0n, held: 0n });
+    expect(await allowanceOf(exec(), b.inst.id)).toEqual({ available: usdc(10), held: 0n });
+  });
+
+  it("pays nothing while agent payments are paused site wide, and says why", async () => {
+    const { inst, job } = await ready();
+    await setPaymentsPaused(exec(), "Checking the treasury.", null);
+    const out = await err(callPay(tools(inst, job), { to: "Weftworks", amountUsdc: 1 }));
+    expect((out as Error).message).toBe("Agent payments are paused on boardofserv for now: Checking the treasury. Nothing was paid.");
+    expect(await allowanceOf(exec(), inst.id)).toEqual({ available: usdc(10), held: 0n });
+    expect(pay.chain.sent).toEqual([]);
+  });
+
   it("never sends twice for one action, after a crash or a restart", async () => {
     const { inst, job } = await ready();
     pay = withPayments(rt, { autoMine: false });
