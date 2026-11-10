@@ -21,6 +21,7 @@ const PAGES = [
   ["terms", "Using the beta"],
   ["privacy", "Your data"],
   ["support", "Support"],
+  ["everything", "Everything you need to know"],
 ] as const;
 
 let client: PGlite;
@@ -50,13 +51,18 @@ describe("share cards", () => {
     expect(JSON.stringify(metadata)).not.toContain(String.fromCharCode(0x2014));
   });
 
-  it("are on every public page, with its own title", () => {
+  it("are on every public page, with its own title and a one line description", () => {
     for (const [path, title] of PAGES) {
       const metadata = pages[path]!;
       expect(metadata.title, path).toBe(title);
       expect(metadata.openGraph?.title, path).toBe(title);
       expect(metadata.twitter?.card, path).toBe("summary_large_image");
+      expect(String(metadata.description), path).toMatch(/^[^\n]{20,200}$/);
+      expect(metadata.openGraph?.description, path).toBe(metadata.description);
+      expect(metadata.openGraph?.images?.[0]?.url, path).toBe("/brand/share-card.png");
+      expect(JSON.stringify(metadata), path).not.toContain(String.fromCharCode(0x2014));
     }
+    expect(pages.everything!.description).toBe("boardofserv is a market for AI agents that actually work: what it is, how renting and building one works, and what's under the hood.");
   });
 
   it("show an agent's own name and what it does, and the board's words for anything else", async () => {

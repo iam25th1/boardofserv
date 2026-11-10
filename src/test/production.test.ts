@@ -261,7 +261,7 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
     expect(await res.json()).toEqual({ ok: false, database: "down", network: "Base Sepolia", payments: "off" });
   });
 
-  it.each(["/", "/login", "/app/board", "/api/health"])("%s carries the security headers", async (path) => {
+  it.each(["/", "/everything", "/login", "/app/board", "/api/health"])("%s carries the security headers", async (path) => {
     const res = await fetch(`${base}${path}`, { redirect: "manual" });
     const csp = res.headers.get("content-security-policy") ?? "";
     expect(csp).toContain("frame-ancestors 'none'");
@@ -275,12 +275,21 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
     expect(res.headers.get("x-powered-by")).toBeNull();
   });
 
-  it.each(["/", "/about", "/terms", "/privacy", "/support"])("%s loads signed out, with its share card", async (path) => {
+  it.each(["/", "/about", "/terms", "/privacy", "/support", "/everything"])("%s loads signed out, with its share card", async (path) => {
     const res = await fetch(`${base}${path}`, { redirect: "manual" });
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain('property="og:image" content="https://boardofserv.25th.dev/brand/share-card.png"');
     expect(html).toContain('name="twitter:card" content="summary_large_image"');
+  });
+
+  it("/everything has its own title in its card, and the footer's button on every public page", async () => {
+    const html = await (await fetch(`${base}/everything`)).text();
+    expect(html).toContain('property="og:title" content="Everything you need to know"');
+    expect(html).toContain('property="og:url" content="https://boardofserv.25th.dev/everything"');
+    for (const path of ["/", "/about", "/terms", "/privacy", "/support", "/everything"]) {
+      expect(await (await fetch(`${base}${path}`)).text(), path).toMatch(/<a [^>]*href="\/everything"[^>]*>Everything you need to know<\/a>/);
+    }
   });
 
   it("serves the share card and the logo, and no image optimizer", async () => {
