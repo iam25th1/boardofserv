@@ -1070,6 +1070,140 @@ on hold: off the board until an admin looks, its renters told in plain
 words, their installations running as before with their pause button
 (`src/lib/reppo/blocks.ts`).
 
+## Trust and spending
+
+Agents pay saved payees from an allowance their renter funds, on Base
+Sepolia in test USDC, from the treasury. Every payment is held, sent once,
+confirmed, receipted and reconciled with the chain. Every agent version
+and maker has a trust score from 300 to 850, a fixed formula (never a
+model's opinion), and the score caps how much an agent may pay without
+asking. No Kite and no third party payment rails.
+
+### Allowance and payees
+
+Each installation has an allowance (`src/lib/spending/allowance.ts`): the
+renter moves USDC into it from their balance and takes it back whenever
+they like (`AGENT_ALLOWANCE_MAX_USDC`, 100, the most it may hold). The
+money stays in the renter's balance, held, until a payment spends it, so
+the ledger's kinds don't change. An agent pays only payees saved on its
+installation (`payees.ts`): a name and a checksummed Base address, never
+the zero address, the treasury or the USDC contract. An address the agent
+names that isn't saved becomes a suggestion: nothing is paid, and the
+renter can save it on screen with a name of their own. The first payment
+to a payee always asks.
+
+### Payments on chain
+
+`wallet.pay` (`pay.ts`) holds the amount in the allowance, then signs the
+transfer from the treasury under a database lock, records its nonce, hash
+and signed bytes before sending, sends, and waits for
+`DEPOSIT_CONFIRMATIONS`. Confirmed, the hold is spent (a `use_charge` on
+the ledger, key `agentpay:<id>`) and the receipt kept; reverted or stuck,
+the hold is released. One action never pays twice: its key is the job and
+the call, and after a crash the recorded transaction is sent again, never
+a new one. One send leaves the treasury at a time, across agent payments
+and withdrawals, so nonces never collide. Below
+`AGENT_PAYMENTS_MIN_TREASURY_USDC` (5) of USDC left after a payment, or
+without ETH for gas, payments pause site wide with an admin alert. Any
+mainnet chain id, RPC or USDC address is refused unless
+`AGENT_PAYMENTS_MAINNET=1`, which this build never sets.
+
+### Reconciliation
+
+About once a minute the worker matches every payment with its transfer
+and its ledger entries, and every transfer from the treasury with a send
+made here (`reconcile.ts`). A payment with no transfer, a transfer of
+another amount or to another address, a ledger entry missing, or a
+transfer nobody here made pauses payments site wide and puts an alert in
+the admin queue. The first run starts at the chain's head
+(`AGENT_RECONCILE_START_BLOCK` to choose another block). Payments stay
+paused until an admin has looked into every open alert and turned them
+back on.
+
+### The trust score
+
+`src/lib/trust/score.ts` is a pure function of signals read from what
+happened (`signals.ts`); `config.ts` has every weight. Everything starts
+at 600; a version or maker with fewer than 10 finished jobs is "new": it
+earns nothing yet but loses points. Most factors look back 90 days;
+blocks, upheld reports and upheld payment disputes, 30.
+
+| Factor | Points |
+|---|---|
+| Jobs finished | 4 a point of share above 85% (at least 5 jobs), up to +60, down to -150 |
+| Actions the safety check blocked | -15 each, to -120 |
+| Reppo's average job score | 2 a point above 70 (at least 3 reviewed), up to +60, down to -80 |
+| Jobs Reppo advised against | -20 each, to -100 |
+| Reports upheld | -40 each, to -160 |
+| Payment disputes upheld | -50 each, to -200 |
+| Rent weeks refunded | -30 each, to -120 |
+| Freezes | -60 each, to -180; -100 more while one is on |
+| Listing on hold now | -40 |
+| Age | +1 every 3 days, to +40 |
+| Renewals and cancellations | +2 a renewal, to +60; -5 a cancellation, to -60 |
+| Payments | +2 each without a problem, to +40; -10 each that failed on chain, to -50 |
+
+Scores are refreshed when a version's jobs finish and once a day, kept
+with their factors and a score a day for the trend (`trust.ts`). Board
+cards and agent pages show the score, an agent page its top factors, and
+the maker's dashboard every factor and the trend for the version and the
+maker. Admins see the lowest scores.
+
+### What an agent may pay without asking
+
+The score sets a band (`limits.ts`):
+
+| Band | From | A payment | A day |
+|---|---|---|---|
+| low | 300 | 0 (always asks) | 0 |
+| fair | 500 | 5 USDC | 20 USDC |
+| good | 600 | 25 USDC | 100 USDC |
+| strong | 700 | 100 USDC | 300 USDC |
+| excellent | 780 | 250 USDC | 1000 USDC |
+| new | (any) | 5 USDC | 20 USDC |
+
+The renter's auto limit can't go above the band: the stricter of the two
+is what it may pay without asking, and the band's day applies on top. A
+rule's own limit, the safety check, the phase 0 site limit (SERV's check
+asks when the site's day budget is spent) and the site's daily cap on all
+agent payments (`AGENT_PAYMENTS_SITE_DAILY_USDC`, 1000) all still apply:
+the strictest wins. A frozen agent, maker or renter, an agent stopped
+everywhere or a listing on hold can't pay at all, even after a yes. Every
+payment question says what the band allows, in the app and on Telegram.
+When a score falls a band, renters whose limit it cuts are told.
+
+### Disputes and refunds
+
+A renter disputes an agent payment or a week's rent within
+`DISPUTE_WINDOW_DAYS` (14), with a reason and a note: at most 3 open and 6
+in 30 days, one per payment or week (`disputes.ts`). Admins uphold or
+reject them in the safety queue. An upheld rent dispute is refunded
+through the ledger: `refund` to the renter, `earning_reversal` from the
+maker (as much of their share as they still have) and `platform_refund`
+for the rest. A payment on Base can't be pulled back: an upheld payment
+dispute counts against the agent's score instead, and the screen says so
+before the renter approves any payment and again before they dispute
+one. The three ledger kinds need the owner's `scripts/sql/ledger-kinds.sql`
+on a database a deploy only pushed to; until then upheld refunds wait and
+the queue says so.
+
+### Screens
+
+- Renter, on an installation's page: the allowance (top up and take
+  back), what it may pay without asking and why, payees, receipts with
+  their transfer on Basescan, and disputes.
+- Maker, on the dashboard: the trust score with every factor and its
+  trend.
+- Admin: on `/app/admin`, agent payments (the site wide switch, today's
+  payments, the treasury against its floor, reconciliation); on
+  `/app/admin/safety`, payment alerts and disputes in the queue.
+- Routes: `GET`/`POST /api/installations/:id/allowance`, `POST
+  /api/installations/:id/payees`, `GET`/`POST /api/disputes`, `POST
+  /api/admin/agent-payments`, and `POST /api/admin/moderate` (`uphold`
+  or `reject` for a dispute).
+- `/demo?safety=spending`, `?safety=queue`, `?safety=approval` and
+  `?pay=admin` show them with sample data in development.
+
 ## Payments
 
 Users top up a balance in USDC or $SERV, pay for helper uses from it, and

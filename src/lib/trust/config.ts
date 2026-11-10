@@ -36,7 +36,8 @@ export const TRUST = {
   reppoBlocks: { EACH: -20, CAP: -100 },
   // A report an admin upheld (hid or froze what it was about), recent window.
   reports: { EACH: -40, CAP: -160 },
-  // A renter's dispute an admin upheld, recent window (payment or rent).
+  // A renter's dispute of a payment an admin upheld (a payment on chain
+  // can't be pulled back), recent window. Upheld rent disputes are refunds.
   disputes: { EACH: -50, CAP: -200 },
   // A week's rent refunded after an upheld dispute, in the window.
   refunds: { EACH: -30, CAP: -120 },

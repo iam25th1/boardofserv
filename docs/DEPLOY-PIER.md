@@ -154,6 +154,11 @@ store: `TELEGRAM_DEV_WEBHOOK_SECRET` (development only, ignored in
 production). The webhook's own secret isn't an environment value: it lives
 as a hash in the database (`telegram_webhook`), set by the webhook script.
 
+Trust and spending, optional, with defaults: `AGENT_ALLOWANCE_MAX_USDC`
+(100), `AGENT_PAYMENTS_MIN_TREASURY_USDC` (5),
+`AGENT_PAYMENTS_SITE_DAILY_USDC` (1000), `DISPUTE_WINDOW_DAYS` (14),
+`AGENT_RECONCILE_START_BLOCK` (blank). Never `AGENT_PAYMENTS_MAINNET`.
+
 Tests and scripts only, never in the store: `TEST_POSTGRES_URL`,
 `CHECK_BUILD`, `RUN_E2E`, `RUN_SERV_DEMO`, `RUN_SKETCH_LIVE`, `LIVE_BUDGET`,
 `LIVE_REPORT`, `SMOKE_FROM`, `SMOKE_TIMEOUT_MINUTES`, `SMOKE_WITHDRAW_USDC`.
@@ -292,6 +297,44 @@ deploy again, or `pier restart boardofserv`.
 5. Top up Reppo credits at https://eval.reppo.xyz/billing when the panel
    says they ran out (the account started with 22,000 credits, 50
    evaluations). Lower `REPPO_DAILY_CREDITS` to spend less.
+
+### After the deploy that brings trust and spending
+
+1. Nothing new is needed in Pier's store. Optional, with defaults:
+   `AGENT_ALLOWANCE_MAX_USDC` (100), `AGENT_PAYMENTS_MIN_TREASURY_USDC` (5),
+   `AGENT_PAYMENTS_SITE_DAILY_USDC` (1000), `DISPUTE_WINDOW_DAYS` (14),
+   `AGENT_RECONCILE_START_BLOCK` (blank: the chain's head on the first
+   run). Never set `AGENT_PAYMENTS_MAINNET`.
+2. Keep the treasury funded on Base Sepolia: test USDC of at least what
+   the admin page shows as owed (balances now include renters'
+   allowances, which stay in their balances, held) plus the floor (5)
+   plus a day of agent payments; and some Base Sepolia ETH for gas (0.01
+   ETH is hundreds of transfers). Below the floor, or without ETH for gas,
+   agent payments pause by themselves with an alert in the safety queue.
+3. `pier deploy boardofserv`. The schema push adds the new tables only
+   (`allowances`, `allowance_entries`, `payees`, `agent_payments`,
+   `payment_alerts`, `trust_scores`, `trust_history`, `disputes`;
+   migrations 0046 to 0050). Agent payments use the ledger's existing
+   kinds.
+4. Let the ledger take refunds. The schema push doesn't change the checks
+   on `ledger_entries`, so run this once (safe to run again):
+
+   ```sh
+   docker exec -i boardofserv-db psql -U boardofserv boardofserv < ~/.boardofserv/app/scripts/sql/ledger-kinds.sql
+   ```
+
+   Until it has run, an upheld rent dispute waits for its refund and the
+   safety queue says so; the worker refunds it within a minute once it
+   has.
+5. Open `/app/admin` as an admin: "Agent payments are on", the treasury
+   against its floor, and reconciliation "Checked against the chain up to
+   block N" a minute or so after the first worker cycle. Pause them there
+   (with a reason renters read) if the treasury isn't ready.
+6. Trust scores appear as jobs finish and once a day. Until then every
+   agent is new: it may pay up to 5 USDC a payment and 20 USDC a day
+   without asking, whatever its renter's auto limit. Renters of paying
+   agents need to top up its allowance and save its payees on the
+   agent's page before it can pay anyone.
 
 ### Update the example agents
 
