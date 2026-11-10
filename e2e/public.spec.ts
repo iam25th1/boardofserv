@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { signedOut } from "./session";
+import { FIRST_VISIT } from "./warm";
 
 // The public pages, signed out, in Chromium and WebKit at desktop and phone
 // width: the footer's button to the whole explainer on every one of them,
@@ -33,7 +34,7 @@ for (const path of PUBLIC) {
       return;
     }
     await press(page, button);
-    await expect(page).toHaveURL("/everything");
+    await expect(page).toHaveURL("/everything", FIRST_VISIT);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Everything you need to know");
   });
 }
@@ -48,7 +49,7 @@ test("the footer's button works by keyboard", async ({ page, browserName }) => {
   await page.keyboard.press(back);
   await expect(guide(page)).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(page).toHaveURL("/everything");
+  await expect(page).toHaveURL("/everything", FIRST_VISIT);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Everything you need to know");
 });
 

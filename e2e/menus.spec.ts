@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { signIn, signedIn, withConversations } from "./session";
+import { FIRST_VISIT } from "./warm";
 
 // The app's other menus, popovers and dialogs, in Chromium and WebKit at
 // desktop and phone width: the top bar's places from the chat, the chat's
@@ -38,7 +39,7 @@ test.describe("signed in", () => {
       const link = page.getByRole("navigation", { name: "The app" }).filter({ visible: true }).getByRole("link", { name: place.name });
       expect(await reachable(link)).toBe(true);
       await press(page, link);
-      await expect(page).toHaveURL(place.path);
+      await expect(page).toHaveURL(place.path, FIRST_VISIT);
       await expect(page.getByRole("heading", { level: 1, name: place.heading })).toBeVisible();
     });
   }

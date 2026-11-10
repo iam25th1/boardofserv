@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { signIn, signedIn, withConversations } from "./session";
+import { FIRST_VISIT } from "./warm";
 
 // The account menu, signed in, in Chromium and WebKit at desktop and phone
 // width (the projects in playwright.config.ts). Every item is clicked (or
@@ -54,7 +55,7 @@ for (const from of ["/app/chat", "/app/board"]) {
       await expect(target).toHaveAttribute("href", link.path);
       expect(await onTop(target)).toBe(true);
       await press(page, target);
-      await expect(page).toHaveURL(link.path);
+      await expect(page).toHaveURL(link.path, FIRST_VISIT);
       await expect(page.getByRole("heading", { level: 1, name: link.heading })).toBeVisible();
       await expect(accountButton(page)).toHaveAttribute("aria-expanded", "false");
     });
@@ -153,7 +154,7 @@ test.describe("by keyboard", () => {
     const panel = page.locator(`[id="${await button.getAttribute("aria-controls")}"]`);
     await panel.getByRole("link", { name: "Agents you're building" }).focus();
     await page.keyboard.press("Enter");
-    await expect(page).toHaveURL("/app/agents");
+    await expect(page).toHaveURL("/app/agents", FIRST_VISIT);
     await expect(button).toHaveAttribute("aria-expanded", "false");
   });
 });
