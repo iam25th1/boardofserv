@@ -14,7 +14,8 @@ const Body = z.object({ prices: PricesBody });
 // The maker changes what one use of their helper costs, per currency. A
 // currency left out keeps its price; null or "0" stops accepting it. With no
 // price left, the helper is free again, with the daily limit.
-export async function PUT(req: Request, { params }: { params: { slug: string } }) {
+export async function PUT(req: Request, ctx: { params: Promise<{ slug: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const parsed = Body.safeParse(await req.json().catch(() => null));

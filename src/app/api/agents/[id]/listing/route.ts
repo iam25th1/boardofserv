@@ -25,7 +25,8 @@ const Body = z.object({
 
 // The maker puts their agent's newest published version on the board for
 // rent, changes its price, or takes it off. Renting now keep their price.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const who = await ownedAgent(req, params.id);
   if ("refused" in who) return who.refused;
   const shut = notLetIn(who.user);

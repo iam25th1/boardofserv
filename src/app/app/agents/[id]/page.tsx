@@ -2,7 +2,7 @@
 import { SkeletonPanel } from "@/components/ui";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { Page } from "@/components/shell/Page";
 import { AgentBuilder, type BuilderApi } from "@/components/agents/AgentBuilder";
@@ -13,7 +13,9 @@ import { useApi } from "@/lib/useApi";
 import styles from "../agents.module.css";
 
 // An agent's builder and test bench, for its maker only.
-export default function AgentPage({ params }: { params: { id: string } }) {
+export default function AgentPage() {
+  // Next 16 passes params to a page as a promise; a client page reads them here.
+  const params = useParams<{ id: string }>();
   return (
     <Page width="wide">{privyAppId() ? <SignedIn id={params.id} /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}</Page>
   );

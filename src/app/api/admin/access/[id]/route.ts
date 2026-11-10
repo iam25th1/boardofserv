@@ -10,7 +10,8 @@ const Body = z.object({ action: z.enum(["approve", "reject"]) });
 
 // An admin lets a waiting account in, or turns it away. Only an account
 // still waiting can be decided.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const who = await requireAdmin(req);
   if ("refused" in who) return who.refused;
   const parsed = Body.safeParse(await req.json().catch(() => null));

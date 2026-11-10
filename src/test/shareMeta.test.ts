@@ -51,12 +51,12 @@ describe("share cards", () => {
     const p = await publishedAgent(db, maker);
     await db.insert(schema.agentListings).values({ agentId: p.agent.id, versionId: p.version.id, weeklyPrice: "0", jobFee: "0", listed: true });
     const { generateMetadata } = await import("@/app/app/board/agents/[id]/layout");
-    const m = (await generateMetadata({ params: { id: p.agent.id } })) as Meta;
+    const m = (await generateMetadata({ params: Promise.resolve({ id: p.agent.id }) })) as Meta;
     expect(m.title).toBe(`${p.agent.name} on boardofserv`);
     expect(String(m.description)).toMatch(/A beta, on test USDC\.$/);
     expect(m.openGraph?.images?.[0]?.url).toBe("/brand/share-card.png");
     for (const id of ["00000000-0000-0000-0000-000000000000", "not-an-id", "'; drop table agents; --"]) {
-      expect(((await generateMetadata({ params: { id } })) as Meta).title, id).toBe("An agent on boardofserv");
+      expect(((await generateMetadata({ params: Promise.resolve({ id }) })) as Meta).title, id).toBe("An agent on boardofserv");
     }
   });
 

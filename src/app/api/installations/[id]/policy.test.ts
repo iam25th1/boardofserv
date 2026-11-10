@@ -31,7 +31,7 @@ beforeAll(async () => {
 });
 afterAll(async () => client.close());
 
-const patch = (body: unknown) => PATCH(new Request(`http://localhost/api/installations/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), { params: { id } });
+const patch = (body: unknown) => PATCH(new Request(`http://localhost/api/installations/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
 const stored = async () => (await db.select({ p: schema.agentInstallations.policy }).from(schema.agentInstallations).where(eq(schema.agentInstallations.id, id)))[0]!.p;
 
 describe("raising what asks first", () => {

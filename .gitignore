@@ -19,3 +19,6 @@ screenshots/
 
 # Local design reference. Stays out of the repo.
 docs/design/chalk-mockup.html
+
+# Written by next (next typegen, dev and build); npm run typecheck makes it first.
+next-env.d.ts

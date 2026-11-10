@@ -10,7 +10,8 @@ const Body = z.object({ reason: z.string().trim().min(3).max(300) });
 
 // An admin lifts a freeze, saying why. What it paused starts again where
 // nothing else holds it. Admins only.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const who = await requireAdmin(req);
   if ("refused" in who) return who.refused;
   const parsed = Body.safeParse(await req.json().catch(() => null));

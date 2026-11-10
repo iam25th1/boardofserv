@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 
 // The audit log of an installation's guarded actions, for its owner only
 // (a 404 for anyone else), newest first, a page at a time.
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const rt = serverRuntime();

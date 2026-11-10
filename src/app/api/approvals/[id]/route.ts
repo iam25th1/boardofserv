@@ -8,7 +8,8 @@ export const runtime = "nodejs";
 const Body = z.object({ answer: z.string().min(1).max(80) });
 
 // The owner answers one of their approvals; its job picks up where it paused.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   if (!z.string().uuid().safeParse(params.id).success) return Response.json({ error: "Not found" }, { status: 404 });

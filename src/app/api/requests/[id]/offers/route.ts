@@ -21,7 +21,8 @@ const Body = z.object({
 
 // A maker offers one of their published agents for a request, with a note
 // and a price (offering again changes it).
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const rt = serverRuntime();

@@ -23,7 +23,8 @@ const Body = z.object({
 // Run it for real: the maker installs the newest published version of their
 // own agent for themselves, with their answers to its settings questions.
 // (Installing someone else's agent comes with renting.)
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const who = await ownedAgent(req, params.id);
   if ("refused" in who) return who.refused;
   const shut = notLetIn(who.user);

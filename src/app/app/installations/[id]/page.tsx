@@ -1,6 +1,7 @@
 "use client";
 import { SkeletonPanel } from "@/components/ui";
 import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
 import { Page } from "@/components/shell/Page";
@@ -12,7 +13,9 @@ import { useApi } from "@/lib/useApi";
 import styles from "../../agents/agents.module.css";
 
 // One agent running for its owner.
-export default function InstallationPage({ params }: { params: { id: string } }) {
+export default function InstallationPage() {
+  // Next 16 passes params to a page as a promise; a client page reads them here.
+  const params = useParams<{ id: string }>();
   return (
     <Page width="wide" above={<YourAgentsNav />}>
       {privyAppId() ? <SignedIn id={params.id} /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}

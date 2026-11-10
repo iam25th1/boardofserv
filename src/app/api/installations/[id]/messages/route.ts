@@ -14,7 +14,8 @@ const Body = z.object({ text: z.string().trim().min(1).max(2000) });
 const dto = (m: AgentMessage): AgentMessageDTO => ({ id: m.id, from: m.from, text: m.text, jobId: m.jobId, createdAt: m.createdAt.toISOString() });
 
 // An installation's in-app message box, for its owner only.
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const rt = serverRuntime();
@@ -24,7 +25,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 }
 
 // A message to the agent: it starts a job with the message as its input.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const shut = notLetIn(user);

@@ -45,7 +45,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 // up under it, and the composer jumps. The chat's shell follows the visual
 // viewport instead (its height and where it starts), so the composer stays
 // just above the keyboard and nothing jumps.
-function useFitToVisualViewport(enabled: boolean, ref: React.RefObject<HTMLDivElement>) {
+function useFitToVisualViewport(enabled: boolean, ref: React.RefObject<HTMLDivElement | null>) {
   useEffect(() => {
     const vv = window.visualViewport;
     const el = ref.current;

@@ -11,7 +11,8 @@ const Body = z.object({ action: z.enum(["accept", "withdraw"]) });
 
 // The one who asked accepts an offer (renting its agent at its price: the
 // first week is charged now), or its maker withdraws it.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const parsed = Body.safeParse(await req.json().catch(() => null));

@@ -9,7 +9,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // A helper's page, for anyone: the public helper, or that it was taken down.
-export async function GET(req: Request, { params }: { params: { slug: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ slug: string }> }) {
+  const params = await ctx.params;
   const limited = rateLimited(req, "read");
   if (limited) return limited;
   const page = await helperPage(params.slug);
@@ -20,7 +21,8 @@ export async function GET(req: Request, { params }: { params: { slug: string } }
 
 // The maker takes their helper off the board. The row stays, so the slug is
 // not reused and the helper's page says it was taken down.
-export async function DELETE(req: Request, { params }: { params: { slug: string } }) {
+export async function DELETE(req: Request, ctx: { params: Promise<{ slug: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const owned = await db.query.publishedHelpers.findFirst({

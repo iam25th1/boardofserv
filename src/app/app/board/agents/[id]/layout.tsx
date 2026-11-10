@@ -9,7 +9,8 @@ import { shareMetadata } from "@/lib/shareMeta";
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const params = await props.params;
   const path = `/app/board/agents/${params.id}`;
   const fallback = shareMetadata({ title: "An agent on boardofserv", description: "A small agent that does one job, on the boardofserv board. A beta, on test USDC.", path });
   if (!/^[0-9a-f-]{36}$/i.test(params.id)) return fallback;

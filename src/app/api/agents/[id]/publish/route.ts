@@ -14,7 +14,8 @@ export const runtime = "nodejs";
 // an older one are offered it (update or stay). Only a planned draft, not
 // building, with every code step's code approved and a code review with no
 // blocking finding, can be published.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const who = await ownedAgent(req, params.id);
   if ("refused" in who) return who.refused;
   const draft = await draftOf(who.agent.id);

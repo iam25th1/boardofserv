@@ -32,7 +32,7 @@ beforeAll(async () => {
 });
 afterAll(async () => client.close());
 
-const call = (body: unknown) => POST(new Request(`http://localhost/api/installations/${id}/payees`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), { params: { id } });
+const call = (body: unknown) => POST(new Request(`http://localhost/api/installations/${id}/payees`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), { params: Promise.resolve({ id }) });
 
 describe("the payees route", () => {
   it("is the renter's alone", async () => {

@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
 import { Page } from "@/components/shell/Page";
@@ -19,7 +20,9 @@ import styles from "./helper.module.css";
 
 const PHRASES = ["reading what you gave it", "working on it"];
 
-export default function HelperPageView({ params }: { params: { slug: string } }) {
+export default function HelperPageView() {
+  // Next 16 passes params to a page as a promise; a client page reads them here.
+  const params = useParams<{ slug: string }>();
   const [page, setPage] = useState<HelperPage | null>(null);
   const [failed, setFailed] = useState(false);
 

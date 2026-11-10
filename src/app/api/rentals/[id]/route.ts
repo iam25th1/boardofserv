@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 // One rental, for its renter only: its money and how it runs; with what
 // setting it up asks while it isn't set up (its questions, rules and
 // schedule: never its code).
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const rt = serverRuntime();

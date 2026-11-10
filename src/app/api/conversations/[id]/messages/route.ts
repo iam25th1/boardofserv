@@ -10,7 +10,8 @@ import { agentForConversation, currentVersion } from "@/lib/agents/store";
 
 export const runtime = "nodejs";
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const convo = await db.query.conversations.findFirst({

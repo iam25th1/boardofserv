@@ -56,7 +56,7 @@ const lines = async (res: Response) => ((await res.json()) as { audit: AuditPage
 
 describe("the audit log's routes", () => {
   it("give the renter their own installation's log, and nobody else's", async () => {
-    const p = { params: { id: installationId } };
+    const p = { params: Promise.resolve({ id: installationId }) };
     state.user = null;
     expect((await renterAudit(get(`/api/installations/${installationId}/audit`), p)).status).toBe(401);
     for (const who of [other, maker, admin]) {
@@ -64,14 +64,14 @@ describe("the audit log's routes", () => {
       expect((await renterAudit(get(`/api/installations/${installationId}/audit`), p)).status, who.handle).toBe(404);
     }
     state.user = renter;
-    expect((await renterAudit(get("/api/installations/nope/audit"), { params: { id: "nope" } })).status).toBe(404);
+    expect((await renterAudit(get("/api/installations/nope/audit"), { params: Promise.resolve({ id: "nope" }) })).status).toBe(404);
     const mine = await lines(await renterAudit(get(`/api/installations/${installationId}/audit?before=x`), p));
     expect(mine).toHaveLength(1);
     expect(mine[0]!.what).toContain('"Orders"');
   });
 
   it("give the maker their agent's log with the renter's data hidden", async () => {
-    const p = { params: { id: agentId } };
+    const p = { params: Promise.resolve({ id: agentId }) };
     state.user = null;
     expect((await makerAudit(get(`/api/agents/${agentId}/audit`), p)).status).toBe(401);
     for (const who of [other, renter, admin]) {

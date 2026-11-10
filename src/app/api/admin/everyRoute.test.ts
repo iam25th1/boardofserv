@@ -44,7 +44,7 @@ describe("every admin route", () => {
       const call = () =>
         (mod[method] as (req: Request, ctx: unknown) => Promise<Response>)(
           new Request(`http://localhost/api/admin/x?id=${ID}`, { method, headers: { "content-type": "application/json" }, body: method === "GET" ? undefined : JSON.stringify({ action: "approve", paused: true, reason: "testing it" }) }),
-          { params: { id: ID } },
+          { params: Promise.resolve({ id: ID }) },
         );
       state.user = null;
       expect((await call()).status, `${method} ${file} signed out`).toBe(401);

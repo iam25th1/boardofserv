@@ -1,6 +1,6 @@
 "use client";
 import { useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { RequestPageView, type RequestPageApi } from "@/components/market/RequestPageView";
 import { fetchRequest } from "@/lib/publicApi";
@@ -8,7 +8,9 @@ import { privyAppId } from "@/lib/privy-config";
 import { useApi } from "@/lib/useApi";
 
 // One request and its offers, for anyone; acting on it needs sign-in.
-export default function RequestPage({ params }: { params: { id: string } }) {
+export default function RequestPage() {
+  // Next 16 passes params to a page as a promise; a client page reads them here.
+  const params = useParams<{ id: string }>();
   if (!privyAppId()) return <Public id={params.id} />;
   return <WithSignIn id={params.id} />;
 }

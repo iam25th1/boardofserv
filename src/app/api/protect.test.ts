@@ -17,7 +17,7 @@ import { POST as chat } from "./chat/route";
 import { GET as account } from "./account/route";
 import { DELETE as dropKey, POST as saveKey } from "./account/serv-key/route";
 import { POST as publish } from "./helpers/route";
-import { POST as use } from "./helpers/[slug]/use/route";
+import { POST as postUse } from "./helpers/[slug]/use/route";
 import { GET as messagesOf } from "./conversations/[id]/messages/route";
 import { DELETE as deleteConversation } from "./conversations/[id]/route";
 import { PATCH as setKind } from "./conversations/[id]/sketch/route";
@@ -124,7 +124,7 @@ async function say(content: string, conversationId?: string): Promise<Turn> {
 }
 
 async function ask(slug: string, input = "The Alder mug"): Promise<Turn> {
-  const res = await use(json(`/api/helpers/${slug}/use`, "POST", { input }), { params: { slug } });
+  const res = await postUse(json(`/api/helpers/${slug}/use`, "POST", { input }), { params: Promise.resolve({ slug }) });
   return read(res.status, await res.text(), Boolean(res.headers.get("content-type")?.startsWith("text/event-stream")));
 }
 
@@ -235,7 +235,7 @@ describe("the daily message limit", () => {
   it("counts every turn for the person, keeps counting after a conversation is deleted, and not a failed turn", async () => {
     vi.stubEnv("CHAT_DAILY_LIMIT", "3");
     const t = await say("Blurbs for my shop");
-    await deleteConversation(json(`/api/conversations/${conversationOf(t)}`, "DELETE"), { params: { id: conversationOf(t) } });
+    await deleteConversation(json(`/api/conversations/${conversationOf(t)}`, "DELETE"), { params: Promise.resolve({ id: conversationOf(t) }) });
     expect((await me()).chat).toMatchObject({ remaining: 2 });
 
     status.serv = 500;
@@ -470,7 +470,7 @@ describe("em dashes in model answers", () => {
   it("are taken out of replies stored before", async () => {
     const cid = await answerSketch(ana);
     await db.insert(schema.messages).values({ conversationId: cid, role: "assistant", content: `Sure ${EM} done.` });
-    const { messages } = await (await messagesOf(json(`/api/conversations/${cid}/messages`, "GET"), { params: { id: cid } })).json();
+    const { messages } = await (await messagesOf(json(`/api/conversations/${cid}/messages`, "GET"), { params: Promise.resolve({ id: cid }) })).json();
     expect(messages.map((m: { content: string }) => m.content)).toContain("Sure, done.");
   });
 });
@@ -484,7 +484,7 @@ describe("invite-only", () => {
     const waiting = { error: "boardofserv is invite-only for now, and your account is on the list.", access: "waiting" };
     for (const res of [
       await chat(json("/api/chat", "POST", { content: "Hi" })),
-      await use(json("/api/helpers/shop-blurbs/use", "POST", { input: "Hi" }), { params: { slug: "shop-blurbs" } }),
+      await postUse(json("/api/helpers/shop-blurbs/use", "POST", { input: "Hi" }), { params: Promise.resolve({ slug: "shop-blurbs" }) }),
       await publish(json("/api/helpers", "POST", { conversationId: cid, description: "Blurbs", inputHint: "A product" })),
       await saveKey(json("/api/account/serv-key", "POST", { key: OWN_KEY })),
     ]) {
@@ -520,14 +520,14 @@ describe("invite-only", () => {
       ],
     });
 
-    const approve = await decideAccess(json(`/api/admin/access/${jo.id}`, "POST", { action: "approve" }), { params: { id: jo.id } });
+    const approve = await decideAccess(json(`/api/admin/access/${jo.id}`, "POST", { action: "approve" }), { params: Promise.resolve({ id: jo.id }) });
     expect(approve.status).toBe(200);
     expect((await approve.json()).admin.access.waiting.map((u: { id: string }) => u.id)).toEqual([lee.id]);
-    const reject = await decideAccess(json(`/api/admin/access/${lee.id}`, "POST", { action: "reject" }), { params: { id: lee.id } });
+    const reject = await decideAccess(json(`/api/admin/access/${lee.id}`, "POST", { action: "reject" }), { params: Promise.resolve({ id: lee.id }) });
     expect((await reject.json()).admin.access.waiting).toEqual([]);
-    const again = await decideAccess(json(`/api/admin/access/${jo.id}`, "POST", { action: "reject" }), { params: { id: jo.id } });
+    const again = await decideAccess(json(`/api/admin/access/${jo.id}`, "POST", { action: "reject" }), { params: Promise.resolve({ id: jo.id }) });
     expect(again.status).toBe(409);
-    expect((await decideAccess(json("/api/admin/access/nope", "POST", { action: "approve" }), { params: { id: "nope" } })).status).toBe(400);
+    expect((await decideAccess(json("/api/admin/access/nope", "POST", { action: "approve" }), { params: Promise.resolve({ id: "nope" }) })).status).toBe(400);
 
     const [joRow] = await db.select().from(schema.users).where(eq(schema.users.id, jo.id));
     expect(joRow).toMatchObject({ access: "approved", accessDecidedBy: ana.id });
@@ -542,7 +542,7 @@ describe("invite-only", () => {
 
     // Nobody else may decide, or see the list.
     state.user = ben;
-    expect((await decideAccess(json(`/api/admin/access/${lee.id}`, "POST", { action: "approve" }), { params: { id: lee.id } })).status).toBe(404);
+    expect((await decideAccess(json(`/api/admin/access/${lee.id}`, "POST", { action: "approve" }), { params: Promise.resolve({ id: lee.id }) })).status).toBe(404);
     expect((await admin(json("/api/admin", "GET"))).status).toBe(404);
   });
 });
@@ -559,7 +559,7 @@ describe("the kind of a sketch", () => {
     const t = await say("Blurbs for my shop");
     const cid = conversationOf(t);
     await db.update(schema.agentSketches).set({ asking: "takes" }).where(eq(schema.agentSketches.conversationId, cid));
-    const res = await setKind(json(`/api/conversations/${cid}/sketch`, "PATCH", { kind: "watcher" }), { params: { id: cid } });
+    const res = await setKind(json(`/api/conversations/${cid}/sketch`, "PATCH", { kind: "watcher" }), { params: Promise.resolve({ id: cid }) });
     expect(res.status).toBe(200);
     // The question asked was an answer helper's, so it goes.
     expect((await res.json()).sketch).toMatchObject({ kind: "watcher", kindChosen: true, asking: null });
@@ -569,15 +569,15 @@ describe("the kind of a sketch", () => {
     const [row] = await db.select().from(schema.agentSketches);
     expect(row).toMatchObject({ kind: "watcher", kindChosen: true, watches: "ETH price" });
 
-    expect((await setKind(json(`/api/conversations/${cid}/sketch`, "PATCH", { kind: "robot" }), { params: { id: cid } })).status).toBe(400);
+    expect((await setKind(json(`/api/conversations/${cid}/sketch`, "PATCH", { kind: "robot" }), { params: Promise.resolve({ id: cid }) })).status).toBe(400);
     state.user = ben;
-    expect((await setKind(json(`/api/conversations/${cid}/sketch`, "PATCH", { kind: "digest" }), { params: { id: cid } })).status).toBe(404);
+    expect((await setKind(json(`/api/conversations/${cid}/sketch`, "PATCH", { kind: "digest" }), { params: Promise.resolve({ id: cid }) })).status).toBe(404);
   });
 
   it("stays put while its helper is on the board", async () => {
     const cid = await answerSketch(ana);
     expect((await publish(json("/api/helpers", "POST", { conversationId: cid, description: "Blurbs", inputHint: "A product" }))).status).toBe(200);
-    const res = await setKind(json(`/api/conversations/${cid}/sketch`, "PATCH", { kind: "watcher" }), { params: { id: cid } });
+    const res = await setKind(json(`/api/conversations/${cid}/sketch`, "PATCH", { kind: "watcher" }), { params: Promise.resolve({ id: cid }) });
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: "Take it off the board first." });
   });
@@ -611,18 +611,18 @@ describe("the market", () => {
     const [rental] = await db.insert(schema.rentals).values({ agentId: m.agentId, versionId: (await db.select().from(schema.agentVersions))[0]!.id, renterUserId: jo.id, makerUserId: ben.id, weeklyPrice: "0", status: "unpaid", paidUntil: new Date() }).returning();
     const [joAgent] = await db.insert(schema.agents).values({ ownerUserId: jo.id, name: "Mine" }).returning();
     state.user = jo;
-    const r = { params: { id: rental!.id } };
+    const r = { params: Promise.resolve({ id: rental!.id }) };
     const waiting = { error: "boardofserv is invite-only for now, and your account is on the list.", access: "waiting" };
     for (const res of [
-      await rentAgent(json(`/api/market/agents/${m.agentId}/rent`, "POST"), { params: { id: m.agentId } }),
-      await listAgent(json(`/api/agents/${joAgent!.id}/listing`, "POST", { weeklyPrice: "0", jobFee: "0", listed: true }), { params: { id: joAgent!.id } }),
+      await rentAgent(json(`/api/market/agents/${m.agentId}/rent`, "POST"), { params: Promise.resolve({ id: m.agentId }) }),
+      await listAgent(json(`/api/agents/${joAgent!.id}/listing`, "POST", { weeklyPrice: "0", jobFee: "0", listed: true }), { params: Promise.resolve({ id: joAgent!.id }) }),
       await installRentalRoute(json(`/api/rentals/${rental!.id}/install`, "POST", { settings: {}, rules: {}, timezone: "UTC" }), r),
       await controlRental(json(`/api/rentals/${rental!.id}/control`, "POST", { action: "resume" }), r),
       await versionRental(json(`/api/rentals/${rental!.id}/version`, "POST", { choice: "update" }), r),
       await askRoute(json("/api/requests", "POST", { need: "Something" })),
-      await requestAction(json(`/api/requests/${m.requestId}`, "POST", { action: "metoo" }), { params: { id: m.requestId } }),
-      await offerRoute(json(`/api/requests/${m.requestId}/offers`, "POST", { agentId: joAgent!.id, weeklyPrice: "0" }), { params: { id: m.requestId } }),
-      await offerAction(json(`/api/offers/${m.offerId}`, "POST", { action: "accept" }), { params: { id: m.offerId } }),
+      await requestAction(json(`/api/requests/${m.requestId}`, "POST", { action: "metoo" }), { params: Promise.resolve({ id: m.requestId }) }),
+      await offerRoute(json(`/api/requests/${m.requestId}/offers`, "POST", { agentId: joAgent!.id, weeklyPrice: "0" }), { params: Promise.resolve({ id: m.requestId }) }),
+      await offerAction(json(`/api/offers/${m.offerId}`, "POST", { action: "accept" }), { params: Promise.resolve({ id: m.offerId }) }),
     ]) {
       expect(res.status).toBe(403);
       expect(await res.json()).toEqual(waiting);
@@ -636,7 +636,7 @@ describe("the market", () => {
     const m = await market();
     await usageAt(new Date(), { promptTokens: 100_000_000 });
     const tried = async () => [
-      await rentAgent(json(`/api/market/agents/${m.agentId}/rent`, "POST"), { params: { id: m.agentId } }),
+      await rentAgent(json(`/api/market/agents/${m.agentId}/rent`, "POST"), { params: Promise.resolve({ id: m.agentId }) }),
       await askRoute(json("/api/requests", "POST", { need: "Something" })),
     ];
     for (const res of await tried()) {
@@ -644,10 +644,10 @@ describe("the market", () => {
       expect((await res.json()).error).toBe(LIMIT_MESSAGE);
     }
     state.user = ben;
-    const offered = await offerRoute(json(`/api/requests/${m.requestId}/offers`, "POST", { agentId: m.agentId, weeklyPrice: "0" }), { params: { id: m.requestId } });
+    const offered = await offerRoute(json(`/api/requests/${m.requestId}/offers`, "POST", { agentId: m.agentId, weeklyPrice: "0" }), { params: Promise.resolve({ id: m.requestId }) });
     expect(offered.status).toBe(429);
     // "Me too" spends nothing.
-    expect((await requestAction(json(`/api/requests/${m.requestId}`, "POST", { action: "metoo" }), { params: { id: m.requestId } })).status).toBe(200);
+    expect((await requestAction(json(`/api/requests/${m.requestId}`, "POST", { action: "metoo" }), { params: Promise.resolve({ id: m.requestId }) })).status).toBe(200);
     // On her own key, Ana goes on.
     state.user = ana;
     await saveKey(json("/api/account/serv-key", "POST", { key: OWN_KEY }));

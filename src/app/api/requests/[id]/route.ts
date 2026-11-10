@@ -9,7 +9,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // One request and its offers, for anyone.
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const limited = rateLimited(req, "read");
   if (limited) return limited;
   const user = await getUserFromRequest(req).catch(() => null);
@@ -21,7 +22,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 const Body = z.object({ action: z.enum(["metoo", "unmetoo", "close"]) });
 
 // "Me too" (or taking it back), or the one who asked closes it.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const parsed = Body.safeParse(await req.json().catch(() => null));

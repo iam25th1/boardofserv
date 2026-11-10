@@ -33,7 +33,7 @@ interface Props {
 const CHUNK_SPREAD_MS = 200;
 const WORD_STEP_MS = 28;
 
-function useDustInWords(body: React.RefObject<HTMLDivElement>, content: string, active: boolean) {
+function useDustInWords(body: React.RefObject<HTMLDivElement | null>, content: string, active: boolean) {
   const seen = useRef(0);
   // Layout effect: new words are hidden before the browser paints them.
   useLayoutEffect(() => {

@@ -35,7 +35,7 @@ beforeAll(async () => {
 afterAll(async () => client.close());
 
 const req = (body?: unknown) => new Request(`http://localhost/api/installations/${id}/allowance`, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-const p = { params: { get id() { return id; } } };
+const p = { get params() { return Promise.resolve({ id }); } };
 
 describe("the allowance route", () => {
   it("is the renter's alone", async () => {
@@ -45,7 +45,7 @@ describe("the allowance route", () => {
     state.user = other;
     expect((await GET(req(), p)).status).toBe(404);
     expect((await POST(req({ action: "topup", amount: "1", key: "abcdefgh2" }), p)).status).toBe(404);
-    expect((await GET(new Request("http://localhost/api/installations/x/allowance"), { params: { id: "x" } })).status).toBe(404);
+    expect((await GET(new Request("http://localhost/api/installations/x/allowance"), { params: Promise.resolve({ id: "x" }) })).status).toBe(404);
   });
 
   it("tops up and withdraws, once per key", async () => {

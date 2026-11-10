@@ -6,7 +6,8 @@ export const runtime = "nodejs";
 
 // The maker's view of how their agent runs, on every installation: their
 // own jobs in full, everyone else's without the owner's data.
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const who = await ownedAgent(req, params.id);
   if ("refused" in who) return who.refused;
   return Response.json({ jobs: await jobsOfAgent(serverRuntime(), who.user.id, who.agent.id) });

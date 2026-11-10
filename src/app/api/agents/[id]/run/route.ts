@@ -23,7 +23,8 @@ function sse(event: string, data: unknown): string {
 // with the run, so unsaved edits count). Decisions are SERV's within the
 // agent's spend limit, or on a dry run the recorded answers, with no model
 // call at all.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, route: { params: Promise<{ id: string }> }) {
+  const params = await route.params;
   const who = await ownedAgent(req, params.id);
   if ("refused" in who) return who.refused;
   const shut = notLetIn(who.user);

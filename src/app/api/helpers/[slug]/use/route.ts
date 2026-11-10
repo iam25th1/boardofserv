@@ -44,7 +44,8 @@ function sse(event: string, data: unknown): string {
 // price is held before the model is called, captured on a good answer and
 // released on a failed or blocked one. A helper without prices is free, with
 // the daily limit.
-export async function POST(req: Request, { params }: { params: { slug: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ slug: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Sign in to use this helper." }, { status: 401 });
   // Not let in yet: nothing here runs for a waiting account.

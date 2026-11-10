@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { SkeletonPanel } from "@/components/ui";
 import { Page } from "@/components/shell/Page";
@@ -15,7 +15,9 @@ import { useApi } from "@/lib/useApi";
 // Setting up an agent the user rents: the same guided setup a maker uses
 // for their own (questions, connections, sheets, rules, a test run, then
 // live), given only what setting it up needs: never its code or prompts.
-export default function RentalSetup({ params }: { params: { id: string } }) {
+export default function RentalSetup() {
+  // Next 16 passes params to a page as a promise; a client page reads them here.
+  const params = useParams<{ id: string }>();
   if (!privyAppId()) return <Page title="Set it up">Sign-in isn&apos;t set up here.</Page>;
   return <SignedIn id={params.id} />;
 }

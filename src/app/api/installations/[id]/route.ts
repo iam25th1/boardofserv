@@ -9,7 +9,8 @@ import { MAX_AUTO_SPEND_USDC } from "@/lib/agents/risk";
 export const runtime = "nodejs";
 
 // One installation, for its owner only: a 404 for anyone else.
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const rt = serverRuntime();
@@ -31,7 +32,8 @@ const Policy = z.union([
 // without asking, or sets its weekly model budget (within the platform's
 // ceiling). Nobody lowers the platform's floor: reads can't ask, money
 // above the auto limit always does.
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const rt = serverRuntime();

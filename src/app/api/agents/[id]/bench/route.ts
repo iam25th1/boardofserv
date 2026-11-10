@@ -10,7 +10,8 @@ const Body = z.object({ bench: BenchSchema });
 
 // Save draft: the test bench's sample data is kept with the draft. On a
 // published version this starts a new draft, which carries it.
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
+export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const who = await ownedAgent(req, params.id);
   if ("refused" in who) return who.refused;
   const parsed = Body.safeParse(await req.json().catch(() => null));

@@ -14,7 +14,8 @@ const Patch = z.object({ kind: z.enum(SKETCH_KINDS) });
 // The maker switches the kind of the agent sketched in their conversation
 // (answer, watcher, digest or helper). From then on the plan keeps it. A
 // helper that is on the board keeps its kind until it is taken down.
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const convo = await db.query.conversations.findFirst({ where: and(eq(conversations.id, params.id), eq(conversations.userId, user.id)) });

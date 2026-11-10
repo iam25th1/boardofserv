@@ -133,7 +133,7 @@ describe("publishing an answer helper", () => {
     // The maker's own views show it as published, with nothing private.
     const list = await (await listConversations(new Request("http://localhost/api/conversations"))).json();
     expect(list.conversations.find((c: { id: string }) => c.id === cid).publishedSlug).toBe("shop-blurb-writer");
-    const convo = await (await getMessages(new Request("http://localhost/"), { params: { id: cid } })).json();
+    const convo = await (await getMessages(new Request("http://localhost/"), { params: Promise.resolve({ id: cid }) })).json();
     expect(convo.published).toEqual(body.helper);
   });
 
@@ -144,7 +144,7 @@ describe("publishing an answer helper", () => {
     expect(two.helper.slug).toBe("shop-blurb-writer-2");
     expect(two.helper.maker).toBe("sam");
 
-    expect((await unpublish(new Request("http://localhost/", { method: "DELETE" }), { params: { slug: "shop-blurb-writer-2" } })).status).toBe(200);
+    expect((await unpublish(new Request("http://localhost/", { method: "DELETE" }), { params: Promise.resolve({ slug: "shop-blurb-writer-2" }) })).status).toBe(200);
     const third = await answerSketch(sam, "Shop Blurb Writer!");
     expect((await (await post({ conversationId: third, ...edits })).json()).helper.slug).toBe("shop-blurb-writer-3");
   });
@@ -157,7 +157,7 @@ describe("publishing an answer helper", () => {
     expect((await again.json()).helper.slug).toBe("haiku-maker");
 
     // Taken down, it can go up again, under a new slug.
-    await unpublish(new Request("http://localhost/", { method: "DELETE" }), { params: { slug: "haiku-maker" } });
+    await unpublish(new Request("http://localhost/", { method: "DELETE" }), { params: Promise.resolve({ slug: "haiku-maker" }) });
     expect((await (await post({ conversationId: cid, ...edits })).json()).helper.slug).toBe("haiku-maker-2");
   });
 
@@ -193,12 +193,12 @@ describe("publishing an answer helper", () => {
     const cid = await answerSketch(maya, "Gift ideas");
     await post({ conversationId: cid, ...edits });
     state.user = sam;
-    expect((await unpublish(new Request("http://localhost/", { method: "DELETE" }), { params: { slug: "gift-ideas" } })).status).toBe(404);
+    expect((await unpublish(new Request("http://localhost/", { method: "DELETE" }), { params: Promise.resolve({ slug: "gift-ideas" }) })).status).toBe(404);
     state.user = maya;
     const row = () => state.db.query.publishedHelpers.findFirst({ where: eq(schema.publishedHelpers.slug, "gift-ideas") });
     expect((await row())!.unpublishedAt).toBeNull();
 
-    await deleteConversation(new Request("http://localhost/", { method: "DELETE" }), { params: { id: cid } });
+    await deleteConversation(new Request("http://localhost/", { method: "DELETE" }), { params: Promise.resolve({ id: cid }) });
     expect((await row())!.unpublishedAt).toBeInstanceOf(Date);
     expect((await row())!.sourceConversationId).toBeNull();
   });

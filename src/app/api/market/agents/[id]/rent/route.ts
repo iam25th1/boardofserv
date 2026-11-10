@@ -8,7 +8,8 @@ export const runtime = "nodejs";
 // Rent an agent on the board: its first week is charged now from the
 // renter's balance (90% to its maker, 10% to boardofserv), then they set
 // it up. Renewal is weekly while the balance covers it.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const rt = serverRuntime();
