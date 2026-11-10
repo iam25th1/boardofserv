@@ -16,6 +16,11 @@ const DATA_LOSS = [
   "  Yes, I want to remove 1 table,",
 ].join("\n");
 const RENAME = "Is helper_notes table created or renamed from another table?\n❯ + helper_notes          create table\n  ~ helper_note › helper_notes rename table\n";
+// drizzle-kit 0.31 with no terminal, captured against a throwaway Postgres
+// in phase 9: it can't ask, says so, changes nothing, and still exits 0.
+const TTY = "Error: Interactive prompts require a TTY terminal (process.stdin.isTTY or process.stdout.isTTY is false). This can happen when running in CI, piped input, or non-interactive shells.\n    at render10 (node_modules/drizzle-kit/bin.cjs:1450:31)";
+const DATA_LOSS_031 = ["[✓] Pulling schema from database...", " Warning  Found data-loss statements:", "· You're about to delete b column in zz_probe table with 1 items", "THIS ACTION WILL CAUSE DATA LOSS AND CANNOT BE REVERTED", "Do you still want to push changes?", TTY].join("\n");
+const RENAME_031 = `[✓] Pulling schema from database...\n${TTY}\n    at promptNamedWithSchemasConflict (node_modules/drizzle-kit/bin.cjs:32812:65)`;
 
 describe("the deploy's schema push", () => {
   it("passes when the schema is applied or already matches", () => {
@@ -28,6 +33,16 @@ describe("the deploy's schema push", () => {
       const v = pushVerdict(0, out);
       expect(v.ok).toBe(false);
       expect(!v.ok && v.reason).toContain("by hand");
+    }
+  });
+
+  it("fails the deploy when drizzle-kit 0.31 says it can't ask, whatever it exits with", () => {
+    for (const out of [DATA_LOSS_031, RENAME_031]) {
+      for (const status of [0, 1]) {
+        const v = pushVerdict(status, out);
+        expect(v.ok).toBe(false);
+        expect(!v.ok && v.reason).toContain("by hand");
+      }
     }
   });
 
