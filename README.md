@@ -166,7 +166,17 @@ the server:
   policy again (the browser console names anything it blocks). The
   Cloudflare Web Analytics beacon the 25th.dev zone injects is allowed through
   the two hosts Cloudflare lists for it: `static.cloudflareinsights.com` for
-  the script and `cloudflareinsights.com` for connections.
+  the script and `cloudflareinsights.com` for connections. Production also
+  sends `Strict-Transport-Security` (two years, with subdomains, not
+  preloaded) and a `Permissions-Policy` that turns off the camera,
+  microphone, location, payment requests, USB and ad topics.
+- `/_next/image` answers 404 (`src/middleware.ts`): nothing uses next/image,
+  and next 14's image optimizer has advisories only next 16 fixes.
+- Every route anyone can reach without signing in is rate limited per
+  address (`src/lib/rateLimit.ts`, Cloudflare's `cf-connecting-ip` first):
+  a fixed window a minute, then a 429 with `Retry-After`. Signed-in routes
+  have their own per-account limits. Every admin route checks for an admin
+  on the server (`src/app/api/admin/guard.ts`); a test finds them on disk.
 
 What is locked down, and what isn't yet:
 
@@ -944,6 +954,15 @@ it is used up, until Monday or sooner on the renter's own SERV key. A maker
 can pass model cost on to renters: each finished job's cost is charged on top
 of the fee. The board shows a weekly estimate.
 
+boardofserv's own SERV calls, outside any installation (code reviews while
+an agent is built, the review before publishing, screening posts and
+listings, screening outside a run), are metered the same way
+(`platform_model_usage`) against the platform's daily budget
+(`PLATFORM_MODEL_BUDGET_USDC`, 2): past it they wait as when SERV can't
+answer, never skipped. Every call, installation or platform, counts toward
+the site's daily limit. The admin's model cost view shows every call this
+week by what it was for, and the platform's spend today against its budget.
+
 ### Schedules
 
 Schedules run every N minutes, every N hours, every day at a time, or every
@@ -1070,6 +1089,24 @@ on hold: off the board until an admin looks, its renters told in plain
 words, their installations running as before with their pause button
 (`src/lib/reppo/blocks.ts`).
 
+## The beta
+
+boardofserv is a beta on test USDC on Base Sepolia, and says so: a beta tag
+beside the mark on the public pages and in the app, a line under the front
+page's hero, and "test USDC on Base Sepolia" wherever money shows (wallet,
+spending, payment approvals). About, Using the beta (`/terms`) and Your data
+(`/privacy`) are short plain notes with no legal or business words (a test
+checks a list of them); Support takes Telegram and, once the owner sets
+`SUPPORT_EMAIL`, email. Links shared anywhere show a chalk card
+(`public/brand/share-card.png`, from `docs/brand/share-card.html`), and an
+agent's page shares with its own name and what it does.
+
+For later, as docs only: [docs/MAINNET.md](docs/MAINNET.md) (what to work
+through before real money), [docs/HOSTING.md](docs/HOSTING.md) (running on
+the owner's Mac, plainly), [docs/GOOGLE-VERIFICATION.md](docs/GOOGLE-VERIFICATION.md)
+(the owner's steps for Google's review). Backups: `scripts/backup-db.sh`
+(see [docs/DEPLOY-PIER.md](docs/DEPLOY-PIER.md#back-up-the-database)).
+
 ## Trust and spending
 
 Agents pay saved payees from an allowance their renter funds, on Base
@@ -1090,7 +1127,17 @@ installation (`payees.ts`): a name and a checksummed Base address, never
 the zero address, the treasury or the USDC contract. An address the agent
 names that isn't saved becomes a suggestion: nothing is paid, and the
 renter can save it on screen with a name of their own. The first payment
-to a payee always asks.
+to an address always asks.
+
+A payment is judged by its address, never the name it was saved under
+(`addresses.ts`), so renaming a payee changes nothing about how its
+payments are checked. The safety check is told the address, the amount,
+how often this installation paid it and what is known about it, never the
+label. An address that is the agent's maker's own wallet, boardofserv's
+treasury, another maker's wallet, or saved by several other renters
+(`PAYEE_CROWD_RENTERS`, 3) is high risk: a payment to it always asks, with
+a plain warning, whatever the limits allow, and the renter's payee list
+shows the warning.
 
 ### Payments on chain
 
