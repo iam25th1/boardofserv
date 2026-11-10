@@ -1,0 +1,325 @@
+/* Everything you need to know: one centred column to read, at a line
+   length that's easy on the eye, under the public pages' top and above
+   their footer. Chalk only, like the front page; Caveat only for the
+   contents' note and the sign-off. */
+
+.article {
+  --read: 39rem;
+  width: 100%;
+  max-width: calc(var(--read) + var(--edge) + var(--edge-r));
+  margin: 0 auto;
+  padding: var(--s-8) var(--edge-r) var(--s-10) var(--edge);
+  font-size: var(--t-md);
+}
+.article p,
+.article li {
+  color: var(--chalk-2);
+  line-height: var(--lh-body);
+}
+.article strong {
+  color: var(--chalk);
+  font-weight: var(--w-semibold);
+}
+.article a {
+  color: var(--chalk);
+  text-underline-offset: 3px;
+}
+.article a:focus-visible {
+  outline: var(--focus);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* The opening */
+.intro {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.intro h1 {
+  margin-bottom: var(--s-2);
+  font-size: clamp(2.5rem, 6vw, 4rem);
+  font-weight: var(--w-semibold);
+  line-height: 1.02;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+.article .lede {
+  font-size: clamp(1.25rem, 2.2vw, 1.5rem);
+  line-height: var(--lh-snug);
+  color: var(--chalk);
+  font-weight: var(--w-medium);
+  text-wrap: balance;
+}
+.article .line {
+  color: var(--chalk);
+  font-weight: var(--w-medium);
+}
+
+/* Contents: every part, a jump away. */
+.contents {
+  margin-top: var(--s-8);
+  padding: var(--s-5) 0;
+  border-top: 1.5px dashed var(--line);
+  border-bottom: 1.5px dashed var(--line);
+}
+.article .contentsLabel {
+  margin-bottom: var(--s-3);
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-lg);
+  font-weight: var(--w-medium);
+  line-height: 1.2;
+}
+.contents ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-2) var(--s-6);
+}
+.contents li {
+  line-height: var(--lh-snug);
+}
+.article .contents a {
+  display: inline-block;
+  padding: 2px 0;
+  font-size: var(--t-base);
+  color: var(--chalk-2);
+  text-decoration: none;
+}
+.article .contents a:hover {
+  color: var(--chalk);
+  text-decoration: underline dashed;
+}
+
+/* The parts */
+.part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding-top: var(--s-10);
+}
+.part h2 {
+  margin-bottom: var(--s-1);
+  font-size: clamp(1.6rem, 3vw, 2.15rem);
+  font-weight: var(--w-semibold);
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+  scroll-margin-top: var(--s-6);
+}
+.steps {
+  margin: var(--s-1) 0 var(--s-2);
+}
+.list {
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.list li::marker {
+  color: var(--chalk-3);
+}
+
+/* The four partners: each drawing hangs in the margin, so the names and
+   their words keep to the column. */
+.partners {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-8);
+  margin: var(--s-4) 0 var(--s-2);
+}
+.partner {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  column-gap: var(--s-5);
+  align-items: start;
+}
+.partnerArt {
+  width: 56px;
+  padding-top: 2px;
+}
+.partnerText {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.partnerText h3 {
+  font-size: var(--t-xl);
+  font-weight: var(--w-semibold);
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.jobs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+
+/* A typical agent beside a boardofserv one. */
+.compare {
+  margin: var(--s-4) 0;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-base);
+}
+.table th,
+.table td {
+  padding: var(--s-3) var(--s-4) var(--s-3) 0;
+  text-align: left;
+  vertical-align: top;
+  line-height: var(--lh-snug);
+  border-bottom: 1px solid var(--line);
+}
+.table thead th {
+  color: var(--chalk);
+  font-weight: var(--w-semibold);
+  border-bottom: var(--stroke) solid var(--chalk-3);
+}
+.table thead td {
+  border-bottom: var(--stroke) solid var(--chalk-3);
+}
+.table tbody th {
+  width: 30%;
+  color: var(--chalk);
+  font-weight: var(--w-medium);
+}
+.table tbody td {
+  color: var(--chalk-2);
+}
+/* The boardofserv column, picked out in dust. */
+.table th:last-child,
+.table td:last-child {
+  padding-left: var(--s-4);
+  background: var(--dust);
+}
+.table tbody td:last-child {
+  color: var(--chalk);
+}
+.table thead th:last-child {
+  border-top-left-radius: var(--r-md);
+  border-top-right-radius: var(--r-md);
+}
+.stacked {
+  display: none;
+}
+.side h3 {
+  margin-bottom: var(--s-2);
+  font-size: var(--t-lg);
+  font-weight: var(--w-semibold);
+}
+.side ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.side li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s-3) 0;
+  border-top: 1px solid var(--line);
+}
+.article .rowName {
+  font-size: var(--t-sm);
+  color: var(--chalk-3);
+}
+.side:last-child li span:last-child {
+  color: var(--chalk);
+}
+
+/* The last word, and where to find it. */
+.close {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  margin-top: var(--s-10);
+  padding-top: var(--s-8);
+  border-top: 1.5px dashed var(--line);
+}
+.article .closing {
+  font-size: clamp(1.6rem, 3.4vw, 2.4rem);
+  font-weight: var(--w-semibold);
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  color: var(--chalk);
+  text-wrap: balance;
+}
+.article .home {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-lg);
+  color: var(--chalk-2);
+  text-decoration: none;
+}
+.article .home:hover {
+  color: var(--chalk);
+  text-decoration: underline dashed;
+}
+
+/* Jumps from the contents glide, unless motion is reduced. */
+@media (prefers-reduced-motion: no-preference) {
+  :global(html):has(.article) {
+    scroll-behavior: smooth;
+  }
+}
+
+/* On a wide screen the comparison takes a little more room than the
+   column, evenly on both sides. */
+@media (min-width: 1100px) {
+  .compare {
+    margin-inline: -4rem;
+  }
+}
+@media (min-width: 1024px) {
+  .partner {
+    margin-left: calc(-56px - var(--s-5));
+  }
+}
+
+/* Phones: the comparison as two lists, the drawings smaller and above. */
+@media (max-width: 640px) {
+  .article {
+    padding-top: var(--s-6);
+  }
+  .contents ul {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .article .contents a {
+    padding: 6px 0;
+  }
+  .part {
+    padding-top: var(--s-8);
+  }
+  /* The drawing above the name, so the words get the whole width. */
+  .partner {
+    display: block;
+  }
+  .partnerArt {
+    width: 44px;
+    margin-bottom: var(--s-3);
+  }
+  .table {
+    display: none;
+  }
+  .stacked {
+    display: flex;
+    flex-direction: column;
+    gap: var(--s-6);
+  }
+}
+
+/* On paper, every part is there. */
+@media print {
+  .article [data-reveal] {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
