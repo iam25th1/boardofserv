@@ -3,12 +3,15 @@ import { getUserFromRequest } from "@/lib/auth-route";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { marketRefusal } from "@/lib/market/limits";
 import { closeRequest, meToo, requestPage, RequestRefused } from "@/lib/market/requests";
+import { rateLimited } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // One request and its offers, for anyone.
 export async function GET(req: Request, { params }: { params: { id: string } }) {
+  const limited = rateLimited(req, "read");
+  if (limited) return limited;
   const user = await getUserFromRequest(req).catch(() => null);
   const page = await requestPage(serverRuntime(), params.id, user?.id ?? null);
   if (!page) return Response.json({ error: "Not found" }, { status: 404 });

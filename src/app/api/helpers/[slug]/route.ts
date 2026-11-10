@@ -3,12 +3,15 @@ import { getUserFromRequest } from "@/lib/auth-route";
 import { db } from "@/lib/db";
 import { publishedHelpers } from "@/lib/db/schema";
 import { helperPage } from "@/lib/helpers";
+import { rateLimited } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 // A helper's page, for anyone: the public helper, or that it was taken down.
-export async function GET(_req: Request, { params }: { params: { slug: string } }) {
+export async function GET(req: Request, { params }: { params: { slug: string } }) {
+  const limited = rateLimited(req, "read");
+  if (limited) return limited;
   const page = await helperPage(params.slug);
   if (!page) return Response.json({ error: "Not found" }, { status: 404 });
   if ("takenDown" in page) return Response.json({ error: "This helper was taken down.", name: page.takenDown }, { status: 410 });

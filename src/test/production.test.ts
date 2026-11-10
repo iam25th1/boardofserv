@@ -168,6 +168,20 @@ describe("security headers", () => {
     const dev = Object.fromEntries(SECURITY_HEADERS(false).map((h: { key: string; value: string }) => [h.key, h.value]));
     expect(dev["Content-Security-Policy"]).toBe("frame-ancestors 'none'");
     expect(dev["X-Content-Type-Options"]).toBe("nosniff");
+    // Plain http on localhost: no HSTS there.
+    expect(dev["Strict-Transport-Security"]).toBeUndefined();
+  });
+
+  it("production adds HSTS and a permissions policy that leaves sign-in and the copy buttons alone", async () => {
+    // @ts-expect-error next.config.mjs is plain JavaScript, without types
+    const { SECURITY_HEADERS } = await import("../../next.config.mjs");
+    const prod = Object.fromEntries(SECURITY_HEADERS(true).map((h: { key: string; value: string }) => [h.key, h.value]));
+    expect(prod["Strict-Transport-Security"]).toBe("max-age=63072000; includeSubDomains");
+    const pp: string = prod["Permissions-Policy"];
+    for (const off of ["camera=()", "microphone=()", "geolocation=()", "payment=()", "usb=()"]) expect(pp).toContain(off);
+    // Nothing Privy's sign-in or the clipboard needs is turned off.
+    expect(pp).not.toMatch(/clipboard|publickey-credentials|storage-access|identity-credentials/);
+    for (const key of ["Content-Security-Policy", "X-Frame-Options", "X-Content-Type-Options", "Referrer-Policy"]) expect(prod[key], key).toBeTruthy();
   });
 });
 
@@ -250,7 +264,23 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     expect(res.headers.get("x-frame-options")).toBe("DENY");
     expect(res.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
+    expect(res.headers.get("permissions-policy")).toContain("camera=()");
+    expect(res.headers.get("strict-transport-security")).toBe("max-age=63072000; includeSubDomains");
     expect(res.headers.get("x-powered-by")).toBeNull();
+  });
+
+  it.each(["/", "/about", "/terms", "/privacy", "/support"])("%s loads signed out, with its share card", async (path) => {
+    const res = await fetch(`${base}${path}`, { redirect: "manual" });
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('property="og:image" content="https://boardofserv.25th.dev/brand/share-card.png"');
+    expect(html).toContain('name="twitter:card" content="summary_large_image"');
+  });
+
+  it("serves the share card and the logo, and no image optimizer", async () => {
+    expect((await fetch(`${base}/brand/share-card.png`)).headers.get("content-type")).toBe("image/png");
+    expect((await fetch(`${base}/brand/logo-120.png`)).status).toBe(200);
+    expect((await fetch(`${base}/_next/image?url=%2Fbrand%2Flogo-120.png&w=64&q=75`)).status).toBe(404);
   });
 });
 

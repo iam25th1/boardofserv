@@ -1,5 +1,6 @@
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { CallbackRefused, finishGoogle, GoogleUnavailable, STATE_COOKIE } from "@/lib/google/oauth";
+import { rateLimited } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 
@@ -8,6 +9,8 @@ export const runtime = "nodejs";
 // exchanged and the tokens go into the vault. Either way the owner lands
 // back on the page they came from, told how it went, and the cookie goes.
 export async function GET(req: Request) {
+  const limited = rateLimited(req, "callback");
+  if (limited) return limited;
   const rt = serverRuntime();
   const q = new URL(req.url).searchParams;
   const cookie =

@@ -62,11 +62,22 @@ const CSP = [
 
 export const MOVED_TO_APP = ["chat", "board", "agents", "installations", "approvals", "jobs", "wallet", "connections", "admin"];
 
+// What the pages may use of the browser: none of the camera, microphone,
+// location, payment requests, USB or the ad topics. Clipboard writes stay
+// (the copy buttons); sign-in (Privy, email only) needs none of these.
+export const PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=(), interest-cohort=()";
+
+// HTTPS only, for two years, the site and anything under it (production
+// only: the development server is plain http on localhost). Not preloaded.
+export const HSTS = "max-age=63072000; includeSubDomains";
+
 export const SECURITY_HEADERS = (production) => [
   { key: "Content-Security-Policy", value: production ? CSP : "frame-ancestors 'none'" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Permissions-Policy", value: PERMISSIONS_POLICY },
+  ...(production ? [{ key: "Strict-Transport-Security", value: HSTS }] : []),
 ];
 
 /** @type {import('next').NextConfig} */
