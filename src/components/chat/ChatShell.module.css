@@ -6,8 +6,12 @@
   flex-direction: column;
   overflow: hidden;
 }
-/* The conversations, on the chat's own row under the app's top bar. */
+/* The conversations, on the chat's own row under the app's top bar. On a
+   phone the agents popover spans this row's width and hangs under it, so
+   the row is what it is placed by: without it the popover was placed by
+   the whole window and opened below the bottom of the screen. */
 .row {
+  position: relative;
   flex: none;
   display: flex;
   align-items: center;
