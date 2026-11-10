@@ -1294,6 +1294,39 @@ export const allowanceEntries = pgTable(
 );
 export type Allowance = typeof allowances.$inferSelect;
 
+// Who an installation's agent may pay: its renter's saved payees, each a
+// label and a Base address (checksummed). An agent pays nobody else. A
+// payee is "active" once its renter saved or confirmed it; one an agent
+// suggested waits as "suggested" until its renter confirms it on screen.
+// Changing a payee's address makes a new payee (the old one "removed"), so
+// its first payment asks again. first_paid_at is null until a payment to it
+// went out: the first one always asks.
+export const payees = pgTable(
+  "payees",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    installationId: uuid("installation_id").notNull(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id),
+    label: text("label").notNull(),
+    address: text("address").notNull(),
+    status: text("status", { enum: ["active", "suggested", "removed"] }).notNull().default("active"),
+    suggestedBy: text("suggested_by"),
+    firstPaidAt: timestamp("first_paid_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+  },
+  (t) => ({
+    byInstallation: index("payees_installation_idx").on(t.installationId, t.status),
+    oneLabel: uniqueIndex("payees_label_idx").on(t.installationId, sql`lower(${t.label})`).where(sql`${t.status} <> 'removed'`),
+    oneAddress: uniqueIndex("payees_address_idx").on(t.installationId, sql`lower(${t.address})`).where(sql`${t.status} <> 'removed'`),
+    knownStatus: check("payees_status", sql`${t.status} in ('active', 'suggested', 'removed')`),
+  }),
+);
+export type Payee = typeof payees.$inferSelect;
+
 // Reppo's evaluations (src/lib/reppo): a finished job's quality, or a
 // second opinion on an action waiting for its renter. One row per thing,
 // by its key ("job:<id>", "action:<approval id>"), so nothing is scored

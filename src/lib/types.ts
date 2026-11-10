@@ -775,4 +775,8 @@ export interface SpendingDTO {
   // The renter's own balance they can top up from.
   balanceAvailable: string;
   entries: { kind: "topup" | "withdraw" | "hold" | "release" | "spend"; amount: string; at: string }[];
+  // Who its agent may pay: saved ones, and suggestions waiting for the
+  // renter to confirm on screen. paidBefore is false until a first
+  // payment went out (the first always asks).
+  payees: { id: string; label: string; address: string; status: "active" | "suggested"; paidBefore: boolean; createdAt: string }[];
 }

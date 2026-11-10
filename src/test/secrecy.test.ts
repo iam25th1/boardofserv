@@ -92,6 +92,7 @@ import * as installationAudit from "@/app/api/installations/[id]/audit/route";
 import * as agentAudit from "@/app/api/agents/[id]/audit/route";
 import * as adminAudit from "@/app/api/admin/audit/route";
 import * as installationAllowance from "@/app/api/installations/[id]/allowance/route";
+import * as installationPayees from "@/app/api/installations/[id]/payees/route";
 import { fakeNet, fakeSheetUrl } from "./fakeNet";
 import { queueJobEval } from "@/lib/reppo/redact";
 import { submitDue } from "@/lib/reppo/evals";
@@ -197,6 +198,7 @@ const ROUTES: Record<string, object> = {
   "agents/[id]/audit": agentAudit,
   "admin/audit": adminAudit,
   "installations/[id]/allowance": installationAllowance,
+  "installations/[id]/payees": installationPayees,
 };
 
 // Google, for this test: Maya's and Sam's own spreadsheets, and the token
@@ -797,6 +799,7 @@ describe("a helper's instructions stay on the server", () => {
       await hit("agent: installations", installationsRoute.GET(req("/api/installations")));
       await hit("agent: installation", installationRoute.GET(req(`/api/installations/${ip.params.id}`), ip));
       await hit("spending: maya's allowance", installationAllowance.GET(req(`/api/installations/${ip.params.id}/allowance`), ip));
+      await hit("spending: maya saves a payee", installationPayees.POST(req(`/api/installations/${ip.params.id}/payees`, "POST", { action: "save", label: "Mill", address: "0x0000000000000000000000000000000000000000" }), ip));
       await hit("spending: maya tops up with nothing", installationAllowance.POST(req(`/api/installations/${ip.params.id}/allowance`, "POST", { action: "topup", amount: "1", key: "secrecy-topup-1" }), ip));
       await hit("agent: message box", installationMessages.GET(req(`/api/installations/${ip.params.id}/messages`), ip));
       await hit("agent: message", installationMessages.POST(req(`/api/installations/${ip.params.id}/messages`, "POST", { text: "Check now please" }), ip));
