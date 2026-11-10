@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Landing } from "./Landing";
 import AboutPage from "@/app/about/page";
+import EverythingPage from "@/app/everything/page";
 import PrivacyPage from "@/app/privacy/page";
 import SupportPage from "@/app/support/page";
 import TermsPage from "@/app/terms/page";
@@ -85,13 +86,16 @@ describe("the beta", () => {
 });
 
 describe("the public pages", () => {
-  // Words that don't belong on a beta's plain notes.
-  const BANNED = /terms of service|agreement|liabilit|warrant|indemn|governing law|jurisdiction|policy|policies|binding|company|business|customer|draft|reviewed before it is final|legal advice/i;
+  // Words that don't belong on a beta's plain notes. "draft" is a page's
+  // state (a draft, a draft banner), not what an agent does when it drafts
+  // an order, which the explainer describes.
+  const BANNED = /terms of service|agreement|liabilit|warrant|indemn|governing law|jurisdiction|policy|policies|binding|company|business|customer|draft(?!\s+an?\s)|reviewed before it is final|legal advice/i;
   const PAGES = [
     { Page: AboutPage, h1: "About boardofserv" },
     { Page: TermsPage, h1: "Using the beta" },
     { Page: PrivacyPage, h1: "Your data" },
     { Page: SupportPage, h1: "Support" },
+    { Page: EverythingPage, h1: "Everything you need to know" },
   ];
 
   it("are plain beta notes, with no legal or business words, no draft banner and no blanks to fill", () => {
@@ -108,6 +112,24 @@ describe("the public pages", () => {
     // The front page too.
     const { container } = render(<Landing />);
     expect(container.textContent ?? "").not.toMatch(BANNED);
+  });
+
+  it("still catch a draft for what it is", () => {
+    for (const text of ["This is a draft.", "Draft: to be reviewed", "a draft of the beta's notes", "drafts"]) expect(text).toMatch(BANNED);
+    expect("and draft an order for the cheapest supplier").not.toMatch(BANNED);
+  });
+
+  it("each have the button to the whole explainer in the footer", () => {
+    for (const Page of [Landing, AboutPage, TermsPage, PrivacyPage, SupportPage, EverythingPage]) {
+      render(<Page />);
+      const footer = screen.getByRole("contentinfo");
+      const button = within(footer).getByRole("link", { name: "Everything you need to know" });
+      expect(button).toHaveAttribute("href", "/everything");
+      // Above the footer's other links, and on the explainer, its own page.
+      expect(button.compareDocumentPosition(within(footer).getByRole("navigation", { name: "More" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(button.getAttribute("aria-current")).toBe(Page === EverythingPage ? "page" : null);
+      cleanup();
+    }
   });
 
   it("link to each other by their new titles", () => {

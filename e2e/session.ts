@@ -99,6 +99,17 @@ export async function signIn(context: BrowserContext): Promise<void> {
   await context.route("**/api/account", (route) => (route.request().method() === "GET" ? route.fulfill({ json: ACCOUNT }) : route.fallback()));
 }
 
+// Signed out: Privy starts with no stored session, and its server is still
+// answered from here, so the public pages' way in settles on "Sign in".
+export async function signedOut(context: BrowserContext): Promise<void> {
+  await context.route(/^https:\/\/([a-z0-9-]+\.)?privy\.io\//, async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === `/api/v1/apps/${E2E_PRIVY_APP_ID}`) return route.fulfill({ json: APP_CONFIG });
+    if (route.request().resourceType() === "document") return route.fulfill({ contentType: "text/html", body: "<!doctype html><title>wallet</title>" });
+    return route.fulfill({ json: {} });
+  });
+}
+
 // Two conversations for the chat's agents popover, one with an agent sketch.
 export const CONVERSATIONS = [
   { id: "c1", title: "Tell my Telegram group when ETH drops", sketchName: "ETH floor watch", publishedSlug: null },

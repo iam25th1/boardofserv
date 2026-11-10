@@ -549,6 +549,27 @@ brew services start colima
 The script was rehearsed end to end on a scratch container, a scratch env file
 and a stand-in for Pier's API; the real container has not been through it.
 
+## Sharing
+
+The long explainer, "Everything you need to know", is in three places with
+the same words:
+
+- On the site at `/everything` (https://boardofserv.25th.dev/everything once
+  deployed), linked from the button in every public page's footer.
+- In the repo at
+  [`docs/boardofserv-everything-you-need-to-know.md`](boardofserv-everything-you-need-to-know.md).
+  A test keeps the page's words in step with it.
+- As a public gist, for sharing anywhere:
+  https://gist.github.com/iam25th1/29649906df228cd8dbefd1861226a822
+
+When the doc changes, update the same gist rather than making a new one:
+
+```sh
+gh gist edit 29649906df228cd8dbefd1861226a822 \
+  --filename boardofserv-everything-you-need-to-know.md \
+  docs/boardofserv-everything-you-need-to-know.md
+```
+
 ## Still to do by hand
 
 - Sign in once on the live site. Privy's iframe already names

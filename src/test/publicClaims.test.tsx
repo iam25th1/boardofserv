@@ -5,14 +5,18 @@ import AboutPage from "@/app/about/page";
 import TermsPage from "@/app/terms/page";
 import PrivacyPage from "@/app/privacy/page";
 import SupportPage from "@/app/support/page";
+import EverythingPage from "@/app/everything/page";
 import { BANDS, TRUST } from "@/lib/trust/config";
+import { MAKER_PERCENT } from "@/lib/money";
+import { DOLPHIN_MODEL } from "@/lib/model";
+import { describeSchedule, scheduleSpec } from "@/lib/agents/schedule";
 import { readPaymentsConfig } from "@/lib/payments/config";
 import { SCOPES } from "@/lib/google/oauth";
 
 // What the public pages say is kept true by the code they describe: the
 // trust score's range, the network and its test money, what Google is
-// asked for, and that every page loads for someone signed out (no
-// sign-in provider at all here).
+// asked for, the explainer's numbers, and that every page loads for
+// someone signed out (no sign-in provider at all here).
 
 vi.mock("server-only", () => ({}));
 
@@ -50,8 +54,19 @@ describe("the public pages' claims", () => {
     expect(main).toHaveTextContent("a sheet's title, tab names and the cells of the tabs you chose");
   });
 
+  it("give the explainer's numbers as the code has them", () => {
+    const { container } = render(<EverythingPage />);
+    const text = container.textContent ?? "";
+    expect(text).toContain(`a trust score from ${TRUST.MIN} to ${TRUST.MAX}`);
+    expect(text).toContain(`earn ${MAKER_PERCENT}% of every week's rent`);
+    // deepseek-ai/DeepSeek-V4.1-Flash, in words.
+    expect(text).toContain(`Dolphin runs ${DOLPHIN_MODEL.split("/")[1]!.replaceAll("-", " ")}`);
+    const quarterHour = describeSchedule(scheduleSpec({ kind: "schedule", every: "minutes", interval: 15, at: null, description: "x" } as Parameters<typeof scheduleSpec>[0]));
+    expect(text).toContain(`on its own schedule, ${quarterHour}`);
+  });
+
   it("load for someone signed out, each with its heading and the way to support", () => {
-    for (const Page of [Landing, AboutPage, TermsPage, PrivacyPage, SupportPage]) {
+    for (const Page of [Landing, AboutPage, TermsPage, PrivacyPage, SupportPage, EverythingPage]) {
       render(<Page />);
       expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
       expect(screen.getAllByRole("link", { name: "Support" })[0]).toHaveAttribute("href", "/support");
