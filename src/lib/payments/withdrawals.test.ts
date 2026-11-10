@@ -118,6 +118,21 @@ describe("asking for a withdrawal", () => {
 });
 
 describe("payouts", () => {
+  it("waits while an agent's payment is in flight from the treasury, and takes the nonce after it", async () => {
+    await client.exec("delete from agent_payments;");
+    const w = await ask(USDC(10));
+    const [p] = await db
+      .insert(schema.agentPayments)
+      .values({ key: "job:x:1", installationId: maya.id, agentId: maya.id, versionId: maya.id, ownerUserId: maya.id, payeeId: maya.id, payeeLabel: "Mill", toAddress: MAYA_WALLET, amount: "1000000", chainId: config.chainId, status: "broadcast", fromAddress: signer.address.toLowerCase(), nonce: 0, txHash: `0x${"cd".repeat(32)}`, rawTx: "0x00" })
+      .returning();
+    expect(await sendNextPayout(chain, signer, config)).toBeNull();
+    await db.update(schema.agentPayments).set({ status: "confirmed" }).where(eq(schema.agentPayments.id, p!.id));
+    chain.useNonce(signer.address);
+    expect(await sendNextPayout(chain, signer, config)).toBe(w.id);
+    expect((await row(w.id)).nonce).toBe(1);
+    await client.exec("delete from agent_payments;");
+  });
+
   it("records the hash and nonce before sending, sends once, and reconciles on confirmation", async () => {
     const w = await ask(USDC(12));
     chain.sendFails = true;

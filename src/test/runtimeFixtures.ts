@@ -13,6 +13,13 @@ import { hasConnection, keep } from "@/lib/connections/vault";
 import { resetSheetLimits } from "@/lib/google/sheets";
 import { COMPARE, FIND_LOW, RESTOCK_WIRE, restockBench } from "./agentFixtures";
 import { fakeNet, fakeSheetUrl, TEST_BOT_TOKEN, type FakeNet } from "./fakeNet";
+import { FakeChain } from "./fakeChain";
+import { readPaymentsConfig } from "@/lib/payments/config";
+import { signerFromKey } from "@/lib/payments/signer";
+import { generatePrivateKey } from "viem/accounts";
+import { getAddress } from "viem";
+import { eq, sql } from "drizzle-orm";
+import { holdFunds, post } from "@/lib/payments/ledger";
 
 // Connection secrets are encrypted like every other stored secret.
 process.env.OPENSERV_KEY_ENC_KEY ||= randomBytes(32).toString("base64");
@@ -196,4 +203,55 @@ export async function installed(
       ...answers,
     },
   });
+}
+
+// Agents' payments on a chain in memory: a treasury with USDC and a signer
+// for it, Base Sepolia's config, and waits that mine a block each (so a job
+// waiting for its payment sees it confirm).
+const TEST_TREASURY_KEY = generatePrivateKey();
+export function withPayments(rt: TestRuntime, o: { treasuryUsdc?: bigint; confirmations?: number; autoMine?: boolean } = {}) {
+  const signer = signerFromKey(TEST_TREASURY_KEY);
+  const config = readPaymentsConfig({ TREASURY_ADDRESS: signer.address, DEPOSIT_CONFIRMATIONS: String(o.confirmations ?? 2) });
+  const chain = new FakeChain(config.chainId);
+  const token = config.currencies.USDC.token!;
+  chain.setBalance(token, signer.address, o.treasuryUsdc ?? 1_000_000_000n);
+  const mine = o.autoMine ?? true;
+  rt.payments = {
+    config,
+    chain,
+    signer: () => signer,
+    wait: async (ms) => {
+      rt.clock.move(ms);
+      if (mine) chain.mine();
+    },
+    confirmWithinMs: 5_000,
+  };
+  return { chain, signer, config, token, treasury: signer.address };
+}
+
+// An installation ready to pay: its renter's allowance funded with
+// `allowanceUsdc`, and saved payees by name (each paid before, so their
+// first payment's question doesn't get in the way of other tests).
+let payeeAddress = 0x5000;
+export async function readyToPay(rt: Runtime, inst: schema.AgentInstallation, o: { payees: string[]; allowanceUsdc: number }) {
+  const amount = BigInt(Math.round(o.allowanceUsdc * 1e6));
+  await post(rt.db as never, { userId: inst.ownerUserId, currency: "USDC", kind: "deposit", amount, key: `ready:${inst.id}:${randomBytes(4).toString("hex")}` });
+  await holdFunds(rt.db as never, inst.ownerUserId, "USDC", amount);
+  await rt.db
+    .insert(schema.allowances)
+    .values({ installationId: inst.id, ownerUserId: inst.ownerUserId, available: amount.toString() })
+    .onConflictDoUpdate({ target: schema.allowances.installationId, set: { available: sql`${schema.allowances.available} + ${amount.toString()}::numeric` } });
+  const saved: schema.Payee[] = [];
+  for (const label of o.payees) {
+    const address = getAddress(`0x${(++payeeAddress).toString(16).padStart(40, "0")}`);
+    const [p] = await rt.db.insert(schema.payees).values({ installationId: inst.id, ownerUserId: inst.ownerUserId, label, address, status: "active", firstPaidAt: rt.now(), confirmedAt: rt.now() }).returning();
+    saved.push(p!);
+  }
+  return saved;
+}
+
+// What an installation's allowance has, in whole USDC.
+export async function allowanceUsdc(rt: Runtime, installationId: string): Promise<number> {
+  const [row] = await rt.db.select().from(schema.allowances).where(eq(schema.allowances.installationId, installationId));
+  return Number(BigInt(row?.available ?? "0")) / 1e6;
 }

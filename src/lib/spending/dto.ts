@@ -6,6 +6,7 @@ import type { Runtime } from "../agents/runtime/context";
 import type { SpendingDTO } from "../types";
 import { allowanceMax, allowanceOf, recentEntries, USDC } from "./allowance";
 import { payeesOf } from "./payees";
+import { receiptsOf } from "./receipts";
 
 // An installation's spending, for its renter only (null for anyone else).
 export async function spendingOf(rt: Runtime, user: User, installationId: string): Promise<SpendingDTO | null> {
@@ -25,6 +26,7 @@ export async function spendingOf(rt: Runtime, user: User, installationId: string
     allowance: { available: a.available.toString(), held: a.held.toString(), max: allowanceMax().toString() },
     balanceAvailable: balance.USDC.available.toString(),
     entries: (await recentEntries(rt.db, installationId)).map((e) => ({ kind: e.kind, amount: e.amount, at: e.createdAt.toISOString() })),
+    receipts: await receiptsOf(rt, { installationId }),
     payees: (await payeesOf(rt, installationId)).map((p) => ({ id: p.id, label: p.label, address: p.address, status: p.status as "active" | "suggested", paidBefore: p.firstPaidAt !== null, createdAt: p.createdAt.toISOString() })),
   };
 }

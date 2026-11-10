@@ -112,3 +112,15 @@ export async function jobActions(rt: Runtime, jobId: string): Promise<Pick<Audit
     .limit(60);
   return rows.map((r) => ({ ...r, risk: r.risk as AuditEntryDTO["risk"] }));
 }
+
+// What SERV's check said when a call last waited for its renter's yes in a
+// job's step (for a payment's receipt, once the yes let it run).
+export async function lastAsk(rt: Runtime, jobId: string, step: string): Promise<{ guard: string | null; guardReason: string | null } | null> {
+  const [row] = await rt.db
+    .select({ guard: agentAudit.guard, guardReason: agentAudit.guardReason })
+    .from(agentAudit)
+    .where(and(eq(agentAudit.jobId, jobId), eq(agentAudit.step, step), eq(agentAudit.outcome, "asked")))
+    .orderBy(desc(agentAudit.seq))
+    .limit(1);
+  return row ?? null;
+}

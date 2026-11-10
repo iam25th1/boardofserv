@@ -1327,6 +1327,94 @@ export const payees = pgTable(
 );
 export type Payee = typeof payees.$inferSelect;
 
+// An agent's payment from its installation's allowance to a saved payee:
+// USDC sent from the treasury on Base Sepolia. One row per action, by its
+// key (the job and the call), so an action can never send twice, after a
+// crash or a restart included. held (the allowance holds it), broadcast
+// (signed, its nonce, hash and bytes recorded before it was sent; a resend
+// is the same bytes), confirmed (mined and confirmed: the allowance spent,
+// the renter's ledger charged), failed (reverted, stuck or refused: the
+// hold released, nothing spent). The guard's verdict and the approval are
+// kept for its receipt.
+export const AGENT_PAYMENT_STATUSES = ["held", "broadcast", "confirmed", "failed"] as const;
+export const agentPayments = pgTable(
+  "agent_payments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    key: text("key").notNull(),
+    installationId: uuid("installation_id").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    versionId: uuid("version_id").notNull(),
+    jobId: uuid("job_id"),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id),
+    payeeId: uuid("payee_id").notNull(),
+    payeeLabel: text("payee_label").notNull(),
+    toAddress: text("to_address").notNull(),
+    amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
+    currency: text("currency", { enum: CURRENCIES }).notNull().default("USDC"),
+    chainId: integer("chain_id").notNull(),
+    memo: text("memo"),
+    status: text("status", { enum: AGENT_PAYMENT_STATUSES }).notNull().default("held"),
+    fromAddress: text("from_address"),
+    nonce: integer("nonce"),
+    txHash: text("tx_hash"),
+    rawTx: text("raw_tx"),
+    sends: integer("sends").notNull().default(0),
+    lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+    blockNumber: numeric("block_number", { precision: 78, scale: 0 }),
+    guard: text("guard"),
+    guardReason: text("guard_reason"),
+    approvalId: uuid("approval_id"),
+    approvedBy: text("approved_by", { enum: ["renter", "rules"] }),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    broadcastAt: timestamp("broadcast_at", { withTimezone: true }),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    once: uniqueIndex("agent_payments_key_idx").on(t.key),
+    // One agent payment in flight from the treasury at a time on a chain
+    // (and, by the treasury's lock, none while a withdrawal is).
+    oneInFlight: uniqueIndex("agent_payments_one_in_flight").on(t.chainId).where(sql`${t.status} = 'broadcast'`),
+    byInstallation: index("agent_payments_installation_idx").on(t.installationId, t.createdAt),
+    byAgent: index("agent_payments_agent_idx").on(t.agentId, t.createdAt),
+    byStatus: index("agent_payments_status_idx").on(t.status, t.updatedAt),
+    byTx: index("agent_payments_tx_idx").on(t.txHash),
+    knownStatus: check("agent_payments_status", sql`${t.status} in ('held', 'broadcast', 'confirmed', 'failed')`),
+    positive: check("agent_payments_amount_positive", sql`${t.amount} > 0`),
+  }),
+);
+export type AgentPayment = typeof agentPayments.$inferSelect;
+
+// Alerts about agent payments for the admin: the treasury running low, a
+// payment and its transfer not matching, a transfer from the treasury
+// nobody asked for. An open alert of a pausing kind keeps agent payments
+// paused site wide until an admin resolves it.
+export const paymentAlerts = pgTable(
+  "payment_alerts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    kind: text("kind").notNull(),
+    message: text("message").notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull().default({}),
+    // One open alert per thing it is about.
+    key: text("key").notNull(),
+    status: text("status", { enum: ["open", "resolved"] }).notNull().default("open"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedBy: uuid("resolved_by"),
+    resolution: text("resolution"),
+  },
+  (t) => ({
+    once: uniqueIndex("payment_alerts_key_idx").on(t.key),
+    byStatus: index("payment_alerts_status_idx").on(t.status, t.createdAt),
+    knownStatus: check("payment_alerts_status", sql`${t.status} in ('open', 'resolved')`),
+  }),
+);
+
 // Reppo's evaluations (src/lib/reppo): a finished job's quality, or a
 // second opinion on an action waiting for its renter. One row per thing,
 // by its key ("job:<id>", "action:<approval id>"), so nothing is scored

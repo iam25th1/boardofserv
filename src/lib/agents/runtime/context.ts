@@ -1,5 +1,8 @@
 import "server-only";
 import { reppoFrom, type ReppoConfig } from "../../reppo/client";
+import { paymentsConfig, type PaymentsConfig } from "../../payments/config";
+import { chainClient, type ChainClient } from "../../payments/chain";
+import { treasurySigner, type PayoutSigner } from "../../payments/signer";
 import { db } from "../../db";
 import type { User } from "../../db/schema";
 import { modelConfig, type JsonResult, type ModelConfig } from "../../model";
@@ -88,7 +91,37 @@ export interface Runtime {
   // Pages an installation may fetch a day.
   fetchesPerDay: number;
   services: Services;
+  // Agents' payments on chain (src/lib/spending/pay.ts): the payments
+  // config, the chain, the treasury's signer, and how a job waits between
+  // looks at the chain. Absent where payments are off.
+  payments?: PaymentsRuntime;
   log: (line: string) => void;
+}
+
+export interface PaymentsRuntime {
+  config: PaymentsConfig;
+  chain: ChainClient;
+  signer: () => PayoutSigner | { problem: string };
+  wait: (ms: number) => Promise<void>;
+  // How long a job waits for its payment to confirm before trying again later.
+  confirmWithinMs: number;
+}
+
+// The server's payments, when they are on.
+function serverPayments(): PaymentsRuntime | undefined {
+  const config = paymentsConfig();
+  if (!config.enabled) return undefined;
+  let chain: ChainClient | null = null;
+  return {
+    config,
+    get chain() {
+      chain ??= chainClient();
+      return chain;
+    },
+    signer: () => treasurySigner(config),
+    wait: (ms) => new Promise((r) => setTimeout(r, ms)),
+    confirmWithinMs: 90_000,
+  };
 }
 
 export function serverRuntime(): Runtime {
@@ -105,6 +138,7 @@ export function serverRuntime(): Runtime {
     web: {},
     fetchesPerDay: fetchesPerDay(),
     services: servicesFrom(),
+    payments: serverPayments(),
     log: (line) => console.info(line),
   };
 }

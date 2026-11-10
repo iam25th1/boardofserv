@@ -1,7 +1,7 @@
 import "server-only";
 import { fixDashes } from "../../dashes";
-import { eq, sql } from "drizzle-orm";
-import { agentFetchDays, agentInstallations, agentMessages, agentToolDays, users, type AgentInstallation, type AgentJob, type SheetGrant, type User } from "../../db/schema";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { agentApprovals, agentFetchDays, agentInstallations, agentMessages, agentToolDays, users, type AgentInstallation, type AgentJob, type Payee, type SheetGrant, type User } from "../../db/schema";
 import { GoogleRevoked, GoogleUnavailable, REVOKED_REASON } from "../../google/oauth";
 import { readTab, SheetRefused, writeTab, type SheetRow } from "../../google/sheets";
 import { braveSearch, SearchRefused, SearchUnavailable } from "../../search/brave";
@@ -9,7 +9,7 @@ import type { AgentDefinition, AgentStep, ToolName } from "../definition";
 import { Blocked, Declined, Halted, InfraError, Paused, type CallContext, type OpinionFacts, type ToolHost } from "../runner";
 import { askGuard, GUARD_DOWN, guardKey, type GuardInput, type GuardResult } from "../guard";
 import { budgetGate, costMicros, meter } from "../metering";
-import { audit } from "../audit";
+import { audit, lastAsk } from "../audit";
 import type { AgentAudit } from "../../db/schema";
 import type { Risk } from "../toolbox";
 import { unknownContacts } from "../untrusted";
@@ -20,6 +20,10 @@ import type { Runtime } from "./context";
 import { overLimit, recordSpend, spendOf } from "./spend";
 import { policyAsks, readPolicy, riskOf, TO_OWNER_ONLY } from "../risk";
 import { describeCall } from "../calls";
+import { resolvePayee, suggestPayee } from "../../spending/payees";
+import { payeeWords, payFromAllowance, PaymentPending, PaymentRefused } from "../../spending/pay";
+import { usdcWords } from "../../spending/allowance";
+import { formatAmount, parseAmount } from "../../money";
 import { fetchPage, WebUnreachable } from "./webFetch";
 
 // A job's tools (and a value check's, with no job). Sheets are real: the
@@ -161,6 +165,65 @@ export class JobTools implements ToolHost {
     }
   }
 
+  // A payment's payee and amount, or the step fails: only a saved payee,
+  // and an amount in USDC with at most six decimals. An address that isn't
+  // saved waits as a suggestion for the renter to confirm on screen.
+  private async paymentOf(step: AgentStep, args: unknown): Promise<{ payee: Payee; amount: bigint; memo: string | null; what: string }> {
+    const parsed = TOOL_ARGS["wallet.pay"].safeParse(args);
+    if (!parsed.success) throw new ToolError("wallet.pay", "wallet.pay was called wrongly: it takes { to, amountUsdc, memo? }.");
+    const text = String(parsed.data.amountUsdc);
+    const amount = /^\d{1,9}(\.\d{1,6})?$/.test(text) ? parseAmount(text, 6) : null;
+    if (!amount || amount <= 0n) throw new ToolError("wallet.pay", "Pay amounts are in USDC, above zero, with at most six decimals.");
+    const payee = await resolvePayee(this.rt, this.installation.id, parsed.data.to);
+    if (!payee) {
+      await suggestPayee(this.rt, this.installation.id, this.installation.ownerUserId, parsed.data.to, this.definition.name);
+      throw new ToolError("wallet.pay", `"${parsed.data.to.slice(0, 60)}" isn't one of this renter's saved payees, so nothing was paid. It can only pay saved payees.`);
+    }
+    const memo = parsed.data.memo?.trim() ? fixDashes(parsed.data.memo.trim()).slice(0, 200) : null;
+    void step;
+    return { payee, amount, memo, what: `Pay ${usdcWords(amount)} to ${payeeWords(payee)} from its allowance? Payments on Base can't be pulled back once they're sent.` };
+  }
+
+  // The payment itself, after the guard and any approval: on chain, once.
+  private async payNow(step: AgentStep, p: { payee: Payee; amount: bigint; memo: string | null }, g: GuardResult | null, approvedBy: "renter" | "rules", ctx: CallContext | undefined): Promise<unknown> {
+    if (!this.job) throw new ToolError("wallet.pay", "Payments only go out from a job.");
+    let approvalId: string | null = null;
+    if (approvedBy === "renter") {
+      const [a] = await this.rt.db
+        .select({ id: agentApprovals.id })
+        .from(agentApprovals)
+        .where(and(eq(agentApprovals.jobId, this.job.id), eq(agentApprovals.stepId, step.id), eq(agentApprovals.status, "answered")))
+        .orderBy(desc(agentApprovals.answeredAt))
+        .limit(1);
+      approvalId = a?.id ?? null;
+    }
+    try {
+      const paid = await payFromAllowance(this.rt, {
+        installation: this.installation,
+        jobId: this.job.id,
+        versionId: this.job.versionId,
+        callKey: ctx?.callKey ?? `${step.id}:0`,
+        payee: p.payee,
+        amount: p.amount,
+        memo: p.memo,
+        guard: g ? { verdict: g.fallback ? "unavailable" : g.verdict, reason: g.reason } : await this.askedGuard(step),
+        approval: { id: approvalId, by: approvedBy },
+      });
+      return { paid: true, txId: paid.txHash, amountUsdc: formatAmount(BigInt(paid.amount), 6), to: paid.payeeLabel, receipt: paid.id };
+    } catch (err) {
+      if (err instanceof PaymentPending) throw new InfraError(err.message);
+      if (err instanceof PaymentRefused) throw new ToolError("wallet.pay", err.message);
+      throw err;
+    }
+  }
+
+  // After a yes: what SERV's check said when the call waited for it.
+  private async askedGuard(step: AgentStep): Promise<{ verdict: string; reason: string } | null> {
+    if (!this.job) return null;
+    const asked = await lastAsk(this.rt, this.job.id, step.title);
+    return asked?.guard ? { verdict: asked.guard, reason: asked.guardReason ?? "" } : null;
+  }
+
   // The installation's stand-in data, read fresh when a job (re)starts.
   private async mocks(): Promise<MockTools> {
     if (this.mock) return this.mock;
@@ -206,7 +269,10 @@ export class JobTools implements ToolHost {
     // rule's limit (spend.ts). One answer covers them all; a no stops it.
     // Every such call, whatever happens to it, gets a line in the audit log.
     const spend = spendOf(this.definition, step, tool, args);
-    const what = spend?.what ?? describeCall(tool, args);
+    // A payment goes only to a saved payee, from the allowance, in USDC
+    // minor units (spending/pay.ts); its first one to a payee always asks.
+    const payment = tool === "wallet.pay" ? await this.paymentOf(step, args) : null;
+    const what = payment ? payment.what : (spend?.what ?? describeCall(tool, args));
     if (!approval) await this.limited(step, tool, risk, what);
     let g: GuardResult | null = null;
     if (approval) {
@@ -219,8 +285,9 @@ export class JobTools implements ToolHost {
       const policy = readPolicy(this.installation.policy);
       const why = policyAsks(policy, { tool, risk, amount: spend?.amount ?? 0, toOwner: TO_OWNER_ONLY.includes(tool) });
       let strange: string[] = [];
+      if (payment && !payment.payee.firstPaidAt) why.push(`It's the first payment to ${payment.payee.label}: the first one to a payee always asks.`);
       if (risk === "outbound" || risk === "money") {
-        strange = unknownContacts(args, this.known());
+        strange = unknownContacts(payment ? { memo: (args as { memo?: string }).memo ?? "" } : args, this.known());
         if (strange.length) why.push(`It carries ${strange.length === 1 ? "a link, address or contact detail" : "links, addresses or contact details"} you didn't give it: ${strange.slice(0, 3).join(", ")}.`);
       }
       g = await this.guard(step, tool, risk, args, ctx);
@@ -253,7 +320,7 @@ export class JobTools implements ToolHost {
     const approvedBy = approval ? "renter" : "rules";
     let result: unknown;
     try {
-      result = await this.use(step, tool, args);
+      result = payment ? await this.payNow(step, payment, g, approvedBy, ctx) : await this.use(step, tool, args);
     } catch (err) {
       await this.logged(step, tool, risk, what, { outcome: "failed", guard: g, reason: err instanceof Error ? err.message : "It failed.", approvedBy });
       throw err;

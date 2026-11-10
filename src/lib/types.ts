@@ -779,4 +779,28 @@ export interface SpendingDTO {
   // renter to confirm on screen. paidBefore is false until a first
   // payment went out (the first always asks).
   payees: { id: string; label: string; address: string; status: "active" | "suggested"; paidBefore: boolean; createdAt: string }[];
+  // Every payment its agent made or tried, newest first.
+  receipts: ReceiptDTO[];
+}
+
+// A payment's receipt: what, to whom, by which agent and job, its
+// transfer on Base (with an explorer link), what the safety check said
+// and who approved it. Nothing here is secret: it is the renter's own.
+export interface ReceiptDTO {
+  id: string;
+  amount: string;
+  decimals: number;
+  payee: { label: string; address: string };
+  agent: string;
+  jobId: string | null;
+  memo: string | null;
+  status: "held" | "broadcast" | "confirmed" | "failed";
+  txHash: string | null;
+  explorer: string | null;
+  network: string;
+  guard: { verdict: string | null; reason: string | null };
+  approval: { by: "renter" | "rules" | null; question: string | null; answer: string | null; at: string | null };
+  error: string | null;
+  createdAt: string;
+  settledAt: string | null;
 }
