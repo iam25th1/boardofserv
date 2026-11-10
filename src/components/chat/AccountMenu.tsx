@@ -133,20 +133,23 @@ export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, 
             </div>
           )}
 
+          {/* The menu stays in the top bar from page to page, so following
+              one of these closes it, or it would sit open over the page it
+              opened. */}
           <div className={styles.section}>
             <p className={styles.label}>Wallet and agents</p>
             <div className={styles.links}>
-              <Link className={styles.topup} href="/app/wallet">
+              <Link className={styles.link} href="/app/wallet" onClick={() => setOpen(false)}>
                 Balance, top up and earnings
               </Link>
-              <Link className={styles.topup} href="/app/agents">
+              <Link className={styles.link} href="/app/agents" onClick={() => setOpen(false)}>
                 Agents you&apos;re building
               </Link>
-              <Link className={styles.topup} href="/app/connections">
+              <Link className={styles.link} href="/app/connections" onClick={() => setOpen(false)}>
                 Connections: Telegram and Google
               </Link>
               {account?.admin && (
-                <Link className={styles.topup} href="/app/admin">
+                <Link className={styles.link} href="/app/admin" onClick={() => setOpen(false)}>
                   Admin
                 </Link>
               )}
@@ -242,7 +245,7 @@ function ServKeySection({
             </button>
           )}
         </div>
-        <p className={styles.hint}>Your chats and helper uses run on it, on your own SERV credit, with no daily limit.</p>
+        <p className={styles.hint}>Your chats, helper uses and agents run on it, on your own SERV credit, with no daily limit.</p>
         {error && (
           <p className={styles.keyError} role="alert">
             {error}

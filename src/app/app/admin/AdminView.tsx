@@ -92,7 +92,7 @@ export function AdminBody({ api }: { api: AdminApi }) {
         <p className={styles.quiet}>
           Estimated from the tokens each model reported, at the prices set for it. Own-key use is not counted. The day ends at midnight UTC.
         </p>
-        {spent && <p className={styles.alert}>The limit is reached: chat, publishing and helper uses are paused until midnight UTC, except for people using their own SERV key.</p>}
+        {spent && <p className={styles.alert}>The limit is reached: chat, building and publishing, helper uses and agent runs are paused until midnight UTC, except for people using their own SERV key.</p>}
       </section>
 
       <section className={styles.section} aria-labelledby="support-h">

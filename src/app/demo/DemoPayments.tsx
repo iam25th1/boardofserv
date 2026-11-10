@@ -147,7 +147,7 @@ export function DemoPayments({ view, qr, treasury }: { view: "wallet" | "admin";
       <main className={styles.col}>
         <header className={styles.head}>
           <h1>{view === "wallet" ? "Your wallet" : "Admin"}</h1>
-          {view === "wallet" && <p className={wallet.note}>top up, pay for helpers, withdraw what you earn</p>}
+          {view === "wallet" && <p className={wallet.note}>top up, pay for helpers, agents and rent, withdraw what you earn</p>}
         </header>
         {view === "wallet" ? (
           <WalletBody payments={paymentsFor(treasury)} qr={qr} api={apis.current.wallet} onLinkWallet={() => {}} />

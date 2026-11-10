@@ -26,7 +26,7 @@ export interface QrPath {
 
 export function WalletView({ payments, qr }: { payments: PaymentsDTO; qr: QrPath | null }) {
   return (
-    <Page title="Your wallet" note="top up, pay for helpers and rent, withdraw what you earn">
+    <Page title="Your wallet" note="top up, pay for helpers, agents and rent, withdraw what you earn">
         {!privyAppId() ? (
           <p className={styles.quiet}>Sign-in isn&apos;t set up here, so there is no wallet yet.</p>
         ) : !payments.enabled ? (
@@ -419,7 +419,7 @@ function Withdraw({ payments, wallet, onWallet, api }: { payments: PaymentsDTO; 
       )}
       <dl className={styles.figures}>
         <div>
-          <dt>Earned from your helpers</dt>
+          <dt>Earned from your helpers and agents</dt>
           <dd>{amountText(earned.toString(), c)}</dd>
         </div>
         <div>
