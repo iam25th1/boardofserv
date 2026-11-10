@@ -763,3 +763,16 @@ export interface AuditPageDTO {
   // The cursor for older entries, or null at the start of the log.
   next: string | null;
 }
+
+// An installation's spending, for its renter: its allowance (USDC minor
+// units, the decimals given), what they can top it up with, and its recent
+// entries. Later parts add payees, receipts, limits and disputes.
+export interface SpendingDTO {
+  installationId: string;
+  agentName: string;
+  decimals: number;
+  allowance: { available: string; held: string; max: string };
+  // The renter's own balance they can top up from.
+  balanceAvailable: string;
+  entries: { kind: "topup" | "withdraw" | "hold" | "release" | "spend"; amount: string; at: string }[];
+}

@@ -1241,6 +1241,59 @@ export const agentAudit = pgTable(
 export type AgentAudit = typeof agentAudit.$inferSelect;
 export type NewAgentAudit = typeof agentAudit.$inferInsert;
 
+// A spending allowance for each installation (src/lib/spending): what its
+// renter set aside for its agent to pay with, in USDC minor units. The money
+// stays in the renter's own balance, held (so nothing else spends it and
+// it never shows as available), and this row says how much of that hold is
+// this installation's: available to spend, and held for a payment in
+// flight. An agent only ever spends from its own installation's allowance.
+export const allowances = pgTable(
+  "allowances",
+  {
+    installationId: uuid("installation_id").primaryKey(),
+    ownerUserId: uuid("owner_user_id")
+      .notNull()
+      .references(() => users.id),
+    currency: text("currency", { enum: CURRENCIES }).notNull().default("USDC"),
+    available: numeric("available", { precision: 78, scale: 0 }).notNull().default("0"),
+    held: numeric("held", { precision: 78, scale: 0 }).notNull().default("0"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byOwner: index("allowances_owner_idx").on(t.ownerUserId),
+    usdcOnly: check("allowances_usdc", sql`${t.currency} = 'USDC'`),
+    availableNotNegative: check("allowances_available_not_negative", sql`${t.available} >= 0`),
+    heldNotNegative: check("allowances_held_not_negative", sql`${t.held} >= 0`),
+  }),
+);
+
+// Every change to an allowance, once by its key: a top up and a
+// withdrawal (to and from the renter's balance), a hold and its release
+// (a payment in flight), and a spend (a payment that went out). Amounts are
+// positive; the kind says which way. Append-only.
+export const ALLOWANCE_KINDS = ["topup", "withdraw", "hold", "release", "spend"] as const;
+export const allowanceEntries = pgTable(
+  "allowance_entries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    installationId: uuid("installation_id").notNull(),
+    ownerUserId: uuid("owner_user_id").notNull(),
+    kind: text("kind", { enum: ALLOWANCE_KINDS }).notNull(),
+    amount: numeric("amount", { precision: 78, scale: 0 }).notNull(),
+    // What it is about: an agent payment's id, or null for a top up.
+    referenceId: text("reference_id"),
+    key: text("key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    once: uniqueIndex("allowance_entries_key_idx").on(t.key),
+    byInstallation: index("allowance_entries_installation_idx").on(t.installationId, t.createdAt),
+    knownKind: check("allowance_entries_kind", sql`${t.kind} in ('topup', 'withdraw', 'hold', 'release', 'spend')`),
+    positive: check("allowance_entries_amount_positive", sql`${t.amount} > 0`),
+  }),
+);
+export type Allowance = typeof allowances.$inferSelect;
+
 // Reppo's evaluations (src/lib/reppo): a finished job's quality, or a
 // second opinion on an action waiting for its renter. One row per thing,
 // by its key ("job:<id>", "action:<approval id>"), so nothing is scored

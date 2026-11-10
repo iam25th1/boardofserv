@@ -323,6 +323,13 @@
       "when": 1794263502373,
       "tag": "0045_reppo_holds",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1794268709112,
+      "tag": "0046_allowances",
+      "breakpoints": true
     }
   ]
 }
