@@ -1391,6 +1391,37 @@ export const agentPayments = pgTable(
 );
 export type AgentPayment = typeof agentPayments.$inferSelect;
 
+// Trust scores (src/lib/trust): one row per agent version and per maker,
+// the latest, with the factors that explain it; and one a day for each, so
+// its trend shows. A fixed formula, recomputed after jobs and daily.
+export const trustScores = pgTable(
+  "trust_scores",
+  {
+    subject: text("subject", { enum: ["version", "maker"] }).notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    score: integer("score").notNull(),
+    label: text("label").notNull(),
+    isNew: boolean("is_new").notNull(),
+    factors: jsonb("factors").$type<{ key: string; words: string; points: number; counted: boolean }[]>().notNull().default([]),
+    computedAt: timestamp("computed_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.subject, t.subjectId] }),
+    knownSubject: check("trust_scores_subject", sql`${t.subject} in ('version', 'maker')`),
+    inRange: check("trust_scores_range", sql`${t.score} between 300 and 850`),
+  }),
+);
+export const trustHistory = pgTable(
+  "trust_history",
+  {
+    subject: text("subject").notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    day: text("day").notNull(),
+    score: integer("score").notNull(),
+  },
+  (t) => ({ pk: primaryKey({ columns: [t.subject, t.subjectId, t.day] }) }),
+);
+
 // Alerts about agent payments for the admin: the treasury running low, a
 // payment and its transfer not matching, a transfer from the treasury
 // nobody asked for. An open alert of a pausing kind keeps agent payments

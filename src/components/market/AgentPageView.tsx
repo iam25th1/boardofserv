@@ -8,6 +8,7 @@ import type { AgentPageDTO } from "@/lib/types";
 import { price } from "./BoardView";
 import { ReportButton, type ReportSend } from "./ReportButton";
 import { QualityPanel, qualityLine } from "./Quality";
+import { TrustPanel, trustLine } from "./Trust";
 import styles from "./AgentPage.module.css";
 
 // An agent's page on the board: what it does, the steps it takes in plain
@@ -79,6 +80,10 @@ export function AgentPageView({ id, api }: { id: string; api: AgentPageApi }) {
               <dt>Quality</dt>
               <dd className={page.quality.score === null ? styles.pending : undefined}>{qualityLine(page.quality)}</dd>
             </div>
+            <div>
+              <dt>Trust</dt>
+              <dd>{trustLine(page.trust)}</dd>
+            </div>
           </dl>
           {!page.mine && (
             <div className={styles.reports}>
@@ -100,6 +105,7 @@ export function AgentPageView({ id, api }: { id: string; api: AgentPageApi }) {
       </ul>
 
       <QualityPanel q={page.quality} />
+      <TrustPanel t={page.trust} top={3} />
 
       <section aria-labelledby="steps-h" className={styles.block}>
         <h2 id="steps-h">The steps it takes</h2>

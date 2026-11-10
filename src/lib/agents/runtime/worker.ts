@@ -6,6 +6,7 @@ import { beat, claimJob, HEARTBEAT_MS, requeueStale, runJob } from "./jobs";
 import { reppoCycle } from "../../reppo/cycle";
 import { settlePayments } from "../../spending/pay";
 import { reconcile } from "../../spending/reconcile";
+import { refreshTrust } from "../../trust/trust";
 import { expireDue } from "./approvals";
 import { fireDue } from "./triggers";
 import { deliverTelegram, tidyTelegram } from "../../telegram/deliver";
@@ -46,6 +47,7 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
   let cycles = 0;
   let reppo: Promise<void> | null = null;
   let paying: Promise<void> | null = null;
+  let trusting: Promise<void> | null = null;
   const heart = setInterval(() => {
     beat(rt, id, [...running.keys()]).catch(() => undefined);
   }, HEARTBEAT_MS);
@@ -93,6 +95,15 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
             paying = null;
           });
       }
+      // Trust scores: versions whose jobs finished since, and daily.
+      if (!trusting) {
+        trusting = refreshTrust(rt)
+          .then(() => undefined)
+          .catch((err: unknown) => rt.log(`trust: refreshing scores broke off: ${err instanceof Error ? err.name : "unknown error"}`))
+          .finally(() => {
+            trusting = null;
+          });
+      }
       while (running.size < capacity) {
         const job = await claimJob(rt, id);
         if (!job) break;
@@ -102,7 +113,7 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
         running.set(job.id, run);
       }
     },
-    running: () => [...running.values(), ...(reppo ? [reppo] : []), ...(paying ? [paying] : [])],
+    running: () => [...running.values(), ...(reppo ? [reppo] : []), ...(paying ? [paying] : []), ...(trusting ? [trusting] : [])],
     stop: () => clearInterval(heart),
   };
 }

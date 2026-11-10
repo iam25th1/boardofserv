@@ -2,7 +2,9 @@ import "server-only";
 import { qualityOf, qualitySettings } from "../reppo/quality";
 import { and, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { agentListings, agents, agentVersions, freezes, rentals, users, type Agent, type AgentListing } from "../db/schema";
-import type { AgentListingDTO, AgentPageDTO, MakerListingDTO, QualityDTO } from "../types";
+import type { AgentListingDTO, AgentPageDTO, MakerListingDTO, QualityDTO, TrustDTO } from "../types";
+import { versionTrust } from "../trust/trust";
+import { NEW_BAND, TRUST } from "../trust/config";
 import { connectionsNeeded, spends, type AgentDefinition, type ToolName } from "../agents/definition";
 import { describeTriggers } from "../agents/schedule";
 import { typedRules } from "../agents/runner";
@@ -61,7 +63,7 @@ async function renterCounts(rt: Runtime, rows: Row[]): Promise<Map<string, numbe
 
 const NO_QUALITY = (): QualityDTO => ({ score: null, reviewed: 0, minimum: qualitySettings().minimum, ship: 0, review: 0, block: 0, previous: null });
 
-function listingDTO(r: Row, renters: number, quality: QualityDTO = NO_QUALITY()): AgentListingDTO {
+function listingDTO(r: Row, renters: number, quality: QualityDTO = NO_QUALITY(), trust?: TrustDTO): AgentListingDTO {
   const d = r.definition!;
   return {
     id: r.listing.agentId,
@@ -75,7 +77,7 @@ function listingDTO(r: Row, renters: number, quality: QualityDTO = NO_QUALITY())
     maker: r.maker,
     version: r.version,
     quality,
-    trust: null,
+    trust: trust ?? { score: TRUST.START, label: "new", isNew: true, factors: [], band: { label: NEW_BAND.label, perPayment: NEW_BAND.perPayment, perDay: NEW_BAND.perDay }, computedAt: null },
     createdAt: r.listing.createdAt.toISOString(),
     modelEstimate: estimateWeekly(d).toString(),
   };
@@ -119,10 +121,14 @@ export async function boardAgents(rt: Runtime, f: BoardFilters = {}): Promise<Ag
     rt,
     fit.map((r) => ({ agentId: r.listing.agentId, versionId: r.listing.versionId, version: r.version })),
   );
+  const trust = await versionTrust(
+    rt,
+    fit.map((r) => r.listing.versionId),
+  );
   const min = f.minQuality ?? null;
   const byRenters = (a: AgentListingDTO, b: AgentListingDTO) => b.renters - a.renters || b.createdAt.localeCompare(a.createdAt);
   return fit
-    .map((r) => listingDTO(r, renters.get(r.listing.agentId) ?? 0, quality.get(r.listing.versionId)))
+    .map((r) => listingDTO(r, renters.get(r.listing.agentId) ?? 0, quality.get(r.listing.versionId), trust.get(r.listing.versionId)))
     .filter((a) => min === null || (a.quality.score !== null && a.quality.score >= min))
     .sort(f.sort === "quality" ? (a, b) => (b.quality.score ?? -1) - (a.quality.score ?? -1) || b.quality.reviewed - a.quality.reviewed || byRenters(a, b) : byRenters)
     .slice(0, BOARD_LIMIT);
@@ -148,7 +154,7 @@ export async function agentPage(rt: Runtime, agentId: string, viewerId: string |
     ...d.actions.filter((a) => a.tool === "telegram.ask").map((a) => `${a.description}: it asks you, and waits for your answer.`),
   ];
   return {
-    ...listingDTO(row, renters, quality),
+    ...listingDTO(row, renters, quality, (await versionTrust(rt, [row.listing.versionId])).get(row.listing.versionId)),
     done: d.job.done,
     runs: describeTriggers(d, null),
     steps: d.steps

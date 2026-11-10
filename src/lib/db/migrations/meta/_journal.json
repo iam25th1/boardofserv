@@ -344,6 +344,13 @@
       "when": 1794269858138,
       "tag": "0048_agent_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1794270094201,
+      "tag": "0049_trust_scores",
+      "breakpoints": true
     }
   ]
 }

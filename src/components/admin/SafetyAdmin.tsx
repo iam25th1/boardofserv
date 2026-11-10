@@ -31,6 +31,44 @@ export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
   return (
     <div className={styles.page}>
       <ReppoCredits r={data.reppo} />
+      <section className={styles.section} aria-labelledby="trust-h">
+        <h2 id="trust-h">Lowest trust scores</h2>
+        {data.trust.versions.length + data.trust.makers.length === 0 ? (
+          <p className={styles.quiet}>No scores yet: they come as jobs finish.</p>
+        ) : (
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Who</th>
+                <th>Score</th>
+                <th>Biggest factor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.trust.versions.map((v) => (
+                <tr key={v.versionId}>
+                  <td>
+                    {v.agent}, version {v.version}
+                  </td>
+                  <td>
+                    {v.score} {v.label}
+                  </td>
+                  <td>{v.top}</td>
+                </tr>
+              ))}
+              {data.trust.makers.map((m) => (
+                <tr key={m.makerId}>
+                  <td>{m.maker}</td>
+                  <td>
+                    {m.score} {m.label}
+                  </td>
+                  <td>{m.top}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
       <section className={styles.section} aria-labelledby="queue-h">
         <h2 id="queue-h">Queue</h2>
         {data.queue.reports.length + data.queue.held.length + data.queue.blocked.length + data.queue.payments.length === 0 ? (

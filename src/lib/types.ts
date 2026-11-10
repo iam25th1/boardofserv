@@ -242,8 +242,8 @@ export interface ScoredJobDTO {
 // An agent on the board, for anyone: what it does, what it connects to,
 // its price (USDC minor units, with the decimals) and who made it. Never
 // its code, its prompts or anyone's data. Its quality is its listed
-// version's, from Reppo (a score once enough jobs were reviewed); trust
-// comes later (null).
+// version's, from Reppo (a score once enough jobs were reviewed); its trust
+// score is its listed version's too (a fixed formula, explained).
 export interface AgentListingDTO {
   id: string;
   name: string;
@@ -256,7 +256,7 @@ export interface AgentListingDTO {
   maker: string;
   version: number;
   quality: QualityDTO;
-  trust: number | null;
+  trust: TrustDTO;
   createdAt: string;
   // A rough weekly model cost (USDC minor units), from how often it runs
   // and the model calls a run makes.
@@ -639,6 +639,9 @@ export interface MakerDashboardDTO {
   scored: ScoredJobDTO[];
   // Jobs Reppo routed to block that an admin hasn't looked at yet.
   flagged: number;
+  // Trust: its listed (or newest) version's and the maker's own, each with
+  // every factor, and their trends (a score a day, oldest first).
+  trust: { version: TrustDTO | null; maker: TrustDTO; versionTrend: { day: string; score: number }[]; makerTrend: { day: string; score: number }[] };
 }
 
 // A request on the request board, for anyone: what someone wants an agent
@@ -726,6 +729,11 @@ export interface ReppoAdminDTO {
 }
 
 export interface AdminSafetyDTO {
+  // The lowest trust scores, versions and makers, with their biggest factor.
+  trust: {
+    versions: { versionId: string; agent: string; version: number; score: number; label: string; top: string }[];
+    makers: { makerId: string; maker: string; score: number; label: string; top: string }[];
+  };
   reppo: ReppoAdminDTO;
   queue: ModerationQueueDTO;
   // Every freeze, newest first: the admin log.
@@ -806,4 +814,17 @@ export interface ReceiptDTO {
   error: string | null;
   createdAt: string;
   settledAt: string | null;
+}
+
+// A trust score (300 to 850) for an agent version or a maker: a fixed
+// formula, with the factors that explain it (points each, in words; points
+// earned while new are shown but not counted yet) and the spending band it
+// sets (whole USDC an agent may pay without asking, per payment and day).
+export interface TrustDTO {
+  score: number;
+  label: "new" | "low" | "fair" | "good" | "strong" | "excellent";
+  isNew: boolean;
+  factors: { key: string; words: string; points: number; counted: boolean }[];
+  band: { label: string; perPayment: number; perDay: number };
+  computedAt: string | null;
 }

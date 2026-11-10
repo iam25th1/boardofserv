@@ -1,6 +1,7 @@
 import "server-only";
 import { qualityOf, scoredJobs } from "../reppo/quality";
 import { openBlocks } from "../reppo/blocks";
+import { makerTrust, trustTrend, versionTrust } from "../trust/trust";
 import { and, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import { agentInstallations, agentJobs, agentJobSteps, agentVersions, holds, ledgerEntries, rentalCharges, rentals, users, type Agent } from "../db/schema";
 import type { MakerDashboardDTO } from "../types";
@@ -89,6 +90,12 @@ export async function makerDashboard(rt: Runtime, agent: Agent): Promise<MakerDa
     quality,
     scored: await scoredJobs(rt, agent.id),
     flagged: await openBlocks(rt, agent.id),
+    trust: {
+      version: shown ? ((await versionTrust(rt, [shown.id])).get(shown.id) ?? null) : null,
+      maker: await makerTrust(rt, agent.ownerUserId),
+      versionTrend: shown ? await trustTrend(rt, "version", shown.id) : [],
+      makerTrend: await trustTrend(rt, "maker", agent.ownerUserId),
+    },
     decimals: USDC_DECIMALS,
     renters,
     earnings,

@@ -6,6 +6,13 @@ import type { AdminSafetyDTO, AuditEntryDTO } from "@/lib/types";
 const at = (hoursAgo: number) => new Date(Date.UTC(2026, 10, 9, 12) - hoursAgo * 3_600_000).toISOString();
 
 export const DEMO_SAFETY: AdminSafetyDTO = {
+  trust: {
+    versions: [
+      { versionId: "v-yield", agent: "Instant yield helper", version: 2, score: 388, label: "low", top: "2 reports upheld by an admin this month" },
+      { versionId: "v-follow", agent: "Enquiry follow-up", version: 2, score: 566, label: "fair", top: "31 of 44 jobs finished in the last 90 days (70%)" },
+    ],
+    makers: [{ makerId: "u-fast", maker: "@fast_builds", score: 412, label: "low", top: "1 freeze by an admin in the last 90 days" }],
+  },
   reppo: {
     on: true,
     today: { credits: 2640, evals: 6 },

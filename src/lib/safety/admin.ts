@@ -5,6 +5,7 @@ import { agentInstallations, agentModelUsage, agents, agentVersions, freezes, us
 import { targetWords } from "./freeze";
 import { moderationQueue } from "./moderation";
 import { reppoStatus } from "../reppo/sampling";
+import { trustAdmin } from "../trust/trust";
 import { weekStart } from "../agents/metering";
 import type { Runtime } from "../agents/runtime/context";
 import type { AdminSafetyDTO } from "../types";
@@ -61,6 +62,7 @@ export async function adminSafety(rt: Runtime): Promise<AdminSafetyDTO> {
   );
   return {
     reppo: await reppoStatus(rt),
+    trust: await trustAdmin(rt),
     queue: await moderationQueue(rt),
     freezes: freezeList,
     costs: top.map((t) => ({ installationId: t.installationId, name: t.name, owner: t.owner, maker: t.maker, week: t.week, sitePaid: t.site, calls: t.calls, decimals: 6 })),
