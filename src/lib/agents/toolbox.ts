@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { SIDE_EFFECT_TOOLS, TOOL_NAMES, type ToolName } from "./definition";
 import type { BenchData, SearchResult } from "./types";
+import { keepRequired } from "../zodErrors";
 
 // The toolbox: the only things a code step can reach, through the sandbox's
 // host bridge. Each tool has typed arguments (checked here, whatever the
@@ -21,7 +22,7 @@ export const TOOL_ARGS = {
   "telegram.send": z.object({ text: z.string().min(1).max(4000) }),
   "telegram.ask": z.object({ question: z.string().min(1).max(2000), choices: z.array(z.string().max(80)).max(8).optional() }),
   "memory.get": z.object({ key: z.string().min(1).max(40) }),
-  "memory.set": z.object({ key: z.string().min(1).max(40), value: z.unknown() }),
+  "memory.set": z.object({ key: z.string().min(1).max(40), value: z.unknown().optional() }),
   "wallet.pay": z.object({ to: z.string().min(1).max(120), amountUsdc: z.number().positive().max(100_000), memo: z.string().max(200).optional() }),
 } satisfies Record<ToolName, z.ZodTypeAny>;
 
@@ -184,7 +185,7 @@ export class MockTools {
   }
 
   async call(tool: ToolName, rawArgs: unknown): Promise<unknown> {
-    const parsed = TOOL_ARGS[tool].safeParse(rawArgs);
+    const parsed = TOOL_ARGS[tool].safeParse(rawArgs, { error: keepRequired });
     if (!parsed.success) {
       const why = parsed.error.issues.map((i) => `${i.path.join(".") || "arguments"} ${i.message.toLowerCase()}`).join("; ");
       this.calls.push({ tool, args: rawArgs, result: null, error: why });
@@ -269,14 +270,14 @@ export function gate(allowed: readonly ToolName[], name: unknown): ToolName {
 // reason, in the shape the mocks read.
 const json = z.unknown().refine((v) => JSON.stringify(v ?? null).length <= 200_000, "too large");
 export const BenchSchema = z.object({
-  settings: z.record(z.unknown()),
-  rules: z.record(z.string().max(200)),
-  trigger: z.record(z.unknown()).nullable(),
-  sheets: z.record(z.array(z.record(z.unknown())).max(500)),
-  pages: z.record(z.string().max(50_000)),
-  search: z.record(z.array(z.object({ title: z.string().max(300), url: z.string().max(2000), snippet: z.string().max(2000) })).max(20)),
+  settings: z.record(z.string(), z.unknown()),
+  rules: z.record(z.string(), z.string().max(200)),
+  trigger: z.record(z.string(), z.unknown()).nullable(),
+  sheets: z.record(z.string(), z.array(z.record(z.string(), z.unknown())).max(500)),
+  pages: z.record(z.string(), z.string().max(50_000)),
+  search: z.record(z.string(), z.array(z.object({ title: z.string().max(300), url: z.string().max(2000), snippet: z.string().max(2000) })).max(20)),
   telegram: z.object({ answers: z.array(z.string().max(2000)).max(20) }),
-  memory: z.record(z.unknown()),
+  memory: z.record(z.string(), z.unknown()),
   wallet: z.object({ balanceUsdc: z.number().min(0).max(1_000_000) }),
-  decisions: z.record(z.string().max(40)),
+  decisions: z.record(z.string(), z.string().max(40)),
 }).refine((b) => json.safeParse(b).success, "The sample data is too large.");

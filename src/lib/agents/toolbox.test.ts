@@ -56,6 +56,9 @@ describe("the mocks", () => {
     await expect(tools.call("sheets.read", { sheet: "Nope" })).rejects.toThrow('There is no sheet called "Nope".');
     await expect(tools.call("wallet.pay", { to: "x", amountUsdc: -5 })).rejects.toThrow(/called wrongly/);
     await expect(tools.call("web.fetch", { url: "not a url" })).rejects.toThrow(/called wrongly/);
+    // A key with nothing to keep is still a call made rightly (zod 4 would
+    // refuse a missing value unless it is marked optional).
+    expect(await tools.call("memory.set", { key: "cleared" })).toEqual({ ok: true });
   });
 
   it("read search results by query, with * for any other", async () => {

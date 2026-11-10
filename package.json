@@ -35,7 +35,7 @@
     "react-markdown": "9.0.1",
     "remark-gfm": "4.0.0",
     "viem": "2.21.45",
-    "zod": "3.23.8"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.2.17",

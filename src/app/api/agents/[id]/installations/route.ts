@@ -8,8 +8,8 @@ import { versionsOf } from "@/lib/agents/store";
 export const runtime = "nodejs";
 
 const Body = z.object({
-  settings: z.record(z.unknown()),
-  rules: z.record(z.string().max(200)),
+  settings: z.record(z.string(), z.unknown()),
+  rules: z.record(z.string(), z.string().max(200)),
   timezone: z.string().max(64),
   schedule: z.object({ at: z.string().max(5).nullable(), day: z.number().int().nullable() }).nullable().optional(),
   minGapMinutes: z.number().optional(),
