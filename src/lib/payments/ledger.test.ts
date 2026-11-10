@@ -80,14 +80,14 @@ describe("the ledger", () => {
 
   it("the database itself refuses a negative balance, whatever the code does", async () => {
     await post(tx(), { userId: maya.id, currency: "USDC", kind: "deposit", amount: 1n, key: "d1" });
-    await expect(db.execute(sql`update balances set available = available - 2`)).rejects.toThrow(/balances_available_not_negative/);
-    await expect(db.execute(sql`update balances set held = -1`)).rejects.toThrow(/balances_held_not_negative/);
+    await expect(db.execute(sql`update balances set available = available - 2`)).rejects.toHaveProperty("cause.message", expect.stringMatching(/balances_available_not_negative/));
+    await expect(db.execute(sql`update balances set held = -1`)).rejects.toHaveProperty("cause.message", expect.stringMatching(/balances_held_not_negative/));
     await expect(
       db.execute(sql`insert into ledger_entries (user_id, currency, amount, kind, idempotency_key) values (${maya.id}, 'USDC', '1.5', 'deposit', 'x')`),
-    ).rejects.toThrow(/ledger_entries_amount_whole/);
+    ).rejects.toHaveProperty("cause.message", expect.stringMatching(/ledger_entries_amount_whole/));
     await expect(
       db.execute(sql`insert into ledger_entries (user_id, currency, amount, kind, idempotency_key) values (${maya.id}, 'USDC', '5', 'withdrawal', 'y')`),
-    ).rejects.toThrow(/ledger_entries_sign/);
+    ).rejects.toHaveProperty("cause.message", expect.stringMatching(/ledger_entries_sign/));
   });
 
   it("checks the sign and the owner of every kind before writing", async () => {

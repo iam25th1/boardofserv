@@ -13,6 +13,7 @@ import { DESCRIPTION_MAX, fieldsOf } from "@/lib/sketchFields";
 import { loadSketch } from "@/lib/sketchStore";
 import { servKeyOf } from "@/lib/servKey";
 import { refusal } from "@/lib/spend";
+import { errorText } from "@/lib/db/errors";
 
 export const runtime = "nodejs";
 
@@ -86,7 +87,7 @@ export async function POST(req: Request) {
       outcome: result.outcome,
     });
   } catch (err) {
-    console.error("compile usage not recorded", err instanceof Error ? err.message : "unknown error");
+    console.error("compile usage not recorded", errorText(err, "unknown error"));
   }
   if (!prompt) {
     // The details stay in the server's log.

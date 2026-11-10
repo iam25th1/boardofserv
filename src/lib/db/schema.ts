@@ -1356,8 +1356,11 @@ export const payees = pgTable(
   },
   (t) => ({
     byInstallation: index("payees_installation_idx").on(t.installationId, t.status),
-    oneLabel: uniqueIndex("payees_label_idx").on(t.installationId, sql`lower(${t.label})`).where(sql`${t.status} <> 'removed'`),
-    oneAddress: uniqueIndex("payees_address_idx").on(t.installationId, sql`lower(${t.address})`).where(sql`${t.status} <> 'removed'`),
+    // installation_id as an expression too: drizzle-kit 0.31 reads every
+    // column of an index with an expression as one, and would otherwise drop
+    // and recreate these two on every schema push. The index is the same.
+    oneLabel: uniqueIndex("payees_label_idx").on(sql`${t.installationId}`, sql`lower(${t.label})`).where(sql`${t.status} <> 'removed'`),
+    oneAddress: uniqueIndex("payees_address_idx").on(sql`${t.installationId}`, sql`lower(${t.address})`).where(sql`${t.status} <> 'removed'`),
     knownStatus: check("payees_status", sql`${t.status} in ('active', 'suggested', 'removed')`),
   }),
 );

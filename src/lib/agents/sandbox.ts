@@ -3,6 +3,7 @@ import { newQuickJSWASMModuleFromVariant, shouldInterruptAfterDeadline, type Qui
 import variant from "@jitl/quickjs-wasmfile-release-sync";
 import type { ToolName } from "./definition";
 import { gate, ToolError } from "./toolbox";
+import { errorText } from "../db/errors";
 
 // The sandbox a code step runs in: QuickJS compiled to WebAssembly, one
 // fresh runtime per step. It has no network, no files, no modules, no
@@ -124,7 +125,7 @@ export async function runInSandbox(source: string, input: unknown, opts: Sandbox
             const out = JSON.stringify(result ?? null);
             settle(d, out.length > MAX_JSON_BYTES ? { error: `${name} answered with too much.` } : { value: out });
           },
-          (err: unknown) => settle(d, { error: err instanceof Error ? err.message : `${name} failed.` }),
+          (err: unknown) => settle(d, { error: errorText(err, `${name} failed.`) }),
         );
       } catch (err) {
         // Settled on the next tick, so the promise handle is returned first.

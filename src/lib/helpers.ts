@@ -8,6 +8,7 @@ import { completeJson, contextFor, type ChatMessage, type JsonResult, type Model
 import type { PublicHelperDTO, QuotaDTO, SketchDTO } from "./types";
 import { paymentsConfig } from "./payments/config";
 import { pricesOf, type Price } from "./payments/uses";
+import { errorText } from "./db/errors";
 
 // Published answer helpers.
 //
@@ -232,7 +233,7 @@ export async function startUse(helperId: string, userId: string, holdId: string 
       .returning({ id: helperUses.id });
     return row?.id ?? null;
   } catch (err) {
-    console.error("helper use not recorded", err instanceof Error ? err.message : "unknown error");
+    console.error("helper use not recorded", errorText(err, "unknown error"));
     return null;
   }
 }
@@ -252,6 +253,6 @@ export async function finishUse(
   try {
     await db.update(helperUses).set(row).where(eq(helperUses.id, id));
   } catch (err) {
-    console.error("helper use not recorded", err instanceof Error ? err.message : "unknown error");
+    console.error("helper use not recorded", errorText(err, "unknown error"));
   }
 }

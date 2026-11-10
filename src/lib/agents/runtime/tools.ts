@@ -28,6 +28,7 @@ import { addressFacts, highRisk, warningOf, type AddressFacts } from "../../spen
 import { paymentsNetworkProblem } from "../../spending/treasury";
 import { formatAmount, parseAmount } from "../../money";
 import { fetchPage, WebUnreachable } from "./webFetch";
+import { errorText } from "../../db/errors";
 
 // A job's tools (and a value check's, with no job). Sheets are real: the
 // owner's own Google Sheets, only the tabs they gave this installation,
@@ -355,7 +356,7 @@ export class JobTools implements ToolHost {
     try {
       result = payment ? await this.payNow(step, payment, g, approvedBy, ctx) : await this.use(step, tool, args);
     } catch (err) {
-      await this.logged(step, tool, risk, what, { outcome: "failed", guard: g, reason: err instanceof Error ? err.message : "It failed.", approvedBy });
+      await this.logged(step, tool, risk, what, { outcome: "failed", guard: g, reason: errorText(err, "It failed."), approvedBy });
       throw err;
     }
     if (spend) await recordSpend(this.rt, this.installation, this.job?.id ?? null, spend);

@@ -12,6 +12,7 @@ import { loadSketch, saveSketch } from "@/lib/sketchStore";
 import { servKeyOf } from "@/lib/servKey";
 import { refusal } from "@/lib/spend";
 import { replySystemPrompt, type TurnPlan } from "@/lib/systemPrompt";
+import { errorText } from "@/lib/db/errors";
 
 export const runtime = "nodejs";
 
@@ -226,7 +227,7 @@ async function startUsage(conversationId: string, userId: string, ownKey: boolea
       .returning({ id: replyUsage.id });
     return row?.id ?? null;
   } catch (err) {
-    console.error("reply usage not recorded", err instanceof Error ? err.message : "unknown error");
+    console.error("reply usage not recorded", errorText(err, "unknown error"));
     return null;
   }
 }
@@ -254,6 +255,6 @@ async function finishUsage(id: string | null, r: ReplyResult | null, x: JsonResu
       })
       .where(eq(replyUsage.id, id));
   } catch (err) {
-    console.error("reply usage not recorded", err instanceof Error ? err.message : "unknown error");
+    console.error("reply usage not recorded", errorText(err, "unknown error"));
   }
 }

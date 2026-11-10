@@ -4,10 +4,9 @@ import { and, eq, ne, sql } from "drizzle-orm";
 import { db } from "./db";
 import { users, type User } from "./db/schema";
 
-// A unique violation, from node-postgres or PGlite.
-export function isUniqueViolation(err: unknown): boolean {
-  return Boolean(err && typeof err === "object" && "code" in err && (err as { code?: unknown }).code === "23505");
-}
+import { isUniqueViolation } from "./db/errors";
+
+export { isUniqueViolation };
 
 // The handle a new user has until they choose one: maker_ and four digits,
 // or eight once four keep colliding. Migration 0008 gave existing users

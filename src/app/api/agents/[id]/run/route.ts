@@ -8,6 +8,7 @@ import { currentVersion } from "@/lib/agents/store";
 import { BenchSchema } from "@/lib/agents/toolbox";
 import { emptyBench } from "@/lib/agents/types";
 import { refusal } from "@/lib/spend";
+import { errorText } from "@/lib/db/errors";
 
 export const runtime = "nodejs";
 
@@ -67,7 +68,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
           record: ctx ? (call) => recordAgentCall(ctx, "agent_decision", call) : undefined,
         });
       } catch (err) {
-        console.error(`agents: a bench run stopped: ${err instanceof Error ? err.message : "unknown error"}`);
+        console.error(`agents: a bench run stopped: ${errorText(err, "unknown error")}`);
         send({ type: "end", status: "failed", reason: "The run stopped unexpectedly. Try again.", steps: 0, ms: 0, costUsd: 0, memory: {}, sheets: {} });
       }
       if (open) ctrl.close();

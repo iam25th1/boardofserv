@@ -5,6 +5,7 @@ import { runInSandbox, DEFAULT_TIME_MS } from "./sandbox";
 import { DATA_RULE, wrapData } from "./untrusted";
 import { MockTools, ToolError, TOOL_ARGS, TOOLS } from "./toolbox";
 import { BUDGET, SCREEN, type BenchData, type RunEvent, type RunState, type StepCode } from "./types";
+import { errorText } from "../db/errors";
 
 export type { JournalEntry, RunEvent, RunState } from "./types";
 
@@ -347,7 +348,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
           return { kind: "declined", answer: err.answer };
         }
         const infra = err instanceof InfraError;
-        const message = err instanceof Error ? err.message : `${tool} failed.`;
+        const message = errorText(err, `${tool} failed.`);
         state.journal[i] = { tool, args, result: null, error: message, ...(infra ? { infra } : {}) };
         await o.save?.(state);
         emit(null, message);

@@ -10,6 +10,7 @@ import { chainClient, chainError, type ChainClient } from "./chain";
 import { NotEnoughFunds, post, type Exec } from "./ledger";
 import { treasurySigner, type PayoutSigner } from "./signer";
 import { walletsOf } from "./wallets";
+import { isUniqueViolation } from "../db/errors";
 
 // Withdrawals. A maker asks to take money out to one of their linked
 // wallets, and the amount is debited at once with a pending row. Below the
@@ -281,7 +282,7 @@ async function trySend(chain: ChainClient, signer: PayoutSigner, config: Payment
       return row ? { id: row.id, raw: signed.raw } : null;
     });
   } catch (err) {
-    if (err && typeof err === "object" && "code" in err && (err as { code?: unknown }).code === "23505") return null;
+    if (isUniqueViolation(err)) return null;
     throw err;
   }
   if (!recorded) return null;
