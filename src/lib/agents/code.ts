@@ -1,6 +1,7 @@
 import "server-only";
 import { Script } from "node:vm";
 import { completeJson, DOLPHIN_LABEL, modelConfig, type ChatMessage, type JsonResult, type ModelConfig, type Provider } from "../model";
+import { ANSWER_LIMITS } from "../modelLimits";
 import { ARGS_TOOLS, type AgentDefinition, type CodeStepDef } from "./definition";
 import { TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
@@ -26,9 +27,8 @@ import type { StepCode } from "./types";
 // call is made again without it.
 
 export const MAX_CODE_ROUNDS = 3;
-const CODE_MAX_TOKENS = 4000;
+const CODE_MAX_TOKENS = ANSWER_LIMITS.code;
 const DEFAULT_CODE_TIMEOUT_MS = 240_000;
-const REVIEW_MAX_TOKENS = 300;
 // A review isn't streamed: it gets a minute, not a reply's first-token wait.
 const REVIEW_TIMEOUT_MS = 60_000;
 
@@ -267,7 +267,7 @@ export async function reviewCode(source: string, step: CodeStepDef, serv: ModelC
     },
   ];
   const config = { ...serv, firstTokenTimeoutMs: Math.max(serv.firstTokenTimeoutMs, REVIEW_TIMEOUT_MS) };
-  const result = await completeJson(messages, { config, schema: REVIEW_SCHEMA, maxTokens: REVIEW_MAX_TOKENS, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
+  const result = await completeJson(messages, { config, purpose: "code_review", schema: REVIEW_SCHEMA, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
   if (!result.content) return null;
   try {
     const parsed = JSON.parse(result.content) as { verdict?: string; reason?: string };

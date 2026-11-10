@@ -55,20 +55,20 @@ describe("freezing", () => {
     expect(ok.status).toBe(201);
     const id = ((await ok.json()) as { safety: { freezes: { id: string; target: string }[] } }).safety.freezes[0]!;
     expect(id.target).toBe("@a_maker");
-    expect((await liftIt(post(`/api/admin/freezes/${id.id}`, { reason: "" }), { params: { id: id.id } })).status).toBe(400);
-    expect((await liftIt(post("/api/admin/freezes/nope", { reason: "Checked." }), { params: { id: "nope" } })).status).toBe(404);
-    expect((await liftIt(post(`/api/admin/freezes/${id.id}`, { reason: "Checked." }), { params: { id: id.id } })).status).toBe(200);
+    expect((await liftIt(post(`/api/admin/freezes/${id.id}`, { reason: "" }), { params: Promise.resolve({ id: id.id }) })).status).toBe(400);
+    expect((await liftIt(post("/api/admin/freezes/nope", { reason: "Checked." }), { params: Promise.resolve({ id: "nope" }) })).status).toBe(404);
+    expect((await liftIt(post(`/api/admin/freezes/${id.id}`, { reason: "Checked." }), { params: Promise.resolve({ id: id.id }) })).status).toBe(200);
   });
 });
 
 describe("the kill switch", () => {
   it("is its maker's alone, and takes only stop or start", async () => {
     state.user = other;
-    expect((await kill(post(`/api/agents/${agentId}/kill`, { action: "stop" }), { params: { id: agentId } })).status).toBe(404);
+    expect((await kill(post(`/api/agents/${agentId}/kill`, { action: "stop" }), { params: Promise.resolve({ id: agentId }) })).status).toBe(404);
     state.user = maker;
-    expect((await kill(post(`/api/agents/${agentId}/kill`, { action: "explode" }), { params: { id: agentId } })).status).toBe(400);
-    expect((await kill(post(`/api/agents/${agentId}/kill`, { action: "stop", note: "x".repeat(400) }), { params: { id: agentId } })).status).toBe(400);
-    const stopped = await kill(post(`/api/agents/${agentId}/kill`, { action: "stop" }), { params: { id: agentId } });
+    expect((await kill(post(`/api/agents/${agentId}/kill`, { action: "explode" }), { params: Promise.resolve({ id: agentId }) })).status).toBe(400);
+    expect((await kill(post(`/api/agents/${agentId}/kill`, { action: "stop", note: "x".repeat(400) }), { params: Promise.resolve({ id: agentId }) })).status).toBe(400);
+    const stopped = await kill(post(`/api/agents/${agentId}/kill`, { action: "stop" }), { params: Promise.resolve({ id: agentId }) });
     expect(((await stopped.json()) as { dashboard: { stopped: unknown } }).dashboard.stopped).not.toBeNull();
   });
 });

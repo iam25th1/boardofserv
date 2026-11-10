@@ -60,9 +60,10 @@ describe.runIf(process.env.CHECK_BUILD)("the build's fonts", () => {
     expect(built.length).toBeGreaterThan(10);
     const google = built.filter((p) => GOOGLE.test(readFileSync(p, "utf8")));
     expect(google.map((p) => relative(next, p))).toEqual([]);
-    // Every font face with a file loads it from the app (the fallbacks use local fonts).
+    // Every font face with a file loads it from the app (the fallbacks use local fonts):
+    // /_next/static/media/, which Turbopack's styles (in /_next/static/chunks/) name as ../media/.
     const faces = built.filter((p) => p.endsWith(".css")).flatMap((p) => readFileSync(p, "utf8").match(/@font-face\{[^}]*\}/g) ?? []).filter((f) => f.includes("url("));
     expect(faces.length).toBeGreaterThanOrEqual(2);
-    for (const f of faces) expect(f).toMatch(/url\(\/_next\/static\/media\/[^)]+\.woff2\)/);
+    for (const f of faces) expect(f).toMatch(/url\((?:\/_next\/static\/media\/|\.\.\/media\/)[^)/]+\.woff2\)/);
   });
 });

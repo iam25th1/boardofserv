@@ -6,7 +6,8 @@ import { jobsOfInstallation } from "@/lib/agents/runtime/views";
 export const runtime = "nodejs";
 
 // An installation's recent jobs, for its owner only.
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const rt = serverRuntime();

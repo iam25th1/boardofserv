@@ -90,6 +90,6 @@ export async function planTurn(input: PlanInput, opts: { config: ModelConfig; si
     { role: "system", content: PLAN_PROMPT },
     { role: "user", content: planInput(input) },
   ];
-  const result = await completeJson(messages, { ...opts, schema: SKETCH_SCHEMA, maxTokens: opts.config.planMaxTokens });
+  const result = await completeJson(messages, { ...opts, purpose: "sketch", schema: SKETCH_SCHEMA, maxTokens: opts.config.planMaxTokens });
   return { sketch: parseSketchBlock(result.content), result };
 }

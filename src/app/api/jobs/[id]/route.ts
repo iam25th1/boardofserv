@@ -6,7 +6,8 @@ export const runtime = "nodejs";
 
 // One job and its steps: in full for its owner, without the owner's data
 // for the agent's maker, a 404 for anyone else.
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const job = await jobFor(serverRuntime(), user.id, params.id);

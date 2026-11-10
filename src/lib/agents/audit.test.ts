@@ -122,8 +122,8 @@ describe("the audit log", () => {
   it("can't be changed or removed, even straight in the database", async () => {
     const inst = await installed(rt, renter, await publishedAgent(db, maker));
     await new JobTools(rt, inst, restockDefinition(), null).call(record(), "sheets.write", ORDER);
-    await expect(db.update(schema.agentAudit).set({ outcome: "blocked" }).where(eq(schema.agentAudit.installationId, inst.id))).rejects.toThrow(/append-only/);
-    await expect(db.delete(schema.agentAudit).where(eq(schema.agentAudit.installationId, inst.id))).rejects.toThrow(/append-only/);
+    await expect(db.update(schema.agentAudit).set({ outcome: "blocked" }).where(eq(schema.agentAudit.installationId, inst.id))).rejects.toHaveProperty("cause.message", expect.stringMatching(/append-only/));
+    await expect(db.delete(schema.agentAudit).where(eq(schema.agentAudit.installationId, inst.id))).rejects.toHaveProperty("cause.message", expect.stringMatching(/append-only/));
     expect((await linesOf(inst.id))[0]!.outcome).toBe("ran");
   });
 

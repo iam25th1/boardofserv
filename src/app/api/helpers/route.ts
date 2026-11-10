@@ -13,6 +13,8 @@ import { DESCRIPTION_MAX, fieldsOf } from "@/lib/sketchFields";
 import { loadSketch } from "@/lib/sketchStore";
 import { servKeyOf } from "@/lib/servKey";
 import { refusal } from "@/lib/spend";
+import { errorText } from "@/lib/db/errors";
+import { recordAttempts } from "@/lib/modelAttempts";
 
 export const runtime = "nodejs";
 
@@ -71,7 +73,9 @@ export async function POST(req: Request) {
   const controller = new AbortController();
   req.signal.addEventListener("abort", () => controller.abort());
   const { prompt, result } = await compileHelper(sketch, history, { config, signal: controller.signal });
-  // The compile call's tokens count towards the day's spend.
+  // The compile call's tokens count towards the day's spend; its tries go
+  // in the attempt log.
+  await recordAttempts(db as never, result.attempts, { ownKey: Boolean(config.ownKey) });
   try {
     await db.insert(replyUsage).values({
       conversationId,
@@ -86,7 +90,7 @@ export async function POST(req: Request) {
       outcome: result.outcome,
     });
   } catch (err) {
-    console.error("compile usage not recorded", err instanceof Error ? err.message : "unknown error");
+    console.error("compile usage not recorded", errorText(err, "unknown error"));
   }
   if (!prompt) {
     // The details stay in the server's log.

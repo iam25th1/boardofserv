@@ -10,7 +10,8 @@ const Body = z.object({ action: z.enum(["pause", "resume", "stop", "run", "test"
 
 // The owner pauses, resumes or stops their installation, or runs it now;
 // while it is being set up, runs a test or makes it live.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const rt = serverRuntime();

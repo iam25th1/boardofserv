@@ -1,6 +1,7 @@
 import "server-only";
 import { minIntervalMinutes } from "./interval";
 import { completeJson, contextFor, type ChatMessage, type JsonResult, type ModelConfig } from "../model";
+import { ANSWER_LIMITS } from "../modelLimits";
 import { INTERVIEW_FIELDS, INTERVIEW_LABELS } from "../sketchFields";
 import type { SketchDTO } from "../types";
 import { ACTION_TOOLS, AGENT_FORMAT, checkDefinition, SETTING_TYPES, RULE_TYPES, TOOL_NAMES, type AgentDefinition } from "./definition";
@@ -17,7 +18,6 @@ import { TOOLS } from "./toolbox";
 // range keywords. wireToDefinition turns the answer back into the format.
 
 export const MAX_PLAN_TRIES = 3;
-const DEFAULT_PLAN_MAX_TOKENS = 3500;
 // A whole plan is one answer of a few thousand tokens, not streamed, so it
 // gets far longer than a reply's wait for its first token.
 const DEFAULT_PLAN_TIMEOUT_MS = 120_000;
@@ -250,7 +250,7 @@ export async function planAgent(
   opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch; maxTries?: number },
 ): Promise<PlanResult> {
   const max = Number(process.env.AGENT_PLAN_MAX_TOKENS);
-  const maxTokens = Number.isInteger(max) && max > 0 ? max : DEFAULT_PLAN_MAX_TOKENS;
+  const maxTokens = Number.isInteger(max) && max > 0 ? max : ANSWER_LIMITS.agent_plan;
   const t = Number(process.env.AGENT_PLAN_TIMEOUT_MS);
   const config = { ...opts.config, firstTokenTimeoutMs: Number.isInteger(t) && t > 0 ? t : DEFAULT_PLAN_TIMEOUT_MS };
   const messages: ChatMessage[] = [
@@ -261,7 +261,7 @@ export async function planAgent(
   const answers: string[] = [];
   let errors: string[] = [];
   for (let attempt = 0; attempt < (opts.maxTries ?? MAX_PLAN_TRIES); attempt++) {
-    const result = await completeJson(messages, { config, schema: AGENT_PLAN_SCHEMA, maxTokens, signal: opts.signal, fetchImpl: opts.fetchImpl });
+    const result = await completeJson(messages, { config, purpose: "agent_plan", schema: AGENT_PLAN_SCHEMA, maxTokens, signal: opts.signal, fetchImpl: opts.fetchImpl });
     calls.push(result);
     if (!result.content) {
       // No answer at all (every provider failed): another try won't help.

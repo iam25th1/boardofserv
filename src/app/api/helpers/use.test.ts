@@ -5,7 +5,7 @@ import type { PgliteDatabase } from "drizzle-orm/pglite";
 import { desc } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import { addHelper, addUser, SECRET_PROMPT, testDb } from "@/test/helperDb";
-import { POST as use } from "./[slug]/use/route";
+import { POST as postUse } from "./[slug]/use/route";
 import { GET as view } from "./[slug]/route";
 import { GET as uses } from "../uses/route";
 
@@ -58,9 +58,9 @@ interface Use {
 }
 
 async function ask(slug: string, input: unknown = "The Alder mug, hand thrown, 12oz"): Promise<Use> {
-  const res = await use(
+  const res = await postUse(
     new Request(`http://localhost/api/helpers/${slug}/use`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input }) }),
-    { params: { slug } },
+    { params: Promise.resolve({ slug }) },
   );
   const body = await res.text();
   const events = res.headers.get("content-type")?.startsWith("text/event-stream")
@@ -220,9 +220,9 @@ describe("using a helper", () => {
     let release = () => {};
     hold = new Promise<void>((r) => (release = r));
     // The first use is still streaming when the second asks.
-    const first = use(
+    const first = postUse(
       new Request("http://localhost/api/helpers/shop-blurbs/use", { method: "POST", body: JSON.stringify({ input: "The Alder mug" }) }),
-      { params: { slug: "shop-blurbs" } },
+      { params: Promise.resolve({ slug: "shop-blurbs" }) },
     );
     const firstRes = await first;
     expect((await ask("shop-blurbs")).status).toBe(429);
@@ -244,10 +244,10 @@ describe("using a helper", () => {
     expect(await db.select().from(schema.helperUses)).toEqual([]);
 
     // The page says so too.
-    const page = await view(new Request("http://localhost/api/helpers/gone"), { params: { slug: "gone" } });
+    const page = await view(new Request("http://localhost/api/helpers/gone"), { params: Promise.resolve({ slug: "gone" }) });
     expect(page.status).toBe(410);
     expect(await page.json()).toEqual({ error: "This helper was taken down.", name: "Gone helper" });
-    const live = await view(new Request("http://localhost/api/helpers/shop-blurbs"), { params: { slug: "shop-blurbs" } });
+    const live = await view(new Request("http://localhost/api/helpers/shop-blurbs"), { params: Promise.resolve({ slug: "shop-blurbs" }) });
     expect((await live.json()).helper).toMatchObject({ slug: "shop-blurbs", name: "Shop blurbs", maker: "maya" });
   });
 });

@@ -212,9 +212,21 @@ the token cap: with a small cap, as on the plan call, it can spend all of it
 reasoning and send back no text, which counts as an empty reply. Dolphin
 reports usage when asked (`stream_options.include_usage`).
 
-- Before the first token, a network error, a timeout, a 5xx, a 429, a 402 or an
-  empty reply moves on to the next provider. Each provider is tried once per
-  reply, so a 402 (out of credit) is never retried. Any other refusal stops.
+- Before the first token, a network error, a timeout, a broken stream, a 5xx,
+  a 429 or an empty answer (no content, or for a JSON call an answer that
+  isn't JSON) is tried again on the same provider, three tries in all, 0.5 s
+  and then 1 s apart (`MODEL_RETRY_ATTEMPTS`, `MODEL_RETRY_BACKOFF_MS`), and
+  then moves on to the next provider. A 402 (out of credit) is never tried
+  again: it moves straight on. Any other refusal stops.
+- Each call says what it is for, and sends that purpose's answer limit
+  (`src/lib/modelLimits.ts`), sized to what the answer needs: SERV checks
+  credit against the limit sent, not what is used.
+- Every try is logged (`model_attempts`: purpose, provider, status, time,
+  tokens, which try, empty or not), and the admin's model cost view shows
+  each purpose's empty answer and retry rates.
+- A listing, request or offer that screening got no answer for is screened
+  again by the worker, 2, 10 and 30 minutes later, before it waits for a
+  person in the admin queue.
 - After the first token nothing is retried. The reply ends with "Reply cut off.
   Try again."
 - If nothing answers, the thread says "Replies aren't available right now.
@@ -787,7 +799,10 @@ suppliers' page the demo serves itself, with a stand-in for SERV, so it
 needs no database and no keys. `scripts/live-restock.ts` runs it as a job
 with SERV deciding for real (`SERV_API_KEY`, `LIVE_SERV_BUDGET`, default 6
 calls); with `TELEGRAM_BOT_TOKEN` and `LIVE_TELEGRAM_CHAT` it asks in that
-real chat too. A production
+real chat too. `scripts/live-enquiry.ts` runs the Enquiry follow-up live on
+its test bench twice, the owner answering Yes and then No, with SERV making
+its two decisions (`LIVE_SERV_BUDGET`, default 4 calls), and checks the row
+each answer writes. A production
 build has none of this (`src/test/demo-unreachable.test.ts` checks the
 build).
 

@@ -110,7 +110,7 @@ export async function askGuard(g: GuardInput, serv: ModelConfig | null, opts: { 
     { role: "user", content: guardRequest(g) },
   ];
   const config = { ...serv, firstTokenTimeoutMs: Math.max(serv.firstTokenTimeoutMs, 30_000) };
-  const call = await completeJson(messages, { config, schema: GUARD_SCHEMA, maxTokens: 160, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
+  const call = await completeJson(messages, { config, purpose: "guard", schema: GUARD_SCHEMA, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
   return { ...readGuard(call), call };
 }
 

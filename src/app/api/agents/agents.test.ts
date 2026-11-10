@@ -115,7 +115,7 @@ async function built(): Promise<{ id: string; conversationId: string }> {
   return { id: a.id, conversationId };
 }
 
-const builderOf = async (id: string) => ((await (await agent.GET(json(`/api/agents/${id}?view=builder`), { params: { id } })).json()) as { builder: AgentBuilderDTO }).builder;
+const builderOf = async (id: string) => ((await (await agent.GET(json(`/api/agents/${id}?view=builder`), { params: Promise.resolve({ id }) })).json()) as { builder: AgentBuilderDTO }).builder;
 
 async function events(res: Response) {
   return (await res.text())
@@ -133,7 +133,7 @@ describe("planning an agent from its conversation", () => {
     expect(first).toMatchObject({ version: 1, state: "draft", buildState: "planning", steps: [] });
 
     await jobFor((await draftOf(first.id))!.id);
-    const after = ((await (await agent.GET(json(`/api/agents/${first.id}`), { params: { id: first.id } })).json()) as { agent: AgentSummaryDTO }).agent;
+    const after = ((await (await agent.GET(json(`/api/agents/${first.id}`), { params: Promise.resolve({ id: first.id }) })).json()) as { agent: AgentSummaryDTO }).agent;
     expect(after.buildState).toBe("idle");
     expect(after.steps.map((s) => [s.id, s.kind, s.code])).toEqual([
       ["find_low", "code", "approved"],
@@ -146,7 +146,7 @@ describe("planning an agent from its conversation", () => {
     // SERV planned and reviewed; Dolphin only wrote code.
     expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_plan", "dolphin", "code_review", "dolphin", "code_review"]);
     // The conversation shows the agent beside its sketch.
-    const convo = await (await messagesRoute.GET(json(`/api/conversations/${conversationId}/messages`), { params: { id: conversationId } })).json();
+    const convo = await (await messagesRoute.GET(json(`/api/conversations/${conversationId}/messages`), { params: Promise.resolve({ id: conversationId }) })).json();
     expect(convo.agent).toMatchObject({ id: first.id, buildState: "idle" });
     // Every model call is in the usage records.
     const usage = await db.select({ kind: schema.replyUsage.kind, provider: schema.replyUsage.provider }).from(schema.replyUsage).where(eq(schema.replyUsage.userId, ana.id));
@@ -194,11 +194,11 @@ describe("the builder", () => {
     const { id } = await built();
     state.user = ben;
     for (const res of [
-      await agent.GET(json(`/api/agents/${id}?view=builder`), { params: { id } }),
-      await run.POST(json(`/api/agents/${id}/run`, "POST", { dryRun: true }), { params: { id } }),
-      await fix.POST(json(`/api/agents/${id}/fix`, "POST", { message: "x" }), { params: { id } }),
-      await bench.PUT(json(`/api/agents/${id}/bench`, "PUT", { bench: restockBench() }), { params: { id } }),
-      await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: { id } }),
+      await agent.GET(json(`/api/agents/${id}?view=builder`), { params: Promise.resolve({ id }) }),
+      await run.POST(json(`/api/agents/${id}/run`, "POST", { dryRun: true }), { params: Promise.resolve({ id }) }),
+      await fix.POST(json(`/api/agents/${id}/fix`, "POST", { message: "x" }), { params: Promise.resolve({ id }) }),
+      await bench.PUT(json(`/api/agents/${id}/bench`, "PUT", { bench: restockBench() }), { params: Promise.resolve({ id }) }),
+      await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: Promise.resolve({ id }) }),
     ]) {
       expect(res.status).toBe(404);
     }
@@ -208,7 +208,7 @@ describe("the builder", () => {
   it("runs the test bench dry, step by step, with no model call", async () => {
     const { id } = await built();
     seen.length = 0;
-    const res = await run.POST(json(`/api/agents/${id}/run`, "POST", { dryRun: true, bench: restockBench() }), { params: { id } });
+    const res = await run.POST(json(`/api/agents/${id}/run`, "POST", { dryRun: true, bench: restockBench() }), { params: Promise.resolve({ id }) });
     expect(res.headers.get("content-type")).toMatch(/text\/event-stream/);
     const e = await events(res);
     expect(e.filter((x) => x.type === "step_done").map((x) => `${x.stepId}:${x.status}`)).toEqual(["find_low:ok", "compare:ok", "check_total:ok", "record:ok"]);
@@ -219,7 +219,7 @@ describe("the builder", () => {
   it("asks SERV for decisions on a live run, and records each call", async () => {
     const { id } = await built();
     seen.length = 0;
-    const e = await events(await run.POST(json(`/api/agents/${id}/run`, "POST", { dryRun: false, bench: restockBench() }), { params: { id } }));
+    const e = await events(await run.POST(json(`/api/agents/${id}/run`, "POST", { dryRun: false, bench: restockBench() }), { params: Promise.resolve({ id }) }));
     expect(e.find((x) => x.type === "step_done" && x.stepId === "check_total")).toMatchObject({ outcome: "within" });
     expect(seen.map((s) => s.schema)).toEqual(["decision"]);
     expect((await db.select().from(schema.replyUsage).where(eq(schema.replyUsage.kind, "agent_decision"))).length).toBeGreaterThan(0);
@@ -233,7 +233,7 @@ describe("the builder", () => {
     };
     plans = [changed];
     seen.length = 0;
-    const res = await fix.POST(json(`/api/agents/${id}/fix`, "POST", { message: "it ignored delivery time" }), { params: { id } });
+    const res = await fix.POST(json(`/api/agents/${id}/fix`, "POST", { message: "it ignored delivery time" }), { params: Promise.resolve({ id }) });
     expect(res.status).toBe(202);
     await jobFor((await draftOf(id))!.id);
     // One plan, then only the changed step was written and reviewed.
@@ -248,20 +248,20 @@ describe("the builder", () => {
   it("publishes nothing the code review blocks or couldn't read, and says what to fix", async () => {
     const { id } = await built();
     review = [{ step: "Find low stock", severity: "blocking", finding: "It sends the stock list to an address the purpose doesn't need." }];
-    let res = await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: { id } });
+    let res = await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: Promise.resolve({ id }) });
     expect(res.status).toBe(409);
     const refused = (await res.json()) as { error: string; review: { status: string; findings: unknown[] }; builder: AgentBuilderDTO };
     expect(refused.error).toBe("The code review found problems to fix before it can be published.");
     expect(refused.review).toMatchObject({ status: "blocked", by: "serv", findings: [{ step: "Find low stock", severity: "blocking", finding: "It sends the stock list to an address the purpose doesn't need." }] });
     expect(refused.builder.review!.status).toBe("blocked");
     review = "down";
-    res = await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: { id } });
+    res = await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: Promise.resolve({ id }) });
     expect(res.status).toBe(503);
     expect(((await res.json()) as { error: string }).error).toBe("The code review couldn't run just now, so it isn't published yet. Try again in a minute.");
     expect((await builderOf(id)).agent.state).toBe("draft");
     // A warning alone doesn't stop it.
     review = [{ step: "Compare suppliers", severity: "warning", finding: "It reads every supplier row even when one would do." }];
-    res = await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: { id } });
+    res = await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: Promise.resolve({ id }) });
     expect(res.status).toBe(200);
     expect(((await res.json()) as { builder: AgentBuilderDTO }).builder.review).toMatchObject({ status: "passed", findings: [{ severity: "warning" }] });
     review = [];
@@ -270,21 +270,21 @@ describe("the builder", () => {
   it("saves the draft, publishes a version that never changes, and starts a new draft after it", async () => {
     const { id } = await built();
     const sample = { ...restockBench(), wallet: { balanceUsdc: 900 } };
-    const saved = await bench.PUT(json(`/api/agents/${id}/bench`, "PUT", { bench: sample }), { params: { id } });
+    const saved = await bench.PUT(json(`/api/agents/${id}/bench`, "PUT", { bench: sample }), { params: Promise.resolve({ id }) });
     expect(((await saved.json()) as { builder: AgentBuilderDTO }).builder.bench.wallet).toEqual({ balanceUsdc: 900 });
 
-    const published = await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: { id } });
+    const published = await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: Promise.resolve({ id }) });
     expect(published.status).toBe(200);
     const b = ((await published.json()) as { builder: AgentBuilderDTO }).builder;
     expect(b.agent).toMatchObject({ state: "published", version: 1 });
     expect(b.versions).toEqual([{ number: 1, state: "published", createdAt: expect.any(String), publishedAt: expect.any(String) }]);
-    expect((await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: { id } })).status).toBe(409);
+    expect((await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: Promise.resolve({ id }) })).status).toBe(409);
 
     const list = ((await (await agents.GET(json("/api/agents"))).json()) as { agents: { id: string; testing: number | null; draft: boolean }[] }).agents;
     expect(list.find((a) => a.id === id)).toMatchObject({ testing: 1, draft: false });
 
     // Saving the bench now starts version 2; version 1 stays as it was.
-    await bench.PUT(json(`/api/agents/${id}/bench`, "PUT", { bench: restockBench() }), { params: { id } });
+    await bench.PUT(json(`/api/agents/${id}/bench`, "PUT", { bench: restockBench() }), { params: Promise.resolve({ id }) });
     const two = await builderOf(id);
     expect(two.agent).toMatchObject({ state: "draft", version: 2 });
     expect(two.versions.map((v) => [v.number, v.state])).toEqual([
@@ -299,7 +299,7 @@ describe("the builder", () => {
     const { id } = await built();
     const draft = (await draftOf(id))!;
     await db.update(schema.agentVersions).set({ code: { ...draft.code, compare: { ...draft.code.compare!, status: "needs_attention" } } }).where(eq(schema.agentVersions.id, draft.id));
-    const res = await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: { id } });
+    const res = await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: Promise.resolve({ id }) });
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: '"Compare suppliers" still needs approved code.' });
   });

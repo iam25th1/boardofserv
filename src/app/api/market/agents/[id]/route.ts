@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 
 // An agent's page on the board, for anyone: what it does and how, in plain
 // words. Never its code or prompts.
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const limited = rateLimited(req, "read");
   if (limited) return limited;
   const user = await getUserFromRequest(req).catch(() => null);

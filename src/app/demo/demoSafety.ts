@@ -97,6 +97,13 @@ export const DEMO_SAFETY: AdminSafetyDTO = {
     { by: "boardofserv", purpose: "post_screen", calls: 7, tokens: 6_230, cost: "11000", sitePaid: "11000" },
   ],
   platform: { today: "36000", budget: "2000000" },
+  answers: [
+    { purpose: "chat", calls: 214, attempts: 217, empty: 2, retried: 3 },
+    { purpose: "decision", calls: 86, attempts: 88, empty: 1, retried: 2 },
+    { purpose: "guard", calls: 41, attempts: 41, empty: 0, retried: 0 },
+    { purpose: "publish_review", calls: 6, attempts: 6, empty: 0, retried: 0 },
+    { purpose: "post_screen", calls: 12, attempts: 17, empty: 5, retried: 3 },
+  ],
   costs: [
     { installationId: "i-1", name: "Lead follow-up", owner: "harbor_tea", maker: "lena_prints", week: "1820000", sitePaid: "1820000", calls: 412, decimals: 6 },
     { installationId: "i-2", name: "Restock helper", owner: "lena_prints", maker: "lena_prints", week: "640000", sitePaid: "0", calls: 151, decimals: 6 },

@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useMemo } from "react";
+import { useParams } from "next/navigation";
 import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
 import { SkeletonPanel } from "@/components/ui";
@@ -9,7 +10,9 @@ import { privyAppId } from "@/lib/privy-config";
 import { useApi } from "@/lib/useApi";
 
 // The maker's dashboard for their agent on the board.
-export default function DashboardPage({ params }: { params: { id: string } }) {
+export default function DashboardPage() {
+  // Next 16 passes params to a page as a promise; a client page reads them here.
+  const params = useParams<{ id: string }>();
   if (!privyAppId()) return <Page title="On the board">Sign-in isn&apos;t set up here.</Page>;
   return <SignedIn id={params.id} />;
 }

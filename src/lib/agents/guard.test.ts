@@ -119,7 +119,7 @@ describe("the guard's answer", () => {
   });
 
   it("reads anything but allow, ask or block as ask", () => {
-    const call = (content: string | null) => ({ content, outcome: "ok" as const, provider: "serv" as const, model: "m", promptTokens: 1, completionTokens: 1, totalMs: 1, failures: [] });
+    const call = (content: string | null) => ({ content, outcome: "ok" as const, provider: "serv" as const, model: "m", promptTokens: 1, completionTokens: 1, totalMs: 1, failures: [], attempts: [] });
     expect(readGuard(call(JSON.stringify({ verdict: "allow", reason: "Fine." })))).toEqual({ verdict: "allow", reason: "Fine.", fallback: false });
     for (const bad of [null, "not json", JSON.stringify({ verdict: "yes" }), JSON.stringify({ reason: "x" })]) expect(readGuard(call(bad))).toEqual({ verdict: "ask", reason: GUARD_DOWN, fallback: true });
   });

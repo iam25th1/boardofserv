@@ -14,7 +14,8 @@ const Body = z.object({ action: z.enum(["stop", "start"]), note: z.string().max(
 // installation pauses and its renter is told; renewals wait; nothing new
 // is rented), or start it again (the time it was stopped is added to every
 // paid week). Its maker only.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const who = await ownedAgent(req, params.id);
   if ("refused" in who) return who.refused;
   const parsed = Body.safeParse(await req.json().catch(() => null));

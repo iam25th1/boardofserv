@@ -15,8 +15,9 @@ const DEMO_TREASURY = "0x7Ea5C0fFee2B6f4E3c9A1d0B8e7F6a5C4d3B2a19";
 // A development-only harness that renders the real chat components with seeded
 // data, so the designed UI can be reviewed and screenshotted without a live
 // email login. It is not part of the product and returns 404 in production.
-export default function DemoPage({ searchParams }: { searchParams: { state?: string; balance?: string; menu?: string; agents?: string; chips?: string; repeat?: string; sketch?: string; backup?: string; sketching?: string; pay?: string; left?: string; agent?: string; live?: string; job?: string; market?: string; safety?: string } }) {
+export default async function DemoPage(props: { searchParams: Promise<{ state?: string; balance?: string; menu?: string; agents?: string; chips?: string; repeat?: string; sketch?: string; backup?: string; sketching?: string; pay?: string; left?: string; agent?: string; live?: string; job?: string; market?: string; safety?: string }> }) {
   if (process.env.NODE_ENV === "production") notFound();
+  const searchParams = await props.searchParams;
   // ?agent=restock shows the example agent's builder and test bench; with
   // &live=1, the example installed and running for real.
   if (searchParams.agent === "restock") {

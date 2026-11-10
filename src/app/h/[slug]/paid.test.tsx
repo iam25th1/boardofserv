@@ -3,6 +3,9 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import type { HelperEvent, PublicHelperDTO, WalletDTO } from "@/lib/types";
 import HelperPageView from "./page";
 
+// The page reads its slug from the address (next/navigation), as Next 16 has it.
+vi.mock("next/navigation", () => ({ useParams: () => ({ slug: "shop-blurbs" }) }));
+
 // A paid helper's page, with the network replaced.
 
 const helper: PublicHelperDTO = {
@@ -54,7 +57,7 @@ const walletWith = (usdc: string, serv: string): WalletDTO => ({
 });
 
 async function open() {
-  render(<HelperPageView params={{ slug: "shop-blurbs" }} />);
+  render(<HelperPageView />);
   await act(async () => {
     await new Promise((r) => setTimeout(r, 10));
   });

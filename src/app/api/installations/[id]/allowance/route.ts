@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 
 // An installation's spending allowance, for its renter only (a 404 for
 // anyone else): what it holds, its payees, receipts and limits.
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const got = await spendingOf(serverRuntime(), user, params.id);
@@ -27,7 +28,8 @@ const Body = z.object({
 });
 
 // Top up the allowance from the renter's balance, or take unspent money back.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const shut = notLetIn(user);

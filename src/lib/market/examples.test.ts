@@ -125,6 +125,34 @@ describe("the example agents", () => {
     }
   });
 
+  it("the enquiry follow-up's decision on your answer is asked with your answer in it, live as on the bench", async () => {
+    const s = saved.find(([f]) => f === "lead-followup.json")![1];
+    const checked = checkDefinition(s.definition);
+    if (!checked.ok) throw new Error(checked.errors.join(" "));
+    // SERV stands in here as it answered in the phase 9 live check
+    // (scripts/live-enquiry.ts): it reads the owner's answer from the DATA.
+    for (const [answer, status] of [
+      ["Yes", "ready to send"],
+      ["No", "skipped"],
+    ] as const) {
+      const asked: string[] = [];
+      const fetchImpl = (async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as { messages: { content: string }[]; response_format: { json_schema: { schema: { properties: { outcome: { enum: string[] } } } } } };
+        const ids = body.response_format.json_schema.schema.properties.outcome.enum;
+        const data = body.messages[1]!.content;
+        asked.push(data);
+        const outcome = ids.includes("enquiry_found") ? "enquiry_found" : /"owner_answer":\{"answer":"Yes"\}/.test(data) ? "approved" : "rejected";
+        return Response.json({ choices: [{ message: { content: JSON.stringify({ outcome, reason: "Read from the data." }) } }], usage: { prompt_tokens: 650, completion_tokens: 25 } });
+      }) as typeof fetch;
+      const bench = { ...s.bench!, telegram: { ...s.bench!.telegram, answers: [answer] } };
+      const end = await runAgent({ definition: checked.definition, code: s.code as unknown as Record<string, StepCode>, bench, dryRun: false, serv: rt.serv(null as never)!.config, fetchImpl, onEvent: () => undefined });
+      expect(end.status, `${answer}: ${end.reason}`).toBe("done");
+      expect(asked).toHaveLength(2);
+      expect(asked[1], answer).toContain(`{"owner_answer":{"answer":"${answer}"}}`);
+      expect(end.sheets[bench.settings.replies_sheet as string]!.at(-1), answer).toMatchObject({ name: "Alex Moreno", status });
+    }
+  });
+
   it("include the enquiry follow-up on its 15-minute schedule, with its model cost estimate on its listing", async () => {
     const board = await boardAgents(rt);
     const enquiry = board.find((a) => a.name === "Enquiry follow-up")!;

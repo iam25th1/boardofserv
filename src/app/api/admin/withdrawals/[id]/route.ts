@@ -12,7 +12,8 @@ const Body = z.object({ action: z.enum(["approve", "reject", "fail"]) });
 // cancel ("reject") one queued but not yet sent (both give the amount back),
 // or mark a stuck payout failed (only when its nonce went to another
 // transaction, which also gives it back).
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const who = await requireAdmin(req);
   if ("refused" in who) return who.refused;
   const parsed = Body.safeParse(await req.json().catch(() => null));

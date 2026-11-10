@@ -64,9 +64,12 @@ describe("planning", () => {
     const { fetchImpl, bodies } = serv([broken, "not json", RESTOCK_WIRE]);
     const r = await plan(fetchImpl);
     expect(r.definition).not.toBeNull();
-    expect(r.calls).toHaveLength(3);
+    // An answer that isn't JSON is tried again inside the call (model.ts),
+    // with the same messages, before the plan sees it.
+    expect(r.calls).toHaveLength(2);
+    expect(r.calls[1]!.attempts.map((a) => a.outcome)).toEqual(["unusable", "ok"]);
     expect(bodies[1]!.messages.at(-1)!.content).toBe('That plan has problems:\n- step "record" takes "pay_supplier", which is not a declared action\nSend the whole corrected plan.');
-    expect(bodies[2]!.messages.at(-1)!.content).toBe("That was not valid JSON. Send the whole plan again as JSON.");
+    expect(bodies[2]!.messages).toEqual(bodies[1]!.messages);
   });
 
   it("gives up after three tries with the last reasons", async () => {

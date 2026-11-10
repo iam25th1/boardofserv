@@ -10,6 +10,8 @@ import { codeSpec, nextOf, type AgentDefinition, type CodeStepDef } from "./defi
 import { planAgent, MAX_PLAN_TRIES, type PlanInput } from "./plan";
 import { setStepCode, updateDraft, versionById } from "./store";
 import type { StepCode } from "./types";
+import { errorText } from "../db/errors";
+import { recordAttempts } from "../modelAttempts";
 
 // The build: planning, then the code, runs in the background,
 // because it can take longer than a request may. One job per draft at a
@@ -64,9 +66,10 @@ export interface CallRecord {
 }
 
 // One usage row per model call, like a reply's, so building and testing
-// agents counts towards the day's spend. A failure to record never stops
-// the build.
+// agents counts towards the day's spend, and each of its tries in the
+// attempt log. A failure to record never stops the build.
 export async function recordAgentCall(ctx: Pick<BuildContext, "userId" | "conversationId" | "ownKey">, kind: AgentCallKind, call: CallRecord | JsonResult, ownKey = ctx.ownKey): Promise<void> {
+  if ("attempts" in call) await recordAttempts(db as never, call.attempts, { ownKey });
   try {
     await db.insert(replyUsage).values({
       conversationId: ctx.conversationId,
@@ -81,7 +84,7 @@ export async function recordAgentCall(ctx: Pick<BuildContext, "userId" | "conver
       outcome: call.outcome,
     });
   } catch (err) {
-    console.error("agent usage not recorded", err instanceof Error ? err.message : "unknown error");
+    console.error("agent usage not recorded", errorText(err, "unknown error"));
   }
 }
 
@@ -157,7 +160,7 @@ export function startPlan(version: AgentVersion, input: PlanInput, ctx: BuildCon
       const saved = await updateDraft(version.id, { definition: plan.definition, code: carryCode(plan.definition, version.code), buildState: "writing" });
       if (saved) await writeAllCode(saved, plan.definition, ctx);
     } catch (err) {
-      console.error(`agents: the build stopped: ${err instanceof Error ? err.message : "unknown error"}`);
+      console.error(`agents: the build stopped: ${errorText(err, "unknown error")}`);
       await updateDraft(version.id, { buildState: "failed", buildNote: "Something went wrong while building. Try again." }).catch(() => null);
     }
   })().finally(() => jobs.delete(version.id));

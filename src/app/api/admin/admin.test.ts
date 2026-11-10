@@ -109,14 +109,14 @@ describe("the admin routes", () => {
     const one = await requestWithdrawal({ userId: maya.id, currency: "USDC", amount: 10_000_000n, to: MAYA_WALLET, key: "a" });
     const two = await requestWithdrawal({ userId: maya.id, currency: "USDC", amount: 5_000_000n, to: MAYA_WALLET, key: "b" });
     state.user = maya;
-    expect((await decide(req(`/api/admin/withdrawals/${one.id}`, { action: "approve" }), { params: { id: one.id } })).status).toBe(404);
+    expect((await decide(req(`/api/admin/withdrawals/${one.id}`, { action: "approve" }), { params: Promise.resolve({ id: one.id }) })).status).toBe(404);
     state.user = boss;
-    const approved = await decide(req(`/api/admin/withdrawals/${one.id}`, { action: "approve" }), { params: { id: one.id } });
+    const approved = await decide(req(`/api/admin/withdrawals/${one.id}`, { action: "approve" }), { params: Promise.resolve({ id: one.id }) });
     expect(approved.status).toBe(200);
-    expect((await decide(req(`/api/admin/withdrawals/${one.id}`, { action: "approve" }), { params: { id: one.id } })).status).toBe(409);
-    expect((await decide(req(`/api/admin/withdrawals/${two.id}`, { action: "reject" }), { params: { id: two.id } })).status).toBe(200);
-    expect((await decide(req(`/api/admin/withdrawals/${one.id}`, { action: "fail" }), { params: { id: one.id } })).status).toBe(409);
-    expect((await decide(req("/api/admin/withdrawals/nope", { action: "approve" }), { params: { id: "nope" } })).status).toBe(400);
+    expect((await decide(req(`/api/admin/withdrawals/${one.id}`, { action: "approve" }), { params: Promise.resolve({ id: one.id }) })).status).toBe(409);
+    expect((await decide(req(`/api/admin/withdrawals/${two.id}`, { action: "reject" }), { params: Promise.resolve({ id: two.id }) })).status).toBe(200);
+    expect((await decide(req(`/api/admin/withdrawals/${one.id}`, { action: "fail" }), { params: Promise.resolve({ id: one.id }) })).status).toBe(409);
+    expect((await decide(req("/api/admin/withdrawals/nope", { action: "approve" }), { params: Promise.resolve({ id: "nope" }) })).status).toBe(400);
     const statuses = Object.fromEntries((await db.select().from(schema.withdrawals)).map((w) => [w.id, w.status]));
     expect(statuses).toEqual({ [one.id]: "queued", [two.id]: "rejected" });
     expect((await balancesOf(maya.id)).USDC.available).toBe(40_000_000n);
@@ -160,7 +160,7 @@ describe("the admin routes", () => {
     const w = await requestWithdrawal({ userId: maya.id, currency: "USDC", amount: 10_000_000n, to: MAYA_WALLET, key: "c" });
     await approveWithdrawal(w.id, boss.id);
     state.user = boss;
-    const res = await decide(req(`/api/admin/withdrawals/${w.id}`, { action: "reject" }), { params: { id: w.id } });
+    const res = await decide(req(`/api/admin/withdrawals/${w.id}`, { action: "reject" }), { params: Promise.resolve({ id: w.id }) });
     expect(res.status).toBe(200);
     expect((await res.json()).admin.history[0]).toMatchObject({ id: w.id, status: "rejected" });
     expect((await balancesOf(maya.id)).USDC.available).toBe(50_000_000n);
@@ -176,7 +176,7 @@ describe("the admin routes", () => {
     };
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     state.user = boss;
-    const res = await decide(req(`/api/admin/withdrawals/${w.id}`, { action: "fail" }), { params: { id: w.id } });
+    const res = await decide(req(`/api/admin/withdrawals/${w.id}`, { action: "fail" }), { params: Promise.resolve({ id: w.id }) });
     expect(res.status).toBe(502);
     const logged = errors.mock.calls.map((c) => c.join(" ")).join("\n");
     errors.mockRestore();

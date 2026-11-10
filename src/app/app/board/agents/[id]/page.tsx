@@ -1,6 +1,6 @@
 "use client";
 import { useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { usePrivy } from "@privy-io/react-auth";
 import { SkeletonPanel } from "@/components/ui";
 import { Page } from "@/components/shell/Page";
@@ -11,7 +11,9 @@ import { privyAppId } from "@/lib/privy-config";
 import { useApi } from "@/lib/useApi";
 
 // An agent's page on the board, for anyone; renting it needs sign-in.
-export default function AgentOnBoard({ params }: { params: { id: string } }) {
+export default function AgentOnBoard() {
+  // Next 16 passes params to a page as a promise; a client page reads them here.
+  const params = useParams<{ id: string }>();
   if (!privyAppId()) return <Public id={params.id} />;
   return <WithSignIn id={params.id} />;
 }

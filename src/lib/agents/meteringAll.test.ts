@@ -93,7 +93,7 @@ describe("boardofserv's own calls", () => {
     expect(await platformSpentToday(rt.db, rt.now())).toBe(rows.reduce((t, r) => t + BigInt(r.cost), 0n));
   });
 
-  it("ask SERV once more when a screen's answer comes back empty, and meter both", async () => {
+  it("ask SERV once more when a screen's answer comes back empty, and meter both tries", async () => {
     const real = rt.fetchImpl;
     let n = 0;
     rt.fetchImpl = (async (url: string, init: RequestInit) => {
@@ -101,7 +101,10 @@ describe("boardofserv's own calls", () => {
       return real!(url, init);
     }) as typeof fetch;
     expect(await screenContent(rt, maker, "A restock helper.", "a listing")).toEqual({ ok: true, reason: "" });
-    expect((await platformRows()).filter((r) => r.purpose === "post_screen")).toHaveLength(2);
+    // One call, tried twice inside the client: metered once, both tries' tokens.
+    const screens = (await platformRows()).filter((r) => r.purpose === "post_screen");
+    expect(screens).toHaveLength(1);
+    expect(screens[0]).toMatchObject({ promptTokens: 500, completionTokens: 20 });
   });
 
   it("past the platform's daily budget, wait as when SERV can't answer, and make no call", async () => {

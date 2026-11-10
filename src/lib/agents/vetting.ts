@@ -166,7 +166,7 @@ export async function reviewVersion(
     { role: "user", content: reviewRequest(d, code) },
   ];
   const config = { ...serv, firstTokenTimeoutMs: Math.max(serv.firstTokenTimeoutMs, 60_000) };
-  const call = await completeJson(messages, { config, schema: REVIEW_SCHEMA, maxTokens: 700, signal: new AbortController().signal, fetchImpl: opts.fetchImpl });
+  const call = await completeJson(messages, { config, purpose: "publish_review", schema: REVIEW_SCHEMA, signal: new AbortController().signal, fetchImpl: opts.fetchImpl });
   await opts.record?.(call);
   const found = readReview(
     d,

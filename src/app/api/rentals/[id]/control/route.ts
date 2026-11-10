@@ -12,7 +12,8 @@ const Body = z.object({ action: z.enum(RENTAL_ACTIONS) });
 // The renter pauses or resumes what they rent (resuming an unpaid one pays
 // the week), cancels it (it runs to the end of the week paid for) or
 // takes the cancel back.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const rt = serverRuntime();

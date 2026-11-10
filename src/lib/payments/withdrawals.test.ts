@@ -173,7 +173,7 @@ describe("payouts", () => {
     // The database refuses a second payout in flight, whatever the code does.
     await expect(
       db.update(schema.withdrawals).set({ status: "broadcast", nonce: 9, txHash: "0x1" }).where(eq(schema.withdrawals.id, b.id)),
-    ).rejects.toThrow(/withdrawals_one_in_flight/);
+    ).rejects.toHaveProperty("cause.message", expect.stringMatching(/withdrawals_one_in_flight/));
 
     chain.mine(5);
     await reconcilePayouts(chain, config);

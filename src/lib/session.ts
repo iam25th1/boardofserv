@@ -12,7 +12,7 @@ import { createUser } from "./users";
 const PRIVY_COOKIE = "privy-token";
 
 export async function currentIdentity(): Promise<{ userId: string; email: string | null } | null> {
-  const token = cookies().get(PRIVY_COOKIE)?.value;
+  const token = (await cookies()).get(PRIVY_COOKIE)?.value;
   if (!token) return null;
   try {
     return await verifyPrivyToken(token);

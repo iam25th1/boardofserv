@@ -5,7 +5,7 @@ import type { PgliteDatabase } from "drizzle-orm/pglite";
 import * as schema from "@/lib/db/schema";
 import { addUser, testDb } from "@/test/helperDb";
 import { addr } from "@/test/fakeChain";
-import { verifyPrivyToken } from "@/lib/privy";
+import { privyWalletOwner, verifyPrivyToken } from "@/lib/privy";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { ownerOf, walletsOf } from "./wallets";
 import { defaultOwnerLookup } from "./deposits";
@@ -13,23 +13,39 @@ import { defaultOwnerLookup } from "./deposits";
 // Linked wallets come from Privy only: the server asks Privy who the user is
 // and which wallets they linked, and never takes an address from the browser.
 
-const state = vi.hoisted(() => ({ db: null as unknown, linked: [] as unknown[] }));
+const state = vi.hoisted(() => ({ db: null as unknown, linked: [] as unknown[], down: false }));
 vi.mock("@/lib/db", () => ({ db: new Proxy({}, { get: (_, key) => Reflect.get(state.db as object, key) }) }));
-vi.mock("@privy-io/server-auth", () => ({
-  PrivyClient: class {
-    async verifyAuthToken(token: string) {
-      if (token !== "good-token") throw new Error("invalid token");
-      return { userId: "did:privy:maya" };
-    }
-    async getUser() {
-      return { email: { address: "maya@example.com" }, linkedAccounts: state.linked };
-    }
-    async getUserByWalletAddress(address: string) {
-      const has = state.linked.some((a) => (a as { address?: string }).address?.toLowerCase() === address.toLowerCase());
-      return has ? { id: "did:privy:maya", linkedAccounts: state.linked } : null;
-    }
-  },
-}));
+vi.mock("@privy-io/node", () => {
+  class NotFoundError extends Error {}
+  const user = () => ({ id: "did:privy:maya", linked_accounts: state.linked });
+  return {
+    NotFoundError,
+    PrivyClient: class {
+      utils() {
+        return {
+          auth: () => ({
+            async verifyAccessToken(token: string) {
+              if (token !== "good-token") throw new Error("invalid token");
+              return { user_id: "did:privy:maya" };
+            },
+          }),
+        };
+      }
+      users() {
+        return {
+          _get: async () => user(),
+          // Privy answers 404 when no user has the wallet.
+          async getByWalletAddress({ address }: { address: string }) {
+            if (state.down) throw new Error("503 Service Unavailable");
+            const has = state.linked.some((a) => (a as { address?: string }).address?.toLowerCase() === address.toLowerCase());
+            if (!has) throw new NotFoundError("User not found");
+            return user();
+          },
+        };
+      }
+    },
+  };
+});
 
 const EMBEDDED = addr(0xe1);
 const METAMASK = addr(0xe2);
@@ -49,11 +65,12 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   await client.exec("delete from linked_wallets; delete from users;");
+  state.down = false;
   state.linked = [
     { type: "email", address: "maya@example.com" },
-    { type: "wallet", chainType: "ethereum", address: EMBEDDED, walletClientType: "privy" },
-    { type: "wallet", chainType: "ethereum", address: METAMASK, walletClientType: "metamask" },
-    { type: "wallet", chainType: "solana", address: "So1anaAddre55" },
+    { type: "wallet", chain_type: "ethereum", address: EMBEDDED, wallet_client_type: "privy" },
+    { type: "wallet", chain_type: "ethereum", address: METAMASK, wallet_client_type: "metamask" },
+    { type: "wallet", chain_type: "solana", address: "So1anaAddre55" },
     { type: "smart_wallet", address: addr(0xe3) },
   ];
 });
@@ -90,6 +107,14 @@ describe("linked wallets", () => {
     expect(await ownerOf(db as never, METAMASK)).toBe(maya.id);
   });
 
+  it("reads the email they signed in with, or their Google account's", async () => {
+    expect((await verifyPrivyToken("good-token")).email).toBe("maya@example.com");
+    state.linked = [{ type: "google_oauth", email: "maya.g@example.com", subject: "g-1" }, ...state.linked.filter((a) => (a as { type: string }).type !== "email")];
+    expect((await verifyPrivyToken("good-token")).email).toBe("maya.g@example.com");
+    state.linked = state.linked.filter((a) => (a as { type: string }).type === "wallet");
+    expect((await verifyPrivyToken("good-token")).email).toBeNull();
+  });
+
   it("does nothing for a bad token", async () => {
     expect(await getUserFromRequest(req("bad-token"), { wallets: true })).toBeNull();
     expect(await db.select().from(schema.linkedWallets)).toHaveLength(0);
@@ -103,5 +128,11 @@ describe("linked wallets", () => {
     // A smart wallet or an unknown address belongs to no one.
     expect(await lookup(addr(0xe3))).toBeNull();
     expect(await lookup(addr(0xbad))).toBeNull();
+  });
+
+  it("says nobody owns a wallet only when Privy says so, never when Privy is down", async () => {
+    expect(await privyWalletOwner(addr(0xbad))).toBeNull();
+    state.down = true;
+    await expect(privyWalletOwner(METAMASK)).rejects.toThrow("503");
   });
 });

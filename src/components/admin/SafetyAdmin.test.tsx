@@ -59,6 +59,16 @@ describe("the admin queue", () => {
     await waitFor(() => expect(moderate).toHaveBeenCalledWith({ type: "dispute", id: "d-1", action: "uphold", reason: "It paid the old account." }));
   });
 
+  it("shows how the models answered this week: empty answers and calls tried again, by purpose", async () => {
+    render(<SafetyAdmin api={{ load: async () => DEMO_SAFETY }} />);
+    const heading = await screen.findByRole("heading", { name: "How the models answered" });
+    // The heading, a note, then its table.
+    const table = heading.nextElementSibling!.nextElementSibling as HTMLElement;
+    const row = within(table).getByRole("row", { name: /Screening posts and listings/ });
+    expect(within(row).getAllByRole("cell").map((c) => c.textContent)).toEqual(["Screening posts and listings", "12", "17", "5 (29% of tries)", "3 (25% of calls)"]);
+    expect(within(table).getByRole("row", { name: /Replies in the chat/ })).toHaveTextContent("2 (1% of tries)");
+  });
+
   it("says when upheld refunds wait for the ledger", async () => {
     render(<SafetyAdmin api={{ load: async () => ({ ...DEMO_SAFETY, queue: { ...DEMO_SAFETY.queue, disputes: { open: [], waiting: 2, ledgerReady: false } } }) }} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("2 upheld rent disputes wait for a refund: the ledger can't take refunds until the owner runs scripts/sql/ledger-kinds.sql");

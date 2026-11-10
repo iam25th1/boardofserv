@@ -11,7 +11,8 @@ const Body = z.object({ choice: z.enum(["update", "stay"]) });
 
 // The renter's answer to a new version of what they rent: update to it
 // (setupAgain when it needs setting up again), or stay on theirs.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const rt = serverRuntime();

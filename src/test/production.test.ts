@@ -56,7 +56,7 @@ describe("development-only routes in production", () => {
     vi.stubEnv("NODE_ENV", "production");
     const { default: DemoPage } = await import("@/app/demo/page");
     for (const searchParams of [{}, { pay: "wallet" }, { pay: "admin" }, { sketch: "demo" }, { left: "paused" }, { agent: "restock" }]) {
-      expect(() => DemoPage({ searchParams })).toThrow(expect.objectContaining({ digest: "NEXT_NOT_FOUND" }));
+      await expect(DemoPage({ searchParams: Promise.resolve(searchParams) })).rejects.toThrow(expect.objectContaining({ digest: "NEXT_HTTP_ERROR_FALLBACK;404" }));
     }
   }, 30_000);
 });

@@ -4,6 +4,9 @@ import type { HelperEvent, PublicHelperDTO, QuotaDTO } from "@/lib/types";
 import type { HelperPage } from "@/lib/publicApi";
 import HelperPageView from "./page";
 
+// The page reads its slug from the address (next/navigation), as Next 16 has it.
+vi.mock("next/navigation", () => ({ useParams: () => ({ slug: "shop-blurbs" }) }));
+
 // A helper's page with the network replaced: the test plays the server's
 // events by hand.
 
@@ -45,7 +48,7 @@ const quota = (remaining: number, resetsAt = "2026-10-23T00:00:00.000Z"): QuotaD
 
 async function open(page: HelperPage) {
   net.page = page;
-  render(<HelperPageView params={{ slug: "shop-blurbs" }} />);
+  render(<HelperPageView />);
   await act(async () => {});
 }
 

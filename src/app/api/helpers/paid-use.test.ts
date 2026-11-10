@@ -9,7 +9,7 @@ import { addr } from "@/test/fakeChain";
 import { resetPaymentsConfig } from "@/lib/payments/config";
 import { balancesOf, ledgerTotal, post } from "@/lib/payments/ledger";
 import { setPrices } from "@/lib/payments/uses";
-import { POST as use } from "./[slug]/use/route";
+import { POST as postUse } from "./[slug]/use/route";
 import { GET as view } from "./[slug]/route";
 import { PUT as putPrices } from "./[slug]/prices/route";
 import { GET as uses } from "../uses/route";
@@ -49,9 +49,9 @@ function servStream(parts: string[]): Response {
 // Pays at the price the page showed: 0.25 USDC unless a test says otherwise.
 async function ask(body: Record<string, unknown>, slug = "shop-blurbs") {
   if (body.currency && !("price" in body)) body = { price: "250000", ...body };
-  const res = await use(
+  const res = await postUse(
     new Request(`http://localhost/api/helpers/${slug}/use`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ input: "A mug", ...body }) }),
-    { params: { slug } },
+    { params: Promise.resolve({ slug }) },
   );
   const text = await res.text();
   const events = res.headers.get("content-type")?.startsWith("text/event-stream")
@@ -101,7 +101,7 @@ beforeEach(async () => {
 
 describe("paid uses", () => {
   it("shows the price on the helper's page", async () => {
-    const page = await (await view(new Request("http://localhost/api/helpers/shop-blurbs"), { params: { slug: "shop-blurbs" } })).json();
+    const page = await (await view(new Request("http://localhost/api/helpers/shop-blurbs"), { params: Promise.resolve({ slug: "shop-blurbs" }) })).json();
     expect(page.helper.prices).toEqual([{ currency: "USDC", amount: "250000", decimals: 6 }]);
   });
 
@@ -186,7 +186,7 @@ describe("paid uses", () => {
 
   it("lets only the maker change the price, and none makes it free again", async () => {
     const put = (prices: unknown) =>
-      putPrices(new Request("http://localhost/api/helpers/shop-blurbs/prices", { method: "PUT", body: JSON.stringify({ prices }) }), { params: { slug: "shop-blurbs" } });
+      putPrices(new Request("http://localhost/api/helpers/shop-blurbs/prices", { method: "PUT", body: JSON.stringify({ prices }) }), { params: Promise.resolve({ slug: "shop-blurbs" }) });
     expect((await put({ USDC: "1" })).status).toBe(404);
     state.user = maya;
     expect((await put({ USDC: "1.5" })).status).toBe(400);

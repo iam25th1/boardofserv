@@ -1231,6 +1231,64 @@ export const platformModelUsage = pgTable(
   }),
 );
 
+// Every try of every model call made through the SERV client (model.ts):
+// what it was for, the provider, its status, time and tokens, which try it
+// was and whether the answer came back empty. One call's tries share a
+// call_id. The admin's model cost view reads its empty answer and retry
+// rates from here. Kept without foreign keys, like the usage tables.
+export const modelAttempts = pgTable(
+  "model_attempts",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    callId: uuid("call_id").notNull(),
+    purpose: text("purpose").notNull(),
+    provider: text("provider"),
+    // The HTTP status, null when no response came.
+    status: integer("status"),
+    // ok, empty, unusable, network, timeout, stream or status.
+    outcome: text("outcome").notNull(),
+    ms: integer("ms").notNull().default(0),
+    promptTokens: integer("prompt_tokens"),
+    completionTokens: integer("completion_tokens"),
+    // 0 for the first try at a provider.
+    retry: integer("retry").notNull().default(0),
+    empty: boolean("empty").notNull().default(false),
+    ownKey: boolean("own_key").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byCreated: index("model_attempts_created_idx").on(t.createdAt),
+    byCall: index("model_attempts_call_idx").on(t.callId),
+  }),
+);
+
+// Listings, requests and offers held because screening got no answer from
+// SERV (empty, or none at all, after the call's own tries): the worker
+// screens each again a few times, a while apart (safety/screenRetries.ts),
+// before it waits for a person in the admin queue. next_at is null once
+// that's over. Its own table, not columns, since a deploy's schema push
+// only adds.
+export const screenRetries = pgTable(
+  "screen_retries",
+  {
+    subject: text("subject", { enum: ["listing", "request", "offer"] }).notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    // Who it is screened for (the maker or the poster).
+    userId: uuid("user_id").notNull(),
+    // Screened again automatically this many times.
+    tries: integer("tries").notNull().default(0),
+    nextAt: timestamp("next_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.subject, t.subjectId] }),
+    due: index("screen_retries_next_idx").on(t.nextAt),
+  }),
+);
+
+export type ScreenRetry = typeof screenRetries.$inferSelect;
+
 // The audit log: every guarded action an installation's agent took or
 // tried (anything that writes, sends or spends), with SERV's check and its
 // reason, who approved it and what it cost. Append-only: rows are added
@@ -1356,8 +1414,11 @@ export const payees = pgTable(
   },
   (t) => ({
     byInstallation: index("payees_installation_idx").on(t.installationId, t.status),
-    oneLabel: uniqueIndex("payees_label_idx").on(t.installationId, sql`lower(${t.label})`).where(sql`${t.status} <> 'removed'`),
-    oneAddress: uniqueIndex("payees_address_idx").on(t.installationId, sql`lower(${t.address})`).where(sql`${t.status} <> 'removed'`),
+    // installation_id as an expression too: drizzle-kit 0.31 reads every
+    // column of an index with an expression as one, and would otherwise drop
+    // and recreate these two on every schema push. The index is the same.
+    oneLabel: uniqueIndex("payees_label_idx").on(sql`${t.installationId}`, sql`lower(${t.label})`).where(sql`${t.status} <> 'removed'`),
+    oneAddress: uniqueIndex("payees_address_idx").on(sql`${t.installationId}`, sql`lower(${t.address})`).where(sql`${t.status} <> 'removed'`),
     knownStatus: check("payees_status", sql`${t.status} in ('active', 'suggested', 'removed')`),
   }),
 );

@@ -18,7 +18,8 @@ const Body = z.object({ message: z.string().trim().min(1).max(2000) });
 // plan from what the maker says, in the background, and only the code steps
 // whose job changed are written and reviewed again. On a published version
 // this starts a new draft.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, route: { params: Promise<{ id: string }> }) {
+  const params = await route.params;
   const who = await ownedAgent(req, params.id);
   if ("refused" in who) return who.refused;
   const shut = notLetIn(who.user);

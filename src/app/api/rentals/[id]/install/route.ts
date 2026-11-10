@@ -8,8 +8,8 @@ import { installRental, rentalOf, RentRefused } from "@/lib/market/rentals";
 export const runtime = "nodejs";
 
 const Body = z.object({
-  settings: z.record(z.unknown()),
-  rules: z.record(z.string().max(200)),
+  settings: z.record(z.string(), z.unknown()),
+  rules: z.record(z.string(), z.string().max(200)),
   timezone: z.string().max(64),
   schedule: z.object({ at: z.string().max(5).nullable(), day: z.number().int().nullable() }).nullable().optional(),
   minGapMinutes: z.number().optional(),
@@ -20,7 +20,8 @@ const Body = z.object({
 
 // The renter sets up the agent they rent, with their answers: it is theirs
 // to run, set up for a test run first, live when they say.
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   const rt = serverRuntime();

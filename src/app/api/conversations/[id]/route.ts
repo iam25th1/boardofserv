@@ -15,7 +15,8 @@ async function owned(userId: string, id: string) {
   });
 }
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   if (!(await owned(user.id, params.id))) return Response.json({ error: "Not found" }, { status: 404 });
@@ -38,7 +39,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   return Response.json({ conversation: row && { ...row, sketchName: sketch?.name ?? null, publishedSlug: live?.slug ?? null } });
 }
 
-export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const params = await ctx.params;
   const user = await getUserFromRequest(req);
   if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
   if (!(await owned(user.id, params.id))) return Response.json({ error: "Not found" }, { status: 404 });

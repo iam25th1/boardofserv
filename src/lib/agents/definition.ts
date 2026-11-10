@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { minIntervalMinutes } from "./interval";
+import { keepRequired } from "../zodErrors";
 
 // The agent format: one versioned definition of an agent a maker builds and
 // renters run. It is plain data, checked here with zod, stored in
@@ -405,7 +406,7 @@ export type DefinitionCheck = { ok: true; definition: AgentDefinition } | { ok: 
 // A definition, or every reason it isn't one, in plain sentences that can go
 // back to the model that wrote it.
 export function checkDefinition(input: unknown): DefinitionCheck {
-  const parsed = AgentDefinitionSchema.safeParse(input);
+  const parsed = AgentDefinitionSchema.safeParse(input, { error: keepRequired });
   if (parsed.success) return { ok: true, definition: parsed.data };
   const errors = parsed.error.issues.map((i) => (i.code === z.ZodIssueCode.custom ? i.message : `${i.path.join(".") || "definition"}: ${i.message}`));
   return { ok: false, errors: [...new Set(errors)].slice(0, 20) };

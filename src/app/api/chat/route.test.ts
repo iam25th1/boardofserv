@@ -249,10 +249,12 @@ describe("a chat turn with a sketch", () => {
 
     expect(await sketchRow(convo)).toMatchObject({ name: "ETH floor watch", how: "every 5 minutes", tells: null });
     const usage = await state.db.select().from(schema.replyUsage).orderBy(schema.replyUsage.createdAt);
+    // A plan cut off before its JSON closed is tried again and, never
+    // answering usably, is a failed plan call.
     expect(usage.map((u) => [u.sketchOk, u.extractOutcome])).toEqual([
       [true, "ok"],
       [true, "ok"],
-      [false, "ok"],
+      [false, "failed"],
       [false, "failed"],
     ]);
   });

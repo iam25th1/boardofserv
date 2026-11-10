@@ -80,6 +80,14 @@ export const SECURITY_HEADERS = (production) => [
   ...(production ? [{ key: "Strict-Transport-Security", value: HSTS }] : []),
 ];
 
+// Two packages Privy 3 imports only for Solana: funding a Solana wallet, and
+// Farcaster's Solana wallet inside a Farcaster mini app (an import it already
+// expects may fail). The app has no Solana, so neither is installed (both
+// are optional peers of @privy-io/react-auth) and both resolve to an empty
+// module.
+export const PRIVY_SOLANA_ONLY = ["@solana-program/system", "@farcaster/mini-app-solana"];
+const EMPTY_MODULE = "./src/lib/emptyModule.ts";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -89,15 +97,15 @@ const nextConfig = {
   // Nothing uses next/image, so the image optimizer is off: /_next/image
   // answers 404 (next 14's optimizer has advisories only next 16 fixes).
   images: { unoptimized: true },
-  experimental: {
-    // Loaded from node_modules at run time, not bundled: pg, the agent
-    // sandbox's QuickJS, which reads its WebAssembly file from its package,
-    // and PGlite, the in-memory Postgres of the development-only live demo
-    // (never imported by a production build).
-    serverComponentsExternalPackages: ["pg", "quickjs-emscripten-core", "@jitl/quickjs-wasmfile-release-sync", "@electric-sql/pglite"],
-    // src/instrumentation.ts: payments and the agents' job worker boot when
-    // the server starts.
-    instrumentationHook: true,
+  // Loaded from node_modules at run time, not bundled: pg, the agent
+  // sandbox's QuickJS, which reads its WebAssembly file from its package,
+  // and PGlite, the in-memory Postgres of the development-only live demo
+  // (never imported by a production build). src/instrumentation.ts (payments
+  // and the agents' job worker boot when the server starts) needs no flag
+  // since Next 15.
+  serverExternalPackages: ["pg", "quickjs-emscripten-core", "@jitl/quickjs-wasmfile-release-sync", "@electric-sql/pglite"],
+  turbopack: {
+    resolveAlias: Object.fromEntries(PRIVY_SOLANA_ONLY.map((m) => [m, EMPTY_MODULE])),
   },
   async headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS(process.env.NODE_ENV === "production") }];
