@@ -80,6 +80,12 @@ export const SECURITY_HEADERS = (production) => [
   ...(production ? [{ key: "Strict-Transport-Security", value: HSTS }] : []),
 ];
 
+// Two packages Privy 3 imports only for Solana: funding a Solana wallet, and
+// Farcaster's Solana wallet inside a Farcaster mini app (an import it already
+// expects may fail). The app has no Solana, so neither is installed (both
+// are optional peers of @privy-io/react-auth) and both resolve to nothing.
+export const PRIVY_SOLANA_ONLY = ["@solana-program/system", "@farcaster/mini-app-solana"];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -98,6 +104,10 @@ const nextConfig = {
     // src/instrumentation.ts: payments and the agents' job worker boot when
     // the server starts.
     instrumentationHook: true,
+  },
+  webpack(config) {
+    config.resolve.alias = { ...config.resolve.alias, ...Object.fromEntries(PRIVY_SOLANA_ONLY.map((m) => [m, false])) };
+    return config;
   },
   async headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS(process.env.NODE_ENV === "production") }];

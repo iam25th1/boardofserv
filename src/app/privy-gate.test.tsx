@@ -11,10 +11,14 @@ import type { AccountDTO } from "@/lib/types";
 // and whether a page asked it for the session.
 const privy = vi.hoisted(() => ({
   usePrivy: vi.fn(() => ({ ready: false, authenticated: false, login: () => {}, logout: async () => {} })),
+  config: null as unknown,
 }));
 const account = vi.hoisted(() => ({ current: null as unknown }));
 vi.mock("@privy-io/react-auth", () => ({
-  PrivyProvider: ({ children }: { children: ReactNode }) => <div data-testid="privy">{children}</div>,
+  PrivyProvider: ({ children, config }: { children: ReactNode; config: unknown }) => {
+    privy.config = config;
+    return <div data-testid="privy">{children}</div>;
+  },
   usePrivy: privy.usePrivy,
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: () => {} }) }));
@@ -66,6 +70,34 @@ describe("with a real Privy app id", () => {
       </Providers>,
     );
     expect(screen.getByTestId("privy")).toContainElement(screen.getByText("page"));
+  });
+
+  it("asks Privy 3 for sign-in by email and an embedded Ethereum wallet for everyone, in its v3 shape", () => {
+    vi.stubEnv("NEXT_PUBLIC_PRIVY_APP_ID", "x".repeat(25));
+    render(
+      <Providers>
+        <p>page</p>
+      </Providers>,
+    );
+    expect(privy.config).toMatchObject({
+      loginMethods: ["email"],
+      embeddedWallets: { ethereum: { createOnLogin: "all-users" } },
+      appearance: { walletList: [], landingHeader: "Sign in to boardofserv" },
+    });
+    // No smart wallets, and nothing of Solana's.
+    const config = privy.config as { embeddedWallets: object; smartWallets?: unknown; externalWallets?: unknown };
+    expect(Object.keys(config.embeddedWallets)).toEqual(["ethereum"]);
+    expect(config.smartWallets).toBeUndefined();
+    expect(config.externalWallets).toBeUndefined();
+  });
+
+  it("signs in by email from the sign-in page once Privy is ready", async () => {
+    vi.stubEnv("NEXT_PUBLIC_PRIVY_APP_ID", "x".repeat(25));
+    const login = vi.fn();
+    privy.usePrivy.mockImplementation(() => ({ ready: true, authenticated: false, login, logout: async () => {} }));
+    render(<LoginPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Continue with email" }));
+    expect(login).toHaveBeenCalledOnce();
   });
 
   it("runs the chat page as before: it waits on the Privy session", () => {

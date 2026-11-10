@@ -22,8 +22,8 @@
   },
   "dependencies": {
     "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
-    "@privy-io/react-auth": "2.13.1",
-    "@privy-io/server-auth": "1.18.4",
+    "@privy-io/node": "0.38.0",
+    "@privy-io/react-auth": "3.51.3",
     "animejs": "4.5.0",
     "drizzle-orm": "0.45.4",
     "next": "14.2.35",
@@ -34,7 +34,7 @@
     "react-dom": "18.3.1",
     "react-markdown": "9.0.1",
     "remark-gfm": "4.0.0",
-    "viem": "2.21.45",
+    "viem": "2.57.8",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -51,5 +51,11 @@
     "happy-dom": "15.11.6",
     "typescript": "5.6.3",
     "vitest": "2.1.5"
+  },
+  "overrides": {
+    "zod": "4.6.7",
+    "viem": "2.57.8",
+    "@walletconnect/utils": "2.22.4",
+    "@walletconnect/universal-provider": "2.22.4"
   }
 }
