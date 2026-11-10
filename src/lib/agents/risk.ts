@@ -91,7 +91,7 @@ export function safetyOf(d: Pick<AgentDefinition, "actions" | "steps">, policy: 
       const risk = toolRisk(d, tool);
       const floor =
         risk === "money"
-          ? "Asks you before spending more than your auto limit."
+          ? "Asks you before spending more than your auto limit, or than its trust score allows."
           : tool === "telegram.ask"
             ? "Always waits for your answer."
             : risk === "read"

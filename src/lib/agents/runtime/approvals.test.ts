@@ -6,7 +6,7 @@ import { asc, eq, inArray } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import type { AgentDefinition, CodeStepDef } from "@/lib/agents/definition";
 import { addUser, testDb } from "@/test/helperDb";
-import { allowanceUsdc, installed, publishedAgent, readyToPay, RESTOCK_CODE, restockDefinition, testRuntime, withPayments, type TestRuntime } from "@/test/runtimeFixtures";
+import { allowanceUsdc, installed, publishedAgent, readyToPay, RESTOCK_CODE, restockDefinition, testRuntime, trusted, withPayments, type TestRuntime } from "@/test/runtimeFixtures";
 import { answer, AnswerRefused, approvalsOf, expireDue } from "./approvals";
 import { claimJob, enqueue, runJob } from "./jobs";
 import { messagesOf } from "./messages";
@@ -162,6 +162,7 @@ describe("a payment over a rule's limit", () => {
     await client.exec("delete from agent_payments;");
     const inst = await installed(rt, owner, await publishedAgent(db, owner, { definition: paying(), code }));
     await readyToPay(rt, inst, { payees: ["Weftworks"], allowanceUsdc: 500 });
+    await trusted(rt, inst.versionId);
     const small = await enqueue(rt, inst, { kind: "manual", amount: 100 });
     await runOnce(rt);
     expect(await jobOf(small.id)).toMatchObject({ status: "done" });
@@ -170,8 +171,11 @@ describe("a payment over a rule's limit", () => {
     await runOnce(rt);
     expect((await jobOf(big.id)).status).toBe("waiting_for_owner");
     const [a] = await approvalsOf(rt, owner.id, { pendingOnly: true });
+    // Over the rule and over its trust band too: both say so, and the band.
     expect(a).toMatchObject({
-      kind: "over_limit",
+      kind: "safety",
+      reason:
+        "It's over the 250.00 USDC a payment that its trust score of 800 (excellent) allows without asking (your own auto limit is 1000.00 USDC). With its trust score of 800 (excellent) it may pay up to 250.00 USDC a payment and 1000.00 USDC a day without asking.",
       question: 'Pay 300 USDC to Weftworks (linen)? This job\'s spending would come to 300 USDC, over your limit of 250 USDC ("Ask me before orders over").',
       options: [
         { label: "Yes", effect: "It pays, and the job is done." },
@@ -190,6 +194,7 @@ describe("a payment over a rule's limit", () => {
     await client.exec("delete from agent_payments;");
     const inst = await installed(rt, owner, await publishedAgent(db, owner, { definition: paying(), code }));
     await readyToPay(rt, inst, { payees: ["Weftworks"], allowanceUsdc: 500 });
+    await trusted(rt, inst.versionId);
     await enqueue(rt, inst, { kind: "manual", amount: 999 });
     await runOnce(rt);
     const [a] = await approvalsOf(rt, owner.id, { pendingOnly: true });

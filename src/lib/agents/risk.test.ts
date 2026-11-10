@@ -60,7 +60,7 @@ describe("the registry", () => {
     const code = d.steps.find((s) => s.kind === "code")!;
     expect(riskOf(d, code, "sheets.read")).toBe("read");
     expect(toolsOf(d)[0]).toBe("sheets.read");
-    expect(safetyOf(d, readPolicy({})).tools.find((t) => t.tool === "sheets.write")).toMatchObject({ risk: "money", canRaise: false, floor: "Asks you before spending more than your auto limit." });
+    expect(safetyOf(d, readPolicy({})).tools.find((t) => t.tool === "sheets.write")).toMatchObject({ risk: "money", canRaise: false, floor: "Asks you before spending more than your auto limit, or than its trust score allows." });
   });
 });
 

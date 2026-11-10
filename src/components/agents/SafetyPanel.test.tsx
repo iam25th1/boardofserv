@@ -13,7 +13,7 @@ const safety: SafetyDTO = {
     { tool: "sheets.read", risk: "read", does: "Read every row of a sheet.", floor: null, asks: false, canRaise: false },
     { tool: "memory.set", risk: "write", does: "Remember a value for this renter, for the next job.", floor: null, asks: false, canRaise: true },
     { tool: "telegram.send", risk: "outbound", does: "Send the owner a message.", floor: null, asks: true, canRaise: true },
-    { tool: "sheets.write", risk: "money", does: "Add rows to a sheet, or replace all of its rows.", floor: "Asks you before spending more than your auto limit.", asks: false, canRaise: false },
+    { tool: "sheets.write", risk: "money", does: "Add rows to a sheet, or replace all of its rows.", floor: "Asks you before spending more than your auto limit, or than its trust score allows.", asks: false, canRaise: false },
   ],
   autoSpendUsdc: 0,
   maxAutoSpendUsdc: 1000,
@@ -26,7 +26,7 @@ describe("the safety panel", () => {
     const levels = screen.getAllByRole("listitem").filter((li) => li.parentElement?.tagName === "OL");
     expect(levels.map((l) => l.querySelector("strong")!.textContent)).toEqual(["Looks things up", "Changes your own data", "Sends a message", "Spends money"]);
     expect(within(levels[0]!).getByText("on its own")).toBeInTheDocument();
-    expect(within(levels[3]!).getByText("Asks you before spending more than your auto limit.")).toBeInTheDocument();
+    expect(within(levels[3]!).getByText("Asks you before spending more than your auto limit, or than its trust score allows.")).toBeInTheDocument();
     const boxes = screen.getAllByRole("checkbox", { name: "Ask me first" });
     expect(boxes).toHaveLength(2);
     fireEvent.click(boxes[0]!);

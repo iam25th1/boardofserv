@@ -4,7 +4,7 @@ import type { Address, Hex } from "viem";
 import { agentJobs, agentPayments, type AgentInstallation, type AgentPayment, type Payee } from "../db/schema";
 import type { Runtime } from "../agents/runtime/context";
 import { chainError } from "../payments/chain";
-import { holdOn } from "../safety/freeze";
+import { payStopped } from "./limits";
 import { allowanceOf, holdForPayment, releasePayment, spendPayment, usdcWords } from "./allowance";
 import { markPaid } from "./payees";
 import { lockTreasury, nextNonce, paymentsNetworkProblem, paymentsPaused, raiseAlert, setPaymentsPaused, treasuryBusy, treasuryFloor } from "./treasury";
@@ -83,7 +83,7 @@ async function fail(rt: Runtime, p: AgentPayment, error: string): Promise<void> 
 
 // The first step: the row, and the allowance's hold, together. Refused
 // (nothing held) when payments are paused, off or not on Base Sepolia, the
-// agent or renter is held, or the allowance doesn't cover it.
+// agent or renter is held or its listing on hold, or the allowance doesn't cover it.
 async function start(rt: Runtime, r: PayRequest, key: string): Promise<AgentPayment> {
   const pay = rt.payments;
   if (!pay) throw new PaymentRefused("Payments aren't set up on this site, so nothing was paid.", "network");
@@ -91,7 +91,7 @@ async function start(rt: Runtime, r: PayRequest, key: string): Promise<AgentPaym
   if (network) throw new PaymentRefused(`${network} Nothing was paid.`, "network");
   const paused = await paymentsPaused(rt.db);
   if (paused) throw new PaymentRefused(`Agent payments are paused on boardofserv for now: ${paused} Nothing was paid.`, "paused");
-  const held = await holdOn(rt, r.installation);
+  const held = await payStopped(rt, r.installation);
   if (held) throw new PaymentRefused(`${held} It can't pay anything now.`, "held");
   const now = rt.now();
   let row: AgentPayment | null;

@@ -6,6 +6,7 @@ import type { TrustDTO } from "../types";
 import { bandOf, scoreOf, type Score } from "./score";
 import { makerSignals, staleVersions, versionSignals } from "./signals";
 import { TRUST } from "./config";
+import { tellBandDrop } from "../spending/limits";
 
 // Trust scores kept: computed (the fixed formula in score.ts over the
 // signals in signals.ts), stored with their factors, one a day kept for the
@@ -24,11 +25,17 @@ async function store(rt: Runtime, subject: "version" | "maker", subjectId: strin
     .onConflictDoUpdate({ target: [trustHistory.subject, trustHistory.subjectId, trustHistory.day], set: { score: s.score } });
 }
 
+// A version's score now; renters whose auto limit a lower band cuts are
+// told (spending/limits.ts).
 export async function refreshVersion(rt: Runtime, versionId: string): Promise<Score | null> {
   const s = await versionSignals(rt, versionId);
   if (!s) return null;
+  const before = (await versionTrust(rt, [versionId])).get(versionId)!;
   const score = scoreOf(s);
   await store(rt, "version", versionId, score);
+  const after = (await versionTrust(rt, [versionId])).get(versionId)!;
+  const [a] = await rt.db.select({ name: agents.name }).from(agentVersions).innerJoin(agents, eq(agents.id, agentVersions.agentId)).where(eq(agentVersions.id, versionId));
+  await tellBandDrop(rt, versionId, before, after, a?.name ?? "This agent");
   return score;
 }
 

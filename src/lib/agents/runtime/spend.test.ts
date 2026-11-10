@@ -7,7 +7,7 @@ import * as schema from "@/lib/db/schema";
 import { checkDefinition, type AgentDefinition } from "@/lib/agents/definition";
 import type { StepCode } from "@/lib/agents/types";
 import { addUser, testDb } from "@/test/helperDb";
-import { allowanceUsdc, installed, ownSheet, publishedAgent, readyToPay, sheetRows, testRuntime, withPayments, type TestRuntime } from "@/test/runtimeFixtures";
+import { allowanceUsdc, installed, ownSheet, publishedAgent, readyToPay, sheetRows, trusted, testRuntime, withPayments, type TestRuntime } from "@/test/runtimeFixtures";
 import { answer, approvalsOf } from "./approvals";
 import { claimJob, enqueue, runJob } from "./jobs";
 
@@ -66,6 +66,8 @@ const walletOf = (id: string) => allowanceUsdc(rt, id);
 const SUPPLIERS = ["Supplier 1", "Supplier 2", "Supplier 3", "Supplier 4", "Supplier 5"];
 async function paying(inst: schema.AgentInstallation) {
   await readyToPay(rt, inst, { payees: SUPPLIERS, allowanceUsdc: 500 });
+  // Trusted enough that its band (250 USDC a payment) isn't what asks here.
+  await trusted(rt, inst.versionId);
   return inst;
 }
 const spentBy = (jobId: string) => db.select().from(schema.agentSpend).where(eq(schema.agentSpend.jobId, jobId)).orderBy(asc(schema.agentSpend.createdAt));

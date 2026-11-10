@@ -24,13 +24,15 @@ const holds = new Map<string, number>();
 
 export const answerData = (approvalId: string, index: number) => `a:${approvalId}:${index}`;
 
-// The question as its Telegram message: the agent, the question, what each
-// answer does, and what happens with none.
+// The question as its Telegram message: the agent, the question, why it
+// asks (for a payment, what its trust band allows), what each answer does,
+// and what happens with none.
 // When Reppo is giving a second opinion on it, that it is coming, and that
 // the answer decides either way.
-export function approvalText(a: Pick<AgentApproval, "question" | "options" | "noAnswer" | "stepId">, d: AgentDefinition | null, opinion = false): string {
+export function approvalText(a: Pick<AgentApproval, "question" | "options" | "noAnswer" | "stepId"> & { reason?: string | null }, d: AgentDefinition | null, opinion = false): string {
   const step = d?.steps.find((s) => s.id === a.stepId)?.title;
   const lines = [`${d?.name ?? "Your agent"}${step ? `, at "${step}"` : ""}, asks:`, "", a.question, ""];
+  if (a.reason) lines.push(`Why it asks: ${a.reason}`, "");
   for (const o of a.options) lines.push(`${o.label}: ${o.effect}`);
   lines.push(a.noAnswer);
   if (opinion) lines.push("", "Reppo is still checking it for a second opinion, which will follow here. Your answer decides either way.");

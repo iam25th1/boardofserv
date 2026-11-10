@@ -20,6 +20,7 @@ import { generatePrivateKey } from "viem/accounts";
 import { getAddress } from "viem";
 import { eq, sql } from "drizzle-orm";
 import { holdFunds, post } from "@/lib/payments/ledger";
+import { bandOf } from "@/lib/trust/score";
 
 // Connection secrets are encrypted like every other stored secret.
 process.env.OPENSERV_KEY_ENC_KEY ||= randomBytes(32).toString("base64");
@@ -248,6 +249,16 @@ export async function readyToPay(rt: Runtime, inst: schema.AgentInstallation, o:
     saved.push(p!);
   }
   return saved;
+}
+
+// A version with a trust score already (not new), so its band allows what
+// a test pays: 800 is excellent, 250 USDC a payment and 1000 a day.
+export async function trusted(rt: Runtime, versionId: string, score = 800) {
+  const label = bandOf(score, false).label;
+  await rt.db
+    .insert(schema.trustScores)
+    .values({ subject: "version", subjectId: versionId, score, label, isNew: false, factors: [], computedAt: rt.now() })
+    .onConflictDoUpdate({ target: [schema.trustScores.subject, schema.trustScores.subjectId], set: { score, label, isNew: false, computedAt: rt.now() } });
 }
 
 // What an installation's allowance has, in whole USDC.

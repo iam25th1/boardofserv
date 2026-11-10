@@ -23,6 +23,7 @@ import { describeCall } from "../calls";
 import { resolvePayee, suggestPayee } from "../../spending/payees";
 import { payeeWords, payFromAllowance, PaymentPending, PaymentRefused } from "../../spending/pay";
 import { usdcWords } from "../../spending/allowance";
+import { bandLine, judgePayment, paymentLimits } from "../../spending/limits";
 import { formatAmount, parseAmount } from "../../money";
 import { fetchPage, WebUnreachable } from "./webFetch";
 
@@ -274,16 +275,26 @@ export class JobTools implements ToolHost {
     const payment = tool === "wallet.pay" ? await this.paymentOf(step, args) : null;
     const what = payment ? payment.what : (spend?.what ?? describeCall(tool, args));
     if (!approval) await this.limited(step, tool, risk, what);
+    if (approval && !isYes(approval.answer)) {
+      await this.logged(step, tool, risk, what, { outcome: "declined", reason: approval.answer === null ? "No answer came in time." : `You answered: ${approval.answer.slice(0, 200)}` });
+      throw new Declined(approval.answer);
+    }
+    // A payment within its limits (spending/limits.ts): its trust band and
+    // the renter's auto limit, the stricter of them, and the site's day. A
+    // frozen or held agent can't pay at all, even after a yes.
+    const limits = payment ? await paymentLimits(this.rt, this.installation) : null;
+    const judged = payment && limits ? judgePayment(limits, payment.amount) : null;
+    if (judged?.refuse) {
+      await this.logged(step, tool, risk, what, { outcome: "failed", reason: judged.refuse });
+      throw new ToolError("wallet.pay", judged.refuse);
+    }
     let g: GuardResult | null = null;
-    if (approval) {
-      if (!isYes(approval.answer)) {
-        await this.logged(step, tool, risk, what, { outcome: "declined", reason: approval.answer === null ? "No answer came in time." : `You answered: ${approval.answer.slice(0, 200)}` });
-        throw new Declined(approval.answer);
-      }
-    } else {
+    if (!approval) {
       const over = spend ? await overLimit(this.rt, this.installation, this.definition, this.job?.id ?? null, spend) : null;
       const policy = readPolicy(this.installation.policy);
-      const why = policyAsks(policy, { tool, risk, amount: spend?.amount ?? 0, toOwner: TO_OWNER_ONLY.includes(tool) });
+      const why = judged ? [...judged.asks] : policyAsks(policy, { tool, risk, amount: spend?.amount ?? 0, toOwner: TO_OWNER_ONLY.includes(tool) });
+      const auto = limits ? Number(limits.perPayment) / 1e6 : policy.autoSpendUsdc;
+      const amount = payment ? Number(payment.amount) / 1e6 : (spend?.amount ?? 0);
       let strange: string[] = [];
       if (payment && !payment.payee.firstPaidAt) why.push(`It's the first payment to ${payment.payee.label}: the first one to a payee always asks.`);
       if (risk === "outbound" || risk === "money") {
@@ -297,6 +308,9 @@ export class JobTools implements ToolHost {
       }
       if (g.verdict === "ask") why.push(g.fallback ? g.reason : `Safety check: ${g.reason}`);
       if (over || why.length) {
+        const kind = why.length ? "safety" : "over_limit";
+        // A payment's question always says what its band allows.
+        if (limits) why.push(bandLine(limits));
         await this.logged(step, tool, risk, what, { outcome: "asked", guard: g, reason: [over ? "It goes over a spending limit in your rules." : null, ...why].filter(Boolean).join(" ") });
         // A payment, or a send to a contact the renter never gave it: Reppo
         // gives a second opinion while the renter decides (facts only).
@@ -305,16 +319,16 @@ export class JobTools implements ToolHost {
             ? {
                 risk,
                 why: [
-                  ...(risk === "money" && (spend?.amount ?? 0) > policy.autoSpendUsdc ? [policy.autoSpendUsdc > 0 ? ("over_auto_limit" as const) : ("every_payment" as const)] : []),
+                  ...(risk === "money" && amount > auto ? [auto > 0 ? ("over_auto_limit" as const) : ("every_payment" as const)] : []),
                   ...(over ? ["rule_limit" as const] : []),
                   ...(strange.length ? ["new_contact" as const] : []),
                   ...(g.verdict === "ask" ? [g.fallback ? ("guard_down" as const) : ("guard_ask" as const)] : []),
                 ],
-                amount: spend && policy.autoSpendUsdc > 0 ? (spend.amount <= policy.autoSpendUsdc ? "within" : spend.amount <= 2 * policy.autoSpendUsdc ? "up_to_twice" : "over_twice") : null,
+                amount: risk === "money" && auto > 0 ? (amount <= auto ? "within" : amount <= 2 * auto ? "up_to_twice" : "over_twice") : null,
                 outside: (ctx?.untrusted?.length ?? 0) > 0,
               }
             : undefined;
-        throw new Paused({ kind: why.length ? "safety" : "over_limit", question: over ?? what, choices: ["Yes", "No"], tool, reason: why.join(" ") || null, ...(opinion ? { opinion } : {}) });
+        throw new Paused({ kind, question: over ?? what, choices: ["Yes", "No"], tool, reason: why.join(" ") || null, ...(opinion ? { opinion } : {}) });
       }
     }
     const approvedBy = approval ? "renter" : "rules";

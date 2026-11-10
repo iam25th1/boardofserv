@@ -65,7 +65,7 @@ const SAFETY: SafetyDTO = {
     { tool: "sheets.read", risk: "read", does: "Read every row of a sheet.", floor: null, asks: false, canRaise: false },
     { tool: "sheets.write", risk: "write", does: "Add rows to a sheet, or replace all of its rows.", floor: null, asks: true, canRaise: true },
     { tool: "telegram.send", risk: "outbound", does: "Send the owner a message.", floor: null, asks: false, canRaise: true },
-    { tool: "wallet.pay", risk: "money", does: "Pay someone in USDC from the renter's wallet.", floor: "Asks you before spending more than your auto limit.", asks: false, canRaise: false },
+    { tool: "wallet.pay", risk: "money", does: "Pay someone in USDC from the renter's wallet.", floor: "Asks you before spending more than your auto limit, or than its trust score allows.", asks: false, canRaise: false },
   ],
   autoSpendUsdc: 50,
   maxAutoSpendUsdc: 1000,
