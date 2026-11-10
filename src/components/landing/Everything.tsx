@@ -44,7 +44,7 @@ export function Everything() {
       <main className={styles.article}>
         <header className={styles.intro}>
           <h1>Everything you need to know</h1>
-          <p className={styles.lede}>Everyone has an AI chatbot. Almost nobody has an AI worker.</p>
+          <p className={styles.lede}>Build an agent with SERV Reasoning at its core and rent it out. Or rent one that&apos;s already working.</p>
           <p>
             You can ask a chatbot to write you an email. You can&apos;t ask it to watch your stock levels every morning, notice you&apos;re running low, find the
             best supplier price, ask you &ldquo;spend $40 on more fabric?&rdquo;, and then actually place the order while you&apos;re asleep.
