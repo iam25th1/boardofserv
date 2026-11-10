@@ -26,10 +26,11 @@
   min-height: 68px;
   padding: env(safe-area-inset-top, 0px) var(--edge-r) 0 var(--edge);
 }
-.mark {
+.brand {
   display: inline-flex;
   align-items: center;
   gap: var(--s-2);
+  flex-shrink: 0;
 }
 .home {
   display: inline-flex;

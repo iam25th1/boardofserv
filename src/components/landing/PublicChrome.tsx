@@ -11,7 +11,7 @@ import styles from "./Landing.module.css";
 export function PublicHeader() {
   return (
     <header className={styles.top}>
-      <span className={styles.mark}>
+      <span className={styles.brand}>
         <Link href="/" className={styles.home} aria-label="boardofserv, the front page">
           <Wordmark />
         </Link>

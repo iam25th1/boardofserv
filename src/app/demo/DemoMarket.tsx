@@ -15,7 +15,7 @@ import { DEMO_REQUEST, DEMO_REQUESTS } from "./demoRequests";
 import { TRUST_FAIR, TRUST_NEW, TRUST_STRONG } from "./demoTrust";
 import type { AgentListingDTO, AgentPageDTO, PublicHelperDTO } from "@/lib/types";
 
-// /demo?market=board, agent, rentals, rental, maker, requests or request
+// /demo?market=board, agent, example, rentals, rental, maker, requests or request
 // (development only): the market's
 // screens with sample data, to look at and screenshot without a database
 // or a sign-in. Neutral, made-up agents and makers.
@@ -118,6 +118,27 @@ export const DEMO_PAGE: AgentPageDTO = {
   rentalId: null,
 };
 
+// The Fabric restock example as its listing reads after the beta launch:
+// the words from src/lib/agents/examples/restock.json (never its code),
+// free to rent, by the site's admin.
+export const EXAMPLE_PAGE: AgentPageDTO = {
+  ...DEMO_PAGE,
+  id: "00000000-0000-4000-8000-0000000000e1",
+  name: "Fabric restock",
+  does: "Every morning it checks your fabric stock, finds the cheapest supplier that delivers in time for anything running low, and writes the order rows into your Orders tab. Orders over your limit wait for your yes, in Telegram or the app.",
+  done: "Every fabric running low has an order row in your Orders tab, or you said no.",
+  weeklyPrice: "0",
+  renters: 0,
+  maker: "boardofserv",
+  version: 2,
+  quality: { score: null, reviewed: 0, minimum: 5, ship: 0, review: 0, block: 0, previous: null },
+  trust: TRUST_NEW,
+  steps: [{"kind": "works", "title": "Read stock and supplier data", "outcomes": []}, {"kind": "decides", "title": "Is anything running low?", "outcomes": ["Fabrics need reordering", "Stock levels are fine"]}, {"kind": "acts", "title": "Tell you stock is fine", "outcomes": []}, {"kind": "works", "title": "Get the order rows ready", "outcomes": []}, {"kind": "acts", "title": "Write the orders to your sheet", "outcomes": []}, {"kind": "works", "title": "Get the last order ready to remember", "outcomes": []}, {"kind": "acts", "title": "Remember the last order", "outcomes": []}],
+  asks: [{"label": "Stock sheet", "help": "A Google Sheet tab with columns: fabric, metres, minimum", "kind": "sheet"}, {"label": "Address of the suppliers' price list page", "help": "Page with one header line, then supplier | fabric | price_usdc | delivery_days per line", "kind": "url"}, {"label": "Orders sheet", "help": "A Google Sheet tab where order rows are added", "kind": "sheet"}, {"label": "Order approval limit in USDC", "help": "Orders over this wait for your yes, in Telegram or the app", "kind": "number"}, {"label": "Maximum acceptable delivery time in days", "help": "Only suppliers delivering within this timeframe will be considered", "kind": "number"}],
+  neverWithoutAsking: ['Spend more in one job than your limit "Order approval limit" (250 USDC unless you change it).'],
+  canOnly: ["Tell you stock levels are fine today", "Write new order rows to your Orders tab", "Remember the last order placed"],
+};
+
 export function DemoMarket({ view }: { view: string }) {
   const load = useMemo(
     () => async (q: { q?: string; kind?: string; connects?: string[] }) => {
@@ -129,6 +150,7 @@ export function DemoMarket({ view }: { view: string }) {
     [],
   );
   const pageApi = useMemo(() => ({ load: async () => DEMO_PAGE }), []);
+  const exampleApi = useMemo(() => ({ load: async () => EXAMPLE_PAGE }), []);
   const rentalApi = useMemo<RentalApi>(
     () => ({
       load: async () => DEMO_RENTAL,
@@ -157,7 +179,9 @@ export function DemoMarket({ view }: { view: string }) {
   const dashApi = useMemo<MakerDashboardApi>(() => ({ load: async () => DEMO_DASHBOARD, runs: async () => DEMO_RUNS }), []);
   return (
     <AppShell>
-      {view === "agent" ? (
+      {view === "example" ? (
+        <AgentPageView id={EXAMPLE_PAGE.id} api={exampleApi} />
+      ) : view === "agent" ? (
         <AgentPageView id={DEMO_PAGE.id} api={pageApi} />
       ) : view === "requests" ? (
         <RequestsView api={requestsApi} />
