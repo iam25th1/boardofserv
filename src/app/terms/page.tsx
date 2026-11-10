@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PublicPage } from "@/components/landing/PublicPage";
+import { shareMetadata } from "@/lib/shareMeta";
 
-export const metadata: Metadata = { title: "Using the beta", description: "A few plain notes on using the boardofserv beta." };
+export const metadata: Metadata = shareMetadata({ title: "Using the beta", description: "A few plain notes on using the boardofserv beta.", path: "/terms" });
 
 export default function UsingTheBetaPage() {
   return (

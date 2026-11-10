@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PublicPage } from "@/components/landing/PublicPage";
+import { shareMetadata } from "@/lib/shareMeta";
 
-export const metadata: Metadata = { title: "About boardofserv", description: "boardofserv is an experiment in letting people build and rent small AI agents. It's a beta, on test money." };
+export const metadata: Metadata = shareMetadata({ title: "About boardofserv", description: "boardofserv is an experiment in letting people build and rent small AI agents. It's a beta, on test money.", path: "/about" });
 
 export default function AboutPage() {
   return (

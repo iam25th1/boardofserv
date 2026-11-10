@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PublicPage } from "@/components/landing/PublicPage";
+import { shareMetadata } from "@/lib/shareMeta";
 
-export const metadata: Metadata = { title: "Your data", description: "What boardofserv keeps about you, what it's used for, and how to have it deleted." };
+export const metadata: Metadata = shareMetadata({ title: "Your data", description: "What boardofserv keeps about you, what it's used for, and how to have it deleted.", path: "/privacy" });
 
 export default function YourDataPage() {
   return (

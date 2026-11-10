@@ -6,6 +6,7 @@ import { Providers } from "./providers";
 import { ChalkFilter } from "@/components/ChalkFilter";
 import { palette } from "@/design/palette";
 import { themeInitScript } from "@/lib/theme-init";
+import { rootMetadata } from "@/lib/shareMeta";
 
 // Onest for everything you read. Caveat only for the small handwritten notes.
 // Both are in the repo (src/app/fonts, the latin files Google Fonts serves,
@@ -24,10 +25,7 @@ const caveat = localFont({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: "boardofserv",
-  description: "Describe an agent in plain English and build it on OpenServ.",
-};
+export const metadata: Metadata = rootMetadata;
 
 export const viewport: Viewport = {
   themeColor: [

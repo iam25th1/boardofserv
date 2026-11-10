@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PublicPage } from "@/components/landing/PublicPage";
+import { shareMetadata } from "@/lib/shareMeta";
 import { supportEmail } from "@/lib/support";
 
-export const metadata: Metadata = { title: "Support", description: "How to reach boardofserv for help, or to have your data deleted." };
+export const metadata: Metadata = shareMetadata({ title: "Support", description: "How to reach boardofserv for help, or to have your data deleted.", path: "/support" });
 
 export default function SupportPage() {
   const email = supportEmail();
