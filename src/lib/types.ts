@@ -704,6 +704,9 @@ export interface ModerationQueueDTO {
   reports: { id: string; kind: "agent" | "maker" | "request" | "offer"; target: string; targetId: string; reason: string; reasonWords: string; note: string; by: string; createdAt: string }[];
   held: { type: "listing" | "request" | "offer"; id: string; title: string; by: string; reason: string }[];
   // Jobs Reppo's quality checks routed to block, with Reppo's reason.
+  // Agent payment alerts: the treasury low, a payment and its transfer not
+  // matching, a transfer nobody here made.
+  payments: { id: string; kind: string; message: string; details: Record<string, unknown>; at: string }[];
   blocked: { id: string; agentId: string; agent: string; version: number; maker: string; score: number | null; reason: string; at: string }[];
 }
 

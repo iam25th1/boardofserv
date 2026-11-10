@@ -206,7 +206,7 @@ export function useApi() {
       makerAudit: (id: string, before?: string | null) =>
         json<{ audit: AuditPageDTO }>(`/api/agents/${encodeURIComponent(id)}/audit${before ? `?before=${encodeURIComponent(before)}` : ""}`).then((d) => d.audit),
       adminAudit: (before?: string | null) => json<{ audit: AuditPageDTO }>(`/api/admin/audit${before ? `?before=${encodeURIComponent(before)}` : ""}`).then((d) => d.audit),
-      adminModerate: (body: { type: "report" | "listing" | "request" | "offer" | "reppo"; id: string; action: "approve" | "hide" | "freeze"; reason: string }) =>
+      adminModerate: (body: { type: "report" | "listing" | "request" | "offer" | "reppo" | "payment"; id: string; action: "approve" | "hide" | "freeze"; reason: string }) =>
         json<{ safety: AdminSafetyDTO }>("/api/admin/moderate", { method: "POST", body: JSON.stringify(body) }).then((d) => d.safety),
       report: (body: { kind: "agent" | "maker" | "request" | "offer"; targetId: string; reason: string; note: string }) =>
         json<{ ok: boolean }>("/api/reports", { method: "POST", body: JSON.stringify(body) }).then(() => undefined),

@@ -1,5 +1,5 @@
 {
-  "id": "57f64da0-3538-4385-94bd-166ae73f9322",
+  "id": "def3f5e3-10bd-497d-af18-8cf378037290",
   "prevId": "37a0ff19-b463-4df4-8bd1-57c4ddc77e8f",
   "version": "7",
   "dialect": "postgresql",
@@ -1813,6 +1813,12 @@
         },
         "settled_at": {
           "name": "settled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reconciled_at": {
+          "name": "reconciled_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false

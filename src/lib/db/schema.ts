@@ -1372,6 +1372,8 @@ export const agentPayments = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     broadcastAt: timestamp("broadcast_at", { withTimezone: true }),
     settledAt: timestamp("settled_at", { withTimezone: true }),
+    // Matched with its transfer on chain and its ledger entries.
+    reconciledAt: timestamp("reconciled_at", { withTimezone: true }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({

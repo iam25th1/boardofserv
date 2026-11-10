@@ -40,7 +40,7 @@ describe("the admin queue", () => {
   });
 
   it("says when the queue is empty, and shows a refusal", async () => {
-    const empty: AdminSafetyDTO = { ...DEMO_SAFETY, queue: { reports: [], held: [], blocked: [] } };
+    const empty: AdminSafetyDTO = { ...DEMO_SAFETY, queue: { reports: [], held: [], blocked: [], payments: [] } };
     render(<SafetyAdmin api={{ load: async () => empty }} />);
     expect(await screen.findByText(/Nothing waiting/)).toBeInTheDocument();
     cleanup();

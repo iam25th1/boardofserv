@@ -5,6 +5,7 @@ import type { Runtime } from "./context";
 import { beat, claimJob, HEARTBEAT_MS, requeueStale, runJob } from "./jobs";
 import { reppoCycle } from "../../reppo/cycle";
 import { settlePayments } from "../../spending/pay";
+import { reconcile } from "../../spending/reconcile";
 import { expireDue } from "./approvals";
 import { fireDue } from "./triggers";
 import { deliverTelegram, tidyTelegram } from "../../telegram/deliver";
@@ -82,7 +83,10 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
       // Agents' payments whose jobs stopped waiting on them, settled beside
       // the jobs too (confirmed and spent, or released).
       if (!paying && rt.payments) {
+        // And about once a minute, reconciled with the chain.
+        const check = cycles % 12 === 1;
         paying = settlePayments(rt)
+          .then(() => (check ? reconcile(rt) : null))
           .then(() => undefined)
           .catch((err: unknown) => rt.log(`payments: settling agent payments broke off: ${err instanceof Error ? err.name : "unknown error"}`))
           .finally(() => {

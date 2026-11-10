@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS "agent_payments" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"broadcast_at" timestamp with time zone,
 	"settled_at" timestamp with time zone,
+	"reconciled_at" timestamp with time zone,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "agent_payments_status" CHECK ("agent_payments"."status" in ('held', 'broadcast', 'confirmed', 'failed')),
 	CONSTRAINT "agent_payments_amount_positive" CHECK ("agent_payments"."amount" > 0)

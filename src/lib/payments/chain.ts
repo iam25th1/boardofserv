@@ -33,6 +33,8 @@ export interface ChainClient {
   blockNumber(): Promise<bigint>;
   // ERC-20 Transfer logs of `token` to `to`, in the inclusive block range.
   transferLogs(q: { token: Address; to: Address; fromBlock: bigint; toBlock: bigint }): Promise<TransferLog[]>;
+  // ERC-20 Transfer logs of `token` from `from` (the treasury's sends).
+  transferLogsFrom(q: { token: Address; from: Address; fromBlock: bigint; toBlock: bigint }): Promise<TransferLog[]>;
   tokenDecimals(token: Address): Promise<number>;
   tokenBalance(token: Address, owner: Address): Promise<bigint>;
   nativeBalance(owner: Address): Promise<bigint>;
@@ -74,6 +76,16 @@ export function viemChainClient(config: PaymentsConfig): ChainClient {
     async transferLogs({ token, to, fromBlock, toBlock }) {
       await ready();
       const logs = await client.getLogs({ address: token, event: TRANSFER, args: { to }, fromBlock, toBlock, strict: true });
+      const out: TransferLog[] = [];
+      for (const l of logs) {
+        if (l.transactionHash === null || l.logIndex === null || l.blockNumber === null) continue;
+        out.push({ txHash: l.transactionHash, logIndex: l.logIndex, blockNumber: l.blockNumber, from: l.args.from, to: l.args.to, value: l.args.value });
+      }
+      return out;
+    },
+    async transferLogsFrom({ token, from, fromBlock, toBlock }) {
+      await ready();
+      const logs = await client.getLogs({ address: token, event: TRANSFER, args: { from }, fromBlock, toBlock, strict: true });
       const out: TransferLog[] = [];
       for (const l of logs) {
         if (l.transactionHash === null || l.logIndex === null || l.blockNumber === null) continue;
