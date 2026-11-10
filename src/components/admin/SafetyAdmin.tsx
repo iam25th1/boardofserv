@@ -12,12 +12,16 @@ import styles from "./SafetyAdmin.module.css";
 // The admin's safety page: the queue (what the screen held and what people
 // reported), freezes, model cost, and every version's code review.
 
+type QueueType = "report" | "listing" | "request" | "offer" | "reppo" | "payment" | "dispute";
+// Uphold and reject are for disputes alone.
+type QueueAction = "approve" | "hide" | "freeze" | "uphold" | "reject";
+
 export interface SafetyAdminApi {
   load: () => Promise<AdminSafetyDTO>;
   freeze?: (body: { kind: FreezeDTO["kind"]; target: string; reason: string }) => Promise<AdminSafetyDTO>;
   lift?: (id: string, reason: string) => Promise<AdminSafetyDTO>;
   audit?: (before?: string | null) => Promise<AuditPageDTO>;
-  moderate?: (body: { type: "report" | "listing" | "request" | "offer" | "reppo" | "payment"; id: string; action: "approve" | "hide" | "freeze"; reason: string }) => Promise<AdminSafetyDTO>;
+  moderate?: (body: { type: QueueType; id: string; action: QueueAction; reason: string }) => Promise<AdminSafetyDTO>;
 }
 
 export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
@@ -71,8 +75,13 @@ export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
       </section>
       <section className={styles.section} aria-labelledby="queue-h">
         <h2 id="queue-h">Queue</h2>
-        {data.queue.reports.length + data.queue.held.length + data.queue.blocked.length + data.queue.payments.length === 0 ? (
-          <p className={styles.quiet}>Nothing waiting: no payment alerts, no open reports, the screen held nothing back, and Reppo blocked no job.</p>
+        {!data.queue.disputes.ledgerReady && data.queue.disputes.waiting > 0 && (
+          <p className={styles.alert} role="alert">
+            {data.queue.disputes.waiting === 1 ? "An upheld rent dispute waits" : `${data.queue.disputes.waiting} upheld rent disputes wait`} for a refund: the ledger can&apos;t take refunds until the owner runs scripts/sql/ledger-kinds.sql on the database. Once it has run, they are refunded within a minute.
+          </p>
+        )}
+        {data.queue.reports.length + data.queue.held.length + data.queue.blocked.length + data.queue.payments.length + data.queue.disputes.open.length === 0 ? (
+          <p className={styles.quiet}>Nothing waiting: no payment alerts, no disputes, no open reports, the screen held nothing back, and Reppo blocked no job.</p>
         ) : (
           <ul className={styles.queue}>
             {data.queue.payments.map((p) => (
@@ -84,6 +93,28 @@ export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
                 <p>{p.message}</p>
                 {typeof p.details.txHash === "string" && <p className={styles.quiet}>Transaction {p.details.txHash}</p>}
                 {api.moderate && <Decide type="payment" id={p.id} moderate={api.moderate} onDone={setData} canHide={false} canFreeze={false} approveLabel="Mark looked into" />}
+              </li>
+            ))}
+            {data.queue.disputes.open.map((d) => (
+              <li key={`dispute-${d.id}`}>
+                <div className={styles.logHead}>
+                  <span className={styles.chip}>{d.kind === "payment" ? "payment dispute" : "rent dispute"}</span>
+                  <strong>
+                    {d.agentName}: {d.what}
+                  </strong>
+                  <span className={styles.quiet}>
+                    {d.renter} against {d.maker}
+                  </span>
+                </div>
+                <p>
+                  {d.reasonWords}: &ldquo;{d.note}&rdquo;
+                </p>
+                <p className={styles.quiet}>
+                  {d.kind === "payment"
+                    ? "Upheld, it counts against the agent's trust score. The payment itself can't be pulled back on Base."
+                    : `Upheld, ${formatAmount(BigInt(d.amount), d.decimals)} USDC goes back to the renter: the maker's share and the platform's fee are reversed.`}
+                </p>
+                {api.moderate && <Decide type="dispute" id={d.id} moderate={api.moderate} onDone={setData} actions={["uphold", "reject"]} />}
               </li>
             ))}
             {data.queue.blocked.map((b) => (
@@ -321,6 +352,14 @@ const PAYMENT_ALERT_WORDS: Record<string, string> = {
   unknown_transfer: "A transfer nobody here made",
 };
 
+const ACTION_WORDS: Record<QueueAction, [string, string]> = {
+  approve: ["Approve", "Saving..."],
+  hide: ["Hide", "Hiding..."],
+  freeze: ["Freeze", "Freezing..."],
+  uphold: ["Uphold", "Upholding..."],
+  reject: ["Reject", "Rejecting..."],
+};
+
 function Decide({
   type,
   id,
@@ -329,20 +368,23 @@ function Decide({
   canHide = true,
   canFreeze = true,
   approveLabel = "Approve",
+  actions,
 }: {
-  type: "report" | "listing" | "request" | "offer" | "reppo" | "payment";
+  type: QueueType;
   id: string;
   moderate: NonNullable<SafetyAdminApi["moderate"]>;
   onDone: (d: AdminSafetyDTO) => void;
   canHide?: boolean;
   canFreeze?: boolean;
   approveLabel?: string;
+  // In place of approve, hide and freeze (a dispute's uphold and reject).
+  actions?: QueueAction[];
 }) {
   const [why, setWhy] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const whyId = useId();
-  const act = async (action: "approve" | "hide" | "freeze") => {
+  const act = async (action: QueueAction) => {
     setBusy(action);
     setSaid(null);
     try {
@@ -359,6 +401,14 @@ function Decide({
       <label htmlFor={whyId}>Why</label>
       <TextInput id={whyId} value={why} onChange={(e) => setWhy(e.target.value)} placeholder="A few words for the log" />
       <div className={styles.actions}>
+        {actions ? (
+          actions.map((a, i) => (
+            <Button key={a} size="sm" variant={i === 0 ? undefined : "ghost"} onClick={() => void act(a)} disabled={!ready}>
+              {busy === a ? ACTION_WORDS[a][1] : ACTION_WORDS[a][0]}
+            </Button>
+          ))
+        ) : (
+          <>
         <Button size="sm" onClick={() => void act("approve")} disabled={!ready}>
           {busy === "approve" ? "Saving..." : approveLabel}
         </Button>
@@ -371,6 +421,8 @@ function Decide({
           <Button size="sm" variant="ghost" onClick={() => void act("freeze")} disabled={!ready}>
             {busy === "freeze" ? "Freezing..." : "Freeze"}
           </Button>
+        )}
+          </>
         )}
       </div>
       {said && (

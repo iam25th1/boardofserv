@@ -39,6 +39,7 @@ import * as depositsCheck from "@/app/api/deposits/check/route";
 import * as withdrawalsRoute from "@/app/api/withdrawals/route";
 import * as adminRoute from "@/app/api/admin/route";
 import * as adminPause from "@/app/api/admin/pause/route";
+import * as adminAgentPayments from "@/app/api/admin/agent-payments/route";
 import * as adminDecide from "@/app/api/admin/withdrawals/[id]/route";
 import * as adminAccess from "@/app/api/admin/access/[id]/route";
 import * as healthRoute from "@/app/api/health/route";
@@ -150,6 +151,7 @@ const ROUTES: Record<string, object> = {
   "withdrawals": withdrawalsRoute,
   "admin": adminRoute,
   "admin/pause": adminPause,
+  "admin/agent-payments": adminAgentPayments,
   "admin/withdrawals/[id]": adminDecide,
   "admin/access/[id]": adminAccess,
   "health": healthRoute,
@@ -495,6 +497,7 @@ describe("a helper's instructions stay on the server", () => {
     await hit("withdraw signed out", withdrawalsRoute.POST(req("/api/withdrawals", "POST", {})));
     await hit("admin signed out", adminRoute.GET(req("/api/admin")));
     await hit("admin pause signed out", adminPause.POST(req("/api/admin/pause", "POST", { paused: true })));
+    await hit("admin agent payments signed out", adminAgentPayments.POST(req("/api/admin/agent-payments", "POST", { paused: true })));
     await hit("handle check signed out", handle.GET(req("/api/account/handle?handle=shopkeeper")));
     await hit("publish signed out", helpers.POST(req("/api/helpers", "POST", { conversationId: cid, description: "x", inputHint: "x" })));
 
@@ -609,6 +612,8 @@ describe("a helper's instructions stay on the server", () => {
       await hit("pay: approve", adminDecide.POST(req(`/api/admin/withdrawals/${waiting}`, "POST", { action: "approve" }), { params: { id: waiting } }));
       await hit("pay: approve again", adminDecide.POST(req(`/api/admin/withdrawals/${waiting}`, "POST", { action: "approve" }), { params: { id: waiting } }));
       await hit("pay: resume", adminPause.POST(req("/api/admin/pause", "POST", { paused: false })));
+      await hit("pay: agent payments off", adminAgentPayments.POST(req("/api/admin/agent-payments", "POST", { paused: true, reason: "Checking." })));
+      await hit("pay: agent payments on", adminAgentPayments.POST(req("/api/admin/agent-payments", "POST", { paused: false })));
       await payoutTick();
       chain.mine(5);
       await payoutTick();

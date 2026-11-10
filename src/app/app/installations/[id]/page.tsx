@@ -46,6 +46,13 @@ function Detail({ id }: { id: string }) {
       setPolicy: (body) => api.setPolicy(id, body),
       setBudget: (modelBudget) => api.setModelBudget(id, modelBudget),
       audit: (before) => api.installationAudit(id, before),
+      spending: {
+        load: () => api.getSpending(id),
+        allowance: (body) => api.allowance(id, body),
+        payees: (body) => api.payees(id, body),
+        disputes: () => api.listDisputes(),
+        dispute: (body) => api.openDispute(body),
+      },
       answer: async (approvalId, answer) => void (await api.answerApproval(approvalId, answer)),
     }),
     [api, id],

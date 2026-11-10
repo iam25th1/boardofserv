@@ -1,14 +1,14 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { Button, SkeletonPanel } from "@/components/ui";
+import { Button, SkeletonPanel, TextInput } from "@/components/ui";
 import { formatAmount } from "@/lib/money";
 import type { AdminDTO, AdminWithdrawalDTO } from "@/lib/types";
 import type { useApi } from "@/lib/useApi";
 import styles from "./admin.module.css";
 
 // The admin page's body: today's model spend, accounts waiting to get in,
-// the books, approvals, unmatched deposits, payout history and the pause
-// switch.
+// the books, agents' payments (their switch, today's, reconciliation),
+// approvals, unmatched deposits, payout history and the pause switch.
 
 const STATUS_TEXT: Record<AdminWithdrawalDTO["status"], string> = {
   awaiting_approval: "waiting for approval",
@@ -27,7 +27,14 @@ function usd(n: number): string {
 
 // What the admin page asks of the server. The page passes the real calls;
 // the development demo passes canned ones.
-export type AdminApi = Pick<ReturnType<typeof useApi>, "getAdmin" | "adminPause" | "adminDecide" | "adminAccess">;
+export type AdminApi = Pick<ReturnType<typeof useApi>, "getAdmin" | "adminPause" | "adminDecide" | "adminAccess" | "adminAgentPayments">;
+
+const PAY_STATUS: Record<AdminDTO["agentPayments"]["recent"][number]["status"], string> = {
+  held: "held",
+  broadcast: "sending",
+  confirmed: "paid",
+  failed: "failed, released",
+};
 
 export function AdminBody({ api }: { api: AdminApi }) {
   const [data, setData] = useState<AdminDTO | null>(null);
@@ -215,6 +222,8 @@ export function AdminBody({ api }: { api: AdminApi }) {
         {data.currencies.map((c) => c.problem && <p key={c.code} className={styles.alert}>{c.problem}</p>)}
       </section>
 
+      <AgentPayments data={data} busy={busy !== null} fmt={fmt} tx={tx} onSwitch={(paused, reason) => void act("agent-pay", () => api.adminAgentPayments(paused, reason), paused ? "Agent payments paused." : "Agent payments are back on.")} />
+
       <section className={styles.section} aria-labelledby="approvals-h">
         <h2 id="approvals-h">Waiting for approval</h2>
         {data.approvals.length === 0 ? (
@@ -316,5 +325,97 @@ export function AdminBody({ api }: { api: AdminApi }) {
         )}
       </section>
     </>
+  );
+}
+
+// Agents' payments from the treasury: the site wide switch (with why it is
+// off), the treasury against the floor it keeps, today's payments with
+// their transfers, and how far reconciliation with the chain has got.
+function AgentPayments({ data, busy, fmt, tx, onSwitch }: { data: AdminDTO; busy: boolean; fmt: (units: string, code: string) => string; tx: (hash: string | null) => React.ReactNode; onSwitch: (paused: boolean, reason?: string) => void }) {
+  const a = data.agentPayments;
+  const [reason, setReason] = useState("");
+  const usdc = data.currencies.find((c) => c.code === "USDC");
+  const low = usdc?.treasury != null && BigInt(usdc.treasury) < BigInt(a.floor);
+  return (
+    <section className={styles.section} aria-labelledby="agent-pay-h">
+      <div className={styles.titleRow}>
+        <h2 id="agent-pay-h">{a.paused ? "Agent payments are paused" : "Agent payments are on"}</h2>
+        {a.paused ? (
+          <Button size="sm" variant="primary" aria-pressed disabled={busy || a.reconcile.open.length > 0} onClick={() => onSwitch(false)}>
+            Turn agent payments on
+          </Button>
+        ) : (
+          <Button size="sm" variant="ghost" aria-pressed={false} disabled={busy} onClick={() => onSwitch(true, reason.trim() || undefined)}>
+            Pause agent payments
+          </Button>
+        )}
+      </div>
+      {a.paused ? (
+        <p className={styles.alert}>{a.paused}</p>
+      ) : (
+        <label className={styles.quiet}>
+          Why, if you pause them (renters read it):{" "}
+          <TextInput className={styles.reason} value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} placeholder="Checking the treasury." />
+        </label>
+      )}
+      {a.paused && a.reconcile.open.length > 0 && <p className={styles.quiet}>Look into the open alerts in the safety queue first: they can&apos;t be turned on until then.</p>}
+      <p className={styles.spend}>
+        <strong>{fmt(a.today.total, "USDC")}</strong> paid today in {a.today.count} {a.today.count === 1 ? "payment" : "payments"}
+        {a.today.inFlight > 0 ? `, ${a.today.inFlight} on the way` : ""}
+        {a.today.failed > 0 ? `, ${a.today.failed} failed` : ""}
+      </p>
+      <p className={styles.quiet}>
+        The treasury has {usdc?.treasury == null ? "an unknown amount" : fmt(usdc.treasury, "USDC")} and keeps at least {fmt(a.floor, "USDC")}: below that, agent payments pause by themselves. The whole site pays at most {fmt(a.siteCap, "USDC")} a day.
+      </p>
+      {low && <p className={styles.alert}>The treasury is below its floor. Top it up before turning agent payments back on.</p>}
+      <h3 className={styles.sub}>Reconciliation</h3>
+      <p className={styles.quiet}>
+        {a.reconcile.block ? `Checked against the chain up to block ${a.reconcile.block}${a.reconcile.at ? `, ${new Date(a.reconcile.at).toLocaleString()}` : ""}.` : "Not checked against the chain yet: it starts at the next block once payments run."}{" "}
+        {a.reconcile.open.length === 0 ? "Every payment matched its transfer." : `${a.reconcile.open.length} open ${a.reconcile.open.length === 1 ? "alert" : "alerts"}:`}
+      </p>
+      {a.reconcile.open.length > 0 && (
+        <ul className={styles.rows}>
+          {a.reconcile.open.map((o) => (
+            <li key={o.id}>
+              <span>{o.message}</span>
+              <time className={styles.quiet} dateTime={o.at}>
+                {new Date(o.at).toLocaleString()}
+              </time>
+            </li>
+          ))}
+        </ul>
+      )}
+      <h3 className={styles.sub}>Today&apos;s payments</h3>
+      {a.recent.length === 0 ? (
+        <p className={styles.quiet}>None yet today.</p>
+      ) : (
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th scope="col">Agent</th>
+                <th scope="col">Renter</th>
+                <th scope="col">To</th>
+                <th scope="col">Amount</th>
+                <th scope="col">Status</th>
+                <th scope="col">Transfer</th>
+              </tr>
+            </thead>
+            <tbody>
+              {a.recent.map((p) => (
+                <tr key={p.id}>
+                  <th scope="row">{p.agent}</th>
+                  <td>{p.renter}</td>
+                  <td>{p.payee}</td>
+                  <td>{fmt(p.amount, "USDC")}</td>
+                  <td>{PAY_STATUS[p.status]}</td>
+                  <td>{tx(p.txHash) ?? "none"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }

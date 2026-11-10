@@ -569,13 +569,29 @@ export interface AdminDTO {
     owed: string;
     // treasury minus owed. Must never be below zero.
     difference: string | null;
-    // The platform's 10% of paid uses, all time.
+    // The platform's 10% of paid uses, all time, less fees given back.
     fees: string;
     problem: string | null;
   }[];
   approvals: AdminWithdrawalDTO[];
   history: AdminWithdrawalDTO[];
+  // Agents' payments from the treasury: the site wide switch, the floor
+  // the treasury keeps, today's payments, and reconciliation with the chain.
+  agentPayments: AgentPaymentsAdminDTO;
   unmatched: { id: string; currency: "USDC" | "SERV"; amount: string; from: string; txHash: string; seenAt: string }[];
+}
+
+export interface AgentPaymentsAdminDTO {
+  // Why they are paused site wide, or null when they run.
+  paused: string | null;
+  // USDC minor units: the least the treasury keeps, and the site's day cap.
+  floor: string;
+  siteCap: string;
+  today: { count: number; total: string; failed: number; inFlight: number };
+  // The block reconciliation reached and when, and its open alerts.
+  reconcile: { block: string | null; at: string | null; open: { id: string; kind: string; message: string; at: string }[] };
+  // Today's payments, newest first.
+  recent: { id: string; agent: string; renter: string; payee: string; amount: string; status: "held" | "broadcast" | "confirmed" | "failed"; txHash: string | null; at: string }[];
 }
 
 // The signed-in user's own money: never anyone else's.
@@ -796,6 +812,14 @@ export interface SpendingDTO {
   payees: { id: string; label: string; address: string; status: "active" | "suggested"; paidBefore: boolean; createdAt: string }[];
   // Every payment its agent made or tried, newest first.
   receipts: ReceiptDTO[];
+  // What it may pay without asking now (USDC minor units): the stricter of
+  // the renter's auto limit and its trust band, per payment, and the band's
+  // day; what it paid today; why, in words; and why it can't pay at all.
+  limit: { perPayment: string; perDay: string; paidToday: string; why: string; band: string; trust: TrustDTO; stopped: string | null };
+  // Agent payments paused site wide, and why.
+  paused: string | null;
+  // How many days after a payment or week it can be disputed.
+  disputeDays: number;
 }
 
 // A renter's dispute of an agent payment or a week's rent, and what an
@@ -806,6 +830,7 @@ export interface SpendingDTO {
 export interface DisputeDTO {
   id: string;
   kind: "payment" | "rent";
+  installationId: string | null;
   agentName: string;
   // What is disputed, in words: "5.00 USDC to Weftworks on 9 Nov" or "Rent for week 3".
   what: string;
@@ -825,6 +850,7 @@ export interface DisputeDTO {
 // paid rent week, inside the dispute window and not disputed yet.
 export interface DisputableDTO {
   kind: "payment" | "rent";
+  installationId: string | null;
   // The payment's id, or "<rental id>:<week>".
   id: string;
   agentName: string;

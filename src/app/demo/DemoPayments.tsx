@@ -105,6 +105,19 @@ const adminFor = (treasury: string): AdminDTO => ({
     { id: "h1", currency: "USDC", amount: "5000000", to: LINKED, status: "reverted", reason: null, txHash: hash(4), createdAt: ago(900), maker: "maya_r", auto: false, nonce: 5, stuck: false },
   ],
   unmatched: [{ id: "u1", currency: "USDC", amount: "3000000", from: "0xbad0c0ffee2b6f4e3c9a1d0b8e7f6a5c4d3b2a19", txHash: hash(7), seenAt: ago(120) }],
+  agentPayments: {
+    paused: null,
+    floor: "5000000",
+    siteCap: "1000000000",
+    today: { count: 2, total: "5500000", failed: 1, inFlight: 1 },
+    reconcile: { block: "18734221", at: ago(1), open: [] },
+    recent: [
+      { id: "p4", agent: "Fabric restock", renter: "@harbor_tea", payee: "Weftworks", amount: "1250000", status: "broadcast", txHash: hash(12), at: ago(2) },
+      { id: "p3", agent: "Fabric restock", renter: "@harbor_tea", payee: "Weftworks", amount: "4000000", status: "confirmed", txHash: hash(11), at: ago(34) },
+      { id: "p2", agent: "Courier booking", renter: "@sam_rivera", payee: "Fastline couriers", amount: "1500000", status: "confirmed", txHash: hash(10), at: ago(95) },
+      { id: "p1", agent: "Courier booking", renter: "@sam_rivera", payee: "Fastline couriers", amount: "1500000", status: "failed", txHash: null, at: ago(140) },
+    ],
+  },
 });
 
 function adminApi(treasury: string): AdminApi {
@@ -112,6 +125,7 @@ function adminApi(treasury: string): AdminApi {
   return {
     getAdmin: async () => a,
     adminPause: async (paused) => (a = { ...a, paused }),
+    adminAgentPayments: async (paused, reason) => (a = { ...a, agentPayments: { ...a.agentPayments, paused: paused ? reason || "An admin paused agent payments." : null } }),
     adminDecide: async (id, action) => {
       const w = [...a.approvals, ...a.history].find((x) => x.id === id)!;
       const status = action === "approve" ? "queued" : action === "reject" ? "rejected" : "failed";

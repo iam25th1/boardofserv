@@ -13,6 +13,7 @@ import { enabledCurrencies, paymentsConfig, type PaymentsConfig } from "./config
 import { withdrawalDTO } from "./dto";
 import { treasurySigner } from "./signer";
 import { isStuck, payoutsPaused, type Withdrawal } from "./withdrawals";
+import { agentPaymentsAdmin } from "../spending/admin";
 
 // The admin page, for the users named in ADMIN_USER_IDS (by boardofserv user
 // id or Privy user id). It shows today's model spend against the daily limit,
@@ -45,7 +46,7 @@ async function fees(currency: Currency): Promise<bigint> {
   const [row] = await db
     .select({ total: sql<string>`coalesce(sum(${ledgerEntries.amount}::numeric), 0)::text` })
     .from(ledgerEntries)
-    .where(and(eq(ledgerEntries.kind, "platform_fee"), eq(ledgerEntries.currency, currency)));
+    .where(and(inArray(ledgerEntries.kind, ["platform_fee", "platform_refund"]), eq(ledgerEntries.currency, currency)));
   return BigInt(row?.total ?? "0");
 }
 
@@ -125,6 +126,7 @@ export async function adminDTO(chain: ChainClient, config: PaymentsConfig = paym
     paused: await payoutsPaused(),
     signer: "problem" in signer ? signer.problem : null,
     currencies,
+    agentPayments: await agentPaymentsAdmin(db, now),
     approvals: all.filter((w) => w.status === "awaiting_approval"),
     history: all.filter((w) => w.status !== "awaiting_approval"),
     unmatched: unmatched.map((d) => ({

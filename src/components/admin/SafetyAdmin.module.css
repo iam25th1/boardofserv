@@ -207,3 +207,12 @@
   gap: var(--s-2);
   margin-top: var(--s-1);
 }
+
+.alert {
+  padding: var(--s-2) var(--s-3);
+  border: var(--stroke) dashed var(--chalk);
+  border-radius: var(--r-md);
+  font-size: var(--t-sm);
+  font-weight: var(--w-medium);
+  color: var(--chalk);
+}

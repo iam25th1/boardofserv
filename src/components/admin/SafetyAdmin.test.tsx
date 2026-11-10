@@ -11,9 +11,10 @@ afterEach(cleanup);
 
 describe("the admin queue", () => {
   it("lists Reppo's blocks, held posts and reports, and works each with a reason", async () => {
-    const after: AdminSafetyDTO = { ...DEMO_SAFETY, queue: { ...DEMO_SAFETY.queue, held: DEMO_SAFETY.queue.held.filter((h) => h.id !== "q-held") } };
+    const start: AdminSafetyDTO = { ...DEMO_SAFETY, queue: { ...DEMO_SAFETY.queue, disputes: { open: [], waiting: 0, ledgerReady: true } } };
+    const after: AdminSafetyDTO = { ...start, queue: { ...start.queue, held: start.queue.held.filter((h) => h.id !== "q-held") } };
     const moderate = vi.fn(async () => after);
-    render(<SafetyAdmin api={{ load: async () => DEMO_SAFETY, moderate }} />);
+    render(<SafetyAdmin api={{ load: async () => start, moderate }} />);
     const queue = (await screen.findByRole("heading", { name: "Queue" })).closest("section")!;
     const items = within(queue).getAllByRole("listitem");
     expect(items).toHaveLength(6);
@@ -39,6 +40,30 @@ describe("the admin queue", () => {
     await waitFor(() => expect(moderate).toHaveBeenCalledWith({ type: "reppo", id: "b-1", action: "approve", reason: "One-off." }));
   });
 
+  it("shows renters' disputes, upheld or rejected with a reason, and says what upholding does", async () => {
+    const moderate = vi.fn(async () => ({ ...DEMO_SAFETY, queue: { ...DEMO_SAFETY.queue, disputes: { ...DEMO_SAFETY.queue.disputes, open: DEMO_SAFETY.queue.disputes.open.slice(1) } } }));
+    render(<SafetyAdmin api={{ load: async () => DEMO_SAFETY, moderate }} />);
+    const queue = (await screen.findByRole("heading", { name: "Queue" })).closest("section")!;
+    const [pay, rent] = within(queue).getAllByRole("listitem");
+    expect(pay).toHaveTextContent("payment dispute");
+    expect(pay).toHaveTextContent("Fabric restock: 4.00 USDC to Weftworks on 2026-11-08");
+    expect(pay).toHaveTextContent("@harbor_tea against @lena_prints");
+    expect(pay).toHaveTextContent("can't be pulled back on Base");
+    expect(rent).toHaveTextContent("rent dispute");
+    expect(rent).toHaveTextContent("Upheld, 6.00 USDC goes back to the renter");
+    expect(within(pay!).queryByRole("button", { name: "Approve" })).toBeNull();
+    const uphold = within(pay!).getByRole("button", { name: "Uphold" });
+    expect(uphold).toBeDisabled();
+    fireEvent.change(within(pay!).getByLabelText("Why"), { target: { value: "It paid the old account." } });
+    fireEvent.click(uphold);
+    await waitFor(() => expect(moderate).toHaveBeenCalledWith({ type: "dispute", id: "d-1", action: "uphold", reason: "It paid the old account." }));
+  });
+
+  it("says when upheld refunds wait for the ledger", async () => {
+    render(<SafetyAdmin api={{ load: async () => ({ ...DEMO_SAFETY, queue: { ...DEMO_SAFETY.queue, disputes: { open: [], waiting: 2, ledgerReady: false } } }) }} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("2 upheld rent disputes wait for a refund: the ledger can't take refunds until the owner runs scripts/sql/ledger-kinds.sql");
+  });
+
   it("says when the queue is empty, and shows a refusal", async () => {
     const empty: AdminSafetyDTO = { ...DEMO_SAFETY, queue: { reports: [], held: [], blocked: [], payments: [], disputes: { open: [], waiting: 0, ledgerReady: true } } };
     render(<SafetyAdmin api={{ load: async () => empty }} />);
@@ -51,7 +76,7 @@ describe("the admin queue", () => {
     const queue = (await screen.findByRole("heading", { name: "Queue" })).closest("section")!;
     const first = within(queue).getAllByRole("listitem")[0]!;
     fireEvent.change(within(first).getByLabelText("Why"), { target: { value: "Looks fine." } });
-    fireEvent.click(within(first).getByRole("button", { name: "Approve" }));
+    fireEvent.click(within(first).getByRole("button", { name: "Uphold" }));
     expect(await within(first).findByRole("alert")).toHaveTextContent("It isn't waiting in the queue.");
   });
 });

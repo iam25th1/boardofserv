@@ -1,12 +1,13 @@
 import "server-only";
 import { and, count, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
-import { agentMessages, agentPayments, agents, balances, disputes, ledgerEntries, rentalCharges, rentals, users, DISPUTE_REASONS, type Dispute, type User } from "../db/schema";
+import { agentMessages, agentPayments, agents, balances, disputes, ledgerEntries, rentalCharges, rentals, users, type Dispute, type User } from "../db/schema";
 import type { Runtime } from "../agents/runtime/context";
 import type { DisputableDTO, DisputeDTO } from "../types";
 import { fixDashes } from "../dashes";
 import { post, type Exec } from "../payments/ledger";
 import { refreshVersion } from "../trust/trust";
 import { usdcWords } from "./allowance";
+import { CANT_PULL_BACK, DISPUTE_REASON_WORDS, NOTE_MAX, NOTE_MIN, REASONS_FOR, type DisputeReason } from "./disputeWords";
 
 // Disputes. A renter disputes an agent payment or a week's rent within the
 // dispute window, with a reason and a note; it waits in the admin queue.
@@ -22,8 +23,7 @@ const DAY = 86_400_000;
 
 export const MAX_OPEN_DISPUTES = 3;
 export const DISPUTES_PER_30_DAYS = 6;
-export const NOTE_MIN = 10;
-export const NOTE_MAX = 1000;
+export { CANT_PULL_BACK, DISPUTE_REASON_WORDS, NOTE_MAX, NOTE_MIN, REASONS_FOR, type DisputeReason };
 
 // How long after a payment or a week's rent it can be disputed
 // (DISPUTE_WINDOW_DAYS, 14 unless set, at most 90).
@@ -31,22 +31,6 @@ export function disputeWindowDays(env: Env = process.env): number {
   const n = Number(env.DISPUTE_WINDOW_DAYS);
   return env.DISPUTE_WINDOW_DAYS?.trim() && Number.isInteger(n) && n >= 1 && n <= 90 ? n : 14;
 }
-
-export type DisputeReason = (typeof DISPUTE_REASONS)[number];
-export const DISPUTE_REASON_WORDS: Record<DisputeReason, string> = {
-  not_done: "It paid for something that wasn't done",
-  not_wanted: "I didn't want this payment made",
-  wrong_amount: "It paid the wrong amount",
-  wrong_payee: "It paid the wrong payee",
-  not_working: "The agent didn't work that week",
-  other: "Something else",
-};
-export const REASONS_FOR: Record<Dispute["kind"], readonly DisputeReason[]> = {
-  payment: ["not_done", "not_wanted", "wrong_amount", "wrong_payee", "other"],
-  rent: ["not_working", "other"],
-};
-
-export const CANT_PULL_BACK = "A payment on Base can't be pulled back once it is sent. If your dispute is upheld, it counts against the agent's trust score, but the money stays with the payee.";
 
 export class DisputeRefused extends Error {
   constructor(
@@ -215,6 +199,7 @@ export function disputeDTO(d: Dispute, agentName: string, what: string): Dispute
   return {
     id: d.id,
     kind: d.kind,
+    installationId: d.installationId,
     agentName,
     what,
     amount: d.amount,
@@ -260,7 +245,7 @@ export async function disputesOf(rt: Runtime, renterId: string): Promise<{ dispu
     .orderBy(desc(agentPayments.settledAt))
     .limit(50);
   const weeks = await rt.db
-    .select({ c: rentalCharges, name: agents.name })
+    .select({ c: rentalCharges, name: agents.name, installationId: rentals.installationId })
     .from(rentalCharges)
     .innerJoin(rentals, eq(rentals.id, rentalCharges.rentalId))
     .innerJoin(agents, eq(agents.id, rentals.agentId))
@@ -273,10 +258,10 @@ export async function disputesOf(rt: Runtime, renterId: string): Promise<{ dispu
     disputable: [
       ...paid
         .filter(({ p }) => !taken.has(p.id))
-        .map(({ p, name }) => ({ kind: "payment" as const, id: p.id, agentName: name, what: paymentWhat(BigInt(p.amount), p.payeeLabel, p.settledAt!), amount: p.amount, until: until(p.settledAt!) })),
+        .map(({ p, name }) => ({ kind: "payment" as const, installationId: p.installationId, id: p.id, agentName: name, what: paymentWhat(BigInt(p.amount), p.payeeLabel, p.settledAt!), amount: p.amount, until: until(p.settledAt!) })),
       ...weeks
         .filter(({ c }) => !taken.has(`${c.rentalId}:${c.week}`) && BigInt(c.amount) > 0n)
-        .map(({ c, name }) => ({ kind: "rent" as const, id: `${c.rentalId}:${c.week}`, agentName: name, what: rentWhat(c.week, c.createdAt), amount: c.amount, until: until(c.createdAt) })),
+        .map(({ c, name, installationId }) => ({ kind: "rent" as const, installationId, id: `${c.rentalId}:${c.week}`, agentName: name, what: rentWhat(c.week, c.createdAt), amount: c.amount, until: until(c.createdAt) })),
     ],
   };
 }

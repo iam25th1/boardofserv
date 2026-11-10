@@ -15,6 +15,7 @@ import { syncWallets } from "@/lib/payments/wallets";
 import { approveWithdrawal, requestWithdrawal, sendNextPayout } from "@/lib/payments/withdrawals";
 import { GET as admin } from "./route";
 import { POST as pause } from "./pause/route";
+import { POST as agentPay } from "./agent-payments/route";
 import { POST as decide } from "./withdrawals/[id]/route";
 import { GET as account } from "../account/route";
 
@@ -49,7 +50,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await client.exec("delete from withdrawals; delete from payment_settings; delete from deposits; delete from ledger_entries; delete from balances; delete from linked_wallets; delete from users;");
+  await client.exec("delete from withdrawals; delete from payment_settings; delete from payment_alerts; delete from deposits; delete from ledger_entries; delete from balances; delete from linked_wallets; delete from users;");
   boss = await addUser(db, "boss");
   maya = await addUser(db, "maya.rivera", "maya_r");
   vi.stubEnv("TREASURY_ADDRESS", TREASURY);
@@ -71,6 +72,7 @@ describe("the admin routes", () => {
     state.user = maya;
     expect((await admin(req("/api/admin"))).status).toBe(404);
     expect((await pause(req("/api/admin/pause", { paused: true }))).status).toBe(404);
+    expect((await agentPay(req("/api/admin/agent-payments", { paused: false }))).status).toBe(404);
     expect((await (await account(req("/api/account"))).json()).admin).toBe(false);
     state.user = boss;
     expect((await admin(req("/api/admin"))).status).toBe(200);
@@ -137,6 +139,21 @@ describe("the admin routes", () => {
     const mined = (await (await admin(req("/api/admin"))).json()).admin;
     expect(mined.history[0].status).toBe("broadcast");
     expect(mined.currencies[0]).toMatchObject({ treasury: "50000000", owed: "40000000", difference: "10000000" });
+  });
+
+  it("pauses agents' payments site wide with a reason, and turns them on only once no alert is open", async () => {
+    state.user = boss;
+    const a = (await (await admin(req("/api/admin"))).json()).admin;
+    expect(a.agentPayments).toMatchObject({ paused: null, floor: "5000000", today: { count: 0, total: "0" }, reconcile: { block: null, open: [] }, recent: [] });
+    const off = (await (await agentPay(req("/api/admin/agent-payments", { paused: true, reason: "Checking the treasury." }))).json()).admin;
+    expect(off.agentPayments.paused).toBe("Checking the treasury.");
+    await db.insert(schema.paymentAlerts).values({ kind: "unknown_transfer", key: "k1", message: "A transfer nobody here made.", details: {} });
+    const refused = await agentPay(req("/api/admin/agent-payments", { paused: false }));
+    expect(refused.status).toBe(409);
+    expect((await refused.json()).error).toMatch(/open payment alerts/);
+    await db.update(schema.paymentAlerts).set({ status: "resolved" });
+    expect((await (await agentPay(req("/api/admin/agent-payments", { paused: false }))).json()).admin.agentPayments.paused).toBeNull();
+    for (const bad of [null, {}, { paused: "yes" }, { paused: true, reason: "x".repeat(400) }]) expect((await agentPay(req("/api/admin/agent-payments", bad))).status).toBe(400);
   });
 
   it("cancels a queued payout before it is sent", async () => {

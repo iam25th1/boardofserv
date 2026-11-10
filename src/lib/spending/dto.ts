@@ -7,6 +7,9 @@ import type { SpendingDTO } from "../types";
 import { allowanceMax, allowanceOf, recentEntries, USDC } from "./allowance";
 import { payeesOf } from "./payees";
 import { receiptsOf } from "./receipts";
+import { bandLine, limitWhy, paymentLimits } from "./limits";
+import { paymentsPaused } from "./treasury";
+import { disputeWindowDays } from "./disputes";
 
 // An installation's spending, for its renter only (null for anyone else).
 export async function spendingOf(rt: Runtime, user: User, installationId: string): Promise<SpendingDTO | null> {
@@ -18,6 +21,7 @@ export async function spendingOf(rt: Runtime, user: User, installationId: string
     .where(eq(agentInstallations.id, installationId));
   if (!row || row.i.ownerUserId !== user.id) return null;
   const a = await allowanceOf(rt.db, installationId);
+  const l = await paymentLimits(rt, row.i);
   const balance = await balancesOf(user.id, rt.db);
   return {
     installationId,
@@ -28,5 +32,8 @@ export async function spendingOf(rt: Runtime, user: User, installationId: string
     entries: (await recentEntries(rt.db, installationId)).map((e) => ({ kind: e.kind, amount: e.amount, at: e.createdAt.toISOString() })),
     receipts: await receiptsOf(rt, { installationId }),
     payees: (await payeesOf(rt, installationId)).map((p) => ({ id: p.id, label: p.label, address: p.address, status: p.status as "active" | "suggested", paidBefore: p.firstPaidAt !== null, createdAt: p.createdAt.toISOString() })),
+    limit: { perPayment: l.perPayment.toString(), perDay: l.perDay.toString(), paidToday: l.paidToday.toString(), why: limitWhy(l), band: bandLine(l), trust: l.trust, stopped: l.stopped },
+    paused: await paymentsPaused(rt.db),
+    disputeDays: disputeWindowDays(),
   };
 }

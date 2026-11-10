@@ -3,6 +3,7 @@ import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, n
 import type { AgentDefinition } from "../agents/definition";
 import type { BenchData, RunState, StepCode } from "../agents/types";
 import { CURRENCIES } from "../money";
+import { DISPUTE_REASONS } from "../spending/disputeWords";
 
 // One tab of a Google Sheet an owner gave an installation.
 export interface SheetGrant {
@@ -1433,7 +1434,8 @@ export const trustHistory = pgTable(
 // shares reversed); an upheld payment dispute counts against the agent's
 // trust score, since a payment on chain can't be pulled back.
 export const DISPUTE_KINDS = ["payment", "rent"] as const;
-export const DISPUTE_REASONS = ["not_done", "not_wanted", "wrong_amount", "wrong_payee", "not_working", "other"] as const;
+// The reasons, with their words, are in spending/disputeWords.ts (read on screen too).
+export { DISPUTE_REASONS };
 export const disputes = pgTable(
   "disputes",
   {
