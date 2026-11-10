@@ -124,10 +124,24 @@
   max-width: var(--measure);
 }
 .heroText h1 {
-  font-size: clamp(2.5rem, 5.4vw, 4.25rem);
+  font-size: clamp(2.25rem, 4.3vw, 3.4rem);
   font-weight: var(--w-semibold);
   line-height: 1.02;
   letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+/* The headline and the line under it: one statement in two parts. */
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.under {
+  font-size: clamp(1.4rem, 2.6vw, 2rem);
+  font-weight: var(--w-semibold);
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  color: var(--chalk-2);
   text-wrap: balance;
 }
 .lede {

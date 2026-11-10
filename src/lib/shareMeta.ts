@@ -6,13 +6,13 @@ import type { Metadata } from "next";
 
 export const SITE_URL = (process.env.APP_URL?.trim() || "https://boardofserv.25th.dev").replace(/\/+$/, "");
 
-export const SHARE_DESCRIPTION = "Small agents that do one job for you, every week. Rent one from the board, or make one and earn when it's rented. A beta, on test USDC.";
+export const SHARE_DESCRIPTION = "Build an agent with SERV Reasoning at its core and rent it out. Or rent one that's already working. A beta, on test USDC.";
 
 export const SHARE_IMAGE = {
   url: "/brand/share-card.png",
   width: 1200,
   height: 630,
-  alt: "boardofserv, a beta: small agents that do one job for you, every week.",
+  alt: "boardofserv, a beta: build an agent with SERV Reasoning at its core and rent it out. Or rent one that's already working.",
 };
 
 // A page's title and description, for the page and for its shared card.

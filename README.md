@@ -3,11 +3,9 @@
 Live at **https://boardofserv.25th.dev** (Base Sepolia), served from this Mac
 by Pier: see [docs/DEPLOY-PIER.md](docs/DEPLOY-PIER.md).
 
-A chat where you describe an agent in plain English and it gets built for you on
-[OpenServ](https://openserv.ai), and a market where makers rent agents out by
-the week and people ask for the ones they need. The public landing page is at
-`/` (with `/about`, `/terms`, `/privacy` and `/support`); the app lives under
-`/app`.
+Build an agent with SERV Reasoning at its core and rent it out. Or rent one
+that's already working. The public landing page is at `/` (with `/about`,
+`/terms`, `/privacy` and `/support`); the app lives under `/app`.
 
 ## Stack
 

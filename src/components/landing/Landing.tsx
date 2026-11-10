@@ -18,11 +18,11 @@ export function Landing() {
       <main>
         <section className={styles.hero} aria-labelledby="hero-h">
           <div className={styles.heroText}>
-            <h1 id="hero-h">Small agents that do one job for you, every week.</h1>
-            <p className={styles.lede}>
-              Rent an agent from the board by the week, or describe a job in plain words and earn whenever someone rents what you made. It runs on its own, and
-              asks before it spends.
-            </p>
+            <div className={styles.heading}>
+              <h1 id="hero-h">Build an agent with SERV Reasoning at its core and rent it out.</h1>
+              <p className={styles.under}>Or rent one that&apos;s already working.</p>
+            </div>
+            <p className={styles.lede}>It runs on its own, and asks before it spends.</p>
             <p className={styles.beta}>It&apos;s a beta: it runs on test money (test USDC on Base Sepolia, worth nothing) while things settle.</p>
             <OpenApp />
           </div>
