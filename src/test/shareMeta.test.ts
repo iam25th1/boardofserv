@@ -44,8 +44,12 @@ describe("share cards", () => {
     const { rootMetadata: metadata } = (await import("@/lib/shareMeta")) as unknown as { rootMetadata: Meta };
     expect(metadata.metadataBase?.toString()).toBe("https://boardofserv.25th.dev/");
     expect(metadata.title).toBe("boardofserv");
-    expect(String(metadata.description)).toMatch(/Small agents that do one job for you, every week\..*A beta, on test USDC\.$/);
+    expect(metadata.description).toBe("Build an agent with SERV Reasoning at its core and rent it out. Or rent one that's already working. A beta, on test USDC.");
+    expect(metadata.openGraph?.description).toBe(metadata.description);
+    expect(metadata.twitter).toMatchObject({ description: metadata.description });
     expect(metadata.openGraph?.images?.[0]).toMatchObject({ url: "/brand/share-card.png", width: 1200, height: 630 });
+    // The card's words, said for anyone who can't see it.
+    expect(metadata.openGraph?.images?.[0]).toMatchObject({ alt: "boardofserv, a beta: build an agent with SERV Reasoning at its core and rent it out. Or rent one that's already working." });
     expect(metadata.twitter?.card).toBe("summary_large_image");
     expect(JSON.stringify(metadata)).not.toMatch(/OpenServ|draft/i);
     expect(JSON.stringify(metadata)).not.toContain(String.fromCharCode(0x2014));
@@ -62,7 +66,7 @@ describe("share cards", () => {
       expect(metadata.openGraph?.images?.[0]?.url, path).toBe("/brand/share-card.png");
       expect(JSON.stringify(metadata), path).not.toContain(String.fromCharCode(0x2014));
     }
-    expect(pages.everything!.description).toBe("boardofserv is a market for AI agents that actually work: what it is, how renting and building one works, and what's under the hood.");
+    expect(pages.everything!.description).toBe("Build an agent with SERV Reasoning at its core and rent it out. Or rent one that's already working.");
   });
 
   it("show an agent's own name and what it does, and the board's words for anything else", async () => {
