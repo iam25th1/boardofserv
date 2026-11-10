@@ -1201,6 +1201,36 @@ export const agentModelUsage = pgTable(
   }),
 );
 
+// Model calls boardofserv makes on its own account, outside any
+// installation: SERV's code reviews while an agent is built, the review
+// before it is published, screening posts and listings, and screening
+// outside a run. Metered like an installation's calls (tokens and cost)
+// against the platform's own daily budget (PLATFORM_MODEL_BUDGET_USDC);
+// they count toward the site's daily limit through reply_usage too.
+export const platformModelUsage = pgTable(
+  "platform_model_usage",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    // Not a checked column: a deploy's schema push doesn't change checks.
+    purpose: text("purpose").notNull(),
+    // Who it was for (the maker building, the person posting).
+    userId: uuid("user_id"),
+    agentId: uuid("agent_id"),
+    provider: text("provider"),
+    model: text("model"),
+    promptTokens: integer("prompt_tokens").notNull().default(0),
+    completionTokens: integer("completion_tokens").notNull().default(0),
+    cost: numeric("cost", { precision: 78, scale: 0 }).notNull().default("0"),
+    ownKey: boolean("own_key").notNull().default(false),
+    day: text("day").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byDay: index("platform_model_usage_day_idx").on(t.day),
+    byCreated: index("platform_model_usage_created_idx").on(t.createdAt),
+  }),
+);
+
 // The audit log: every guarded action an installation's agent took or
 // tried (anything that writes, sends or spends), with SERV's check and its
 // reason, who approved it and what it cost. Append-only: rows are added

@@ -283,6 +283,9 @@ export interface WriteHooks {
   progress: (status: "writing" | "reviewing", round: number) => Promise<void>;
   // Every model call, for the usage records.
   record: (kind: "agent_code" | "agent_review", call: TextResult | JsonResult) => Promise<void>;
+  // Whether a review fits the platform's own model budget today (unset:
+  // always). Without room it waits, as when SERV can't answer.
+  reviewRoom?: () => Promise<boolean>;
 }
 
 // Write one code step: Dolphin writes, the checks and SERV review, a
@@ -333,6 +336,10 @@ export async function writeStep(
       note = problem;
     } else {
       await opts.hooks.progress("reviewing", round);
+      if (opts.hooks.reviewRoom && !(await opts.hooks.reviewRoom())) {
+        note = "SERV couldn't review it just now.";
+        break;
+      }
       const review = await reviewCode(code, step, opts.serv, { fetchImpl: opts.fetchImpl, signal: opts.signal });
       if (review) await opts.hooks.record("agent_review", review.result);
       if (!review) {

@@ -88,6 +88,15 @@ export const DEMO_SAFETY: AdminSafetyDTO = {
     { id: "f-1", kind: "agent", target: "Instant yield helper", targetId: "a-yield", reason: "Reported as a scam; checking its payouts.", by: "@site_admin", createdAt: at(1), lifted: null },
     { id: "f-2", kind: "renter", target: "@noisy_shop", targetId: "u-noisy", reason: "Sent the same message to 400 people.", by: "@site_admin", createdAt: at(50), lifted: { at: at(26), by: "@site_admin", reason: "Talked it through; one group only now." } },
   ],
+  calls: [
+    { by: "agents", purpose: "decision", calls: 86, tokens: 151_420, cost: "289000", sitePaid: "289000" },
+    { by: "agents", purpose: "guard", calls: 41, tokens: 73_390, cost: "126000", sitePaid: "96000" },
+    { by: "agents", purpose: "screen", calls: 12, tokens: 20_160, cost: "33000", sitePaid: "33000" },
+    { by: "boardofserv", purpose: "code_review", calls: 9, tokens: 31_850, cost: "54000", sitePaid: "54000" },
+    { by: "boardofserv", purpose: "publish_review", calls: 3, tokens: 14_700, cost: "25000", sitePaid: "25000" },
+    { by: "boardofserv", purpose: "post_screen", calls: 7, tokens: 6_230, cost: "11000", sitePaid: "11000" },
+  ],
+  platform: { today: "36000", budget: "2000000" },
   costs: [
     { installationId: "i-1", name: "Lead follow-up", owner: "harbor_tea", maker: "lena_prints", week: "1820000", sitePaid: "1820000", calls: 412, decimals: 6 },
     { installationId: "i-2", name: "Restock helper", owner: "lena_prints", maker: "lena_prints", week: "640000", sitePaid: "0", calls: 151, decimals: 6 },

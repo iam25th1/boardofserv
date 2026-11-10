@@ -761,6 +761,13 @@ export interface AdminSafetyDTO {
   // The installations whose model calls cost the most this week (USDC
   // minor units), and what of that the site paid.
   costs: { installationId: string; name: string; owner: string; maker: string; week: string; sitePaid: string; calls: number; decimals: number }[];
+  // Every model call this week by what it was for: agents' own (decisions,
+  // the guard's checks, screening in runs) and boardofserv's (code reviews,
+  // publish reviews, screening posts and outside runs), with tokens and
+  // cost; and what boardofserv paid today for its own calls against its
+  // daily budget (USDC minor units).
+  calls: { by: "agents" | "boardofserv"; purpose: string; calls: number; tokens: number; cost: string; sitePaid: string }[];
+  platform: { today: string; budget: string };
   reviews: { versionId: string; agentId: string; name: string; maker: string; version: number; state: "draft" | "published"; review: VersionReviewDTO }[];
 }
 

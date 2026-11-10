@@ -216,3 +216,9 @@
   font-weight: var(--w-medium);
   color: var(--chalk);
 }
+
+.sub {
+  margin-top: var(--s-4);
+  font-size: var(--t-base);
+  font-weight: var(--w-semibold);
+}

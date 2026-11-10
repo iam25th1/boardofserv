@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, gte, sql } from "drizzle-orm";
-import { agentListings, agentModelUsage, rentals, type AgentInstallation } from "../db/schema";
+import { agentListings, agentModelUsage, platformModelUsage, rentals, type AgentInstallation } from "../db/schema";
 import { modelPrices, type JsonResult } from "../model";
 import { formatAmount, parseAmount } from "../money";
 import type { Runtime } from "./runtime/context";
@@ -200,4 +200,54 @@ export function estimateWeekly(d: Pick<AgentDefinition, "triggers" | "steps" | "
   const guarded = d.steps.filter((s) => s.kind === "action").length;
   const calls = decisions * 2 + guarded;
   return BigInt(Math.round(runsPerWeek(d) * calls)) * callEstimate();
+}
+
+// boardofserv's own model calls, outside any installation: code reviews
+// while an agent is built, the review before publishing, screening posts
+// and listings, screening outside a run. Metered in tokens and cost, and
+// kept within the platform's own daily budget (PLATFORM_MODEL_BUDGET_USDC,
+// 2 USDC unless set): over it, those checks act as when SERV can't answer
+// (a post waits for a person, a review waits), never skipped. Calls on the
+// person's own SERV key are metered but cost the site nothing.
+export type PlatformPurpose = "code_review" | "publish_review" | "post_screen" | "screen";
+
+export function platformBudget(env: Env = process.env): bigint {
+  return micros(env.PLATFORM_MODEL_BUDGET_USDC, "2");
+}
+
+type Db = Runtime["db"];
+
+export async function meterPlatform(db: Db, o: { purpose: PlatformPurpose; userId: string | null; agentId?: string | null; call: Pick<JsonResult, "provider" | "model" | "promptTokens" | "completionTokens">; ownKey: boolean; now?: Date }): Promise<bigint> {
+  const cost = costMicros(o.call);
+  const now = o.now ?? new Date();
+  await db.insert(platformModelUsage).values({
+    purpose: o.purpose,
+    userId: o.userId,
+    agentId: o.agentId ?? null,
+    provider: o.call.provider ?? null,
+    model: o.call.model ?? null,
+    promptTokens: o.call.promptTokens ?? 0,
+    completionTokens: o.call.completionTokens ?? 0,
+    cost: cost.toString(),
+    ownKey: o.ownKey,
+    day: now.toISOString().slice(0, 10),
+    createdAt: now,
+  });
+  return cost;
+}
+
+// What the site paid today for its own calls.
+export async function platformSpentToday(db: Db, now: Date = new Date()): Promise<bigint> {
+  const [row] = await db
+    .select({ site: sql<string>`coalesce(sum(case when ${platformModelUsage.ownKey} then 0 else ${platformModelUsage.cost} end), 0)::text` })
+    .from(platformModelUsage)
+    .where(eq(platformModelUsage.day, now.toISOString().slice(0, 10)));
+  return BigInt(row?.site ?? "0");
+}
+
+// Whether one more of its own calls fits today's budget (always, on the
+// person's own key).
+export async function platformRoom(db: Db, ownKey: boolean, now: Date = new Date(), env: Env = process.env): Promise<boolean> {
+  if (ownKey) return true;
+  return (await platformSpentToday(db, now)) + callEstimate() <= platformBudget(env);
 }
