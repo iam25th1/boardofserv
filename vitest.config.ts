@@ -11,6 +11,16 @@ export default defineConfig({
     // The model client's pause between tries, none in tests (the retry
     // tests set their own).
     env: { MODEL_RETRY_BACKOFF_MS: "0" },
+    // Most files run on their own in-memory Postgres (PGlite, WebAssembly):
+    // its migrations take a few seconds, and a test that runs agents' jobs
+    // makes a few hundred queries. With the whole suite running at once (a
+    // worker per core) beside other work on the machine, vitest's wall
+    // clock limits (5 s a test, 10 s a hook) are what failed: the maker's
+    // dashboard test and the job tests timed out, the share card test timed
+    // out importing its pages, and a PGlite setup ran past its hook's 10 s,
+    // with nothing wrong in the code. The limits stay, with room.
+    testTimeout: 30_000,
+    hookTimeout: 60_000,
   },
   resolve: {
     alias: {

@@ -15,15 +15,28 @@ import { publishedAgent } from "./runtimeFixtures";
 const state = vi.hoisted(() => ({ db: null as unknown }));
 vi.mock("@/lib/db", () => ({ db: new Proxy({}, { get: (_, key) => Reflect.get(state.db as object, key) }) }));
 
+type Meta = { title?: unknown; description?: unknown; openGraph?: { title?: unknown; description?: unknown; images?: { url: string; width: number; height: number }[] }; twitter?: { card?: string; images?: unknown[] }; metadataBase?: URL };
+const PAGES = [
+  ["about", "About boardofserv"],
+  ["terms", "Using the beta"],
+  ["privacy", "Your data"],
+  ["support", "Support"],
+] as const;
+
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
+let pages: Record<string, Meta>;
+let generateMetadata: (props: { params: Promise<{ id: string }> }) => Promise<unknown>;
+// The pages and the agent page's layout are loaded once, here, with time to
+// spare: compiling them can take more than a test's five seconds when the
+// whole suite runs at once (it did, once, in phase 9's runs).
 beforeAll(async () => {
   ({ client, db } = await testDb());
   state.db = db;
-});
+  pages = Object.fromEntries(await Promise.all(PAGES.map(async ([path]) => [path, ((await import(`@/app/${path}/page`)) as { metadata: Meta }).metadata] as const)));
+  ({ generateMetadata } = await import("@/app/app/board/agents/[id]/layout"));
+}, 60_000);
 afterAll(async () => client.close());
-
-type Meta = { title?: unknown; description?: unknown; openGraph?: { title?: unknown; description?: unknown; images?: { url: string; width: number; height: number }[] }; twitter?: { card?: string; images?: unknown[] }; metadataBase?: URL };
 
 describe("share cards", () => {
   it("are on the front page: the beta's words, the card, a large X card", async () => {
@@ -37,9 +50,9 @@ describe("share cards", () => {
     expect(JSON.stringify(metadata)).not.toContain(String.fromCharCode(0x2014));
   });
 
-  it("are on every public page, with its own title", async () => {
-    for (const [path, title] of [["about", "About boardofserv"], ["terms", "Using the beta"], ["privacy", "Your data"], ["support", "Support"]]) {
-      const { metadata } = (await import(`@/app/${path}/page`)) as { metadata: Meta };
+  it("are on every public page, with its own title", () => {
+    for (const [path, title] of PAGES) {
+      const metadata = pages[path]!;
       expect(metadata.title, path).toBe(title);
       expect(metadata.openGraph?.title, path).toBe(title);
       expect(metadata.twitter?.card, path).toBe("summary_large_image");
@@ -50,7 +63,6 @@ describe("share cards", () => {
     const maker = await addUser(db, "share.maker", "share_maker");
     const p = await publishedAgent(db, maker);
     await db.insert(schema.agentListings).values({ agentId: p.agent.id, versionId: p.version.id, weeklyPrice: "0", jobFee: "0", listed: true });
-    const { generateMetadata } = await import("@/app/app/board/agents/[id]/layout");
     const m = (await generateMetadata({ params: Promise.resolve({ id: p.agent.id }) })) as Meta;
     expect(m.title).toBe(`${p.agent.name} on boardofserv`);
     expect(String(m.description)).toMatch(/A beta, on test USDC\.$/);
