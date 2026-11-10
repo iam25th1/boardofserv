@@ -1,3 +1,4 @@
+import type { MoneyKind } from "./moneyWords";
 import type { SketchFieldKey } from "./sketchFields";
 import type { AgentDefinition } from "./agents/definition";
 import type { BenchData, CodeStatus } from "./agents/types";
@@ -426,6 +427,8 @@ export interface ApprovalDTO {
   // when none was asked for. Never the decision: the answer is.
   opinion?: { state: "checking" | "ready" | "none"; score: number | null; route: "ship" | "review" | "block" | null; reason: string | null } | null;
   options: { label: string; effect: string }[];
+  // For a payment: what the money is (test USDC on Base Sepolia in the beta).
+  money?: MoneyKind | null;
   noAnswer: string;
   status: "pending" | "answered" | "expired" | "cancelled";
   answer: string | null;
@@ -761,6 +764,13 @@ export interface AdminSafetyDTO {
   // The installations whose model calls cost the most this week (USDC
   // minor units), and what of that the site paid.
   costs: { installationId: string; name: string; owner: string; maker: string; week: string; sitePaid: string; calls: number; decimals: number }[];
+  // Every model call this week by what it was for: agents' own (decisions,
+  // the guard's checks, screening in runs) and boardofserv's (code reviews,
+  // publish reviews, screening posts and outside runs), with tokens and
+  // cost; and what boardofserv paid today for its own calls against its
+  // daily budget (USDC minor units).
+  calls: { by: "agents" | "boardofserv"; purpose: string; calls: number; tokens: number; cost: string; sitePaid: string }[];
+  platform: { today: string; budget: string };
   reviews: { versionId: string; agentId: string; name: string; maker: string; version: number; state: "draft" | "published"; review: VersionReviewDTO }[];
 }
 
@@ -808,8 +818,9 @@ export interface SpendingDTO {
   entries: { kind: "topup" | "withdraw" | "hold" | "release" | "spend"; amount: string; at: string }[];
   // Who its agent may pay: saved ones, and suggestions waiting for the
   // renter to confirm on screen. paidBefore is false until a first
-  // payment went out (the first always asks).
-  payees: { id: string; label: string; address: string; status: "active" | "suggested"; paidBefore: boolean; createdAt: string }[];
+  // payment to the address went out (the first always asks); warning says
+  // why a payment to the address is high risk and always asks.
+  payees: { id: string; label: string; address: string; status: "active" | "suggested"; paidBefore: boolean; createdAt: string; warning: string | null }[];
   // Every payment its agent made or tried, newest first.
   receipts: ReceiptDTO[];
   // What it may pay without asking now (USDC minor units): the stricter of
@@ -818,6 +829,8 @@ export interface SpendingDTO {
   limit: { perPayment: string; perDay: string; paidToday: string; why: string; band: string; trust: TrustDTO; stopped: string | null };
   // Agent payments paused site wide, and why.
   paused: string | null;
+  // What the money is: test USDC on Base Sepolia in the beta.
+  money: MoneyKind;
   // How many days after a payment or week it can be disputed.
   disputeDays: number;
 }

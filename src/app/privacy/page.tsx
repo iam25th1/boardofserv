@@ -1,77 +1,51 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Fill, PublicPage } from "@/components/landing/PublicPage";
+import { PublicPage } from "@/components/landing/PublicPage";
+import { shareMetadata } from "@/lib/shareMeta";
 
-export const metadata: Metadata = { title: "Privacy (draft)", description: "What boardofserv keeps, why, and who sees it. A draft for review." };
+export const metadata: Metadata = shareMetadata({ title: "Your data", description: "What boardofserv keeps about you, what it's used for, and how to have it deleted.", path: "/privacy" });
 
-export default function PrivacyPage() {
+export default function YourDataPage() {
   return (
-    <PublicPage title="Privacy" draft updated="Last updated: [date, to be filled in by the owner]">
-      <p>This is what boardofserv keeps about you, why, who else sees it, and what you can do about it.</p>
-
-      <h2>What we keep</h2>
+    <PublicPage title="Your data">
+      <p>What boardofserv keeps about you, what it&apos;s for, and how to have it deleted.</p>
+      <h2>What&apos;s kept</h2>
       <ul>
-        <li>
-          <strong>Your account:</strong> your email address from sign-in, the wallet address made for your account, your public handle, and whether you&apos;re
-          let in while it is invite-only.
-        </li>
-        <li>
-          <strong>Your chats with the builder</strong>, and the agents and helpers you make.
-        </li>
-        <li>
-          <strong>Your agents&apos; work:</strong> each installation&apos;s settings and rules, what an agent remembers for you, and the log of each job (what each
-          step read, made and called), so you can see what happened.
-        </li>
-        <li>
-          <strong>Your connections:</strong> your linked Telegram chat and your Google access, kept encrypted, used only for the calls your agents make for you.
-        </li>
-        <li>
-          <strong>Money:</strong> your balance, deposits, payments, rent and withdrawals, and your linked wallet addresses.
-        </li>
-        <li>
-          <strong>Usage:</strong> how many messages you send and how much model use they cost, to keep within daily limits.
-        </li>
+        <li>Your email address from sign-in, your handle, and the wallet made for your account.</li>
+        <li>Any wallet you link.</li>
+        <li>Your Telegram chat and your Google Sheets access, if you connect them, kept encrypted.</li>
+        <li>The agents you make or rent, their settings, and the log of each job they run.</li>
+        <li>Your payments history: deposits, rent, agents&apos; payments and withdrawals.</li>
       </ul>
-
-      <h2>Who sees it</h2>
-      <ul>
-        <li>You see all of your own data.</li>
-        <li>
-          An agent&apos;s maker sees how their agent ran for you (which steps, how long, the model, the cost, whether it worked) but never what it read, made or
-          remembered, and never your settings or connections.
-        </li>
-        <li>Your handle, and what you publish, are public.</li>
-        <li>The people who run boardofserv can see account details to keep it working, handle support and approve accounts.</li>
-      </ul>
-
-      <h2>Services we use</h2>
-      <ul>
-        <li>Privy, for sign-in.</li>
-        <li>SERV Reasoning and Dolphin, the AI models that build agents, answer the chat and make agents&apos; decisions. What they need goes to them.</li>
-        <li>Telegram and Google, only when you connect them, for the messages and sheets you allow.</li>
-        <li>Brave Search, for the web searches agents make (the search words, not who you are).</li>
-        <li>Cloudflare, which carries the site&apos;s traffic and counts visits.</li>
-        <li>Base, the blockchain for deposits and withdrawals: those are public on it.</li>
-      </ul>
-
-      <h2>What you can do</h2>
-      <ul>
-        <li>Disconnect Telegram or Google any time from Connections. Google&apos;s access is revoked when you do.</li>
-        <li>Stop an agent, or delete a chat, any time.</li>
-        <li>
-          Ask for a copy of your data, or for your account to be deleted: see <Link href="/support">Support</Link>. Records of payments are kept as the law
-          requires.
-        </li>
-      </ul>
-
-      <h2>How long we keep it</h2>
+      <h2>What it&apos;s used for</h2>
       <p>
-        <Fill>[retention periods, to be filled in by the owner]</Fill>
+        Only to run your agents and the board. Nothing is sold, and nothing is shared for ads. The services that run things get only what they need: Privy
+        for sign-in, SERV Reasoning and Dolphin, the AI models that build agents and make their decisions, Telegram and Google for the messages and
+        sheets you allow, Brave Search for the words an agent searches for, Cloudflare for the site&apos;s traffic, and Base, where payments are public.
+        Reppo, which scores the quality of agents&apos; work, sees a summary of a job with nothing of yours in it.
       </p>
-
-      <h2>Contact</h2>
+      <h2>Google Sheets</h2>
       <p>
-        <Fill>[the name and contact details of whoever runs boardofserv, for privacy questions]</Fill>
+        Your Google Sheets data is only read or written by the agents you set up, only on the tabs you give them, and only for the jobs you set. It
+        isn&apos;t used for anything else, isn&apos;t shown to other people, and isn&apos;t used to train AI models.
+      </p>
+      <p>
+        In detail: boardofserv reads your Google account&apos;s email address to show which account is connected, and a sheet&apos;s title, tab names
+        and the cells of the tabs you chose. The rows a job reads go to SERV Reasoning, the AI model that makes the agent&apos;s decisions, only to do
+        that job, and are kept in that job&apos;s log so you can see what happened. What boardofserv does with data from Google follows Google&apos;s rules
+        for apps that use it, including the Limited Use requirements. You can disconnect Google any time from Connections, which ends boardofserv&apos;s
+        access.
+      </p>
+      <h2>Who sees it</h2>
+      <p>
+        You see all of yours. Whoever made an agent sees how it ran for you (which steps, how long, what it cost), never what it read or remembered.
+        Your handle, and what you put on the board, are public. The people who run boardofserv look at your data only to keep it working, or when you
+        ask for help.
+      </p>
+      <h2>Deleting it</h2>
+      <p>
+        It&apos;s kept while your account is open. To have your account and data deleted, or to get a copy, ask through{" "}
+        <Link href="/support">Support</Link>.
       </p>
     </PublicPage>
   );

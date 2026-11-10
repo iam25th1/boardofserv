@@ -7,6 +7,7 @@ import type { Ask } from "../runner";
 import type { RunState } from "../types";
 import type { Runtime } from "./context";
 import { opinionsFor, requestOpinion } from "../../reppo/opinion";
+import { paymentsConfig } from "../../payments/config";
 
 // Approvals that wait. A job that asks its owner something (telegram.ask),
 // or would spend past a limit (spend.ts), pauses as waiting_for_owner, and
@@ -190,7 +191,12 @@ export async function approvalsOf(rt: Runtime, ownerUserId: string, o: { install
 }
 
 export function approvalDTO(a: AgentApproval, d: AgentDefinition | null, opinion: ApprovalDTO["opinion"] = null): ApprovalDTO {
+  // A payment's question says what the money is.
+  const step = d?.steps.find((s) => s.id === a.stepId);
+  const pays = step?.kind === "action" ? d!.actions.find((x) => x.id === step.action)?.tool === "wallet.pay" : step?.kind === "code" ? step.tools.includes("wallet.pay") && /^Pay /.test(a.question) : false;
+  const c = paymentsConfig();
   return {
+    money: pays ? { network: c.networkLabel, test: c.network !== "base" } : null,
     id: a.id,
     jobId: a.jobId,
     installationId: a.installationId,

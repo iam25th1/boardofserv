@@ -9,6 +9,7 @@ import type { Runtime } from "../agents/runtime/context";
 import { wrapData } from "../agents/untrusted";
 import type { ModerationQueueDTO } from "../types";
 import { freeze } from "./freeze";
+import { meterPlatform, platformRoom } from "../agents/metering";
 
 // Moderation. Before a listing, a request post or an offer goes public,
 // SERV screens it for scams, harmful jobs and other people's personal
@@ -60,13 +61,23 @@ export async function screenContent(rt: Runtime, user: User, text: string, label
   for (const o of OBVIOUS) if (o.test.test(text)) return { ok: false, reason: o.reason };
   const serv = rt.serv(user);
   if (!serv || (await rt.siteRefusal(user, serv.ownKey))) return { ok: false, reason: SCREEN_DOWN };
+  // The platform's own call: past its daily model budget, a person looks.
+  if (!(await platformRoom(rt.db, serv.ownKey, rt.now()))) return { ok: false, reason: SCREEN_DOWN };
   const messages: ChatMessage[] = [
     { role: "system", content: CONTENT_PROMPT },
     { role: "user", content: wrapData(label, text, 6000) },
   ];
   const config = { ...serv.config, firstTokenTimeoutMs: Math.max(serv.config.firstTokenTimeoutMs, 30_000) };
-  const call = await completeJson(messages, { config, schema: CONTENT_SCHEMA, maxTokens: 120, signal: new AbortController().signal, fetchImpl: rt.fetchImpl, servTools: SERV_PROMPT_GUARD });
-  await rt.record(user, call, serv.ownKey, "agent_screen");
+  const ask = async () => {
+    const c = await completeJson(messages, { config, schema: CONTENT_SCHEMA, maxTokens: 120, signal: new AbortController().signal, fetchImpl: rt.fetchImpl, servTools: SERV_PROMPT_GUARD });
+    await rt.record(user, c, serv.ownKey, "agent_screen");
+    await meterPlatform(rt.db, { purpose: "post_screen", userId: user.id, call: c, ownKey: serv.ownKey, now: rt.now() });
+    return c;
+  };
+  let call = await ask();
+  // An empty answer (SERV hiccuped) is asked once more, within the budget,
+  // before a person is asked to look.
+  if (!call.content?.trim() && (await platformRoom(rt.db, serv.ownKey, rt.now()))) call = await ask();
   try {
     const p = call.content ? (JSON.parse(call.content) as { verdict?: unknown; reason?: unknown }) : null;
     if (p?.verdict === "ok") return { ok: true, reason: "" };

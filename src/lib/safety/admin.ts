@@ -1,7 +1,8 @@
 import "server-only";
 import { desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { agentInstallations, agentModelUsage, agents, agentVersions, freezes, users } from "../db/schema";
+import { agentInstallations, agentModelUsage, agents, agentVersions, freezes, platformModelUsage, users } from "../db/schema";
+import { platformBudget, platformSpentToday } from "../agents/metering";
 import { targetWords } from "./freeze";
 import { moderationQueue } from "./moderation";
 import { reppoStatus } from "../reppo/sampling";
@@ -45,6 +46,22 @@ export async function adminSafety(rt: Runtime): Promise<AdminSafetyDTO> {
     .groupBy(agentModelUsage.installationId, agents.name, owner.handle, users.handle)
     .orderBy(desc(sql`sum(${agentModelUsage.cost})`))
     .limit(10);
+  // Every call this week by what it was for: agents' and boardofserv's own.
+  const byPurpose = (t: typeof agentModelUsage | typeof platformModelUsage) =>
+    rt.db
+      .select({
+        purpose: t.purpose,
+        calls: sql<number>`count(*)::int`,
+        tokens: sql<number>`coalesce(sum(${t.promptTokens} + ${t.completionTokens}), 0)::int`,
+        cost: sql<string>`coalesce(sum(${t.cost}), 0)::text`,
+        site: sql<string>`coalesce(sum(case when ${t.ownKey} then 0 else ${t.cost} end), 0)::text`,
+      })
+      .from(t)
+      .where(gte(t.createdAt, week))
+      .groupBy(t.purpose)
+      .orderBy(desc(sql`sum(${t.cost})`));
+  const agentCalls = await byPurpose(agentModelUsage);
+  const ownCalls = await byPurpose(platformModelUsage);
   // The admin log: every freeze and lift.
   const log = await rt.db.select().from(freezes).orderBy(desc(freezes.createdAt)).limit(100);
   const handles = new Map((await rt.db.select({ id: users.id, handle: users.handle }).from(users).where(inArray(users.id, [...new Set(log.flatMap((f) => [f.byUserId, ...(f.liftedBy ? [f.liftedBy] : [])]))].concat(["00000000-0000-0000-0000-000000000000"])))).map((u) => [u.id, u.handle]));
@@ -66,6 +83,11 @@ export async function adminSafety(rt: Runtime): Promise<AdminSafetyDTO> {
     queue: await moderationQueue(rt),
     freezes: freezeList,
     costs: top.map((t) => ({ installationId: t.installationId, name: t.name, owner: t.owner, maker: t.maker, week: t.week, sitePaid: t.site, calls: t.calls, decimals: 6 })),
+    calls: [
+      ...agentCalls.map((c) => ({ by: "agents" as const, purpose: c.purpose, calls: c.calls, tokens: c.tokens, cost: c.cost, sitePaid: c.site })),
+      ...ownCalls.map((c) => ({ by: "boardofserv" as const, purpose: c.purpose, calls: c.calls, tokens: c.tokens, cost: c.cost, sitePaid: c.site })),
+    ],
+    platform: { today: (await platformSpentToday(rt.db, rt.now())).toString(), budget: platformBudget().toString() },
     reviews: rows.map((r) => ({
       versionId: r.versionId,
       agentId: r.agentId,

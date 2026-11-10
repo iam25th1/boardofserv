@@ -25,8 +25,8 @@
     "format": 1,
     "name": "Fabric restock",
     "job": {
-      "does": "Checks fabric stock each morning and automatically reorders low items from the cheapest supplier within delivery time limits.",
-      "done": "All low fabrics have order rows in the Orders sheet, or the owner declined."
+      "does": "Every morning it checks your fabric stock, finds the cheapest supplier that delivers in time for anything running low, and writes the order rows into your Orders tab. Orders over your limit wait for your yes, in Telegram or the app.",
+      "done": "Every fabric running low has an order row in your Orders tab, or you said no."
     },
     "triggers": [
       {
@@ -62,7 +62,7 @@
         "key": "approval_limit",
         "label": "Order approval limit in USDC",
         "type": "number",
-        "help": "Orders over this amount require your confirmation on Telegram",
+        "help": "Orders over this wait for your yes, in Telegram or the app",
         "choices": []
       },
       {
@@ -117,7 +117,7 @@
       },
       {
         "id": "check_orders_exist",
-        "title": "Check if there are orders to place",
+        "title": "Is anything running low?",
         "inputs": [
           "orders_to_place"
         ],
@@ -139,7 +139,7 @@
       },
       {
         "id": "send_stock_ok_message",
-        "title": "Notify owner stock is fine",
+        "title": "Tell you stock is fine",
         "inputs": [],
         "outputs": [],
         "kind": "action",
@@ -148,7 +148,7 @@
       },
       {
         "id": "prepare_write_orders",
-        "title": "Prepare write_orders argument",
+        "title": "Get the order rows ready",
         "inputs": [
           "orders_to_place",
           "settings"
@@ -163,7 +163,7 @@
       },
       {
         "id": "write_orders_action",
-        "title": "Write orders to sheet",
+        "title": "Write the orders to your sheet",
         "inputs": [
           "write_orders_arg"
         ],
@@ -176,7 +176,7 @@
       },
       {
         "id": "prepare_memory_arg",
-        "title": "Prepare memory argument",
+        "title": "Get the last order ready to remember",
         "inputs": [
           "orders_to_place",
           "memory"
@@ -191,7 +191,7 @@
       },
       {
         "id": "save_order_memory_action",
-        "title": "Save last order to memory",
+        "title": "Remember the last order",
         "inputs": [
           "memory_arg"
         ],
@@ -207,19 +207,19 @@
       {
         "id": "stock_ok_message",
         "tool": "telegram.send",
-        "description": "Notify owner that stock levels are fine today"
+        "description": "Tell you stock levels are fine today"
       },
       {
         "id": "write_orders",
         "tool": "sheets.write",
-        "description": "Write new order rows to the Orders sheet",
+        "description": "Write new order rows to your Orders tab",
         "askOver": "approval_limit",
         "amountColumn": "total_cost_usdc"
       },
       {
         "id": "save_order_memory",
         "tool": "memory.set",
-        "description": "Save the last order placed to memory"
+        "description": "Remember the last order placed"
       }
     ],
     "limits": {

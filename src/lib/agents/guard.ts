@@ -60,6 +60,15 @@ export interface GuardInput {
   // What the step was working from, and which of it came from outside.
   inputs: Record<string, unknown>;
   untrusted: string[];
+  // A payment, judged by its address and never the name the renter saved
+  // it under: what is known about the address (spending/addresses.ts).
+  payment?: { address: string; amountUsdc: string; memo: string | null; paidBefore: number; lastPaidAt: string | null; warning: string | null };
+}
+
+// What the guard reads as the call: for a payment, its address, amount
+// and memo, so renaming a payee never changes what it is asked.
+export function guardArgs(g: Pick<GuardInput, "args" | "payment">): unknown {
+  return g.payment ? { to: g.payment.address, amountUsdc: g.payment.amountUsdc, memo: g.payment.memo } : g.args;
 }
 
 export function guardRequest(g: GuardInput): string {
@@ -74,8 +83,14 @@ export function guardRequest(g: GuardInput): string {
     `All it may ever do: ${g.definition.actions.map((a) => a.description).join("; ")}`,
     "",
     `The action: ${action?.description ?? g.step.title} (${g.tool}, risk ${g.risk})`,
-    `In words: ${describeCall(g.tool, g.args)}`,
-    `Exactly: ${JSON.stringify(g.args).slice(0, 6000)}`,
+    `In words: ${describeCall(g.tool, guardArgs(g))}`,
+    `Exactly: ${JSON.stringify(guardArgs(g)).slice(0, 6000)}`,
+    ...(g.payment
+      ? [
+          `The address: a payee the renter saved. This agent paid it ${g.payment.paidBefore === 0 ? "never before" : `${g.payment.paidBefore} ${g.payment.paidBefore === 1 ? "time" : "times"} before, last on ${g.payment.lastPaidAt?.slice(0, 10) ?? "an earlier day"}`}.`,
+          g.payment.warning ? `Warning about the address: ${g.payment.warning}` : "Nothing is known against the address.",
+        ]
+      : []),
     "",
     `The renter's settings: ${JSON.stringify(g.settings).slice(0, 3000)}`,
     `What the step worked from: ${JSON.stringify(trusted).slice(0, 3000)}`,

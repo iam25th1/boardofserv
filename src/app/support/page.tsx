@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Fill, PublicPage } from "@/components/landing/PublicPage";
+import { PublicPage } from "@/components/landing/PublicPage";
+import { shareMetadata } from "@/lib/shareMeta";
+import { supportEmail } from "@/lib/support";
 
-export const metadata: Metadata = { title: "Support", description: "How to reach boardofserv for help." };
+export const metadata: Metadata = shareMetadata({ title: "Support", description: "How to reach boardofserv for help, or to have your data deleted.", path: "/support" });
 
 export default function SupportPage() {
+  const email = supportEmail();
   return (
     <PublicPage title="Support">
-      <p>Stuck, or something isn&apos;t right? These are the ways to reach us.</p>
+      <p>Stuck, something broke, or you want your data deleted? Here&apos;s how to reach us.</p>
       <h2>On Telegram</h2>
       <p>
         Message <a href="https://t.me/boardofservbot">@boardofservbot</a> with <strong>/support</strong> and then what happened, in the same message: which
@@ -15,17 +18,19 @@ export default function SupportPage() {
         agents.)
       </p>
       <h2>By email</h2>
-      <p>
-        Write to <Fill>[support email address, to be filled in by the owner]</Fill>. We answer within <Fill>[response time, to be filled in]</Fill>.
-      </p>
+      {email ? (
+        <p>
+          Write to <a href={`mailto:${email}`}>{email}</a>.
+        </p>
+      ) : (
+        <p>There&apos;s no email address yet. Telegram is the way for now.</p>
+      )}
       <h2>Before you write</h2>
       <ul>
         <li>
           A job that failed says why on its page: open it from <Link href="/app/installations">Your agents</Link>.
         </li>
-        <li>
-          An agent that paused says why too, and what to do (connect Telegram or Google again, or top up your wallet).
-        </li>
+        <li>An agent that paused says why too, and what to do (connect Telegram or Google again, or top up).</li>
         <li>
           Questions waiting for your answer are under <Link href="/app/approvals">Waiting for you</Link>.
         </li>

@@ -26,6 +26,19 @@ describe("the spending panel", () => {
     expect(p).toHaveTextContent("Payments on Base can't be pulled back once they're sent.");
   });
 
+  it("says its amounts are test USDC on Base Sepolia", async () => {
+    const p = await panel();
+    expect(p).toHaveTextContent("Amounts here are test USDC on Base Sepolia, worth nothing while boardofserv is a beta.");
+    expect(p).toHaveTextContent("18.75 USDC test, on Base Sepolia");
+  });
+
+  it("warns plainly on a payee whose address is high risk, whatever its name", async () => {
+    const p = await panel();
+    const note = within(p).getByRole("note");
+    expect(note).toHaveTextContent("Careful: This address is a wallet of the agent's own maker");
+    expect(note).toHaveTextContent("A payment to this address always asks you first, whatever your limits.");
+  });
+
   it("says plainly when it can't pay at all, or payments are paused", async () => {
     const api = { ...demoSpendingApi(), load: async () => ({ ...DEMO_SPENDING, paused: "Checking the treasury.", limit: { ...DEMO_SPENDING.limit, perPayment: "0", stopped: "boardofserv paused this: Checking its payments." } }) };
     const p = await panel(api);

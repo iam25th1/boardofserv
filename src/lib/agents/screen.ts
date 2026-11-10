@@ -2,7 +2,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { inputScreens, type AgentInstallation, type User } from "../db/schema";
-import { budgetGate, meter, type Scope } from "./metering";
+import { budgetGate, meter, meterPlatform, platformRoom, type Scope } from "./metering";
 import { completeJson, SERV_PROMPT_GUARD, type ChatMessage, type JsonResult } from "../model";
 import type { Runtime } from "./runtime/context";
 import { wrapData } from "./untrusted";
@@ -99,6 +99,8 @@ export async function screenText(rt: Runtime, owner: User, text: string, label: 
   const serv = rt.serv(owner);
   if (!serv || (await rt.siteRefusal(owner, serv.ownKey))) return { flagged: false, excerpt: "", reason: "", by: "local", call: null };
   if (run && (await budgetGate(rt, run.installation, serv.ownKey)).kind !== "ok") return { flagged: false, excerpt: "", reason: "", by: "local", call: null };
+  // Outside a run it is the platform's own call, within its daily budget.
+  if (!run && !(await platformRoom(rt.db, serv.ownKey, rt.now()))) return { flagged: false, excerpt: "", reason: "", by: "local", call: null };
   const messages: ChatMessage[] = [
     { role: "system", content: SCREEN_PROMPT },
     { role: "user", content: wrapData(label, text, 12000) },
@@ -107,6 +109,7 @@ export async function screenText(rt: Runtime, owner: User, text: string, label: 
   const call = await completeJson(messages, { config, schema: SCREEN_SCHEMA, maxTokens: 200, signal: new AbortController().signal, fetchImpl: rt.fetchImpl, servTools: SERV_PROMPT_GUARD });
   await rt.record(owner, call, serv.ownKey, "agent_screen");
   if (run) await meter(rt, run.scope, "screen", call, serv.ownKey);
+  else await meterPlatform(rt.db, { purpose: "screen", userId: owner.id, call, ownKey: serv.ownKey, now: rt.now() });
   const read = readScreen(call);
   if (!read) return { flagged: false, excerpt: "", reason: "", by: "local", call };
   await rt.db

@@ -1,13 +1,16 @@
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { paymentsConfig } from "@/lib/payments/config";
+import { rateLimited } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
 // For Pier's health check and uptime monitors: ok while the server can reach
 // its database, plus the payments network and whether payments are on.
 // Nothing else: no address, no version, no error text.
-export async function GET() {
+export async function GET(req: Request) {
+  const limited = rateLimited(req, "health");
+  if (limited) return limited;
   const config = paymentsConfig();
   const up = await databaseUp();
   return Response.json(

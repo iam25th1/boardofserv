@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { BenchSchema } from "@/lib/agents/toolbox";
 import type { RunEvent } from "@/lib/agents/types";
+import { rateLimited } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 
@@ -10,6 +11,8 @@ const Body = z.object({ bench: BenchSchema });
 // example agent with no sign-in and no model call. A 404 anywhere else, and
 // the example itself is not in a production build at all.
 export async function POST(req: Request) {
+  const limited = rateLimited(req, "demo");
+  if (limited) return limited;
   if (process.env.NODE_ENV === "development") {
     const parsed = Body.safeParse(await req.json().catch(() => null));
     if (!parsed.success) return Response.json({ error: "The sample data isn't in a shape the bench can read." }, { status: 400 });

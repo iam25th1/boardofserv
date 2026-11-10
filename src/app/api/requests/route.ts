@@ -6,6 +6,7 @@ import { USDC_DECIMALS } from "@/lib/market/charges";
 import { marketRefusal } from "@/lib/market/limits";
 import { screenRequest } from "@/lib/safety/moderation";
 import { DETAIL_MAX, NEED_MAX, postRequest, requestBoard, RequestRefused, requestsOf } from "@/lib/market/requests";
+import { rateLimited } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,8 @@ export const dynamic = "force-dynamic";
 // The request board, for anyone: open requests, most wanted or newest
 // first. ?mine=1: the signed-in user's own, open or not.
 export async function GET(req: Request) {
+  const limited = rateLimited(req, "read");
+  if (limited) return limited;
   const user = await getUserFromRequest(req).catch(() => null);
   const q = new URL(req.url).searchParams;
   const rt = serverRuntime();

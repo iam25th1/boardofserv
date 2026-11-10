@@ -159,6 +159,10 @@ Trust and spending, optional, with defaults: `AGENT_ALLOWANCE_MAX_USDC`
 `AGENT_PAYMENTS_SITE_DAILY_USDC` (1000), `DISPUTE_WINDOW_DAYS` (14),
 `AGENT_RECONCILE_START_BLOCK` (blank). Never `AGENT_PAYMENTS_MAINNET`.
 
+Beta launch, optional, with defaults: `SUPPORT_EMAIL` (blank: the support
+page says Telegram is the way; it is read at build time, so set it before
+deploying), `PLATFORM_MODEL_BUDGET_USDC` (2), `PAYEE_CROWD_RENTERS` (3).
+
 Tests and scripts only, never in the store: `TEST_POSTGRES_URL`,
 `CHECK_BUILD`, `RUN_E2E`, `RUN_SERV_DEMO`, `RUN_SKETCH_LIVE`, `LIVE_BUDGET`,
 `LIVE_REPORT`, `SMOKE_FROM`, `SMOKE_TIMEOUT_MINUTES`, `SMOKE_WITHDRAW_USDC`.
@@ -358,6 +362,26 @@ to M renters`, `up to date`, `on the board now`, or `not updated:` and why
 (the review blocked it or couldn't run, or a draft is in the way in its
 builder). Without `--update` it behaves as before.
 
+After the deploy that brings the beta launch, run it once: all three
+examples have new versions (clearer listings; the morning sheet report's
+comparison with yesterday fixed; the enquiry follow-up hears your answer
+and records skipped replies). Each goes through SERV's publish review and
+the listing screen. When SERV gives an empty answer to the screen twice,
+the listing waits in `/app/admin/safety`'s queue as a held listing:
+approve it there and it is back on the board.
+
+### Setting a price on an example
+
+The examples are free to rent (0 USDC) while boardofserv is a beta. To set
+a price later, sign in as the admin account that owns them (the first in
+`ADMIN_USER_IDS`), open the agent from Your agents, and in its builder's
+"On the board for rent" panel type the weekly price (and, if you like, a
+fee for each job it finishes) in USDC, then "Save the price". New renters
+pay the new price; anyone renting it already keeps the price they rented
+at. 90% of each week goes to the maker (here, that
+admin account) and 10% to boardofserv. Setting it back to empty makes it
+free again.
+
 ## Logs
 
 ```sh
@@ -395,24 +419,54 @@ back build with `pier restart boardofserv`.
 
 ## Back up the database
 
-```sh
-mkdir -p ~/.boardofserv/backups && chmod 700 ~/.boardofserv/backups
-(umask 077; docker exec boardofserv-db pg_dump -U boardofserv -Fc boardofserv \
-  > ~/.boardofserv/backups/boardofserv-$(date +%Y%m%d-%H%M).dump)
-```
-
-Take one before any deploy that changes the schema. The dump holds user
-emails, balances, the ledger and encrypted OpenServ keys (useless without
-`OPENSERV_KEY_ENC_KEY`), so keep it private and off any synced folder. To
-restore into the same database (the service should be stopped:
-`pier stop boardofserv`):
+Run the backup script by hand (nothing schedules it):
 
 ```sh
-docker exec -i boardofserv-db pg_restore -U boardofserv -d boardofserv --clean --if-exists < ~/.boardofserv/backups/<file>.dump
+~/.boardofserv/app/scripts/backup-db.sh
 ```
 
-These commands use the container's own socket, so they work with or without
-the password. The data itself lives in the Docker volume
+It runs `pg_dump` inside the `boardofserv-db` container (through `docker
+exec`, on the container's own socket, so no password is needed or printed)
+and writes `~/boardofserv-backups/boardofserv-YYYYMMDD-HHMMSS.dump` (UTC),
+in Postgres's custom format, readable only by you. It keeps the newest 14
+and deletes older ones it made; other files there are left alone. It never
+stops, starts or restarts anything: if the container isn't running it says
+so and stops. Options: `--keep N` (1 to 365), `--dir PATH`,
+`--container NAME`, `--dry-run` (says what it would do), `--help`.
+
+Take one before any deploy that changes the schema, and copy them off this
+Mac now and then (see [HOSTING.md](HOSTING.md)). A dump holds user emails,
+balances, the ledger, payments and encrypted secrets (useless without
+`OPENSERV_KEY_ENC_KEY`), so keep it private and off any synced folder.
+
+### Restore
+
+First check a backup restores at all, into a scratch database beside the
+real one (nothing live is touched):
+
+```sh
+docker exec boardofserv-db createdb -U boardofserv boardofserv_check
+docker exec -i boardofserv-db pg_restore -U boardofserv -d boardofserv_check --no-owner < ~/boardofserv-backups/<file>.dump
+docker exec boardofserv-db psql -U boardofserv -d boardofserv_check -c "select count(*) from users"
+docker exec boardofserv-db dropdb -U boardofserv boardofserv_check
+```
+
+To restore over the live database (this replaces everything in it with the
+backup):
+
+1. Take a fresh backup of what is there now: `scripts/backup-db.sh`.
+2. Stop the service so nothing writes meanwhile: `pier stop boardofserv`
+   (and any development server on the same database).
+3. Restore:
+
+   ```sh
+   docker exec -i boardofserv-db pg_restore -U boardofserv -d boardofserv --clean --if-exists --no-owner < ~/boardofserv-backups/<file>.dump
+   ```
+
+4. Start it again: `pier start boardofserv`, then check `/api/health` and
+   the admin page.
+
+The data itself lives in the Docker volume
 `boardofserv_boardofserv_pgdata`.
 
 ## Lock down the database

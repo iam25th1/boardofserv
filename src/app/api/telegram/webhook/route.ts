@@ -2,6 +2,7 @@ import { serverRuntime } from "@/lib/agents/runtime/context";
 import type { TgUpdate } from "@/lib/telegram/api";
 import { SECRET_HEADER, webhookSecretOk } from "@/lib/telegram/link";
 import { handleUpdate } from "@/lib/telegram/updates";
+import { rateLimited } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 
@@ -11,6 +12,8 @@ const MAX_BYTES = 256 * 1024;
 // webhook (in X-Telegram-Bot-Api-Secret-Token) is read; anything else is
 // refused before its body is looked at.
 export async function POST(req: Request) {
+  const limited = rateLimited(req, "webhook");
+  if (limited) return limited;
   const rt = serverRuntime();
   if (!rt.services.telegramToken || !(await webhookSecretOk(rt, req.headers.get(SECRET_HEADER)))) return Response.json({ error: "Not allowed" }, { status: 401 });
   const raw = await req.text();

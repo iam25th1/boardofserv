@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { rateLimited } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +15,8 @@ const Body = z.union([
 // answers its question or works its controls. A 404 anywhere else, and the
 // demo itself is not in a production build at all.
 export async function GET(req: Request) {
+  const limited = rateLimited(req, "demo");
+  if (limited) return limited;
   if (process.env.NODE_ENV === "development") {
     const url = new URL(req.url);
     const { demoPage, demoState } = await import("@/lib/agents/demoLive");
@@ -24,6 +27,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const limited = rateLimited(req, "demo");
+  if (limited) return limited;
   if (process.env.NODE_ENV === "development") {
     const parsed = Body.safeParse(await req.json().catch(() => null));
     if (!parsed.success) return Response.json({ error: "Say what to do." }, { status: 400 });

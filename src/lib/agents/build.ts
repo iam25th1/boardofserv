@@ -1,6 +1,7 @@
 import "server-only";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db";
+import { meterPlatform, platformRoom } from "./metering";
 import { replyUsage, type Agent, type AgentVersion } from "../db/schema";
 import { describeFailures, type JsonResult, type ModelConfig } from "../model";
 import type { AgentSummaryDTO } from "../types";
@@ -119,7 +120,12 @@ export async function writeAllCode(version: AgentVersion, definition: AgentDefin
         },
         // Dolphin runs on the site's key, whoever is building; SERV (its
         // reviews, and code it writes when Dolphin can't) on the builder's.
-        record: (kind, call) => recordAgentCall(ctx, kind, call, kind === "agent_code" && call.provider === "dolphin" ? false : ctx.ownKey),
+        // A review is the platform's own call, metered against its budget.
+        record: async (kind, call) => {
+          await recordAgentCall(ctx, kind, call, kind === "agent_code" && call.provider === "dolphin" ? false : ctx.ownKey);
+          if (kind === "agent_review") await meterPlatform(db as never, { purpose: "code_review", userId: ctx.userId, agentId: version.agentId, call, ownKey: ctx.ownKey }).catch(() => undefined);
+        },
+        reviewRoom: () => platformRoom(db as never, ctx.ownKey),
       },
     });
     // A draft published or replanned meanwhile stops the writing.

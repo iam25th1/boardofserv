@@ -6,12 +6,14 @@ import { formatAmount } from "@/lib/money";
 import { REDUCED_MOTION, ease } from "@/lib/motion";
 import { CANT_PULL_BACK, DISPUTE_REASON_WORDS, NOTE_MAX, NOTE_MIN, REASONS_FOR, RENT_REFUND, type DisputeReason } from "@/lib/spending/disputeWords";
 import type { DisputableDTO, DisputeDTO, ReceiptDTO, SpendingDTO } from "@/lib/types";
+import { moneyNote } from "@/lib/moneyWords";
 import styles from "./SpendingPanel.module.css";
 
 // What an agent may spend, for its renter: the allowance it pays from
 // (topped up from their balance, taken back any time), what it may pay
 // without asking now and why (their auto limit or its trust band, the
-// stricter), the payees it may pay, every payment's receipt with its
+// stricter), the payees it may pay (each judged by its address, never its
+// name, with a warning when the address is high risk), every payment's receipt with its
 // transfer on Base, and disputes.
 
 export type PayeeBody = { action: "save"; label: string; address: string } | { action: "remove"; payeeId: string } | { action: "confirm"; payeeId: string; label: string };
@@ -58,6 +60,7 @@ export function SpendingPanel({ api, disabled }: { api: SpendingApi; disabled?: 
   return (
     <section className={styles.panel} aria-labelledby="spending-h">
       <h2 id="spending-h">Spending</h2>
+      <p className={styles.quiet}>{moneyNote(data.money)}</p>
       <Allowance data={data} api={api} disabled={disabled} onChange={setData} />
       <Limit data={data} />
       <Payees data={data} api={api} disabled={disabled} onChange={setData} />
@@ -117,7 +120,7 @@ function Allowance({ data, api, disabled, onChange }: { data: SpendingDTO; api: 
     <div className={styles.block}>
       <h3>Its allowance</h3>
       <p className={styles.big}>
-        <strong>{usdc(data.allowance.available, d)}</strong>
+        <strong>{usdc(data.allowance.available, d)}</strong> <span className={styles.kind}>{data.money.test ? `test, on ${data.money.network}` : `on ${data.money.network}`}</span>
       </p>
       {BigInt(data.allowance.held) > 0n && <p className={styles.quiet}>and {usdc(data.allowance.held, d)} held for a payment on its way</p>}
       <div className={styles.meter} role="img" aria-label={`${usdc(held, d)} of the most it may hold, ${usdc(max, d)}`}>
@@ -221,6 +224,7 @@ function Payees({ data, api, disabled, onChange }: { data: SpendingDTO; api: Spe
               <Button size="sm" variant="ghost" disabled={disabled || busy !== null} onClick={() => void act(p.id, { action: "remove", payeeId: p.id }, `${p.label} removed: it can't pay them now.`)}>
                 Remove
               </Button>
+              {p.warning && <Warning text={p.warning} />}
             </li>
           ))}
         </ul>
@@ -236,6 +240,7 @@ function Payees({ data, api, disabled, onChange }: { data: SpendingDTO; api: Spe
                 <Button size="sm" variant="ghost" disabled={disabled || busy !== null || !(names[p.id] ?? "").trim()} onClick={() => void act(p.id, { action: "confirm", payeeId: p.id, label: (names[p.id] ?? "").trim() }, "Saved.")}>
                   Save it
                 </Button>
+                {p.warning && <Warning text={p.warning} />}
               </li>
             ))}
           </ul>
@@ -267,6 +272,15 @@ function Payees({ data, api, disabled, onChange }: { data: SpendingDTO; api: Spe
         </p>
       )}
     </div>
+  );
+}
+
+// A payee whose address is high risk: said plainly, whatever its name.
+function Warning({ text }: { text: string }) {
+  return (
+    <p className={styles.warning} role="note">
+      <strong>Careful:</strong> {text} A payment to this address always asks you first, whatever your limits.
+    </p>
   );
 }
 

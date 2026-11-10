@@ -90,6 +90,13 @@ describe("the wallet page", () => {
     expect(net.linkWallet).toHaveBeenCalledWith(expect.objectContaining({ walletChainType: "ethereum-only" }));
   });
 
+  it("says the balances are test USDC on Base Sepolia while it's a beta", async () => {
+    net.wallet = base();
+    await open();
+    expect(screen.getAllByText("test USDC").length).toBeGreaterThan(0);
+    expect(screen.getByText("Amounts here are test USDC on Base Sepolia, worth nothing while boardofserv is a beta.")).toBeTruthy();
+  });
+
   it("checks for a deposit and says what was credited", async () => {
     net.wallet = base({ deposits: [{ id: "d1", currency: "USDC", amount: "1000000", txHash: `0x${"1".repeat(64)}`, status: "confirming", seenAt: "2026-11-02T10:00:00.000Z" }] });
     net.checked = base({

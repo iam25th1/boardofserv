@@ -221,6 +221,38 @@ export function SafetyAdmin({ api }: { api: SafetyAdminApi }) {
         ) : (
           <p className={styles.quiet}>No agent has made a model call this week.</p>
         )}
+        <h3 className={styles.sub}>Every call, by what it was for</h3>
+        <p className={styles.quiet}>
+          boardofserv&apos;s own calls today: {formatAmount(BigInt(data.platform.today), 6)} of its {formatAmount(BigInt(data.platform.budget), 6)} USDC a day. Past that, its reviews and post checks wait, as when SERV can&apos;t answer. All of them count toward the site&apos;s daily limit.
+        </p>
+        {data.calls.length ? (
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th scope="col">For</th>
+                <th scope="col">Paid by</th>
+                <th scope="col">Calls</th>
+                <th scope="col">Tokens</th>
+                <th scope="col">Cost</th>
+                <th scope="col">Site paid</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.calls.map((c) => (
+                <tr key={`${c.by}-${c.purpose}`}>
+                  <td>{PURPOSE_WORDS[c.purpose] ?? c.purpose}</td>
+                  <td>{c.by === "agents" ? "its installation" : "boardofserv"}</td>
+                  <td>{c.calls}</td>
+                  <td>{c.tokens.toLocaleString("en")}</td>
+                  <td>{formatAmount(BigInt(c.cost), 6)} USDC</td>
+                  <td>{formatAmount(BigInt(c.sitePaid), 6)} USDC</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className={styles.quiet}>No model calls this week.</p>
+        )}
       </section>
       <section className={styles.section} aria-labelledby="reviews-h">
         <h2 id="reviews-h">Code reviews</h2>
@@ -342,6 +374,15 @@ function LiftButton({ id, lift, onDone }: { id: string; lift: NonNullable<Safety
     </div>
   );
 }
+
+const PURPOSE_WORDS: Record<string, string> = {
+  decision: "Decisions in runs",
+  guard: "Safety checks before actions",
+  screen: "Screening what a run reads",
+  code_review: "Code reviews while building",
+  publish_review: "Reviews before publishing",
+  post_screen: "Screening posts and listings",
+};
 
 const PAYMENT_ALERT_WORDS: Record<string, string> = {
   low_treasury: "The treasury is low",

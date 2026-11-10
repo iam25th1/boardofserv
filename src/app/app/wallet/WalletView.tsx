@@ -11,6 +11,7 @@ import { privyAppId } from "@/lib/privy-config";
 import type { CurrencyDTO, DepositDTO, PaymentsDTO, WalletDTO, WithdrawalDTO } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
 import styles from "./wallet.module.css";
+import { moneyNote } from "@/lib/moneyWords";
 
 // The wallet: the signed-in user's balances, how to top up, their recent
 // deposits, and what they earned from their helpers with a way to withdraw
@@ -186,16 +187,20 @@ function currencyOf(payments: PaymentsDTO, d: { currency: string }): Pick<Curren
 }
 
 function Balances({ payments, wallet }: { payments: PaymentsDTO; wallet: WalletDTO }) {
+  const money = { network: payments.networkLabel, test: !payments.mainnet };
   return (
-    <section className={styles.balances} aria-label="Balances">
-      {wallet.balances.map((b) => (
-        <BalanceTile key={b.currency} c={currencyOf(payments, b)} available={b.available} held={b.held} />
-      ))}
-    </section>
+    <>
+      <section className={styles.balances} aria-label="Balances">
+        {wallet.balances.map((b) => (
+          <BalanceTile key={b.currency} c={currencyOf(payments, b)} available={b.available} held={b.held} test={money.test} />
+        ))}
+      </section>
+      <p className={styles.moneyNote}>{moneyNote(money)}</p>
+    </>
   );
 }
 
-function BalanceTile({ c, available, held }: { c: Pick<CurrencyDTO, "decimals" | "code">; available: string; held: string }) {
+function BalanceTile({ c, available, held, test }: { c: Pick<CurrencyDTO, "decimals" | "code">; available: string; held: string; test: boolean }) {
   const value = useRef<HTMLParagraphElement>(null);
   const last = useRef(available);
   // A quiet cue when the balance changes under the user, for example a
@@ -209,7 +214,7 @@ function BalanceTile({ c, available, held }: { c: Pick<CurrencyDTO, "decimals" |
       <p className={styles.amount} ref={value}>
         {formatAmount(BigInt(available), c.decimals)}
       </p>
-      <p className={styles.code}>{c.code}</p>
+      <p className={styles.code}>{test ? `test ${c.code}` : c.code}</p>
       {BigInt(held) > 0n && <p className={styles.held}>{formatAmount(BigInt(held), c.decimals)} held for a use running now</p>}
     </div>
   );

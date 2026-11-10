@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui";
 import type { ApprovalDTO } from "@/lib/types";
 import styles from "./ApprovalCard.module.css";
+import { moneyNote } from "@/lib/moneyWords";
 
 // One question a job waits on: what it asks, an answer button for each
 // option with what happens then, and what happens with no answer. Once
@@ -53,6 +54,7 @@ export function ApprovalCard({ approval, onAnswer, jobHref }: { approval: Approv
         </span>
       </header>
       <p className={styles.question}>{a.question}</p>
+      {a.money && <p className={styles.money}>{moneyNote(a.money)}</p>}
       {a.reason && (
         <p className={styles.reason} data-kind={a.kind}>
           <span className={styles.reasonLabel}>{a.kind === "safety" ? "Why it asks" : "Note"}</span>

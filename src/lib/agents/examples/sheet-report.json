@@ -25,8 +25,8 @@
     "format": 1,
     "name": "Morning sheet report",
     "job": {
-      "does": "Summarizes daily changes in a Google Sheet by comparing today's data to yesterday's remembered totals, then sends a short summary to the owner each morning.",
-      "done": "The owner receives a Telegram message showing row count change and column total changes, and yesterday's row count and column totals are saved to memory for tomorrow."
+      "does": "Each morning it compares your sheet tab with yesterday's (how many rows, and the total of each number column) and sends you a short summary on Telegram.",
+      "done": "You get a Telegram message with what changed since yesterday, and today's numbers are kept for tomorrow."
     },
     "triggers": [
       {
@@ -69,7 +69,7 @@
           "summary_text"
         ],
         "kind": "code",
-        "description": "Read the sheet tab provided in settings. Count rows and sum each numeric column into column_totals. Compare row count and column totals to yesterday's remembered values stored in memory. Calculate new_rows added and column_changes for each column total. Compose summary_text as a short plain message of a few lines listing row count change and each column's total change. If yesterday has no data, note this is the first run.",
+        "description": "Read the sheet tab provided in settings. Count rows and sum each numeric column into column_totals. Read yesterday's values from memory key yesterday, a record shaped {rows: number, totals: {column_name: number}} (the shape the save step writes): yesterday's row count is yesterday.rows and its totals are yesterday.totals. Calculate new_rows added and column_changes for each column total against them. Compose summary_text as a short plain message of a few lines listing row count change and each column's total change. If there is no yesterday in memory, say this is the first run.",
         "tools": [
           "sheets.read",
           "memory.get"
@@ -78,7 +78,7 @@
       },
       {
         "id": "send_message",
-        "title": "Send summary to owner",
+        "title": "Send you the summary",
         "inputs": [
           "summary_text"
         ],
@@ -108,7 +108,7 @@
       {
         "id": "send_summary",
         "tool": "telegram.send",
-        "description": "Send the daily summary message to the owner"
+        "description": "Send you the daily summary"
       }
     ],
     "limits": {
@@ -121,9 +121,10 @@
   "code": {
     "read_sheet": {
       "status": "approved",
-      "source": "async function run(input, tools) {\n  const settings = input?.settings || {};\n  const sheet = settings.sheet_tab;\n\n  let rows = [];\n  try {\n    const res = await tools.sheets.read({ sheet });\n    rows = Array.isArray(res?.rows) ? res.rows : [];\n  } catch (e) {\n    rows = [];\n  }\n\n  const column_totals = {};\n  for (const row of rows) {\n    if (!row || typeof row !== \"object\") continue;\n    for (const key of Object.keys(row)) {\n      const v = row[key];\n      if (typeof v === \"number\" && isFinite(v)) {\n        column_totals[key] = (column_totals[key] || 0) + v;\n      }\n    }\n  }\n  const row_count = rows.length;\n\n  let yesterday = input?.memory?.yesterday;\n  if (yesterday === undefined || yesterday === null) {\n    try {\n      const m = await tools.memory.get({ key: \"yesterday\" });\n      yesterday = m?.value;\n    } catch (e) {\n      yesterday = null;\n    }\n  }\n\n  const hasYesterday = yesterday && typeof yesterday === \"object\";\n  const prevRowCount = hasYesterday && typeof yesterday.row_count === \"number\" ? yesterday.row_count : null;\n  const prevTotals = hasYesterday && yesterday.column_totals && typeof yesterday.column_totals === \"object\"\n    ? yesterday.column_totals : null;\n\n  const new_rows = prevRowCount === null ? 0 : row_count - prevRowCount;\n\n  const column_changes = {};\n  for (const key of Object.keys(column_totals)) {\n    const prev = prevTotals && typeof prevTotals[key] === \"number\" ? prevTotals[key] : 0;\n    column_changes[key] = column_totals[key] - prev;\n  }\n\n  const lines = [];\n  if (!hasYesterday || prevRowCount === null) {\n    lines.push(\"First run: no yesterday data to compare.\");\n    lines.push(`Rows: ${row_count}`);\n    for (const key of Object.keys(column_totals)) {\n      lines.push(`${key}: ${column_totals[key]}`);\n    }\n  } else {\n    lines.push(`Rows: ${row_count} (${new_rows >= 0 ? \"+\" : \"\"}${new_rows})`);\n    for (const key of Object.keys(column_changes)) {\n      const c = column_changes[key];\n      lines.push(`${key}: ${column_totals[key]} (${c >= 0 ? \"+\" : \"\"}${c})`);\n    }\n  }\n\n  return {\n    row_count,\n    column_totals,\n    new_rows,\n    column_changes,\n    summary_text: lines.join(\"\\n\"),\n  };\n}",
+      "source": "async function run(input, tools) {\n  const settings = (input && input.settings) || {};\n  const sheet = settings.sheet_tab || settings.sheet || \"\";\n  const rows = (sheet ? (await tools.sheets.read({ sheet })).rows : []) || [];\n\n  const column_totals = {};\n  let hasNum = {};\n  for (const r of rows) {\n    if (!r || typeof r !== \"object\") continue;\n    for (const k of Object.keys(r)) {\n      const v = r[k];\n      const n = typeof v === \"number\" ? v : (typeof v === \"string\" && v.trim() !== \"\" && isFinite(Number(v)) ? Number(v) : null);\n      if (n !== null) {\n        column_totals[k] = (column_totals[k] || 0) + n;\n        hasNum[k] = true;\n      }\n    }\n  }\n  const row_count = rows.length;\n\n  let yesterday = input && input.memory ? input.memory.yesterday : undefined;\n  if (yesterday === undefined || yesterday === null) {\n    try {\n      const got = await tools.memory.get({ key: \"yesterday\" });\n      yesterday = got ? got.value : undefined;\n    } catch (e) {\n      yesterday = undefined;\n    }\n  }\n\n  const round = (n) => Math.round(n * 100) / 100;\n  const fmt = (n) => (n > 0 ? \"+\" : \"\") + round(n);\n\n  const column_changes = {};\n  let new_rows = 0;\n  let lines = [];\n\n  const y = yesterday && typeof yesterday === \"object\" ? yesterday : null;\n  if (!y || typeof y.rows !== \"number\") {\n    new_rows = row_count;\n    for (const k of Object.keys(column_totals)) column_changes[k] = round(column_totals[k]);\n    lines.push(\"First run: no yesterday saved, so no comparison.\");\n    lines.push(`Rows: ${row_count}`);\n    const keys = Object.keys(column_totals);\n    if (keys.length) {\n      lines.push(\"Totals: \" + keys.map((k) => `${k} ${round(column_totals[k])}`).join(\", \"));\n    }\n  } else {\n    new_rows = row_count - y.rows;\n    const prev = y.totals && typeof y.totals === \"object\" ? y.totals : {};\n    const all = new Set([...Object.keys(column_totals), ...Object.keys(prev)]);\n    for (const k of all) {\n      const cur = column_totals[k] || 0;\n      const old = typeof prev[k] === \"number\" ? prev[k] : 0;\n      column_changes[k] = round(cur - old);\n    }\n    lines.push(`Rows: ${row_count} (${fmt(new_rows)} vs yesterday)`);\n    const changed = Object.keys(column_changes).filter((k) => column_changes[k] !== 0);\n    if (changed.length) {\n      lines.push(\"Changes: \" + changed.map((k) => `${k} ${fmt(column_changes[k])}`).join(\", \"));\n    } else {\n      lines.push(\"No column total changes.\");\n    }\n  }\n\n  return {\n    row_count,\n    column_totals,\n    new_rows,\n    column_changes,\n    summary_text: lines.join(\"\\n\"),\n  };\n}",
       "rounds": 1,
-      "note": "The code correctly reads the sheet, calculates row count and column totals, retrieves yesterday's memory, computes changes, and returns all required outputs using only the listed tools without unsafe operations."
+      "note": "The code correctly reads the sheet, calculates row counts and column totals, retrieves yesterday's data from memory, computes changes, and returns all required outputs in the specified format without calling any tools beyond those listed or performing unsafe operations.",
+      "writer": "dolphin"
     },
     "save_state": {
       "status": "approved",

@@ -3,6 +3,7 @@ import { boardHelpers } from "@/lib/helpers";
 import { boardAgents, type Connects } from "@/lib/market/listings";
 import { USDC_DECIMALS } from "@/lib/market/charges";
 import { parseAmount } from "@/lib/money";
+import { rateLimited } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +17,8 @@ const CONNECTS: Connects[] = ["telegram", "sheets", "web"];
 // the highest quality first and ?quality=N keeps agents scored N or more.
 // Public fields only.
 export async function GET(req: Request) {
+  const limited = rateLimited(req, "read");
+  if (limited) return limited;
   const p = new URL(req.url).searchParams;
   const q = p.get("q") ?? "";
   const kind = p.get("kind");
