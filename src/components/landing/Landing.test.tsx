@@ -39,7 +39,7 @@ describe("the front page", () => {
     // Signed out here (no sign-in set up in the tests): sign in, or the board.
     expect(screen.getAllByRole("link", { name: "Sign in" })[0]).toHaveAttribute("href", "/login");
     expect(screen.getAllByRole("link", { name: "Browse the board" })[0]).toHaveAttribute("href", "/app/board");
-    for (const name of ["About", "Support", "Terms", "Privacy"]) expect(screen.getAllByRole("link", { name })[0]).toHaveAttribute("href", `/${name.toLowerCase()}`);
+    for (const [name, href] of [["About", "/about"], ["Support", "/support"], ["Using the beta", "/terms"], ["Your data", "/privacy"]]) expect(screen.getAllByRole("link", { name })[0]).toHaveAttribute("href", href);
   });
 
   it("shows one hero drawing at a time: the wide one, or on a phone the tall one", () => {
@@ -85,26 +85,66 @@ describe("the beta", () => {
 });
 
 describe("the public pages", () => {
-  it("marks terms and privacy as drafts for the owner, at the top", () => {
-    for (const Page of [TermsPage, PrivacyPage]) {
-      render(<Page />);
-      const main = screen.getByRole("main");
-      expect(main.firstElementChild).toHaveAttribute("role", "note");
-      expect(main.firstElementChild).toHaveTextContent(/^Draft:/);
+  // Words that don't belong on a beta's plain notes.
+  const BANNED = /terms of service|agreement|liabilit|warrant|indemn|governing law|jurisdiction|policy|policies|binding|company|business|customer|draft|reviewed before it is final|legal advice/i;
+  const PAGES = [
+    { Page: AboutPage, h1: "About boardofserv" },
+    { Page: TermsPage, h1: "Using the beta" },
+    { Page: PrivacyPage, h1: "Your data" },
+    { Page: SupportPage, h1: "Support" },
+  ];
+
+  it("are plain beta notes, with no legal or business words, no draft banner and no blanks to fill", () => {
+    for (const { Page, h1 } of PAGES) {
+      const { container } = render(<Page />);
+      expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(h1);
+      const text = container.textContent ?? "";
+      expect(text, h1).not.toMatch(BANNED);
+      expect(text, h1).not.toMatch(/\[|to be filled in|have this reviewed/i);
+      expect(text, h1).not.toContain(String.fromCharCode(0x2014));
+      expect(screen.queryByRole("note")).toBeNull();
       cleanup();
     }
+    // The front page too.
+    const { container } = render(<Landing />);
+    expect(container.textContent ?? "").not.toMatch(BANNED);
   });
 
-  it("gives support through the bot's /support and an email the owner fills in", () => {
+  it("link to each other by their new titles", () => {
+    render(<Landing />);
+    expect(screen.getAllByRole("link", { name: "Using the beta" })[0]).toHaveAttribute("href", "/terms");
+    expect(screen.getAllByRole("link", { name: "Your data" })[0]).toHaveAttribute("href", "/privacy");
+  });
+
+  it("say what the beta is: a demo on test money, agents that make mistakes, resets, decency", () => {
+    render(<TermsPage />);
+    const main = screen.getByRole("main");
+    for (const line of ["It's a demo. Don't rely on it for anything important.", "Agents can make mistakes.", "Test funds have no value", "Accounts and data may be reset", "Be decent to other people"]) expect(main).toHaveTextContent(line);
+    cleanup();
+    render(<AboutPage />);
+    expect(screen.getByRole("main")).toHaveTextContent("boardofserv is an experiment in letting people build and rent small AI agents");
+    expect(screen.getByRole("main")).toHaveTextContent("Payments use test USDC on Base Sepolia");
+  });
+
+  it("say what is kept, what for, how Google Sheets data is used, and how to have it deleted", () => {
+    render(<PrivacyPage />);
+    const main = screen.getByRole("main");
+    for (const kept of ["email address", "wallet you link", "Telegram chat and your Google Sheets access", "log of each job", "payments history"]) expect(main).toHaveTextContent(kept);
+    expect(main).toHaveTextContent("Nothing is sold, and nothing is shared for ads.");
+    expect(main).toHaveTextContent("Your Google Sheets data is only read or written by the agents you set up, only on the tabs you give them, and only for the jobs you set. It isn't used for anything else, isn't shown to other people, and isn't used to train AI models.");
+    expect(main).toHaveTextContent("Limited Use requirements");
+    expect(within(main).getByRole("link", { name: "Support" })).toHaveAttribute("href", "/support");
+  });
+
+  it("gives support through the bot's /support, and the owner's email once it is set", () => {
     render(<SupportPage />);
     expect(screen.getByRole("link", { name: "@boardofservbot" })).toHaveAttribute("href", "https://t.me/boardofservbot");
     expect(screen.getByText("/support")).toBeInTheDocument();
-    expect(screen.getByText(/support email address, to be filled in by the owner/)).toBeInTheDocument();
-  });
-
-  it("says what boardofserv is", () => {
-    render(<AboutPage />);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("About boardofserv");
-    expect(screen.getByRole("main")).toHaveTextContent("90% goes to the agent's maker");
+    expect(screen.getByText("There's no email address yet. Telegram is the way for now.")).toBeInTheDocument();
+    cleanup();
+    vi.stubEnv("SUPPORT_EMAIL", "help@boardofserv.example");
+    render(<SupportPage />);
+    expect(screen.getByRole("link", { name: "help@boardofserv.example" })).toHaveAttribute("href", "mailto:help@boardofserv.example");
+    vi.unstubAllEnvs();
   });
 });

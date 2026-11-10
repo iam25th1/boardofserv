@@ -431,23 +431,6 @@
 .prose a {
   color: var(--chalk);
 }
-.updated {
-  font-size: var(--t-sm);
-  color: var(--chalk-3);
-}
-/* A draft for the owner to review: said plainly at the top, dashed. */
-.draft {
-  padding: var(--s-3) var(--s-4);
-  border: var(--stroke) dashed var(--chalk);
-  border-radius: var(--r-md);
-  font-size: var(--t-sm);
-  color: var(--chalk);
-}
-.fill {
-  font-family: var(--font-hand);
-  font-size: var(--t-hand);
-  color: var(--chalk);
-}
 
 /* Tablets and phones: one column, drawings under the words. */
 @media (max-width: 900px) {

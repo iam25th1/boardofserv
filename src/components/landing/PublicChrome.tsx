@@ -52,10 +52,10 @@ export function PublicFooter() {
             <Link href="/support">Support</Link>
           </li>
           <li>
-            <Link href="/terms">Terms</Link>
+            <Link href="/terms">Using the beta</Link>
           </li>
           <li>
-            <Link href="/privacy">Privacy</Link>
+            <Link href="/privacy">Your data</Link>
           </li>
         </ul>
       </nav>
