@@ -47,6 +47,8 @@ const seen: string[] = [];
 // Dolphin was asked.
 let fixes: object[] = [];
 const asked: string[] = [];
+// Code the review turns down: any whose step's brief says one of these.
+let rejecting: string[] = [];
 
 const sourceFor = (ask: string) => {
   const title = /^Step: (.+)$/m.exec(ask)?.[1] ?? "";
@@ -81,7 +83,11 @@ beforeAll(async () => {
     if (name === "agent_outline") planning = plans.shift() ?? PRICE_WIRE;
     const planned = planAnswer(planning, body);
     if (planned) return Response.json({ choices: [{ message: { content: JSON.stringify(planned) } }], usage: { prompt_tokens: 1500, completion_tokens: 900 } });
-    if (name === "code_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "approve", reason: "Does what the step says." }) } }], usage: { prompt_tokens: 500, completion_tokens: 20 } });
+    if (name === "code_review") {
+      const said = String(body.messages[1].content);
+      const verdict = rejecting.some((r) => said.includes(r)) ? { verdict: "reject", reason: "It reads input.skip, which the step never gives it." } : { verdict: "approve", reason: "Does what the step says." };
+      return Response.json({ choices: [{ message: { content: JSON.stringify(verdict) } }], usage: { prompt_tokens: 500, completion_tokens: 20 } });
+    }
     if (name === "agent_fix") return Response.json({ choices: [{ message: { content: JSON.stringify(fixes.shift() ?? {}) } }], usage: { prompt_tokens: 3000, completion_tokens: 200 } });
     if (name === "version_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ findings: [] }) } }], usage: { prompt_tokens: 2000, completion_tokens: 20 } });
     return Response.json({ choices: [{ message: { content: "{}" } }] });
@@ -95,6 +101,7 @@ beforeEach(() => {
   seen.length = 0;
   fixes = [];
   asked.length = 0;
+  rejecting = [];
 });
 
 afterAll(async () => {
@@ -334,5 +341,45 @@ describe("a build that heals itself, in the chat", () => {
     expect(c.messages.some((m) => m.role === "assistant" && m.content === "Making a simpler version of it.")).toBe(true);
     expect(stages(c).at(-1)).toBe("steps");
     expect(seen[0]).toBe("agent_outline");
+  });
+});
+
+describe("what a repair can never trade away", () => {
+  const BROKEN = "async function run() { throw new Error('no price'); }";
+
+  it("turns down a change to the steps that would send without the maker's yes, keeping the steps as they were", async () => {
+    const cid = await described();
+    sources = { "Write the reminder": BROKEN };
+    // The fixer would take the question out: the reminder would go straight out.
+    const noQuestion = { ...PRICE_WIRE, steps: PRICE_WIRE.steps.filter((s) => !["make_question", "ask", "said_yes"].includes(s.id)).map((s) => (s.id === "is_low" ? { ...s, outcomes: [{ id: "low", label: "At or below the target", next: "make_reminder" }, { id: "not_low", label: "Above the target", next: "" }] } : s)) };
+    fixes = [{ verdict: "plan_wrong", step: "", why: "Too many steps.", spec: "", change: "Remove make_question, ask and said_yes.", sample: "", question: "", choices: [], lesson: "", kind: "extra_question" }];
+    const id = await madeIt(cid);
+    plans = [noQuestion];
+    await build.POST(json(`/api/agents/${id}/build`, "POST"), at(id));
+    await jobFor((await draftOf(id))!.id);
+    const draft = (await draftOf(id))!;
+    // The question is still there, and nothing of the change was kept.
+    expect(draft.definition!.steps.map((s) => s.id)).toContain("ask");
+    expect(draft.heal!.rounds.find((r) => r.outcome === "rejected")).toMatchObject({ verdict: "plan", rejected: "It would send you messages without your yes first, which it waited for before." });
+    const c = await conversation(cid);
+    expect(c.agent!.heal!.lines.map((l) => l.text)).toContain("Trying another way.");
+  });
+
+  it("never lets rewritten code skip the code review: code the review turns down never runs", async () => {
+    const cid = await described();
+    sources = { "Write the reminder": BROKEN };
+    const spec = { verdict: "code_wrong", step: "make_reminder", why: "It throws.", spec: "Return reminder as { text } from price.", change: "", sample: "", question: "", choices: [], lesson: "", kind: "other" };
+    fixes = [spec];
+    // The review turns down every version written from the new brief.
+    rejecting = ["Return reminder as { text } from price."];
+    const id = await madeIt(cid);
+    await build.POST(json(`/api/agents/${id}/build`, "POST"), at(id));
+    await jobFor((await draftOf(id))!.id);
+    const draft = (await draftOf(id))!;
+    expect(draft.code.make_reminder!.status).toBe("needs_attention");
+    // The test never ran on code that wasn't approved: the last test is
+    // the one before the repair.
+    expect(draft.testResult!.problems[0]!.text).toBe('"Write the reminder" didn\'t work on the sample product.');
+    expect(draft.heal!.rounds.map((r) => r.diagnosis.stage)).toEqual(["test", "code"]);
   });
 });

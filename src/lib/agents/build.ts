@@ -13,12 +13,13 @@ import { planAgent, planCallCap, type PlanInput } from "./plan";
 import { setHeal, setStepCode, updateDraft, versionById } from "./store";
 import { planFailure, problemOf } from "./plainWords";
 import { selfTest } from "./test";
-import { emptyHeal, type Diagnosis, type HealLog, type StepCode, type TestResult } from "./types";
+import { emptyHeal, type Diagnosis, type HealLog, type HealRound, type StepCode, type TestResult } from "./types";
 import { errorText } from "../db/errors";
 import { recordAttempts } from "../modelAttempts";
 import { codeDiagnosis, planDiagnosis, testDiagnosis, withDiagnosis } from "./diagnosis";
 import { askFixer, type FixVerdict } from "./fixer";
 import { foundLine, freshBuild, gaveUpLine, healLimits, repairLine, roundsUsed, withLine, withRound } from "./heal";
+import { weakens } from "./guarded";
 
 // The build: planning, then the code, then its self test, runs in the
 // background, because it can take longer than a request may. One job per
@@ -328,6 +329,7 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
     await updateDraft(versionId, { buildState: "fixing", buildNote: null });
 
     let verdict: FixVerdict | null;
+    const theirs = Boolean(answer);
     if (answer) {
       // The maker answered the question: their answer is a change to the
       // steps, made with it.
@@ -374,6 +376,12 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
       // The step's brief, written again by the fixer; its code from that,
       // with what was wrong beside it.
       const next: AgentDefinition = { ...v.definition, steps: v.definition.steps.map((s) => (s.id === step.id && s.kind === "code" ? { ...s, description: verdict!.spec } : s)) };
+      const unsafe = weakens(v.definition, next, { failed: dx.evidence.check });
+      if (unsafe) {
+        await turnedDown(versionId, { ...round, verdict: "code", repair: `Step "${step.id}" written again from: ${verdict.spec}` }, unsafe, dx);
+        diagnosis = dx;
+        continue;
+      }
       await updateDraft(versionId, { definition: next, code: carryCode(next, v.code), buildState: "writing" });
       await healOf(versionId, (l) => withLine(withRound(l, { ...round, verdict: "code", repair: `Step "${step.id}" written again from: ${verdict!.spec}` }), repairLine("code", v.definition, step.id), "working"));
       outcome = await writeAndTest(versionId, next, c, settle, { hints: { [step.id]: dx.evidence.review ?? dx.failure } });
@@ -405,9 +413,18 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
         }
         return settleBuild(versionId, c, settle, outcome);
       }
-      const saved = await updateDraft(versionId, { definition: plan.definition, code: carryCode(plan.definition, v.code), buildState: "writing", testResult: null });
+      // A repair keeps the run's limits as they were, and is turned down if
+      // it weakens anything else that keeps the agent safe (guarded.ts).
+      const next: AgentDefinition = { ...plan.definition, limits: v.definition!.limits };
+      const unsafe = weakens(v.definition!, next, { failed: dx.evidence.check, theirs });
+      if (unsafe) {
+        await turnedDown(versionId, {}, unsafe, dx);
+        diagnosis = dx;
+        continue;
+      }
+      const saved = await updateDraft(versionId, { definition: next, code: carryCode(next, v.code), buildState: "writing", testResult: null });
       if (!saved) return;
-      outcome = await writeAndTest(versionId, plan.definition, c, settle);
+      outcome = await writeAndTest(versionId, next, c, settle);
     }
 
     if (outcome.kind === "passed") {
@@ -425,6 +442,12 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
     await healOf(versionId, (l) => markFailed(l));
     diagnosis = outcome.diagnosis;
   }
+}
+
+// A repair that would weaken what keeps the agent safe is turned down:
+// nothing of it is kept, and the next round starts from the same failure.
+async function turnedDown(versionId: string, patch: Partial<HealRound>, why: string, dx: Diagnosis): Promise<void> {
+  await healOf(versionId, (l) => withLine(withDiagnosis(withRound(l, { ...patch, outcome: "rejected", rejected: why }), dx), "Trying another way.", "working"));
 }
 
 // The round acted on, once its build came back: failed, or fixed (a new

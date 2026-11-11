@@ -5,7 +5,7 @@ import { storyOf, toldAs } from "./plainWords";
 import { plain } from "./plainView";
 import { runAgent } from "./runner";
 import { goesThroughList, makeSample, sampleRequest, type Sample } from "./sample";
-import type { BenchData, RunEvent, StepCode, TestResult } from "./types";
+import type { BenchData, CheckId, RunEvent, StepCode, TestResult } from "./types";
 
 // "Test it": the agent runs on sample data made from its own plan (one
 // item, or three for an agent that goes through a list: sample.ts), every
@@ -148,6 +148,27 @@ export function keepsPlace(d: AgentDefinition): boolean {
   return tools.has("memory.set") || tools.has("sheets.update");
 }
 
+// The checks a self test gives an agent, by the platform's rules and the
+// agent's plan alone, never by what anyone asks for one agent (a repair
+// can't make a failing check stop applying: guarded.ts). Every agent: it
+// runs through, and no tool error is passed over. One that sends, writes
+// or pays: it does so on a sample made for it. One that goes through a list
+// and sends after it: the summary covers every item. One that goes through
+// a tab's rows and writes rows: not back into that tab. One that keeps its
+// place: run again, it skips what it did.
+export function checksFor(d: AgentDefinition): CheckId[] {
+  const out: CheckId[] = ["ran", "tool_error"];
+  const tools = new Set([...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))]);
+  if (d.actions.some((a) => a.tool !== "memory.set")) out.push("did_job");
+  const many = goesThroughList(d);
+  const inLoop = loopsOf(d).inside;
+  const sendsAfter = d.steps.some((s) => s.kind === "action" && !inLoop.get(s.id) && d.actions.find((a) => a.id === s.action)?.tool === "telegram.send");
+  if (many && sendsAfter) out.push("summary");
+  if (many && tools.has("sheets.read") && tools.has("sheets.write")) out.push("write_back");
+  if (keepsPlace(d)) out.push("second_run");
+  return out;
+}
+
 // The check every new plan gets once its code is written: it runs on its
 // sample (sample.ts), dry (its decisions take turns over the outcomes, and
 // no model is asked). It fails when that run doesn't get through. Then
@@ -171,7 +192,7 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   const d = v.definition;
   const items = first.result.items;
   const problems = [...first.result.problems];
-  const many = goesThroughList(d);
+  const checks = new Set(checksFor(d));
   const inLoop = loopsOf(d).inside;
 
   // Its job, done at least once on a sample made for it to work on, where
@@ -182,14 +203,14 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   const jobs = d.actions.filter((a) => a.tool !== "memory.set" && a.tool !== "telegram.ask");
   const asked = d.actions.filter((a) => a.tool === "telegram.ask");
   const job = jobs.length ? (jobs.some((a) => did(a.tool)) ? null : jobs[0]!) : asked.length && !asked.some((a) => did(a.tool)) ? asked[0]! : null;
-  if (job) {
+  if (job && checks.has("did_job")) {
     problems.push({ step: d.steps.find((s) => s.kind === "action" && s.action === job.id)?.id ?? null, text: `On its sample it didn't ${lowerFirst(plain(job.description)).replace(/\.$/, "")}: it found nothing to do in data made for it to work on.`, check: "did_job" });
   }
 
   // The summary: the last message it sends, after going through the list.
   const sends = toolEvents(first.events, "telegram.send");
   const summary = sends.at(-1);
-  if (many && summary && !inLoop.get(summary.stepId)) {
+  if (checks.has("summary") && summary && !inLoop.get(summary.stepId)) {
     const text = String((summary.args as { text?: unknown }).text ?? "").toLowerCase();
     const named = items.labels.filter((l) => text.includes(l.toLowerCase())).length;
     // "3 submissions" counts all three; "2 of 3 met" doesn't.
@@ -201,7 +222,7 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   }
 
   const reads = new Set(toolEvents(first.events, "sheets.read").map((e) => String((e.args as { sheet?: unknown }).sheet)));
-  const added = many
+  const added = checks.has("write_back")
     ? toolEvents(first.events, "sheets.write").find((e) => {
         const a = e.args as { sheet?: unknown; mode?: unknown };
         return reads.has(String(a.sheet)) && a.mode !== "replace";
@@ -209,7 +230,8 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
     : undefined;
   if (added) problems.push({ step: added.stepId, text: `It adds its results as new rows of the sheet it reads ${items.plural} from, so they would come back as new ${items.plural}.`, check: "write_back" });
 
-  if (keepsPlace(d)) {
+  if (checks.has("second_run")) {
+    const many = goesThroughList(d);
     const again: RunEvent[] = [];
     await runAgent({
       definition: d,
