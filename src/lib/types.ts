@@ -44,6 +44,9 @@ export interface AccountDTO {
   chat?: QuotaDTO | null;
   // The day's spend limit is reached: chat and helper uses wait for midnight UTC.
   paused?: boolean;
+  // The agent page opens with everything shown (step graph, code, test
+  // bench, versions), not the plain view.
+  agentDetails?: boolean;
 }
 
 // The agent sketch for one conversation, as the server stores and sends it.

@@ -126,7 +126,9 @@ export const Action = z.object({
 });
 // (Its tool must be one of ACTION_TOOLS: checked with the rest, in checkGraph.)
 
-const stepBase = { id: key, title: text(80), inputs: z.array(key).max(12), outputs: z.array(key).max(12) };
+// plain: the step in one sentence for someone who has never seen code, as
+// the agent's page shows it with details off (no names of values or tools).
+const stepBase = { id: key, title: text(80), plain: z.string().trim().max(200).optional(), inputs: z.array(key).max(12), outputs: z.array(key).max(12) };
 
 export const CodeStep = z.object({
   ...stepBase,

@@ -43,6 +43,9 @@ export const users = pgTable(
     // helper uses run on it (see servKey.ts).
     servKeyEncrypted: text("serv_key_encrypted"),
     servKeyLast4: text("serv_key_last4"),
+    // The agent page shows everything (the step graph, code, test bench and
+    // versions) rather than the plain view: the maker's own choice, kept.
+    agentDetails: boolean("agent_details").notNull().default(false),
     access: text("access", { enum: ["waiting", "approved", "rejected"] }).notNull().default("waiting"),
     accessDecidedBy: uuid("access_decided_by").references((): AnyPgColumn => users.id),
     accessDecidedAt: timestamp("access_decided_at", { withTimezone: true }),

@@ -20,6 +20,7 @@ import { payoutTick } from "@/lib/payments/withdrawals";
 import * as handle from "@/app/api/account/handle/route";
 import * as account from "@/app/api/account/route";
 import * as servKey from "@/app/api/account/serv-key/route";
+import * as accountDetails from "@/app/api/account/details/route";
 import * as board from "@/app/api/board/route";
 import * as chat from "@/app/api/chat/route";
 import * as conversationMessages from "@/app/api/conversations/[id]/messages/route";
@@ -133,6 +134,7 @@ const ROUTES: Record<string, object> = {
   "account": account,
   "account/handle": handle,
   "account/serv-key": servKey,
+  "account/details": accountDetails,
   "board": board,
   "chat": chat,
   "conversations": conversations,
@@ -456,6 +458,7 @@ describe("a helper's instructions stay on the server", () => {
     await hit("account", account.GET(req("/api/account")));
     await hit("serv key without a key", servKey.POST(req("/api/account/serv-key", "POST", {})));
     await hit("serv key remove", servKey.DELETE(req("/api/account/serv-key", "DELETE")));
+    await hit("details on", accountDetails.PUT(req("/api/account/details", "PUT", { on: true })));
     await hit("health", healthRoute.GET(req("/api/health")));
     await hit("plan a helper's conversation", agentsRoute.POST(req("/api/agents", "POST", { conversationId: cid })));
     await hit("agent that isn't there", agentRoute.GET(req(`/api/agents/${cid}`), { params: Promise.resolve({ id: cid }) }));

@@ -379,6 +379,13 @@
       "when": 1794359785447,
       "tag": "0053_agent_test_result",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1794360413371,
+      "tag": "0054_agent_details",
+      "breakpoints": true
     }
   ]
 }

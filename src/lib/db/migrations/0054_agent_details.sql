@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "agent_details" boolean DEFAULT false NOT NULL;
