@@ -7,7 +7,7 @@ import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import * as schema from "@/lib/db/schema";
 import { addHelper, addUser, testDb } from "./helperDb";
-import { COMPARE, FIND_LOW, RESTOCK_WIRE, restockBench } from "./agentFixtures";
+import { COMPARE_PLANNED as COMPARE, FIND_LOW, RESTOCK_PLANNED as RESTOCK_WIRE, restockBench } from "./agentFixtures";
 import { jobFor } from "@/lib/agents/build";
 import { draftOf } from "@/lib/agents/store";
 import { FakeChain, addr } from "./fakeChain";

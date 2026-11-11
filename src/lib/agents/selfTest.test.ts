@@ -5,6 +5,7 @@ import type { BenchData, TestResult } from "./types";
 import { readSample, sampleCount, samplePrompt } from "./sample";
 import { keepsPlace, sampleKey, selfTest } from "./test";
 import type { AgentDefinition } from "./definition";
+import { repaired, wireToDefinition } from "./plan";
 
 // The self test fits the agent it tests: one sample item for an agent that
 // handles one thing, three for one that goes through a list, and only the
@@ -36,6 +37,8 @@ describe("the sample", () => {
 describe("the self test", () => {
   it("passes the price watcher on its one product, and tells what it did", async () => {
     const d = definitionOf(PRICE_WIRE);
+    // The plan as the planner wants it: the repairs leave it as it is.
+    expect(repaired(wireToDefinition(JSON.parse(JSON.stringify(PRICE_WIRE))))).toEqual(wireToDefinition(PRICE_WIRE));
     const t = await selfTest({ definition: d, code: codeOf(d, PRICE_SOURCES), testResult: kept(d, priceBench(), { noun: "product", plural: "products", labels: ["Stone Kettle"] }) }, { serv: null });
     expect(t.result.problems).toEqual([]);
     expect(t.result.status).toBe("passed");
@@ -44,7 +47,7 @@ describe("the self test", () => {
 
   it("says plainly when the price is above the target and nothing more happens", async () => {
     const d = definitionOf(PRICE_WIRE);
-    const bench = { ...priceBench(), decisions: { is_low: "not_low" } };
+    const bench = { ...priceBench(), settings: { ...priceBench().settings, target_price: 30 } };
     const t = await selfTest({ definition: d, code: codeOf(d, PRICE_SOURCES), testResult: kept(d, bench, { noun: "product", plural: "products", labels: ["Stone Kettle"] }) }, { serv: null });
     expect(t.result.status).toBe("passed");
     expect(t.result.story).toBe('Passed. It read the page and found "above the target", so there was nothing more to do.');

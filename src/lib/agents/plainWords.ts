@@ -27,6 +27,7 @@ const FAILURES: [RegExp, string, string | null][] = [
   [/saves to memory without reading/, "it saved its place without looking at where it got to last time", null],
   [/reads its place from memory, but no step saves it/, "it looked up where it got to last time, but never saved where it got to", "Say how it should tell new rows from ones it has checked, for example by an empty Status column."],
   [/judges each item of/, "its judgement over a list wasn't joined up", "Say what each item is judged on, and what happens with the results."],
+  [/goes by the value|goes by one value/, "a step that picks the way to go wasn't given what to go by", "Say what it compares, for example the price against your target."],
   [/not JSON|No model answered/, "SERV's answer came back incomplete", null],
 ];
 

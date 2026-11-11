@@ -5,7 +5,7 @@ import type { PgliteDatabase } from "drizzle-orm/pglite";
 import { eq } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import { addUser, testDb } from "@/test/helperDb";
-import { COMPARE, FIND_LOW, RESTOCK_WIRE, restockBench } from "@/test/agentFixtures";
+import { COMPARE_PLANNED as COMPARE, FIND_LOW, RESTOCK_PLANNED as RESTOCK_WIRE, restockBench } from "@/test/agentFixtures";
 import { planAnswer } from "@/test/planAnswers";
 import { jobFor } from "@/lib/agents/build";
 import { draftOf } from "@/lib/agents/store";
@@ -244,12 +244,16 @@ describe("the builder", () => {
     const res = await run.POST(json(`/api/agents/${id}/run`, "POST", { dryRun: true, bench: restockBench() }), { params: Promise.resolve({ id }) });
     expect(res.headers.get("content-type")).toMatch(/text\/event-stream/);
     const e = await events(res);
-    expect(e.filter((x) => x.type === "step_done").map((x) => `${x.stepId}:${x.status}`)).toEqual(["find_low:ok", "compare:ok", "check_total:ok", "record:ok"]);
+    // The order is over the limit by the way "Compare suppliers" works it
+    // out, so it asks, and the sample's yes lets it through: no judgement.
+    expect(e.filter((x) => x.type === "step_done").map((x) => `${x.stepId}:${x.status}`)).toEqual(["find_low:ok", "compare:ok", "check_total:ok", "ask_owner:ok", "approved:ok", "record:ok"]);
     expect(e.at(-1)).toMatchObject({ type: "end", status: "done" });
     expect(seen).toEqual([]);
   });
 
   it("asks SERV for decisions on a live run, and records each call", async () => {
+    // A judgement, which only SERV can make.
+    plans = [{ ...RESTOCK_WIRE, steps: RESTOCK_WIRE.steps.map((s) => (s.id === "check_total" ? { ...s, from: "", inputs: ["order"], prompt: "Does this order look sensible for a small fabric shop?", outcomes: [{ id: "over", label: "Needs your look", next: "ask_owner" }, { id: "within", label: "Looks fine", next: "record" }] } : s)) }];
     const { id } = await built();
     seen.length = 0;
     const e = await events(await run.POST(json(`/api/agents/${id}/run`, "POST", { dryRun: false, bench: restockBench() }), { params: Promise.resolve({ id }) }));
@@ -398,7 +402,7 @@ describe("a self test that fails", () => {
     const outlines = seen.filter((s) => s.schema === "agent_outline");
     expect(outlines).toHaveLength(2);
     expect(outlines[1]!.body.messages[1]!.content).toContain(`The maker says: ${SENTENCE}`);
-    expect(after.definition!.steps.find((s) => s.id === "compare")!.outputs).toEqual(["order", "order_rows"]);
+    expect(after.definition!.steps.find((s) => s.id === "compare")!.outputs).toEqual(["order", "order_rows", "total_way", "question"]);
   });
 
   it("shows the sentence with Fix this when the fix on its own fails too, and fixes only once", async () => {

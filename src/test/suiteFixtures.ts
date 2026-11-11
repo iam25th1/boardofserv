@@ -8,7 +8,7 @@ import { emptyBench, type BenchData, type StepCode } from "@/lib/agents/types";
 // (one product page, a target, a question on Telegram, a reminder only on
 // a yes), the morning line and the evening sales totals.
 
-const step = <T extends Record<string, unknown>>(o: T) => ({ plain: "", inputs: [] as string[], outputs: [] as string[], next: "", description: "", tools: [] as string[], prompt: "", each: "", outcomes: [] as { id: string; label: string; next: string }[], action: "", otherwise: "", ...o });
+const step = <T extends Record<string, unknown>>(o: T) => ({ plain: "", inputs: [] as string[], outputs: [] as string[], next: "", description: "", tools: [] as string[], prompt: "", each: "", from: "", outcomes: [] as { id: string; label: string; next: string }[], action: "", otherwise: "", ...o });
 const action = (id: string, tool: string, description: string) => ({ id, tool, description, askOver: "", askOverDay: "", amountColumn: "" });
 
 export const PRICE_WIRE = {
@@ -23,11 +23,11 @@ export const PRICE_WIRE = {
   memory: [],
   actions: [action("ask_owner", "telegram.ask", "Ask you whether to send a reminder to buy it"), action("send_reminder", "telegram.send", "Send you the reminder to buy it")],
   steps: [
-    step({ id: "read_price", title: "Read the price", kind: "code", inputs: ["settings"], outputs: ["price"], next: "is_low", description: "Fetch settings.product_url and find the price on the page: the first amount after a currency sign. Return price as a number, or null when there is none.", tools: ["web.fetch"] }),
-    step({ id: "is_low", title: "At or below your target?", kind: "decision", inputs: ["price", "settings"], prompt: "Is the price at or below settings.target_price?", outcomes: [{ id: "low", label: "At or below the target", next: "make_question" }, { id: "not_low", label: "Above the target", next: "" }] }),
+    step({ id: "read_price", title: "Read the price", kind: "code", inputs: ["settings"], outputs: ["price", "price_way"], next: "is_low", description: 'Fetch settings.product_url and find the price on the page: the first amount after a currency sign. Return price as a number, or null when there is none. Also return price_way: "low" when the price is at or below settings.target_price, else "not_low".', tools: ["web.fetch"] }),
+    step({ id: "is_low", title: "At or below your target?", kind: "decision", inputs: ["price_way"], from: "price_way", prompt: "Is the price at or below the target?", outcomes: [{ id: "low", label: "At or below the target", next: "make_question" }, { id: "not_low", label: "Above the target", next: "" }] }),
     step({ id: "make_question", title: "Write the question", kind: "code", inputs: ["price", "settings"], outputs: ["question"], next: "ask", description: "Return question as telegram.ask's arguments: the price, the target and the page, asking whether to send a reminder to buy it, with the choices Yes and No." }),
     step({ id: "ask", title: "Ask you", kind: "action", action: "ask_owner", inputs: ["question"], outputs: ["reply"], next: "said_yes", otherwise: "" }),
-    step({ id: "said_yes", title: "Did you say yes?", kind: "decision", inputs: ["reply"], prompt: "Did the owner say yes?", outcomes: [{ id: "yes", label: "Yes", next: "make_reminder" }, { id: "no", label: "No", next: "" }] }),
+    step({ id: "said_yes", title: "Did you say yes?", kind: "decision", inputs: ["reply"], from: "reply", prompt: "Did the owner say yes?", outcomes: [{ id: "yes", label: "Yes", next: "make_reminder" }, { id: "no", label: "No", next: "" }] }),
     step({ id: "make_reminder", title: "Write the reminder", kind: "code", inputs: ["price", "settings"], outputs: ["reminder"], next: "send", description: "Return reminder as telegram.send's arguments: a reminder to buy it, with the price and the page." }),
     step({ id: "send", title: "Send the reminder", kind: "action", action: "send_reminder", inputs: ["reminder"], next: "" }),
   ],
@@ -39,7 +39,8 @@ export const PRICE_SOURCES: Record<string, string> = {
   read_price: `async function run(input, tools) {
   const page = await tools.web.fetch({ url: input.settings.product_url });
   const m = /[$£€]\\s*([0-9]+(?:[.,][0-9]{2})?)/.exec(page.text || "");
-  return { price: m ? Number(m[1].replace(",", ".")) : null };
+  const price = m ? Number(m[1].replace(",", ".")) : null;
+  return { price, price_way: price !== null && price <= Number(input.settings.target_price) ? "low" : "not_low" };
 }`,
   make_question: `async function run(input) {
   return { question: { question: "The price is now " + input.price + ", at or below your target of " + input.settings.target_price + ". Send you a reminder to buy it? " + input.settings.product_url, choices: ["Yes", "No"] } };

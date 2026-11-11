@@ -41,7 +41,8 @@ export function planProblems(d: AgentDefinition): string[] {
     if (s.kind === "code" && judges(s.description)) out.push(`code step "${s.id}" judges ("${s.title}"): judgement goes to a decision step, inside a loop when there are many items; code only counts and combines its verdicts.`);
   }
   for (const s of d.steps) {
-    if (s.kind !== "decision") continue;
+    // A decision that goes by a value a step worked out judges nothing.
+    if (s.kind !== "decision" || s.from) continue;
     const words = [s.title, s.prompt, ...s.outcomes.map((o) => o.label)].join(" ");
     if (LEFT.test(words)) out.push(`decision "${s.id}" decides whether items are left to go through ("${s.title}"): is there another row is code, never a decision. Go through the items with a loop step instead.`);
     else if (COUNTING.test(words)) out.push(`decision "${s.id}" decides a count or a comparison ("${s.title}"): work it out in a code step. Decisions are only for judgement.`);

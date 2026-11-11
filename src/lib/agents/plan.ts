@@ -7,6 +7,7 @@ import type { SketchDTO } from "../types";
 import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAMES, type AgentDefinition, type AgentStep } from "./definition";
 import { TOOLS } from "./toolbox";
 import { planProblems } from "./planRules";
+import { repairPlan, type RawStep } from "./planRepairs";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
 
 // Planning: SERV turns the maker's interview (and the conversation behind
@@ -22,9 +23,12 @@ import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinP
 
 // At most this many calls to SERV for one plan: the outline, the details
 // a few steps at a time, and a stage tried again when what it gave doesn't
-// check out. A plan typically takes four: the outline and three calls of
-// details.
+// check out (at most MAX_REPAIRS times). A plan typically takes two to
+// four: the outline and a call or more of details.
 export const MAX_PLAN_CALLS = 10;
+// When a plan doesn't check out, SERV is asked to put right only the parts
+// at fault this many times, then planning gives up.
+export const MAX_REPAIRS = 2;
 // Steps detailed in one call (a loop and the steps inside it go together).
 export const STEPS_PER_CALL = 6;
 // Each answer is a few thousand tokens at most, not streamed, so it gets
@@ -180,11 +184,14 @@ export function wireToDefinition(w: Wire): unknown {
       return {
         ...base,
         kind: "decision",
-        prompt: s(st.prompt),
+        // One that goes by a value may come with no question: its title is.
+        prompt: s(st.prompt) || (s(st.from) ? s(st.title) : ""),
         outcomes: arr(st.outcomes).map((o) => ({ id: s((o as Wire).id), label: s((o as Wire).label), next: nextOrNull((o as Wire).next) })),
         // Over a list: the input it judges item by item, named in its
         // description (or each, in a plan written by hand).
         ...(listInput(st) ? { each: listInput(st) } : {}),
+        // Or by a value: the way a step before it worked out.
+        ...(s(st.from) && !listInput(st) ? { from: s(st.from) } : {}),
       };
     }
     if (st.kind === "action") return { ...base, kind: "action", action: s(st.action), next: nextOrNull(st.next), ...(s(st.otherwise) ? { otherwise: s(st.otherwise) } : {}) };
@@ -247,7 +254,7 @@ export function wireToDefinition(w: Wire): unknown {
     triggers,
     settings: arr(w.settings).map((x) => {
       const t = x as Wire;
-      return { key: s(t.key), label: s(t.label), type: t.type, help: s(t.help), choices: arr(t.choices).map(s).filter(Boolean) };
+      return { key: s(t.key), label: s(t.label), type: t.type, help: s(t.help), choices: arr(t.choices).map(s).filter(Boolean), ...(s(t.given) ? { given: s(t.given).slice(0, 500) } : {}) };
     }),
     rules: arr(w.rules).map((x) => {
       const t = x as Wire;
@@ -373,6 +380,7 @@ export async function planAgent(
   };
   const missing = () => outlineIds(outline!).filter((id) => !details.has(id));
   const retried = new Set<string>();
+  let repairs = 0;
   while (calls.length < maxCalls) {
     // Every step without details gets them, its loop's steps alongside.
     const todo = missing();
@@ -381,7 +389,7 @@ export async function planAgent(
       if (!chunk || !(await detail(chunk))) break;
       continue;
     }
-    const joined = wireToDefinition(joinPlan(outline, details));
+    const joined = repaired(wireToDefinition(joinPlan(outline, details)));
     const checked = checkDefinition(joined);
     // A plan in the format still has to keep the planner's rules
     // (planRules.ts): judgement in decisions, counting in code, no loops.
@@ -390,6 +398,8 @@ export async function planAgent(
     const broken = rulesOf(checked.ok ? checked.definition : (joined as AgentDefinition));
     if (checked.ok && !broken.length) return done(checked.definition);
     errors = [...new Set([...(checked.ok ? [] : checked.errors), ...broken])];
+    if (repairs >= MAX_REPAIRS) break;
+    repairs += 1;
     const at = blame(errors, outline);
     // A step whose details went back once already and still don't check out
     // can't be fixed by its details alone: the outline goes back.
@@ -419,6 +429,21 @@ export async function planAgent(
     if (!(await detail([...at.steps.keys()], at.steps))) break;
   }
   return done(null);
+}
+
+// SERV's plan with the repairs that have one meaning made (planRepairs.ts):
+// a loop over one value goes once, a plain comparison or the owner's yes
+// goes by a value, and every send, write or pay is handed what it sends.
+export function repaired(plan: unknown): unknown {
+  const d = plan as { steps?: unknown; settings?: unknown; rules?: unknown; actions?: unknown };
+  if (!Array.isArray(d?.steps)) return plan;
+  const list = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
+  repairPlan(d.steps as RawStep[], {
+    settings: list(d.settings).map((x) => ({ key: s(x.key), type: x.type })),
+    rules: list(d.rules).map((x) => ({ key: s(x.key), type: x.type })),
+    actions: list(d.actions).map((x) => ({ id: s(x.id), tool: x.tool, description: s(x.description) })),
+  });
+  return plan;
 }
 
 // The planner's rules, on a plan that may not check out yet: what can be

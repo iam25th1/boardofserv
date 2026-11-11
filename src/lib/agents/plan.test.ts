@@ -4,7 +4,7 @@ import { modelConfig } from "@/lib/model";
 import type { SketchDTO } from "@/lib/types";
 import { RESTOCK_WIRE } from "@/test/agentFixtures";
 import { servOnly } from "./build";
-import { MAX_PLAN_CALLS, planAgent, planRequest, STEPS_PER_CALL, wireToDefinition } from "./plan";
+import { MAX_PLAN_CALLS, MAX_REPAIRS, planAgent, planRequest, STEPS_PER_CALL, wireToDefinition } from "./plan";
 import { blame, DETAIL_SCHEMA, detailChunks, OUTLINE_SCHEMA } from "./planStages";
 import { askedSteps, detailsOf, outlineOf, planAnswer } from "@/test/planAnswers";
 import { NESTED_HACKATHON_WIRE } from "@/test/hackathonFixture";
@@ -145,12 +145,15 @@ describe("planning", () => {
     expect([...blame([gone], outline).steps.keys()]).toEqual(["make_updates", "each_submission"]);
   });
 
-  it("gives up when its calls are used up, with the last reasons", async () => {
+  it("gives up once SERV has been asked to put it right twice, with the last reasons", async () => {
     const { fetchImpl } = serv(Array.from({ length: 20 }, () => ({ ...RESTOCK_WIRE, triggers: [] })));
     const r = await plan(fetchImpl);
-    expect(MAX_PLAN_CALLS).toBe(10);
+    expect(MAX_REPAIRS).toBe(2);
     expect(r).toMatchObject({ definition: null });
-    expect(r.calls).toHaveLength(MAX_PLAN_CALLS);
+    // The outline and its details, then the outline twice more with the
+    // reasons: never all of MAX_PLAN_CALLS.
+    expect(r.calls.map((c) => c.attempts[0]?.purpose)).toEqual(["agent_outline", "agent_steps", "agent_outline", "agent_outline"]);
+    expect(r.calls.length).toBeLessThan(MAX_PLAN_CALLS);
     expect(r.errors.join(" ")).toMatch(/triggers/);
   });
 
