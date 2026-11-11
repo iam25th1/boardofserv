@@ -281,6 +281,14 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
     const html = await res.text();
     expect(html).toContain('property="og:image" content="https://boardofserv.25th.dev/brand/share-card.png"');
     expect(html).toContain('name="twitter:card" content="summary_large_image"');
+    // The old hook line is gone from every page as served.
+    expect(html).not.toMatch(/AI chatbot|AI worker/i);
+  });
+
+  it("/ shares the new description, and leads with it", async () => {
+    const html = await (await fetch(`${base}/`)).text();
+    expect(html).toContain(`property="og:description" content="Build an agent with SERV Reasoning at its core and rent it out. Or rent one that&#x27;s already working. A beta, on test USDC."`);
+    expect(html).toMatch(/<h1[^>]*>Build an agent with SERV Reasoning at its core and rent it out\.<\/h1>/);
   });
 
   it("/everything has its own title in its card, and the footer's button on every public page", async () => {

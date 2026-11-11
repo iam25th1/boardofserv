@@ -4,7 +4,7 @@ import { shareMetadata } from "@/lib/shareMeta";
 
 export const metadata: Metadata = shareMetadata({
   title: "Everything you need to know",
-  description: "boardofserv is a market for AI agents that actually work: what it is, how renting and building one works, and what's under the hood.",
+  description: "Build an agent with SERV Reasoning at its core and rent it out. Or rent one that's already working.",
   path: "/everything",
 });
 

@@ -3,11 +3,12 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Landing } from "./Landing";
-import AboutPage from "@/app/about/page";
-import EverythingPage from "@/app/everything/page";
-import PrivacyPage from "@/app/privacy/page";
-import SupportPage from "@/app/support/page";
-import TermsPage from "@/app/terms/page";
+import AboutPage, { metadata as aboutMeta } from "@/app/about/page";
+import EverythingPage, { metadata as everythingMeta } from "@/app/everything/page";
+import PrivacyPage, { metadata as privacyMeta } from "@/app/privacy/page";
+import SupportPage, { metadata as supportMeta } from "@/app/support/page";
+import TermsPage, { metadata as termsMeta } from "@/app/terms/page";
+import { rootMetadata } from "@/lib/shareMeta";
 
 // The front page and the public pages: every section there, the way into
 // the app, drafts marked as drafts, and nothing an outside reader would
@@ -24,7 +25,11 @@ afterEach(() => {
 describe("the front page", () => {
   it("has its parts, in order, and a way in", () => {
     render(<Landing />);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Small agents that do one job for you, every week.");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Build an agent with SERV Reasoning at its core and rent it out.");
+    // The line under the headline, then what it does once it's yours.
+    const hero = screen.getByRole("heading", { level: 1 }).closest("section")!;
+    expect([...hero.querySelectorAll("h1 + p, h1 ~ p")].map((p) => p.textContent)).toEqual(["Or rent one that's already working."]);
+    expect(hero).toHaveTextContent("It runs on its own, and asks before it spends.");
     expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual([
       "For anyone who needs an agent",
       "For makers",
@@ -64,6 +69,46 @@ describe("the front page", () => {
     expect(text).not.toContain(String.fromCharCode(0x2014));
     // Every drawing says what it shows.
     for (const svg of container.querySelectorAll("svg[role='img']")) expect(svg.getAttribute("aria-label")).toBeTruthy();
+  });
+});
+
+describe("the description", () => {
+  const NEW = "Build an agent with SERV Reasoning at its core and rent it out. Or rent one that's already working.";
+  // The hook line it replaced, and the words of it.
+  const OLD = /AI chatbot|AI worker|Almost nobody has/i;
+  const read = (path: string) => readFileSync(join(process.cwd(), path), "utf8");
+
+  it("leads the front page and opens the explainer", () => {
+    render(<Landing />);
+    const hero = screen.getByRole("heading", { level: 1 }).closest("section")!;
+    // The headline and the line under it, one after the other (text joins
+    // them without the space between).
+    expect(hero.textContent).toContain(NEW.replace(" Or", "Or"));
+    cleanup();
+    render(<EverythingPage />);
+    const intro = screen.getByRole("heading", { level: 1 }).parentElement!;
+    expect(intro.querySelector("h1 + p")?.textContent).toBe(NEW);
+    expect(read("docs/boardofserv-everything-you-need-to-know.md").startsWith(`# Everything you need to know\n\n${NEW}\n`)).toBe(true);
+  });
+
+  it("is what a shared link and the README say", () => {
+    expect(rootMetadata.description).toBe(`${NEW} A beta, on test USDC.`);
+    expect(everythingMeta.description).toBe(NEW);
+    // The share card's source, and the README's opening line.
+    const card = read("docs/brand/share-card.html");
+    expect(card).toContain("<h1>Build an agent with SERV Reasoning at its core and rent it out.</h1>");
+    expect(card).toContain("Or rent one that's already working.");
+    expect(read("README.md").replace(/\s+/g, " ")).toContain(NEW);
+  });
+
+  it("left no trace of the old hook line on any public page, in their share text or in the docs", () => {
+    for (const Page of [Landing, AboutPage, TermsPage, PrivacyPage, SupportPage, EverythingPage]) {
+      const { container } = render(<Page />);
+      expect(container.textContent ?? "", Page.name).not.toMatch(OLD);
+      cleanup();
+    }
+    for (const meta of [rootMetadata, aboutMeta, termsMeta, privacyMeta, supportMeta, everythingMeta]) expect(JSON.stringify(meta)).not.toMatch(OLD);
+    for (const path of ["docs/boardofserv-everything-you-need-to-know.md", "docs/brand/share-card.html", "docs/DEPLOY-PIER.md", "README.md"]) expect(read(path), path).not.toMatch(OLD);
   });
 });
 

@@ -1,6 +1,6 @@
 # Everything you need to know
 
-Everyone has an AI chatbot. Almost nobody has an AI worker.
+Build an agent with SERV Reasoning at its core and rent it out. Or rent one that's already working.
 
 You can ask a chatbot to write you an email. You can't ask it to watch your stock levels every morning, notice you're running low, find the best supplier price, ask you "spend $40 on more fabric?", and then actually place the order while you're asleep.
 
