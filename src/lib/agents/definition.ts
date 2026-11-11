@@ -334,7 +334,7 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
     if (s.kind === "decision" && s.each) {
       if (!s.inputs.includes(s.each)) say(`step "${s.id}" judges each item of "${s.each}", so "${s.each}" must be one of its inputs`, ["steps", i, "each"]);
       if (!s.outputs.length) say(`step "${s.id}" judges each item of a list, so its first output must name the verdicts it gives`, ["steps", i, "outputs"]);
-      if (new Set(s.outcomes.map((o) => o.next)).size > 1) say(`step "${s.id}" judges each item of a list, so every outcome goes on to the same step`, ["steps", i, "outcomes"]);
+      if (new Set(s.outcomes.map((o) => o.next)).size > 1) say(`step "${s.id}" judges each item of a list, so its outcomes are the verdicts one item can get (like met and not_met), every one going on to the same code step, which counts them; whether there was anything to judge is for that code, not an outcome`, ["steps", i, "outcomes"]);
     }
     if (s.kind === "action" && !declared.has(s.action)) say(`step "${s.id}" takes "${s.action}", which is not a declared action`, ["steps", i, "action"]);
     if (s.kind === "action" && s.otherwise) {

@@ -70,6 +70,10 @@ export function codeRequest(step: CodeStepDef, d: AgentDefinition): string {
     if (name === "memory") return `what was kept from the last job: { ${d.memory.map((m) => `${m.key}: ${m.type}`).join(", ") || "nothing"} }`;
     if (name === "trigger") return "what woke the agent up (null on a schedule)";
     const from = d.steps.find((s) => s.outputs.includes(name));
+    // A decision over a list's verdicts: exactly their shape.
+    if (from?.kind === "decision" && from.each && from.outputs[0] === name) {
+      return `the verdicts of the step "${from.title}", one per item of ${from.each} in the same order: Array<{ item: number (the item's place in ${from.each}, from 0), outcome: ${from.outcomes.map((o) => `"${o.id}"`).join(" | ")}, label: string, reason: string }>`;
+    }
     return from ? `from the step "${from.title}"${from.kind === "code" ? `: ${from.description}` : ""}` : "a value from an earlier step";
   };
   // An output an action takes as its tool's arguments must be exactly those.

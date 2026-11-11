@@ -32,6 +32,7 @@ export const SAMPLE_SCHEMA = {
     pages: list(obj({ url: str("an address it fetches"), text: str("the page's readable text") }), "pages it fetches, else []"),
     searches: list(obj({ query: str('what it searches for, or "*" for anything'), title: str("result title"), url: str("result address"), snippet: str("result text") }), "search results, else []"),
     answers: strings("what the owner answers its questions, in order, else []"),
+    steps: list(obj({ id: str("a step's id"), plain: str("the step in one sentence for someone who never saw code, with no names of values or tools") }), "every step, in plain words"),
   }),
 };
 
@@ -40,6 +41,7 @@ export const SAMPLE_PROMPT = [
   "Give exactly three items for it to work through (three rows of the tab it reads, three enquiries, three products), realistic and different from each other: where the agent judges or filters, make one that should clearly pass and one that should clearly fail.",
   "Answer every setting. A sheet setting's answer is a tab name: give that tab with the columns the steps name and the three items as rows. Leave empty the columns the agent itself fills in (a status or result it writes).",
   "Give pages or search results only if a step fetches or searches. Answers only if it asks its owner something.",
+  "Also say what every step does in one plain sentence a first-time maker understands, with no names of values or tools.",
   "Never use em dashes.",
 ].join("\n");
 
@@ -54,7 +56,7 @@ export function sampleRequest(d: AgentDefinition): string {
     ...(d.settings.length ? d.settings.map((s) => `- ${s.key} (${s.type}${s.choices.length ? `: ${s.choices.join(", ")}` : ""}): ${s.label}`) : ["- (none)"]),
     "",
     "Steps:",
-    ...d.steps.map((s) => `- ${s.title}: ${s.kind === "code" ? s.description : s.kind === "decision" ? s.prompt : (d.actions.find((a) => a.id === s.action)?.description ?? "")}`),
+    ...d.steps.map((s) => `- ${s.id} (${s.title}): ${s.kind === "code" ? s.description : s.kind === "decision" ? s.prompt : (d.actions.find((a) => a.id === s.action)?.description ?? "")}`),
   ].join("\n");
 }
 
@@ -67,6 +69,7 @@ type Wire = {
   pages?: { url?: unknown; text?: unknown }[];
   searches?: { query?: unknown; title?: unknown; url?: unknown; snippet?: unknown }[];
   answers?: unknown;
+  steps?: { id?: unknown; plain?: unknown }[];
 };
 const text = (v: unknown, max = 2000) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const texts = (v: unknown) => (Array.isArray(v) ? v.map((x) => text(x)).filter(Boolean) : []);
@@ -82,6 +85,8 @@ function answer(type: AgentDefinition["settings"][number]["type"], value: string
 export interface Sample {
   bench: BenchData;
   items: NonNullable<TestResult["items"]>;
+  // Each step in one plain sentence, by step id, when SERV gave them.
+  plain?: Record<string, string>;
 }
 
 // SERV's answer as the bench's sample data, or null when it doesn't fit.
@@ -111,7 +116,8 @@ export function readSample(d: AgentDefinition, content: string | null): Sample |
   const labels = texts(w.labels).slice(0, 3);
   const noun = text(w.noun, 40).toLowerCase();
   if (labels.length !== 3 || !noun) return null;
-  return { bench, items: { noun, plural: text(w.plural, 40).toLowerCase() || `${noun}s`, labels } };
+  const plain = Object.fromEntries((w.steps ?? []).flatMap((x) => (d.steps.some((st) => st.id === text(x.id, 40)) && text(x.plain, 200) ? [[text(x.id, 40), text(x.plain, 200)]] : [])));
+  return { bench, items: { noun, plural: text(w.plural, 40).toLowerCase() || `${noun}s`, labels }, plain };
 }
 
 // Without SERV: every setting answered from its own words, every sheet

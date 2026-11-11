@@ -146,7 +146,11 @@ async function settleWriting(versionId: string, ctx: BuildContext): Promise<void
         { definition: now.definition, code: now.code, testResult: now.testResult },
         { serv: ctx.serv, record: (call) => recordAgentCall(ctx, "agent_plan", call) },
       );
-      await updateDraft(versionId, { testResult: tested.result, bench: tested.bench });
+      // The sample's call also put each step in plain words, for the plain
+      // view: they go on the plan (what a step does is unchanged).
+      const plain = tested.plain ?? {};
+      const definition = Object.keys(plain).length ? { ...now.definition, steps: now.definition.steps.map((s) => (plain[s.id] && !s.plain ? { ...s, plain: plain[s.id] } : s)) } : undefined;
+      await updateDraft(versionId, { testResult: tested.result, bench: tested.bench, ...(definition ? { definition } : {}) });
     } catch (err) {
       console.error(`agents: the self test stopped: ${errorText(err, "unknown error")}`);
     }

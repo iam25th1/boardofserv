@@ -21,6 +21,7 @@ const FAILURES: [RegExp, string, string | null][] = [
   [/decides a count|decides whether items are left|loops back|last time round/, "it used a judgement step for counting or going through a list", null],
   [/code step .* judges/, "it left a judgement to code instead of SERV", null],
   [/saves to memory without reading/, "it saved its place without looking at where it got to last time", null],
+  [/judges each item of/, "its judgement over a list wasn't joined up", "Say what each item is judged on, and what happens with the results."],
   [/not JSON|No model answered/, "SERV's answer came back incomplete", null],
 ];
 
@@ -69,16 +70,20 @@ function writtenRows(events: RunEvent[]): Record<string, unknown>[] {
 }
 
 // A test run as a short story: "3 submissions checked: 2 passed, 1
-// rejected, summary sent." Or where it stopped, in plain words.
+// rejected, summary sent." It says only what the run did with the sample
+// items: rows it wrote their results into (checked), else items its
+// decisions judged, else just the sample. Or where it stopped.
 export function storyOf(d: AgentDefinition, events: RunEvent[], end: Extract<RunEvent, { type: "end" }>, items: TestResult["items"]): string {
   const title = (id: string) => d.steps.find((s) => s.id === id)?.title ?? "a step";
   const tools = events.filter((e): e is Extract<RunEvent, { type: "tool" }> => e.type === "tool" && !e.error);
   const count = (tool: string) => tools.filter((t) => t.tool === tool).length;
-  const parts: string[] = [];
   const rows = writtenRows(events);
+  const updated = tools.filter((t) => t.tool === "sheets.update").reduce((k, t) => k + ((t.args as { updates?: unknown[] }).updates?.length ?? 0), 0);
+  const added = rows.length - updated;
+  const parts: string[] = [];
   const verdicts = tally(rows);
   if (verdicts) parts.push(verdicts);
-  else if (rows.length) parts.push(`${rows.length} ${rows.length === 1 ? "row" : "rows"} written`);
+  else if (added) parts.push(`${added} ${added === 1 ? "row" : "rows"} written`);
   const summary = d.actions.some((a) => a.tool === "telegram.send" && /summary|report|digest|recap|round.?up/i.test(a.description));
   const sent = count("telegram.send");
   if (sent) parts.push(summary ? "summary sent" : sent === 1 ? "message sent" : `${sent} messages sent`);
@@ -88,11 +93,17 @@ export function storyOf(d: AgentDefinition, events: RunEvent[], end: Extract<Run
   if (paid) parts.push(paid === 1 ? "1 payment made" : `${paid} payments made`);
 
   const n = items?.labels.length ?? 0;
-  const head = n && items ? `${n} ${n === 1 ? items.noun : items.plural} checked` : "It ran";
+  const judged = events.reduce((k, e) => {
+    const v = e.type === "step_done" && e.status === "ok" ? (e.output as { verdicts?: unknown } | null)?.verdicts : undefined;
+    return k + (Array.isArray(v) ? v.length : 0);
+  }, 0);
+  const did = Boolean(items && n && (updated || judged));
+  const head = !items || !n ? "It ran" : updated ? `${updated} ${updated === 1 ? items.noun : items.plural} checked` : judged ? `${n} ${items.plural} judged` : `${n} sample ${items.plural}`;
   if (end.status !== "done") {
     const failed = [...events].reverse().find((e): e is Extract<RunEvent, { type: "step_done" }> => e.type === "step_done" && e.status === "failed");
     const at = failed ? ` at "${title(failed.stepId)}"` : "";
-    return `${head === "It ran" ? "It" : `${head}, then it`} stopped${at}${parts.length ? ` after ${parts.join(", ")}` : ""}.`;
+    if (did) return `${head}, then it stopped${at}${parts.length ? ` after ${parts.join(", ")}` : ""}.`;
+    return items && n ? `It stopped${at}, before doing anything with the ${n} sample ${items.plural}.` : `It stopped${at}.`;
   }
   if (!parts.length) return head === "It ran" ? "It ran to the end without writing or sending anything." : `${head}, nothing written or sent.`;
   return `${head}: ${parts.join(", ")}.`;

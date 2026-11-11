@@ -33,7 +33,7 @@ describe("the test case", () => {
     expect(planProblems(d)).toEqual([]);
   });
 
-  it("finds every way the real run's plan went wrong", () => {
+  it("finds every way the real run's plan went wrong, or puts it right", () => {
     const c = checkDefinition(wireToDefinition(BAD_HACKATHON_WIRE));
     expect(c.ok).toBe(true);
     const problems = planProblems((c as { definition: ReturnType<typeof hackathonDefinition> }).definition).join("\n");
@@ -41,11 +41,31 @@ describe("the test case", () => {
     expect(problems).toMatch(/decision "any_new" decides whether items are left/);
     expect(problems).toMatch(/decision "more_rows" decides whether items are left/);
     expect(problems).toMatch(/step "more_rows" loops back to "judge_row"/);
-    expect(problems).toMatch(/step "save" saves to memory without reading what was saved before/);
+    // A position saved without reading the last one is put right as the
+    // plan is read: the step reads memory, and keeps the larger.
+    const save = (c as { definition: ReturnType<typeof hackathonDefinition> }).definition.steps.find((s) => s.id === "save") as CodeStepDef;
+    expect(save.inputs).toContain("memory");
+    expect(save.description).toContain("a saved position keeps the larger of the old one and the new one");
+    expect(problems).not.toMatch(/saves to memory/);
     // Told back to the maker in plain words, never the step ids.
     const said = planFailure(planProblems((c as { definition: ReturnType<typeof hackathonDefinition> }).definition));
     expect(said).toMatch(/^The plan didn't come together: it left a judgement to code instead of SERV, and it used a judgement step for counting or going through a list\./);
     expect(said).not.toMatch(/judge_row|any_new|more_rows/);
+  });
+
+  it("catches a code step that works out whether a requirement is met, as SERV wrote it live", () => {
+    const d = hackathonDefinition();
+    const judging = { ...d, steps: d.steps.map((s) => (s.id === "find_new" ? { ...s, description: "For each requirement, determine if it is met by the submission. Count met requirements." } : s)) };
+    expect(planProblems(judging).join(" ")).toMatch(/code step "find_new" judges/);
+    // Working out whether a row is new is code's to do.
+    const fine = { ...d, steps: d.steps.map((s) => (s.id === "find_new" ? { ...s, description: "Read the tab and determine whether each row is new: its Status is empty." } : s)) };
+    expect(planProblems(fine)).toEqual([]);
+  });
+
+  it("still catches a position saved without reading the last one, if a plan gets past the reading", () => {
+    const d = hackathonDefinition();
+    const saving = { ...d, memory: [{ key: "last_row", description: "The last row checked", type: "number" as const }], steps: d.steps.map((s) => (s.id === "tally" ? { ...s, tools: [...(s as CodeStepDef).tools, "memory.set" as const] } : s)) };
+    expect(planProblems(saving)).toContain('step "tally" saves to memory without reading what was saved before: list "memory" in its inputs and build on it (a position keeps the larger of the old and the new).');
   });
 
   it("sends a plan that breaks the rules back to SERV with the reasons, and takes the one that keeps them", async () => {
@@ -60,6 +80,44 @@ describe("the test case", () => {
     expect(plan.definition?.steps.map((s) => s.id)).toEqual(["find_new", "judge", "tally", "write_status", "send"]);
     expect(asked[1]).toContain("That plan has problems");
     expect(asked[1]).toContain('decision "any_new" decides whether items are left');
+  });
+
+  it("takes a decision whose description names one of its inputs as a decision over that list", () => {
+    // SERV's plan schema has no room for one more field on a step, so the
+    // list is named in the decision's description.
+    const wire = { ...HACKATHON_WIRE, steps: HACKATHON_WIRE.steps.map((s) => (s.id === "judge" ? { ...s, each: "", description: "checks" } : s)) };
+    const c = checkDefinition(wireToDefinition(wire));
+    expect(c.ok).toBe(true);
+    expect(((c as { definition: ReturnType<typeof hackathonDefinition> }).definition.steps[1] as DecisionStepDef).each).toBe("checks");
+    // Words, or a name it doesn't read, are no list.
+    const prose = checkDefinition(wireToDefinition({ ...wire, steps: wire.steps.map((s) => (s.id === "judge" ? { ...s, description: "judge them all" } : s)) }));
+    expect(((prose as { definition: ReturnType<typeof hackathonDefinition> }).definition.steps[1] as DecisionStepDef).each).toBeUndefined();
+  });
+
+  it("names a list decision's verdicts and gives it verdicts to choose from, when SERV left them out", () => {
+    // As SERV sent it live: no output, and one outcome that only says the
+    // judging is done.
+    const wire = {
+      ...HACKATHON_WIRE,
+      steps: HACKATHON_WIRE.steps.map((s) =>
+        s.id === "judge" ? { ...s, each: "", description: "checks", outputs: [], outcomes: [{ id: "requirements_judged", label: "Judged", next: "tally" }] } : s,
+      ),
+    };
+    const c = checkDefinition(wireToDefinition(wire));
+    expect(c.ok).toBe(true);
+    const judge = (c as { definition: ReturnType<typeof hackathonDefinition> }).definition.steps[1] as DecisionStepDef;
+    expect(judge.outputs).toEqual(["verdicts"]);
+    expect(judge.outcomes.map((o) => [o.id, o.next])).toEqual([
+      ["yes", "tally"],
+      ["no", "tally"],
+    ]);
+  });
+
+  it("tells Dolphin exactly what a list decision's verdicts look like", async () => {
+    const { codeRequest } = await import("./code");
+    const d = hackathonDefinition();
+    const ask = codeRequest(d.steps.find((s) => s.id === "tally") as CodeStepDef, d);
+    expect(ask).toContain('- verdicts: the verdicts of the step "Judge each requirement", one per item of checks in the same order: Array<{ item: number (the item\'s place in checks, from 0), outcome: "met" | "not_met", label: string, reason: string }>');
   });
 
   it("reads a clock dressed as a value check as the schedule it meant", () => {
@@ -186,6 +244,6 @@ describe("the self test", () => {
   it("tells a stopped run in plain words", () => {
     const events: RunEvent[] = [{ type: "step", stepId: "find_new", input: {} }, { type: "step_done", stepId: "find_new", status: "failed", output: null, outcome: null, note: "x", ms: 1, costUsd: 0 }];
     const end = { type: "end" as const, status: "failed" as const, reason: "x", steps: 1, ms: 1, costUsd: 0, memory: {}, sheets: {} };
-    expect(storyOf(d, events, end, { noun: "submission", plural: "submissions", labels: HACKATHON_LABELS })).toBe('3 submissions checked, then it stopped at "Find new submissions".');
+    expect(storyOf(d, events, end, { noun: "submission", plural: "submissions", labels: HACKATHON_LABELS })).toBe('It stopped at "Find new submissions", before doing anything with the 3 sample submissions.');
   });
 });

@@ -76,15 +76,16 @@ export const AGENT_PLAN_SCHEMA = {
       obj({
         id: str("snake_case"),
         title: str("a few words"),
-        plain: str("the step in one plain sentence for someone who never saw code, with no names of values or tools"),
         kind: { type: "string", enum: ["code", "decision", "action"] },
         inputs: strings("values it reads"),
         outputs: strings("values it adds"),
         next: str('the next step id, "" when the run ends (not for decisions)'),
-        description: str("code: exactly what the code must do with its inputs and what it returns, else empty"),
+        // A decision over a list names its list here: SERV refuses a schema
+        // whose compiled grammar is too large, and this one has no room for
+        // one more field on a step.
+        description: str("code: exactly what the code must do with its inputs and what it returns; a decision over a list: only the name of the input holding the list; else empty"),
         tools: { type: "array", items: { type: "string", enum: [...TOOL_NAMES] }, description: "code: the tools it may call, else []" },
         prompt: str("decision: what to judge, else empty"),
-        each: str("decision over a list only: the input holding the list whose items it judges one by one, else empty"),
         outcomes: list(obj({ id: str("snake_case"), label: str("a few words"), next: str('the step it leads to, or ""') }), "decision: 2 to 6 outcomes, else []"),
         action: str("action: a declared action id, else empty"),
         otherwise: str('action that waits for the owner (telegram.ask, or a payment over a limit): the step to go to when no answer comes in time, or "" to stop'),
@@ -127,6 +128,53 @@ function readBags(steps: { inputs: string[]; outputs: string[]; description?: st
   }
 }
 
+// One more fix with one meaning: a code step that saves to memory (with
+// memory.set, or by making a memory.set action's arguments) reads what
+// memory holds and builds on it, so a saved position never goes backwards.
+function buildOnMemory(steps: { kind?: string; inputs: string[]; outputs: string[]; description?: string; tools?: string[] }[], w: Wire) {
+  const sets = new Set(arr(w.actions).flatMap((a) => (s((a as Wire).tool) === "memory.set" ? [s((a as Wire).id)] : [])));
+  const argsFor = new Set(arr(w.steps).flatMap((x) => (s((x as Wire).kind) === "action" && sets.has(s((x as Wire).action)) ? [s(arr((x as Wire).inputs)[0])] : [])));
+  for (const st of steps) {
+    if (st.kind !== "code") continue;
+    const saves = (st.tools ?? []).includes("memory.set") || st.outputs.some((o) => argsFor.has(o));
+    if (!saves || st.inputs.includes("memory") || (st.tools ?? []).includes("memory.get")) continue;
+    st.inputs = [...st.inputs, "memory"];
+    st.description = `${st.description ?? ""} Build on what memory holds already: a saved position keeps the larger of the old one and the new one.`.trim();
+  }
+}
+
+// Two more for a decision over a list, which SERV is still learning: with
+// no output named, its verdicts are the one value the step it leads to
+// reads that no step makes; with one outcome only, or one id twice, all
+// going to one step (no verdicts to choose from), its verdicts are yes and
+// no, both going there.
+function listVerdicts(steps: Wire[]) {
+  const made = new Set(steps.flatMap((x) => arr(x.outputs).map(s)));
+  for (const st of steps) {
+    if (st.kind !== "decision" || !st.each) continue;
+    const outcomes = arr(st.outcomes) as Wire[];
+    if (!arr(st.outputs).length) {
+      const after = steps.find((x) => x.id === s(outcomes[0]?.next));
+      const unmade = arr(after?.inputs).map(s).filter((i) => !made.has(i) && !["settings", "rules", "memory", "trigger"].includes(i));
+      if (unmade.length === 1) st.outputs = [unmade[0]!];
+    }
+    if (new Set(outcomes.map((o) => s(o.id))).size < 2 && new Set(outcomes.map((o) => s(o.next))).size === 1) {
+      const next = outcomes[0]!.next ?? null;
+      st.outcomes = [
+        { id: "yes", label: "Yes", next },
+        { id: "no", label: "No", next },
+      ];
+    }
+  }
+}
+
+// A decision over a list: the input holding the list, when its description
+// is exactly the name of one of its inputs.
+function listInput(st: Wire): string | null {
+  const named = s(st.each) || s(st.description);
+  return /^[a-z][a-z0-9_]*$/.test(named) && arr(st.inputs).map(s).includes(named) ? named : null;
+}
+
 // Where a step (as wireToDefinition shapes it) can go next.
 function nextIds(step: unknown): string[] {
   const st = step as { next?: string | null; otherwise?: string; outcomes?: { next: string | null }[] };
@@ -145,13 +193,17 @@ export function wireToDefinition(w: Wire): unknown {
         kind: "decision",
         prompt: s(st.prompt),
         outcomes: arr(st.outcomes).map((o) => ({ id: s((o as Wire).id), label: s((o as Wire).label), next: nextOrNull((o as Wire).next) })),
-        ...(s(st.each) ? { each: s(st.each) } : {}),
+        // Over a list: the input it judges item by item, named in its
+        // description (or each, in a plan written by hand).
+        ...(listInput(st) ? { each: listInput(st) } : {}),
       };
     }
     if (st.kind === "action") return { ...base, kind: "action", action: s(st.action), next: nextOrNull(st.next), ...(s(st.otherwise) ? { otherwise: s(st.otherwise) } : {}) };
     return { ...base, kind: "code", description: s(st.description), tools: arr(st.tools).map(s), next: nextOrNull(st.next) };
   });
   readBags(steps as { inputs: string[]; outputs: string[]; description?: string; prompt?: string }[], w);
+  buildOnMemory(steps as { kind?: string; inputs: string[]; outputs: string[]; description?: string; tools?: string[] }[], w);
+  listVerdicts(steps as Wire[]);
   const first = steps[0]?.id;
   const triggers = arr(w.triggers).map((x) => {
     const t = x as Wire;
@@ -229,7 +281,8 @@ export const PLAN_AGENT_PROMPT = [
   "Steps. code: reading and working things out, in a sandbox (read sheets, fetch pages, search, compare, compute); describe exactly what the code must do with its inputs and what it returns, and list only the tools it calls.",
   "decision: a judgement made by a model, with 2 to 6 outcomes, each naming the step it leads to.",
   "Judgement (is this submission's demo working? is this enquiry worth a reply?) goes to a decision. Counting, comparing numbers, thresholds (fewer than half), going through a list and whether any rows or items are left all go to code, never to a decision.",
-  "To judge many items (each row, or each requirement of each submission), use one decision with each: the input holding the list, made by a code step before it (for example one item per submission and requirement, with what is needed to judge it). It judges every item in one go and its first output is the verdicts in the list's order ({ item, outcome, label, reason }), which a code step after it counts and combines. Every outcome of such a decision goes on to the same step. Steps never loop back to an earlier step.",
+  "To judge many items (each row, or each requirement of each submission), use one decision over a list. Its description holds only the name of the input that is the list, made by a code step before it; when each item needs several judgements, that code step makes one item per pair (one per submission and requirement, with what is needed to judge it). Its outcomes are the verdicts one item can get (for example met and not_met), never whether there is anything to judge, and every outcome's next is the same code step, which counts and combines the verdicts. Its first output names the verdicts ({ item, outcome, label, reason }, in the list's order). An empty list is judged with no model call and gives no verdicts. Steps never loop back to an earlier step.",
+  'For example, after a code step make_checks that outputs checks (one item per submission and requirement), the decision is {"id":"judge","kind":"decision","inputs":["checks"],"outputs":["verdicts"],"description":"checks","prompt":"Does this submission meet this requirement?","outcomes":[{"id":"met","label":"Met","next":"count"},{"id":"not_met","label":"Not met","next":"count"}]}, and the code step count (inputs ["checks","verdicts"]) counts each submission\'s met verdicts. Never a step per item, never a "current" item, never a step that goes back.',
   "When there is nothing to do (no new rows, nothing to report), the code step before an action leaves that action's input null (or its rows or updates empty), and the action is skipped: that is how a run with nothing new ends quietly, with no decision.",
   "Whatever a step uses after going through many items (a summary, a count, a position to save) covers all of them, never just the last one. A saved position builds on the one saved before: the step that makes it reads memory and keeps the larger.",
   "action: takes one declared action, which only changes things (sheets.write, sheets.update, telegram.send, telegram.ask, wallet.pay, memory.set); never use an action to read. For sheets.write, sheets.update, wallet.pay and memory.set its first input must already be that tool's arguments ({ sheet, rows }, { sheet, updates }, { to, amountUsdc, memo } or { key, value }), a value of its own made by a code step before it for that action alone; telegram.send and telegram.ask make their message from any inputs. The step's first output holds the tool's result (telegram.ask gives { answer }).",
@@ -240,7 +293,6 @@ export const PLAN_AGENT_PROMPT = [
   'Inputs name values a step reads: settings, rules, memory, trigger, or an output of an earlier step. Outputs name what it adds. A setting is read as settings.<key>: a step that uses one lists "settings" in its inputs, never the key itself; the same for rules and memory.',
   "In code step descriptions, name the exact sheets, columns and fields the maker gave, and the shape of what the step returns. A code step lists in tools only the tools its own code calls: a step given rows by an earlier step doesn't read the sheet again.",
   'Something that runs on a clock ("every 15 minutes, check for new rows") is a schedule, never a check trigger.',
-  "Give every step plain: one sentence a first-time user understands, with no names of values or tools.",
   `Tools: ${TOOL_NAMES.map((t) => `${t} (${TOOLS[t].summary})`).join("; ")}.`,
   "Every side effect (sheets.write, sheets.update, telegram.send, telegram.ask, wallet.pay) must be a declared action. Anything the maker said it must never do without asking goes through telegram.ask first.",
   "A question to the owner (telegram.ask) waits for their answer for approvalHours; an action step that asks can name otherwise, the step to go to when no answer comes, or leave it empty to stop. Spending is a payment (wallet.pay), or rows written to a sheet whose amountColumn holds each row's amount in USDC (orders). A spending action can name askOver, a usdc rule: the runtime asks the owner before any spending that takes the job's running total over it, and askOverDay, the same for the day's total. The runtime keeps those totals across every action and line, so never add a decision or question of your own for those limits.",

@@ -35,6 +35,8 @@ export interface Tested {
   result: TestResult;
   // The sample data it ran on, for a draft's test bench.
   bench: BenchData;
+  // Each step in plain words, from a sample made just now.
+  plain?: Record<string, string>;
   events: RunEvent[];
   end: Extract<RunEvent, { type: "end" }>;
 }
@@ -81,7 +83,7 @@ export async function testVersion(v: { definition: AgentDefinition; code: Record
     sample: sample.bench,
     sampleOf: sampleKey(d),
   };
-  return { result, bench: sample.bench, events, end };
+  return { result, bench: sample.bench, plain: sample.plain, events, end };
 }
 
 type ToolEvent = Extract<RunEvent, { type: "tool" }>;

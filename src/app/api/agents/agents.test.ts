@@ -359,7 +359,9 @@ describe("the card's actions", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { test: { status: string; story: string; items: { labels: string[] } }; agent: AgentSummaryDTO };
     expect(body.test.items.labels).toEqual(["Linen, natural", "Cotton twill", "Wool felt"]);
-    expect(body.test.story).toMatch(/^3 fabrics checked/);
+    // It wrote orders, not results into the fabrics' own rows: the story
+    // says what it did, never that the fabrics were checked.
+    expect(body.test.story).toMatch(/^3 sample fabrics: \d+ rows? written/);
     expect(body.agent.test).toMatchObject({ story: body.test.story });
     // The sample is now the draft's test bench, and made only once.
     expect((await builderOf(id)).bench.sheets.Stock).toHaveLength(3);

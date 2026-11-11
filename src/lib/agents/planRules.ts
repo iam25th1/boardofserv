@@ -19,17 +19,17 @@ const COUNTING =
   /\bhow many\b|\bcount(?:s|ing)?\b|\b(?:fewer|less|more|greater) than (?:half|\d)|\bat (?:least|most) (?:half|\d)|\bhalf (?:of|the)\b|\bthreshold\b|\b\d+\s*(?:%|percent)\b|\bover \d|\bunder \d|\bexceeds?\b|\bequal(?:s)? to\b/i;
 const LEFT = /\b(?:any|more|another|next|other)\s+(?:new\s+)?(?:rows?|items?|entries|submissions?|records?|messages?|ones?)\b|\b(?:rows?|items?|submissions?|records?|entries)\s+(?:left|remaining|to (?:process|check|go|handle))\b|\bis there (?:another|a next|one more|anything)\b|\bany (?:left|remaining)\b/i;
 
-const JUDGES = /\b(?:judge[sd]?|judging|assess(?:es|ed|ing)?|evaluat(?:e|es|ed|ing)\s+(?:whether|if|how well))\b/i;
+const JUDGES = /\b(?:judge[sd]?|judging|assess(?:es|ed|ing)?|(?:evaluat(?:e|es|ed|ing)|determin(?:e|es|ed|ing)) (?:whether|if|how well)\b[^.]*\b(?:meets?|met|good|quality|worth|requirement))/i;
 
 export function planProblems(d: AgentDefinition): string[] {
   const out: string[] = [];
   for (const s of d.steps) {
-    if (s.kind === "code" && JUDGES.test(s.description)) out.push(`code step "${s.id}" judges ("${s.title}"): judgement goes to a decision step, over the list with each when there are many items; code only counts and combines its verdicts.`);
+    if (s.kind === "code" && JUDGES.test(s.description)) out.push(`code step "${s.id}" judges ("${s.title}"): judgement goes to a decision step, over the list when there are many items; code only counts and combines its verdicts.`);
   }
   for (const s of d.steps) {
     if (s.kind !== "decision") continue;
     const words = [s.title, s.prompt, ...s.outcomes.map((o) => o.label)].join(" ");
-    if (LEFT.test(words)) out.push(`decision "${s.id}" decides whether items are left to go through ("${s.title}"): is there another row is code, never a decision. Go through the list inside a code step, or judge every item with one decision over the list (each).`);
+    if (LEFT.test(words)) out.push(`decision "${s.id}" decides whether items are left to go through ("${s.title}"): is there another row is code, never a decision. Go through the list inside a code step, or judge every item with one decision over the list (its description names the list).`);
     else if (COUNTING.test(words)) out.push(`decision "${s.id}" decides a count or a comparison ("${s.title}"): work it out in a code step. Decisions are only for judgement.`);
   }
 
@@ -48,7 +48,7 @@ export function planProblems(d: AgentDefinition): string[] {
     state.set(id, "done");
   };
   if (d.steps[0]) visit(d.steps[0].id);
-  for (const l of loops) out.push(`${l}: steps never loop back, so whatever comes after would see only the last time round. Go through the list inside one code step, or judge every item with one decision over the list (each).`);
+  for (const l of loops) out.push(`${l}: steps never loop back, so whatever comes after would see only the last time round. Go through the list inside one code step, or judge every item with one decision over the list (its description names the list).`);
 
   // Saving to memory without reading what was saved before.
   const memorySetActions = new Set(d.actions.filter((a) => a.tool === "memory.set").map((a) => a.id));
