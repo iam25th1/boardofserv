@@ -50,7 +50,7 @@ describe("the test case", () => {
     expect(problems).not.toMatch(/saves to memory/);
     // Told back to the maker in plain words, never the step ids.
     const said = planFailure(planProblems((c as { definition: ReturnType<typeof hackathonDefinition> }).definition));
-    expect(said).toMatch(/^The plan didn't come together: it left a judgement to code instead of SERV, and it used a judgement step for counting or going through a list\./);
+    expect(said).toMatch(/^I couldn't work out the steps: it left a judgement to code instead of SERV, and it used a judgement step for counting or going through a list\./);
     expect(said).not.toMatch(/judge_row|any_new|more_rows/);
   });
 

@@ -3,8 +3,9 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent, TestResult } from "./agents/types";
 import type { InstallAnswers } from "./agents/settingsForm";
-import type { AccountDTO, AdminDTO, AdminSafetyDTO, AuditPageDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, QuotaDTO, RentalDetailDTO, RentalDTO, RequestDTO, RequestPageDTO, SketchDTO, SpendingDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, AdminSafetyDTO, AuditPageDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, MakerListingDTO, QuotaDTO, RentalDetailDTO, RentalDTO, RequestDTO, RequestPageDTO, SketchDTO, SpendingDTO, WalletDTO } from "./types";
 import type { SetupShape } from "./agents/definition";
+import type { ConnectAnswers } from "./journey";
 import type { DisputeList, PayeeBody } from "@/components/agents/SpendingPanel";
 
 // When the server sends no sentence of its own: never a status code.
@@ -55,6 +56,26 @@ export function useApi() {
       // Plan the conversation's agent; it builds in the background.
       planAgent: (conversationId: string) =>
         json<{ agent: AgentSummaryDTO }>("/api/agents", { method: "POST", body: JSON.stringify({ conversationId }) }).then((d) => d.agent),
+      // The journey in the chat (lib/journey.ts): Make it works out the
+      // steps and stops for the maker to look; Looks right builds and tries
+      // them; Change something and Fix it change them from what the maker
+      // says; Connect saves what it needs; Go live runs it or lists it.
+      makeIt: (conversationId: string) =>
+        json<{ agent: AgentSummaryDTO }>("/api/agents", { method: "POST", body: JSON.stringify({ conversationId, review: true }) }).then((d) => d.agent),
+      looksRight: (id: string) => json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/build`, { method: "POST" }).then((d) => d.agent),
+      changeSteps: (id: string, message: string) =>
+        json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/fix`, { method: "POST", body: JSON.stringify({ message, journey: "change" }) }).then((d) => d.agent),
+      fixIt: (id: string, change: { message: string } | { step: string }) =>
+        json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/fix`, { method: "POST", body: JSON.stringify({ ...change, journey: "fix" }) }).then((d) => d.agent),
+      // Answers that need another look come back by field, on the error.
+      connect: async (conversationId: string, answers: ConnectAnswers): Promise<{ ok: boolean }> => {
+        const res = await authed(`/api/conversations/${encodeURIComponent(conversationId)}/journey`, { method: "POST", body: JSON.stringify({ action: "connect", answers }) });
+        const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; errors?: Record<string, string> };
+        if (!res.ok) throw Object.assign(new Error(body.error ?? SOMETHING_WRONG), { errors: body.errors ?? null });
+        return { ok: true };
+      },
+      goLive: (id: string, body: { how: "run" } | { how: "board"; weeklyPrice: string; description: string }) =>
+        json<{ installation?: InstallationDTO; listing?: MakerListingDTO }>(`/api/agents/${encodeURIComponent(id)}/golive`, { method: "POST", body: JSON.stringify(body) }),
       getAgent: (id: string) => json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}`).then((d) => d.agent),
       getAgentBuilder: (id: string) => json<{ builder: AgentBuilderDTO }>(`/api/agents/${encodeURIComponent(id)}?view=builder`).then((d) => d.builder),
       listAgents: () => json<{ agents: AgentListItemDTO[] }>("/api/agents").then((d) => d.agents),
@@ -163,7 +184,8 @@ export function useApi() {
       // "Show details" on the agent page, kept for this maker.
       setAgentDetails: (on: boolean) => json<{ agentDetails: boolean }>("/api/account/details", { method: "PUT", body: JSON.stringify({ on }) }).then((d) => d.agentDetails),
       // "Test it": one run on sample data made from the plan, as a story.
-      testAgent: (id: string) => json<{ test: TestResult; agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/test`, { method: "POST" }),
+      testAgent: (id: string, o: { journey?: boolean } = {}) =>
+        json<{ test: TestResult; agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/test`, { method: "POST", ...(o.journey ? { body: JSON.stringify({ journey: true }) } : {}) }),
       // One test bench run, streamed. Returns an abort function.
       runAgent(id: string, body: { dryRun: boolean; bench: BenchData }, on: (e: RunEvent) => void): () => void {
         const controller = new AbortController();

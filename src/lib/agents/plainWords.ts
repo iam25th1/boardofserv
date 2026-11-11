@@ -42,7 +42,7 @@ export function planFailure(errors: string[]): string {
   }
   const reasons = [...said].slice(0, 2);
   const why = reasons.length ? reasons.join(", and ") : "its steps didn't fit together";
-  return `The plan didn't come together: ${why}. ${suggestion ?? "Add a detail in the chat, like where it finds things, what it decides, and what it writes or sends."}`;
+  return `I couldn't work out the steps: ${why}. ${suggestion ?? "Add a detail, like where it finds things, what it decides, and what it writes or sends."}`;
 }
 
 // The first value of a written row that reads as a verdict ("Passed",
@@ -215,10 +215,10 @@ export function problemOf(v: {
   testResult?: TestResult | null;
   review?: { status: string; findings: { finding: string; severity: string }[] } | null;
 }): Problem | null {
-  if (v.buildState === "failed") return { text: v.buildNote ?? "The plan didn't come together.", step: null, fix: v.definition ? "replan" : "plan" };
+  if (v.buildState === "failed") return { text: v.buildNote ?? "I couldn't work out the steps.", step: null, fix: v.definition ? "replan" : "plan" };
   if (["planning", "writing", "fixing"].includes(v.buildState) || !v.definition) return null;
   const held = v.definition.steps.find((s) => s.kind === "code" && v.code[s.id]?.status === "needs_attention");
-  if (held) return { text: `"${held.title}" didn't pass SERV's check of its code, so it's on hold.`, step: held.id, fix: "rewrite" };
+  if (held) return { text: `"${held.title}" didn't pass its check, so it's on hold.`, step: held.id, fix: "rewrite" };
   const blocking = v.review?.status === "blocked" ? v.review.findings.find((f) => f.severity === "blocking") : undefined;
   if (blocking) return { text: blocking.finding, step: null, fix: "replan" };
   const failed = v.testResult?.status === "failed" ? v.testResult.problems[0] : undefined;

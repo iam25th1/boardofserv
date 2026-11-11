@@ -20,7 +20,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   if ("refused" in who) return who.refused;
   const draft = await draftOf(who.agent.id);
   if (!draft) return Response.json({ error: "There's no draft to publish: change something first." }, { status: 409 });
-  if (!draft.definition) return Response.json({ error: "Plan it first." }, { status: 409 });
+  if (!draft.definition) return Response.json({ error: "There are no steps yet." }, { status: 409 });
   if (draft.buildState !== "idle") return Response.json({ error: "Wait for it to finish building." }, { status: 409 });
   const waiting = draft.definition.steps.filter((s) => s.kind === "code" && draft.code[s.id]?.status !== "approved");
   if (waiting.length) {

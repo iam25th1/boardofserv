@@ -517,30 +517,68 @@ acting over time), and the dock's kind switch can pick it too. The plan only
 chooses answer or agent now; watcher, digest and helper stay for sketches
 that already have them.
 
-SERV interviews the maker one question at a time, with answer buttons where
-they help, through the same plan-then-reply turn as a helper: what wakes it
-up, where it looks, what it does with what it finds, what counts as done,
-what it must never do without asking, what the owner sets up and what it
-should remember (`wakes`, `looks`, `handles`, `finish`, `asks`, `setup`,
-`remembers` on `agent_sketches`, migration 0019). They ride in the same plan
-schema as the helper's fields, so a first message that already says "every
-morning, check my stock sheet" keeps what it said.
+SERV asks the maker only what it needs to understand the job, one question
+at a time, with answer buttons where they help, through the same
+plan-then-reply turn as a helper: when it runs, where it looks and what it
+does with what it finds (`wakes`, `looks`, `handles` on `agent_sketches`).
+What counts as done, what it must ask first, what the owner sets up and what
+it remembers (`finish`, `asks`, `setup`, `remembers`) are kept when the
+maker says them and never asked. Replies keep the maker's own numbers,
+conditions and schedule, use plain words (steps, never plan, code or
+settings), and never claim anything is built, set up, ready or live: a
+reply about an agent is held until it is whole, and a sentence that claims
+too much is left out (`src/lib/replyClaims.ts`).
 
-The agent's dock (`src/components/chat/AgentDock.tsx`) shows the interview
-as seven chalk dots, filled as they are answered and turning while asked,
-and once the agent is planned, its real steps as a chalk diagram
-(`src/components/agents/StepDiagram.tsx`): a code step is a square, a
-decision a diamond, an action a circle, a loop a square with round corners
-leading into its first step, with links to each next step and one per
-outcome from a decision. New steps are chalked on one after another and
-their links drawn with anime.js; a step whose code is approved fills in.
-Helpers keep their takes / does / gives dock.
+#### The journey in the chat
+
+Making an agent happens in the chat from start to finish, in six stages a
+stage tracker shows across the top (`src/lib/journey.ts`,
+`src/components/chat/journey/`): 1 Describe, 2 Steps, 3 Build, 4 Try it,
+5 Connect, 6 Go live, the current one standing out, the ones done ticked,
+and a chalk line drawn as far as it has got. Each stage is a card in the
+conversation (a message with a `card`, migration 0055), put in by the
+server as the stage starts (`src/lib/agents/journey.ts`), so scrolling up
+tells the whole story: the latest card shows the agent as it is now, and an
+earlier one keeps what it showed when the journey moved on.
+
+1. Describe: once the job is clear, the reply says it back and a card with
+   Make it comes under it, the only action. It moves down under each new
+   reply until it is pressed.
+2. Steps: Make it (`POST /api/agents` with `review`) works out the steps and
+   stops for the maker to look: a numbered list in plain words, a loop's
+   own steps set in under it, with Looks right and Change something. A
+   change (`POST /api/agents/:id/fix` with `journey: "change"`) is planned
+   again from what the maker typed, the list updates in place and the chat
+   says what changed, asking first about anything that touches the maker's
+   own schedule, setup questions or limits.
+3. Build: Looks right (`POST /api/agents/:id/build`) writes and checks each
+   code step, the card showing each step as it goes ("Writing step 3 of 7",
+   "Checking step 3") with a chalk tick drawn once it is done, and "Built
+   and checked" at the end.
+4. Try it: the self test runs by itself and tells its story. A failure
+   shows its one plain sentence and a box prefilled with it; Fix it
+   (`journey: "fix"`) runs again only what it needs: a step on hold is
+   written again; anything else changes the steps and builds and tries
+   them again on its own, unless the change touches what the maker set,
+   which waits for them to look. Nothing is fixed without the maker.
+5. Connect: Telegram, the sheets it works on, the answers it asks for
+   (prefilled from what the maker said while describing it) and who it
+   pays, as small cards using the guided setup's pieces; never a token, key
+   or password. Saved with `POST /api/conversations/:id/journey`.
+6. Go live (`POST /api/agents/:id/golive`): Run it for me publishes the
+   version (with its code review) and starts it for the maker with what
+   they connected, showing when it runs next; Put it on the board lists it
+   with a weekly price and a description, previewed as the board shows it.
+
+The agent's page stays for the step graph, the code, the test bench and the
+versions, reached from a small Details link on the latest card. Helpers
+keep their takes / does / gives dock.
 
 ### Planning
 
-Plan on the agent's dock (`POST /api/agents` with the conversation) makes the
-agent and its first draft, or plans its draft afresh, once the interview is
-complete. SERV, and only SERV, turns the interview and the conversation
+Make it in the chat (`POST /api/agents` with the conversation) makes the
+agent and its first draft, or plans its draft afresh, once the job is
+clear. SERV, and only SERV, turns the interview and the conversation
 behind it into a whole definition (`src/lib/agents/plan.ts`), in two
 stages (`src/lib/agents/planStages.ts`): an outline (the agent's setup, and
 its steps' names, kinds, order, loops and what each is for), then the
@@ -556,10 +594,20 @@ keywords); the two are joined, turned back into the format and checked
 with the planner's rules. Each reason goes back only to its stage: the
 outline (what wakes it, its setup, which steps there are and of which kind)
 or the details of the steps it names, which go back to the outline when
-they fail twice. A plan takes four calls or so, and at most ten. Some
-mistakes with only one meaning are repaired on the way in: a step that
-lists a setting, rule or memory key as an input (or names one in its words)
-reads the bag it lives in. Each answer is not streamed, so it waits up to
+they fail twice; SERV is asked to put a plan right at most twice
+(`MAX_REPAIRS`), then planning gives up with the reasons in plain words. A
+plan takes two to four calls, and at most ten. Mistakes with only one
+meaning are repaired on the way in (`src/lib/agents/planRepairs.ts`) rather
+than sent back: a step that lists a setting, rule or memory key as an input
+(or names one in its words) reads the bag it lives in; a loop over one value
+(a page link, a target) goes once; a plain comparison (a price against a
+target, how many were met) or the owner's yes is a decision that goes by a
+value (`from`), worked out by the code step before it or taken from the
+owner's answer, with no model call; and every step that sends, asks,
+writes, pays or saves is handed exactly that by a code step right before
+it, one being put in where none is. Values the maker gives become settings,
+and one they said while describing the job is kept (`given`) for their own
+Connect, never shown to renters. Each answer is not streamed, so it waits up to
 `AGENT_PLAN_TIMEOUT_MS` (default 120000) rather than a reply's 20 seconds;
 a review waits a minute and a decision half a minute. Decision steps carry a prompt and their
 outcomes, action steps one declared action, code steps a plain description
@@ -572,12 +620,16 @@ request (Cloudflare closes a request after 100 seconds). The draft's
 `failed` with a plain note), the dock polls `GET /api/agents/:id` every two
 seconds while it builds, and a state no job in this process owns (the
 server restarted) is called failed so the maker can plan again. Once its
-code is written, every plan gets a self test on three sample items and a
-second run (`src/lib/agents/test.ts`). When it fails, the one plain
-sentence that says what went wrong is shown while Fix this runs once on its
-own with it: the plan is changed from that sentence, its changed steps
-written again and tested again. If that test fails too, the sentence stays
-with the Fix this button. Every model
+code is written, every plan gets a self test (`src/lib/agents/test.ts`) on
+sample data that fits it: one item for an agent that handles one thing
+(one product page), three for one that goes through a list. Only the checks
+that apply to it run: "its summary covers every item" for an agent that
+goes through a list and sends a message after it, "it doesn't add its
+results as new rows of the tab it reads" for one that goes through a tab's
+rows, and "a second run leaves what it did alone" for one that keeps its
+place. Its story says what it did, in order, and a pass says so first. Built
+from the agent's page, a failed self test runs Fix this once on its own with
+its sentence; in the chat it goes to the maker instead. Every model
 call writes a `reply_usage` row (`agent_plan`, `agent_code`, `agent_review`,
 `agent_decision`), so building counts towards the day's spend, and planning
 is refused like a chat turn when the day's limit is reached or the account

@@ -1,4 +1,5 @@
 "use client";
+import type { JourneyCard } from "@/lib/journey";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { animate, stagger, utils } from "animejs";
 import { Markdown } from "./Markdown";
@@ -17,6 +18,8 @@ export interface MessageView {
   // it settles in place instead of mounting again.
   clientKey?: string;
   settled?: boolean;
+  // A stage of making the agent, shown as a card instead of words.
+  card?: JourneyCard | null;
 }
 
 interface Props {

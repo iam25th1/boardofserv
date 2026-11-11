@@ -17,10 +17,18 @@ export const AGENT_FIELDS = ["watches", "when", "how", "tells"] as const;
 export const ANSWER_FIELDS = ["takes", "does", "gives"] as const;
 export const INTERVIEW_FIELDS = ["wakes", "looks", "handles", "finish", "asks", "setup", "remembers"] as const;
 // What the chat asks about an agent: only what it needs to understand the
-// job. What the owner sets up (accounts, sheets, Telegram) is collected by
-// the guided setup, never in the chat, and what it remembers is the
-// planner's to work out; both are kept when the maker says them anyway.
-export const ASKED_FIELDS = ["wakes", "looks", "handles", "finish", "asks"] as const;
+// job, which is when it runs, where it looks and what it does with what it
+// finds. What counts as done and what it must ask first are kept when the
+// maker says them, never asked: a first-time maker can't answer them, and
+// asking invites made-up questions to the owner. What the owner sets up
+// (accounts, sheets, Telegram) is collected at Connect, never in the chat,
+// and what it remembers is the planner's to work out.
+export const ASKED_FIELDS = ["wakes", "looks", "handles"] as const;
+
+// The chat has what it needs to make the agent: Make it is offered.
+export function describedEnough(sketch: Pick<SketchDTO, "kind" | "wakes" | "looks" | "handles"> | null): boolean {
+  return Boolean(sketch && sketch.kind === "agent" && ASKED_FIELDS.every((k) => sketch[k]));
+}
 export const SKETCH_FIELDS = [...AGENT_FIELDS, ...ANSWER_FIELDS, ...INTERVIEW_FIELDS] as const;
 
 export type SketchKind = (typeof SKETCH_KINDS)[number];

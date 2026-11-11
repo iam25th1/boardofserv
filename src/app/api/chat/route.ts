@@ -15,8 +15,9 @@ import { replySystemPrompt, type TurnPlan } from "@/lib/systemPrompt";
 import { errorText } from "@/lib/db/errors";
 import { recordAttempts } from "@/lib/modelAttempts";
 import { agentForConversation, currentVersion } from "@/lib/agents/store";
-import { changePlan, type Changed } from "@/lib/agents/change";
+import { changeSteps, offerMakeIt } from "@/lib/agents/journey";
 import { honestReply } from "@/lib/replyClaims";
+import { describedEnough } from "@/lib/sketchFields";
 
 export const runtime = "nodejs";
 
@@ -77,13 +78,20 @@ export async function POST(req: Request) {
       await db.delete(messages).where(and(eq(messages.conversationId, cid), gt(messages.createdAt, target.createdAt)));
     }
   } else if (regenerate) {
-    const last = await db
+    // The last reply goes, with a Make it card under it (it comes again
+    // when the new reply has what it needs); a later stage's card never.
+    const recent = await db
       .select()
       .from(messages)
       .where(eq(messages.conversationId, cid))
       .orderBy(desc(messages.createdAt))
-      .limit(1);
-    if (last[0]?.role === "assistant") await db.delete(messages).where(eq(messages.id, last[0].id));
+      .limit(3);
+    const offered = recent[0]?.card?.stage === "describe" ? recent[0] : null;
+    const last = offered ? recent[1] : recent[0];
+    if (last?.role === "assistant" && !last.card) {
+      await db.delete(messages).where(eq(messages.id, last.id));
+      if (offered) await db.delete(messages).where(eq(messages.id, offered.id));
+    }
   } else if (content) {
     await db.insert(messages).values({ conversationId: cid, role: "user", content });
   }
@@ -153,9 +161,9 @@ export async function POST(req: Request) {
       // what really happened: no model writes it.
       const change = planned && built ? (plan.sketch?.change ?? null) : null;
       if (change && built) {
-        const changed = await changePlan(user, built, { message: said });
-        if (changed.kind === "started" || changed.kind === "busy") send("agent", { conversationId: cid, agent: changed.agent });
-        const text = changeReply(changed, change);
+        const moved = await changeSteps(user, built, said, { said: true });
+        if (!("refused" in moved)) send("agent", { conversationId: cid, agent: moved.agent });
+        const text = changeReply(moved, change);
         send("delta", { text });
         const [saved] = await db.insert(messages).values({ conversationId: cid, role: "assistant", content: text }).returning();
         await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
@@ -178,13 +186,15 @@ export async function POST(req: Request) {
       // No em dashes on screen, code left alone (dashes.ts).
       const dashes = new DashFix();
       let full = "";
-      // About an agent with steps, the reply is held until it is whole and
-      // checked (replyClaims.ts): it may not say it changed, tested or
-      // published anything, or point at a Plan button the card doesn't have.
+      // About an agent, the reply is held until it is whole and checked
+      // (replyClaims.ts): it may not say anything is built, tested, set up,
+      // ready or live, or that it changed anything (only the cards say what
+      // really happened), or point at a button that isn't there.
+      const held = planned || sketch?.kind === "agent";
       const show = (text: string) => {
         if (!text) return;
         full += text;
-        if (!planned) send("delta", { text });
+        if (!held) send("delta", { text });
       };
       let source = "";
       let label = "";
@@ -209,8 +219,8 @@ export async function POST(req: Request) {
         show(dashes.push(rest) + dashes.finish());
       }
 
-      if (planned && full.trim()) {
-        full = honestReply(full);
+      if (held && full.trim()) {
+        full = honestReply(full, planned ? "The cards below show where it is and what you can do next." : describedEnough(sketch) ? "I have what I need: press Make it below to see its steps." : "Tell me a little more about the job.");
         send("delta", { text: full });
       }
       if (!full.trim()) {
@@ -228,8 +238,13 @@ export async function POST(req: Request) {
         .returning();
       await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
       // The reply is finished and saved: the browser unlocks the composer and
-      // shows the plan's answers under it.
+      // shows the plan's answers under it. Once the job is described well
+      // enough to make, Make it comes under the reply, as a card.
       send("reply_end", { messageId: saved?.id, source, label, choices: turnPlan?.choices ?? [] });
+      if (sketch?.kind === "agent" && !planned) {
+        const offered = await offerMakeIt(cid);
+        if (offered) send("card", { conversationId: cid, message: { id: offered.id, role: offered.role, content: offered.content, card: offered.card, createdAt: offered.createdAt.toISOString() } });
+      }
       await finishUsage(usageId, result, plan.result, plan.sketch !== null, ownKey);
       send("done", { messageId: saved?.id, source, label });
       if (open) ctrl.close();
@@ -297,10 +312,8 @@ async function finishUsage(id: string | null, r: ReplyResult | null, x: JsonResu
 
 // What the chat says about a change asked for an agent with steps: exactly
 // what happened, never more.
-function changeReply(changed: Changed, change: string): string {
+function changeReply(moved: Awaited<ReturnType<typeof changeSteps>>, change: string): string {
   const what = change.replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "");
-  if (changed.kind === "started") return `Changing the plan: ${what}. The agent's card shows the new steps when it's done.`;
-  if (changed.kind === "busy") return "It's still being built, so nothing has changed yet. Ask again once its card says it's ready.";
-  if (changed.kind === "unplanned") return "There's no plan to change yet.";
-  return `${changed.error} Nothing has changed.`;
+  if ("refused" in moved) return `${moved.refused.error} Nothing has changed.`;
+  return `Changing the steps: ${what}. They show below when they're ready, with what changed.`;
 }

@@ -9,13 +9,16 @@ import { buildContext, NOT_AVAILABLE } from "@/lib/agents/context";
 import { agentForConversation, agentsOf, createAgent, editableDraft, versionsOf } from "@/lib/agents/store";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { listingOf } from "@/lib/market/listings";
-import { ASKED_FIELDS } from "@/lib/sketchFields";
+import { describedEnough } from "@/lib/sketchFields";
+import { makeIt } from "@/lib/agents/journey";
 import { loadSketch } from "@/lib/sketchStore";
 import { refusal } from "@/lib/spend";
 
 export const runtime = "nodejs";
 
-const Body = z.object({ conversationId: z.string().uuid() });
+// review: Make it in the chat, which stops once the steps are there for
+// the maker to look at (agents/journey.ts).
+const Body = z.object({ conversationId: z.string().uuid(), review: z.boolean().optional() });
 
 // Plan the agent sketched in a conversation: SERV turns the interview into
 // steps in the background, then its code is written and reviewed. The first
@@ -31,9 +34,14 @@ export async function POST(req: Request) {
   const { conversationId } = parsed.data;
   const convo = await db.query.conversations.findFirst({ where: and(eq(conversations.id, conversationId), eq(conversations.userId, user.id)) });
   if (!convo) return Response.json({ error: "Not found" }, { status: 404 });
+  if (parsed.data.review) {
+    const moved = await makeIt(user, conversationId);
+    if ("refused" in moved) return Response.json({ error: moved.refused.error }, { status: moved.refused.status });
+    return Response.json({ agent: moved.agent }, { status: 202 });
+  }
 
   const sketch = await loadSketch(conversationId);
-  if (!sketch || sketch.kind !== "agent" || !ASKED_FIELDS.every((k) => sketch[k])) {
+  if (!sketch || !describedEnough(sketch)) {
     return Response.json({ error: "Finish describing the agent first." }, { status: 400 });
   }
   const ctx = buildContext(user, conversationId);

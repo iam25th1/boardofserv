@@ -7,12 +7,13 @@ import { loadSketch } from "../sketchStore";
 import { describeFailures, type JsonResult, type ModelConfig } from "../model";
 import type { AgentSummaryDTO } from "../types";
 import { dolphinProvider, writeStep } from "./code";
-import { codeSpec, nextOf, type AgentDefinition, type CodeStepDef } from "./definition";
+import { codeSpec, givenAnswers, nextOf, setupShapeOf, type AgentDefinition, type CodeStepDef } from "./definition";
+import { stepDepths, stepLine, stepsInOrder } from "./plainView";
 import { planAgent, type PlanInput } from "./plan";
 import { setStepCode, updateDraft, versionById } from "./store";
 import { planFailure, problemOf } from "./plainWords";
 import { selfTest } from "./test";
-import type { StepCode } from "./types";
+import type { StepCode, TestResult } from "./types";
 import { errorText } from "../db/errors";
 import { recordAttempts } from "../modelAttempts";
 
@@ -147,10 +148,15 @@ export async function planInputFor(conversationId: string | null, current: Agent
 }
 
 // How the self test after writing goes on: whether a failure runs Fix this
-// once on its own, and the problem an earlier run of it fixed.
-interface Settle {
+// once on its own, and the problem an earlier run of it fixed. In the chat
+// (journey.ts) a failure goes to the maker instead, with a box to say
+// what's wrong, and the chat's cards follow the test: one as it starts, and
+// what comes after it once it is done.
+export interface Settle {
   autoFix: boolean;
   fixed?: string;
+  onTest?: () => Promise<void>;
+  onTested?: (result: TestResult) => Promise<void>;
 }
 
 // Once the code is written: with every step ready, the plan gets its self
@@ -165,6 +171,7 @@ async function settleWriting(versionId: string, ctx: BuildContext, settle: Settl
   const attention = Object.values(now?.code ?? {}).filter((c) => c.status === "needs_attention").length;
   if (now?.definition && !attention && now.definition.steps.every((s) => s.kind !== "code" || now.code[s.id]?.status === "approved")) {
     try {
+      await settle.onTest?.();
       const tested = await selfTest(
         { definition: now.definition, code: now.code, testResult: now.testResult },
         { serv: ctx.serv, record: (call) => recordAgentCall(ctx, "agent_plan", call) },
@@ -177,6 +184,9 @@ async function settleWriting(versionId: string, ctx: BuildContext, settle: Settl
       await updateDraft(versionId, { testResult: result, bench: tested.bench, ...(definition ? { definition } : {}) });
       const sentence = result.status === "failed" ? result.problems[0]?.text : undefined;
       if (sentence && settle.autoFix && (await fixOnce(versionId, ctx, definition ?? now.definition, sentence))) return;
+      await updateDraft(versionId, { buildState: "idle", buildNote: null });
+      await settle.onTested?.(result);
+      return;
     } catch (err) {
       console.error(`agents: the self test stopped: ${errorText(err, "unknown error")}`);
     }
@@ -228,7 +238,7 @@ export async function writeAllCode(version: AgentVersion, definition: AgentDefin
 // (its review still a call of its own), in the background like a build.
 // False when a job is already running on the draft, or there's no such
 // code step.
-export function startRewrite(version: AgentVersion, stepId: string, ctx: BuildContext, fetchImpl?: typeof fetch): boolean {
+export function startRewrite(version: AgentVersion, stepId: string, ctx: BuildContext, fetchImpl?: typeof fetch, settle?: Settle): boolean {
   const definition = version.definition;
   const step = definition?.steps.find((s): s is CodeStepDef => s.id === stepId && s.kind === "code");
   if (!definition || !step || jobs.has(version.id)) return false;
@@ -239,7 +249,7 @@ export function startRewrite(version: AgentVersion, stepId: string, ctx: BuildCo
       const written = await writeStep(step, definition, spec, { dolphin: dolphinProvider(), serv: ctx.serv, fetchImpl, writer: "serv", hooks: writeHooks(version, step, spec, ctx) });
       const fit = await fitPlan(version.id, definition, step, written);
       await setStepCode(version.id, step.id, fit.entry);
-      await settleWriting(version.id, ctx);
+      await settleWriting(version.id, ctx, settle);
     } catch (err) {
       console.error(`agents: a rewrite stopped: ${errorText(err, "unknown error")}`);
       await updateDraft(version.id, { buildState: "idle", buildNote: "Rewriting that step stopped part way. Try again." }).catch(() => null);
@@ -249,11 +259,22 @@ export function startRewrite(version: AgentVersion, stepId: string, ctx: BuildCo
   return true;
 }
 
-const NO_MODEL = "Planning isn't available right now. Try again in a few minutes.";
+const NO_MODEL = "Working out the steps isn't available right now. Try again in a few minutes.";
+
+// Planning in the chat (journey.ts) stops once the steps are there, for
+// the maker to look at: stop says whether it does (a change that touches
+// the maker's own numbers, conditions or schedule stops to ask). planned
+// hears how it went first, with the steps before and after (null when no
+// plan came of it), and settle is how the build after it goes on.
+export interface PlanOptions {
+  stop?: boolean | ((before: AgentDefinition | null, after: AgentDefinition) => boolean);
+  planned?: (before: AgentDefinition | null, after: AgentDefinition | null, why: string | null) => Promise<void>;
+  settle?: Settle;
+}
 
 // Plan (or change the plan of) a draft in the background. False when a job
 // is already running on it.
-export function startPlan(version: AgentVersion, input: PlanInput, ctx: BuildContext, mode: "plan" | "fix" = "plan"): boolean {
+export function startPlan(version: AgentVersion, input: PlanInput, ctx: BuildContext, mode: "plan" | "fix" = "plan", o: PlanOptions = {}): boolean {
   if (jobs.has(version.id)) return false;
   const job = (async () => {
     await updateDraft(version.id, { buildState: mode === "fix" ? "fixing" : "planning", buildNote: null });
@@ -265,11 +286,37 @@ export function startPlan(version: AgentVersion, input: PlanInput, ctx: BuildCon
         console.error(`agents: no plan. ${plan.calls.some((c) => c.content) ? plan.errors.join(" ") : describeFailures(failures, ctx.serv.firstTokenTimeoutMs)}`);
         // Why, in plain words, and what to add (plainWords.ts): the
         // checker's own reasons name steps by id, so they stay in the log.
-        await updateDraft(version.id, { buildState: "failed", buildNote: plan.calls.some((c) => c.content) ? planFailure(plan.errors) : NO_MODEL });
+        const why = plan.calls.some((c) => c.content) ? planFailure(plan.errors) : NO_MODEL;
+        // A change that didn't come together in the chat leaves the steps
+        // as they were, and says so; anything else is a failed build.
+        if (o.planned && version.definition) await updateDraft(version.id, { buildState: "idle", buildNote: null });
+        else await updateDraft(version.id, { buildState: "failed", buildNote: why });
+        await o.planned?.(version.definition, null, why);
         return;
       }
-      const saved = await updateDraft(version.id, { definition: plan.definition, code: carryCode(plan.definition, version.code), buildState: "writing" });
-      if (saved) await writeAllCode(saved, plan.definition, ctx);
+      const stop = typeof o.stop === "function" ? o.stop(version.definition, plan.definition) : Boolean(o.stop);
+      const saved = await updateDraft(version.id, { definition: plan.definition, code: carryCode(plan.definition, version.code), buildState: stop ? "idle" : "writing", testResult: null });
+      await o.planned?.(version.definition, plan.definition, null);
+      if (saved && !stop) await writeAllCode(saved, plan.definition, ctx, undefined, o.settle);
+    } catch (err) {
+      console.error(`agents: the build stopped: ${errorText(err, "unknown error")}`);
+      await updateDraft(version.id, { buildState: "failed", buildNote: "Something went wrong while building. Try again." }).catch(() => null);
+    }
+  })().finally(() => jobs.delete(version.id));
+  jobs.set(version.id, job);
+  return true;
+}
+
+// Build a draft whose steps the maker has looked at: each code step without
+// approved code is written and checked, then the self test. False when a
+// job is already running on it.
+export function startBuild(version: AgentVersion, ctx: BuildContext, settle?: Settle): boolean {
+  const definition = version.definition;
+  if (!definition || jobs.has(version.id)) return false;
+  const job = (async () => {
+    const saved = await updateDraft(version.id, { buildState: "writing", buildNote: null });
+    try {
+      if (saved) await writeAllCode(saved, definition, ctx, undefined, settle);
     } catch (err) {
       console.error(`agents: the build stopped: ${errorText(err, "unknown error")}`);
       await updateDraft(version.id, { buildState: "failed", buildNote: "Something went wrong while building. Try again." }).catch(() => null);
@@ -285,7 +332,7 @@ const BUSY = ["planning", "writing", "fixing"];
 // part way) is called failed, so the maker can start again.
 export async function settle(version: AgentVersion): Promise<AgentVersion> {
   if (version.state !== "draft" || !BUSY.includes(version.buildState) || jobs.has(version.id)) return version;
-  return (await updateDraft(version.id, { buildState: "failed", buildNote: "The build stopped part way. Plan it again." })) ?? version;
+  return (await updateDraft(version.id, { buildState: "failed", buildNote: "The build stopped part way. Try again." })) ?? version;
 }
 
 // What the maker's dock may see: the steps' shape and the build's progress,
@@ -301,5 +348,16 @@ export function summaryOf(agent: Agent, version: AgentVersion): AgentSummaryDTO 
     steps: steps.map((s) => ({ id: s.id, title: s.title, kind: s.kind, next: nextOf(s), code: s.kind === "code" ? (version.code[s.id]?.status ?? "queued") : null })),
     test: version.testResult ? { status: version.testResult.status, story: version.testResult.story, checkedAt: version.testResult.checkedAt, fixed: version.testResult.fixed ?? null } : null,
     problem: problemOf(version),
+    plain: plainSteps(version.definition),
+    setup: version.definition ? { ...setupShapeOf(version.definition), given: givenAnswers(version.definition) } : null,
+    does: version.definition?.job.does ?? null,
   };
+}
+
+// The steps in plain words, in the order a run takes them, a loop's own set
+// in under it.
+export function plainSteps(d: AgentDefinition | null): { id: string; text: string; depth: number }[] {
+  if (!d) return [];
+  const depths = stepDepths(d);
+  return stepsInOrder(d).map((s) => ({ id: s.id, text: stepLine(s, d), depth: depths.get(s.id) ?? 0 }));
 }

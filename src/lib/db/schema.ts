@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, bigserial, json, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
 import type { AgentDefinition } from "../agents/definition";
 import type { BenchData, RunState, StepCode, TestResult } from "../agents/types";
+import type { JourneyCard } from "../journey";
 import { CURRENCIES } from "../money";
 import { DISPUTE_REASONS } from "../spending/disputeWords";
 
@@ -82,6 +83,9 @@ export const messages = pgTable(
     // for an assistant message so the UI can label the real source.
     source: text("source"),
     sourceLabel: text("source_label"),
+    // A stage of making an agent, shown as a card in the chat (journey.ts):
+    // its content is what the card says, in words, for the model's history.
+    card: jsonb("card").$type<JourneyCard>(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({ byConversation: index("messages_conversation_idx").on(t.conversationId, t.createdAt) }),

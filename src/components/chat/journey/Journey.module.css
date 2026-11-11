@@ -1,0 +1,397 @@
+/* The journey's cards in the chat: chalk panels in the message column. The
+   latest card of the journey is drawn in firmer chalk; earlier ones step
+   back, so scrolling up reads as a story with the present at the bottom. */
+
+.card {
+  position: relative;
+  margin: var(--s-4) 0;
+  padding: var(--s-4) var(--s-5) var(--s-5);
+  border: var(--stroke) solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--slate);
+  color: var(--chalk-2);
+}
+
+.card[data-latest="true"] {
+  border-color: var(--chalk-3);
+  background: var(--slate-2);
+  color: var(--chalk);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 28px;
+}
+
+.no {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-full);
+  border: var(--stroke) solid currentColor;
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  line-height: 1;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--t-base);
+  font-weight: var(--w-semibold);
+}
+
+.status {
+  margin-left: auto;
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+  text-align: right;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  margin-top: var(--s-3);
+  font-size: var(--t-base);
+  line-height: var(--lh-body);
+}
+
+.body p {
+  margin: 0;
+}
+
+.quiet {
+  color: var(--chalk-2);
+  font-size: var(--t-sm);
+}
+
+.done {
+  color: var(--chalk);
+}
+
+.details {
+  position: absolute;
+  right: var(--s-5);
+  bottom: var(--s-2);
+  font-size: var(--t-2xs);
+  color: var(--chalk-3);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.details:hover {
+  color: var(--chalk);
+}
+
+.details:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+
+/* What the maker said, in their words. */
+.said_list {
+  display: grid;
+  gap: var(--s-2);
+  margin: 0;
+}
+
+.said_list div {
+  display: grid;
+  grid-template-columns: 9.5rem 1fr;
+  gap: var(--s-3);
+}
+
+.said_list dt {
+  color: var(--chalk-3);
+  font-size: var(--t-sm);
+}
+
+.said_list dd {
+  margin: 0;
+}
+
+/* The steps, numbered, a loop's own steps set in under it. */
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1.75rem 1fr auto;
+  align-items: baseline;
+  gap: var(--s-2);
+  padding-left: calc(var(--depth, 0) * 1.5rem);
+}
+
+.rowNo {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk-3);
+  line-height: 1;
+}
+
+.rowText {
+  min-width: 0;
+}
+
+.row[data-state="waiting"] .rowText {
+  color: var(--chalk-3);
+}
+
+.row[data-state="held"] .rowText {
+  text-decoration: underline dashed var(--chalk-2);
+  text-underline-offset: 4px;
+}
+
+.rowState {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  align-self: center;
+}
+
+.tick path {
+  fill: none;
+  stroke: var(--chalk);
+  stroke-width: 2.2px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pulse {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-full);
+  background: var(--chalk);
+}
+
+/* Something being worked on: three chalk dots taking turns. */
+.working {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  color: var(--chalk-2);
+  font-size: var(--t-sm);
+}
+
+.dots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--chalk);
+  opacity: 0.6;
+}
+
+.story {
+  font-size: var(--t-md);
+  line-height: var(--lh-snug);
+}
+
+.problem {
+  padding: var(--s-2) var(--s-3);
+  border: var(--stroke) dashed var(--chalk-3);
+  border-radius: var(--r-md);
+  color: var(--chalk);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-1);
+}
+
+.box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.boxLabel,
+.fieldLabel {
+  font-size: var(--t-sm);
+  font-weight: var(--w-medium);
+  color: var(--chalk);
+}
+
+.said {
+  color: var(--chalk);
+  font-size: var(--t-sm);
+}
+
+/* Connect: one small panel per thing it needs. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.panel h4 {
+  margin: 0;
+  font-size: var(--t-sm);
+  font-weight: var(--w-semibold);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+
+.help {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+
+.fieldError {
+  font-size: var(--t-xs);
+  color: var(--chalk);
+  font-weight: var(--w-medium);
+}
+
+.select {
+  min-height: 40px;
+  padding: 0 var(--s-3);
+  border: var(--stroke) solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--slate);
+  color: var(--chalk);
+  font: inherit;
+  font-size: var(--t-input);
+}
+
+.facts {
+  display: grid;
+  gap: var(--s-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.facts li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+.facts span {
+  color: var(--chalk-3);
+}
+
+.facts b {
+  font-weight: var(--w-medium);
+  overflow-wrap: anywhere;
+}
+
+/* Go live: two clear choices. */
+.choices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-3);
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-1);
+  padding: var(--s-4);
+  border: var(--stroke) solid var(--chalk-3);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--chalk);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+
+.choice b {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+}
+
+.choice span {
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+
+.choice:hover:not(:disabled),
+.choice[aria-expanded="true"] {
+  background: var(--dust);
+  border-color: var(--chalk);
+}
+
+.choice:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+
+.choice:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.link {
+  color: var(--chalk);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-3) var(--s-4);
+  border: var(--stroke) dashed var(--chalk-3);
+  border-radius: var(--r-md);
+}
+
+.preview p {
+  color: var(--chalk-2);
+  font-size: var(--t-sm);
+}
+
+.previewTag {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  color: var(--chalk-3);
+}
+
+.previewPrice {
+  font-size: var(--t-sm);
+  font-weight: var(--w-medium);
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: var(--s-3) var(--s-4) var(--s-5);
+  }
+  .said_list div {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .choices {
+    grid-template-columns: 1fr;
+  }
+}

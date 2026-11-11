@@ -1,6 +1,7 @@
 import type { MoneyKind } from "./moneyWords";
 import type { SketchFieldKey } from "./sketchFields";
-import type { AgentDefinition, StepKind } from "./agents/definition";
+import type { AgentDefinition, SetupShape, StepKind } from "./agents/definition";
+import type { JourneyCard, PlainLine } from "./journey";
 import type { BenchData, CodeStatus } from "./agents/types";
 // Shapes the browser works with. Dates arrive as ISO strings over JSON.
 export interface ConversationDTO {
@@ -21,6 +22,8 @@ export interface MessageDTO {
   content: string;
   source: string | null;
   sourceLabel: string | null;
+  // A stage of making the agent, shown as a card (journey.ts).
+  card?: JourneyCard | null;
   createdAt: string;
 }
 
@@ -101,6 +104,13 @@ export interface AgentSummaryDTO {
   // fixed: what Fix this, run on its own, fixed first (its plain sentence).
   test: { status: "passed" | "failed"; story: string; checkedAt: string; fixed?: string | null } | null;
   problem: { text: string; step: string | null; fix: "rewrite" | "replan" | "plan" } | null;
+  // Its steps in plain words, in the order a run takes them, and what
+  // setting it up asks (with the maker's own answers, given while they
+  // described it): the chat's Steps, Build and Connect cards.
+  plain?: PlainLine[];
+  setup?: (SetupShape & { given: Record<string, string> }) | null;
+  // What it does, in a sentence or two: its description on the board.
+  does?: string | null;
 }
 
 // Everything the agent's own builder shows its maker: the definition, each
@@ -639,6 +649,8 @@ export type ChatEvent =
   // A change asked in the chat for an agent with steps: the agent as its
   // card shows it now, changing (or still being built).
   | { type: "agent"; conversationId: string; agent: AgentSummaryDTO }
+  // A stage card put in after the reply: Make it, once the job is clear.
+  | { type: "card"; conversationId: string; message: { id: string; role: "assistant"; content: string; card: JourneyCard | null; createdAt: string } }
   // `limit` when a day's limit refused the turn before anything was stored.
   | { type: "error"; message: string; limit?: "site" | "chat" };
 

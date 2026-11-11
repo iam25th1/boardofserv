@@ -125,11 +125,12 @@ async function interviewed(user: schema.User, done = true): Promise<string> {
     kind: "agent",
     wakes: "every morning at eight",
     looks: "the Stock sheet and three suppliers",
-    handles: "orders what is low from the best supplier",
+    // What it does with what it finds is the last thing the chat needs.
+    handles: done ? "orders what is low from the best supplier" : null,
     finish: "every low fabric has an order",
-    // What it must never do without asking is the last thing the chat asks;
-    // what it sets up and remembers it never asks at all.
-    asks: done ? "orders over 250 USDC" : null,
+    // What it asks first is kept when said; what it sets up and remembers
+    // the chat never asks at all.
+    asks: "orders over 250 USDC",
     setup: null,
     remembers: null,
   });
@@ -217,7 +218,7 @@ describe("planning an agent from its conversation", () => {
     await jobFor((await draftOf(a.id))!.id);
     const after = await builderOf(a.id);
     // Why, in plain words, and what to add: never the checker's own reasons.
-    expect(after.agent).toMatchObject({ buildState: "failed", buildNote: "The plan didn't come together: it didn't say what starts it. Say when it should run, for example every 15 minutes or every morning." });
+    expect(after.agent).toMatchObject({ buildState: "failed", buildNote: "I couldn't work out the steps: it didn't say what starts it. Say when it should run, for example every 15 minutes or every morning." });
     expect(after.definition).toBeNull();
   });
 });

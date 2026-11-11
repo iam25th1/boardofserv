@@ -304,15 +304,28 @@ describe("an agent's interview", () => {
     expect(t.sketch?.sketch).toMatchObject({ kind: "agent", wakes: "every morning at eight", handles: "orders what is low", asking: "looks" });
     expect(t.choices).toEqual(["A Google sheet", "My shop's website"]);
     const reply = calls.at(-1)!;
-    expect(reply.messages[0]!.content).toContain("Known so far: name Fabric restock, kind agent, wakes every morning at eight, handles orders what is low; missing: looks, finish, asks.");
+    expect(reply.messages[0]!.content).toContain("Known so far: name Fabric restock, kind agent, wakes every morning at eight, handles orders what is low; missing: looks.");
     expect(reply.messages[0]!.content).toContain('Ask about: looks (where it looks). The user will see these buttons: "A Google sheet", "My shop\'s website".');
     expect(await sketchRow(t.conversationId)).toMatchObject({ kind: "agent", wakes: "every morning at eight", looks: null });
 
-    // With the interview complete, the reply points at the Plan button.
-    nextReply = ["Got it, ready to plan."];
-    nextSketch = extraction({ looks: "the Stock sheet", finish: "an order is recorded", asks: "orders over 250 USDC" });
-    await turn("The Stock sheet; done once an order is recorded; ask over 250 USDC", t.conversationId);
-    expect(calls.at(-1)!.messages[0]!.content).toContain("say the Plan button on the sketch turns it into steps to test");
+    expect(t.events.some((e) => e.event === "card")).toBe(false);
+
+    // With the job clear, the reply says it back in the maker's words and
+    // Make it comes under it, as a card. A reply that claims it is set up
+    // never shows.
+    nextReply = ["Every morning at eight it checks the Stock sheet and orders what is low. ", "Your restock agent is all set!"];
+    nextSketch = extraction({ looks: "the Stock sheet", asks: "orders over 250 USDC" });
+    const done = await turn("The Stock sheet, and ask me before orders over 250 USDC", t.conversationId);
+    expect(calls.at(-1)!.messages[0]!.content).toContain("Make it, just below, works out its steps");
+    expect(done.shown).toBe("Every morning at eight it checks the Stock sheet and orders what is low.");
+    const card = done.events.find((e) => e.event === "card")?.data as { message: { card: { stage: string }; content: string } };
+    expect(card.message).toMatchObject({ card: { stage: "describe" }, content: "I have what I need to make it." });
+    // Asked again, the reply goes and Make it comes back under the new one:
+    // one card, never left behind.
+    nextReply = ["Every morning at eight it checks the Stock sheet."];
+    await POST(new Request("http://localhost/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: t.conversationId, regenerate: true }) })).then((r) => r.text());
+    const rows = await state.db.select().from(schema.messages).where(eq(schema.messages.conversationId, t.conversationId)).orderBy(schema.messages.createdAt);
+    expect(rows.map((m) => m.card?.stage ?? m.role)).toEqual(["user", "assistant", "user", "assistant", "describe"]);
   });
 });
 
@@ -343,10 +356,13 @@ describe("an agent with steps", () => {
     // The plan call knew the agent has steps.
     expect(calls[before]!.messages[1]!.content).toContain("The agent already has steps.");
     // No model wrote the answer: it says exactly what happened.
-    expect(t.shown).toBe("Changing the plan: also check the demo link opens. The agent's card shows the new steps when it's done.");
+    expect(t.shown).toBe("Changing the steps: also check the demo link opens. They show below when they're ready, with what changed.");
     expect(t.events.find((e) => e.event === "agent")?.data).toMatchObject({ conversationId: cid, agent: { buildState: "fixing" } });
-    const saved = await state.db.select().from(schema.messages).where(eq(schema.messages.conversationId, cid)).orderBy(desc(schema.messages.createdAt)).limit(1);
-    expect(saved[0]!.content).toBe(t.shown);
+    // A Steps card came in for the change, and the reply after it.
+    const saved = await state.db.select().from(schema.messages).where(eq(schema.messages.conversationId, cid)).orderBy(schema.messages.createdAt);
+    const at = saved.findIndex((m) => m.card?.stage === "steps");
+    expect(at).toBeGreaterThan(0);
+    expect(saved[at + 1]!.content).toBe(t.shown);
     // The change went to SERV as the maker said it, with the plan as it is.
     await jobFor(versionId);
     const replan = calls.slice(before + 1).find((c) => !c.stream && JSON.stringify(c.messages).includes("The maker says"));

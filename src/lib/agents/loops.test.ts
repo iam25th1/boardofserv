@@ -47,7 +47,7 @@ describe("the format", () => {
     expect(c.ok).toBe(false);
     const errors = (c as { errors: string[] }).errors;
     expect(errors).toContain('step "make_updates" reads "result", which is made inside the loop "each_submission" and is gone once its passes end: gather it in that loop (its outputs and gather) and read the gathered list');
-    expect(planFailure(errors)).toBe("The plan didn't come together: a step after going through the items looked at only the last one, not all of them. Say what it should do with the results of every item, for example a summary naming each one.");
+    expect(planFailure(errors)).toBe("I couldn't work out the steps: a step after going through the items looked at only the last one, not all of them. Say what it should do with the results of every item, for example a summary naming each one.");
   });
 
   it("refuses a loop that gathers what nothing inside it makes, or whose outputs aren't what it gathers", () => {
