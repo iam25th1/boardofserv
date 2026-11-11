@@ -2,7 +2,7 @@ import "server-only";
 import { Script } from "node:vm";
 import { completeJson, DOLPHIN_LABEL, modelConfig, type ChatMessage, type JsonResult, type ModelConfig, type Provider } from "../model";
 import { ANSWER_LIMITS } from "../modelLimits";
-import { ARGS_TOOLS, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
+import { ARGS_TOOLS, loopsOf, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
 import { TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
 import type { StepCode } from "./types";
@@ -64,15 +64,31 @@ const RULE_AS: Record<string, string> = { number: "a number", usdc: "a number of
 // What Dolphin is told about one step: what it must do, what its inputs
 // hold, what it returns and the declarations of the tools it may call.
 export function codeRequest(step: CodeStepDef, d: AgentDefinition): string {
-  const holds = (name: string): string => {
+  // inner: the value as one pass of a loop made it (a loop may gather it
+  // under the same name).
+  const holds = (name: string, inner = false): string => {
     if (name === "settings") return `the renter's setup: { ${d.settings.map((s) => `${s.key}: ${s.type} (${s.label}; ${s.help})`).join(", ") || "nothing"} }`;
     if (name === "rules") return `the renter's limits: { ${d.rules.map((r) => `${r.key}: ${RULE_AS[r.type]} (${r.label})`).join(", ") || "nothing"} }`;
     if (name === "memory") return `what was kept from the last job: { ${d.memory.map((m) => `${m.key}: ${m.type}`).join(", ") || "nothing"} }`;
     if (name === "trigger") return "what woke the agent up (null on a schedule)";
-    const from = d.steps.find((s) => s.outputs.includes(name));
+    // A loop's item, and what it gathered from every pass.
+    const loop = d.steps.find((s) => s.kind === "loop" && (s.item === name || (!inner && s.outputs.includes(name))));
+    if (loop?.kind === "loop" && loop.item === name) {
+      const setting = !loop.inputs.includes(loop.over) ? d.settings.find((x) => x.key === loop.over) : undefined;
+      return `one item of ${loop.over} (the step "${loop.title}" goes through them one at a time), which is ${setting ? `the renter's answer to "${setting.label}" (a ${setting.type})` : holds(loop.over)}`;
+    }
+    if (loop?.kind === "loop") {
+      const g = loop.gather.find((x) => x.into === name)!;
+      return `a list with one entry per item of ${loop.over}, in order (gathered by the step "${loop.title}" from every pass): each entry is what ${g.from} was in that pass, ${holds(g.from, true)}`;
+    }
+    const from = d.steps.find((s) => s.outputs.includes(name) && !(inner && s.kind === "loop"));
     // A decision over a list's verdicts: exactly their shape.
     if (from?.kind === "decision" && from.each && from.outputs[0] === name) {
       return `the verdicts of the step "${from.title}", one per item of ${from.each} in the same order: Array<{ item: number (the item's place in ${from.each}, from 0), outcome: ${from.outcomes.map((o) => `"${o.id}"`).join(" | ")}, label: string, reason: string }>`;
+    }
+    // A decision inside a loop gives its verdict for the item.
+    if (from?.kind === "decision" && from.outputs[0] === name && loopsOf(d).inside.get(from.id)) {
+      return `the verdict of the step "${from.title}" (${from.prompt}): { outcome: ${from.outcomes.map((o) => `"${o.id}"`).join(" | ")}, label: string, reason: string }`;
     }
     return from ? `from the step "${from.title}"${from.kind === "code" ? `: ${from.description}` : ""}` : "a value from an earlier step";
   };

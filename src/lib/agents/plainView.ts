@@ -1,4 +1,4 @@
-import { connectionsNeeded, SIDE_EFFECT_TOOLS, spends, type AgentDefinition, type AgentStep } from "./definition";
+import { connectionsNeeded, loopChain, loopsOf, SIDE_EFFECT_TOOLS, spends, type AgentDefinition, type AgentStep } from "./definition";
 
 // An agent's plan as its maker reads it with details off: what it does, its
 // steps as plain sentences, what it connects to and what it asks before
@@ -40,11 +40,20 @@ export function stepLine(step: AgentStep, d: AgentDefinition): string {
     const action = d.actions.find((a) => a.id === step.action);
     return action ? plain(action.description) : plain(step.title);
   }
+  if (step.kind === "loop") return `For each ${plain(step.item)}`;
   return plain(step.title);
 }
 
-// The steps in the order a run takes them from the first, each once; any
-// the run never reaches (a value check's own step) come last.
+// How many loops each step is inside, for the plain view to set the steps
+// of a loop in under it.
+export function stepDepths(d: AgentDefinition): Map<string, number> {
+  const loops = loopsOf(d);
+  return new Map(d.steps.map((s) => [s.id, loopChain(loops, s.id).length]));
+}
+
+// The steps in the order a run takes them from the first, each once, a
+// loop's own steps right after it; any the run never reaches (a value
+// check's own step) come last.
 export function stepsInOrder(d: AgentDefinition): AgentStep[] {
   const byId = new Map(d.steps.map((s) => [s.id, s]));
   const seen: AgentStep[] = [];
@@ -52,7 +61,7 @@ export function stepsInOrder(d: AgentDefinition): AgentStep[] {
     const s = id ? byId.get(id) : undefined;
     if (!s || seen.includes(s)) return;
     seen.push(s);
-    const nexts = s.kind === "decision" ? s.outcomes.map((o) => o.next) : s.kind === "action" ? [s.next, s.otherwise ?? null] : [s.next];
+    const nexts = s.kind === "decision" ? s.outcomes.map((o) => o.next) : s.kind === "action" ? [s.next, s.otherwise ?? null] : s.kind === "loop" ? [s.body, s.next] : [s.next];
     for (const n of nexts) visit(n);
   };
   visit(d.steps[0]?.id ?? null);

@@ -1,6 +1,6 @@
 import "server-only";
 import type { JsonResult, ModelConfig } from "../model";
-import type { AgentDefinition } from "./definition";
+import { loopsOf, type AgentDefinition } from "./definition";
 import { storyOf } from "./plainWords";
 import { runAgent } from "./runner";
 import { makeSample, sampleRequest, type Sample } from "./sample";
@@ -89,11 +89,16 @@ export async function testVersion(v: { definition: AgentDefinition; code: Record
 type ToolEvent = Extract<RunEvent, { type: "tool" }>;
 const toolEvents = (events: RunEvent[], tool: string) => events.filter((e): e is ToolEvent => e.type === "tool" && e.tool === tool && !e.error);
 
-// How many items a run judged in its decisions over a list.
-function judged(events: RunEvent[]): number {
+// How many items a run judged: in its decisions over a list, and its
+// decisions inside a loop (one item a pass). A decision that only picks the
+// run's way (is the order big?) judges no item.
+function judged(d: AgentDefinition, events: RunEvent[]): number {
+  const inLoop = loopsOf(d).inside;
   return events.reduce((n, e) => {
-    const verdicts = e.type === "step_done" && e.status === "ok" ? (e.output as { verdicts?: unknown } | null)?.verdicts : undefined;
-    return n + (Array.isArray(verdicts) ? verdicts.length : 0);
+    if (e.type !== "step_done" || e.status !== "ok") return n;
+    const verdicts = (e.output as { verdicts?: unknown } | null)?.verdicts;
+    if (Array.isArray(verdicts)) return n + verdicts.length;
+    return n + (e.outcome !== null && inLoop.get(e.stepId) ? 1 : 0);
   }, 0);
 }
 
@@ -161,7 +166,7 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
     const a = e.args as { sheet?: unknown; rows?: unknown };
     return reads.has(String(a.sheet)) && labels.test(JSON.stringify(a.rows ?? []));
   });
-  if (judged(again) > 0 || twice || rewritten) problems.push({ step: null, text: `Run again, it would go through the same ${items.plural} a second time: it should only take new ones.` });
+  if (judged(d, again) > 0 || twice || rewritten) problems.push({ step: null, text: `Run again, it would go through the same ${items.plural} a second time: it should only take new ones.` });
 
   return { ...first, result: { ...first.result, status: problems.length ? "failed" : "passed", problems } };
 }

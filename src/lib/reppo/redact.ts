@@ -84,7 +84,7 @@ export function renterValues(o: { settings?: unknown; rules?: unknown; trigger?:
   return out;
 }
 
-const stepKind = (s: AgentStep) => (s.kind === "decision" ? "decides" : s.kind === "code" ? "works something out" : "acts");
+const stepKind = (s: AgentStep) => (s.kind === "decision" ? "decides" : s.kind === "code" ? "works something out" : s.kind === "loop" ? "goes through a list" : "acts");
 
 export interface JobFacts {
   definition: Pick<AgentDefinition, "name" | "job" | "steps" | "actions">;

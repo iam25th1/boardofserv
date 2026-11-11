@@ -16,9 +16,10 @@ import { keepRequired } from "../zodErrors";
 //   threshold, an allowed list), each with the maker's default.
 // - memory: named values kept per renter between jobs.
 // - steps: code (data work in the sandbox), decision (a judgement by SERV
-//   with a fixed set of outcomes) or action (one declared action). A run
-//   starts at the first step; each step names the next, a decision one per
-//   outcome, and "null" ends the run.
+//   with a fixed set of outcomes), action (one declared action) or loop
+//   (the steps inside it, once per item of a list). A run starts at the
+//   first step; each step names the next, a decision one per outcome, and
+//   "null" ends the run, or inside a loop the pass.
 // - actions: the only actions the agent may ever take, each with a tool that
 //   changes something (reading happens in code steps). Every tool with a
 //   side effect a code step uses must be declared here too.
@@ -171,7 +172,31 @@ export const ActionStep = z.object({
   otherwise: key.nullable().optional(),
 });
 
-export const Step = z.discriminatedUnion("kind", [CodeStep, DecisionStep, ActionStep]);
+// One value a loop keeps from every pass: after the loop, into is the list
+// of what from was at the end of each pass, in order.
+export const Gather = z.object({ from: key, into: key });
+
+export const LoopStep = z.object({
+  ...stepBase,
+  kind: z.literal("loop"),
+  // The list it goes through, one pass per item: one of its inputs, or a
+  // setting, rule or memory key whose bag it reads (a list setting).
+  over: key,
+  // What each item is called inside the loop.
+  item: key,
+  // The first step inside. The steps inside follow on from it, and a pass
+  // ends where they end (a next of null); a loop inside goes the same way.
+  body: key,
+  // What it keeps from every pass. Its outputs are the gathered lists (the
+  // intos): what happens after it sees those, never one pass's values.
+  gather: z.array(Gather).max(12),
+  next: key.nullable(),
+});
+
+// The most items one loop goes through in a run.
+export const MAX_LOOP_ITEMS = 50;
+
+export const Step = z.discriminatedUnion("kind", [CodeStep, DecisionStep, ActionStep, LoopStep]);
 
 export const Limits = z.object({
   maxSteps: z.number().int().min(1).max(200),
@@ -201,6 +226,7 @@ export type AgentStep = z.infer<typeof Step>;
 export type CodeStepDef = z.infer<typeof CodeStep>;
 export type DecisionStepDef = z.infer<typeof DecisionStep>;
 export type ActionStepDef = z.infer<typeof ActionStep>;
+export type LoopStepDef = z.infer<typeof LoopStep>;
 export type StepKind = AgentStep["kind"];
 
 // Whether an action spends: a payment, or rows with an amount column.
@@ -249,11 +275,76 @@ export function breakingChange(from: AgentDefinition, to: AgentDefinition): stri
 }
 
 // Where a step can go next: one step, or one per outcome, and for an action
-// that waits for the owner, where it goes without an answer.
+// that waits for the owner, where it goes without an answer; a loop goes
+// into its first step, and on after its last pass.
 export function nextOf(step: AgentStep): (string | null)[] {
   if (step.kind === "decision") return step.outcomes.map((o) => o.next);
   if (step.kind === "action" && step.otherwise) return [step.next, step.otherwise];
+  if (step.kind === "loop") return [step.next, step.body];
   return [step.next];
+}
+
+// Where a step goes on at its own level: as nextOf, without going into a
+// loop.
+function onward(step: AgentStep): (string | null)[] {
+  return step.kind === "loop" ? [step.next] : nextOf(step);
+}
+
+export interface Loops {
+  // The loop each step is inside (the nearest), or null at the top.
+  inside: Map<string, string | null>;
+  // Steps reached from more than one place: inside and outside a loop, or
+  // inside two.
+  clashes: string[];
+}
+
+// Which loop each step is inside: the steps the run reaches from the first
+// step are at the top, and a loop's steps are those reached from its first
+// step, each pass ending where they end. Each level is walked whole before
+// the loops inside it.
+export function loopsOf(d: Pick<AgentDefinition, "steps">): Loops {
+  const byId = new Map(d.steps.map((s) => [s.id, s]));
+  const inside = new Map<string, string | null>();
+  const clashes = new Set<string>();
+  const levels: [string, string | null][] = d.steps[0] ? [[d.steps[0].id, null]] : [];
+  while (levels.length) {
+    const [start, loop] = levels.shift()!;
+    const queue = [start];
+    while (queue.length) {
+      const id = queue.shift()!;
+      const s = byId.get(id);
+      if (!s) continue;
+      if (inside.has(id)) {
+        if (inside.get(id) !== loop) clashes.add(id);
+        continue;
+      }
+      inside.set(id, loop);
+      for (const n of onward(s)) if (n) queue.push(n);
+      if (s.kind === "loop" && s.body !== s.id) levels.push([s.body, s.id]);
+    }
+  }
+  return { inside, clashes: [...clashes] };
+}
+
+// The loops a step is inside, nearest first.
+export function loopChain(loops: Loops, id: string): string[] {
+  const out: string[] = [];
+  for (let at = loops.inside.get(id) ?? null; at && !out.includes(at); at = loops.inside.get(at) ?? null) out.push(at);
+  return out;
+}
+
+// What a loop's passes make that is gone once it ends: every output of the
+// steps inside it (a loop inside it included), and the items' names.
+export function madeInside(d: Pick<AgentDefinition, "steps">, loops: Loops, loopId: string): Set<string> {
+  const out = new Set<string>();
+  const self = d.steps.find((s) => s.id === loopId);
+  if (self?.kind === "loop") out.add(self.item);
+  for (const s of d.steps) {
+    if (s.id === loopId || !loopChain(loops, s.id).includes(loopId)) continue;
+    for (const o of s.outputs) out.add(o);
+    if (s.kind === "loop") out.add(s.item);
+  }
+  return out;
 }
 
 function duplicates(values: string[]): string[] {
@@ -288,7 +379,11 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
     }
   });
   const known = new Set(ids);
-  const produced = new Set<string>([...RUN_VALUES, ...d.steps.flatMap((s) => s.outputs)]);
+  const items = d.steps.flatMap((s) => (s.kind === "loop" ? [s.item] : []));
+  const produced = new Set<string>([...RUN_VALUES, ...d.steps.flatMap((s) => s.outputs), ...items]);
+  const loops = loopsOf(d);
+  for (const id of loops.clashes) say(`step "${id}" is reached both inside and outside a loop, or inside two: the steps inside a loop lead only to each other, and a pass ends at a next of ""`, ["steps", ids.indexOf(id)]);
+  const named = [...RUN_VALUES, ...d.steps.flatMap((s) => s.outputs), ...items];
   const declared = new Map(d.actions.map((a) => [a.id, a]));
   const declaredTools = new Set(d.actions.map((a) => a.tool));
 
@@ -335,6 +430,16 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
       if (!s.inputs.includes(s.each)) say(`step "${s.id}" judges each item of "${s.each}", so "${s.each}" must be one of its inputs`, ["steps", i, "each"]);
       if (!s.outputs.length) say(`step "${s.id}" judges each item of a list, so its first output must name the verdicts it gives`, ["steps", i, "outputs"]);
       if (new Set(s.outcomes.map((o) => o.next)).size > 1) say(`step "${s.id}" judges each item of a list, so its outcomes are the verdicts one item can get (like met and not_met), every one going on to the same code step, which counts them; whether there was anything to judge is for that code, not an outcome`, ["steps", i, "outcomes"]);
+    }
+    if (s.kind === "loop") {
+      const bag = bags.find(([name, keys]) => (keys as readonly string[]).includes(s.over) && s.inputs.includes(name));
+      if (!s.inputs.includes(s.over) && !bag) say(`loop "${s.id}" goes through "${s.over}", so "${s.over}" must be one of its inputs (or a setting, rule or memory key, with its bag in its inputs)`, ["steps", i, "over"]);
+      if (s.body === s.id || !known.has(s.body)) say(`loop "${s.id}" starts each pass at "${s.body}", which is not a step inside it`, ["steps", i, "body"]);
+      const into = s.gather.map((g) => g.into);
+      if (into.join(",") !== s.outputs.join(",")) say(`loop "${s.id}" outputs the lists it gathers, so its outputs must be ${into.length ? into.map((x) => `"${x}"`).join(", ") : "empty"} in that order`, ["steps", i, "outputs"]);
+      const inside = madeInside(d, loops, s.id);
+      for (const g of s.gather) if (!inside.has(g.from)) say(`loop "${s.id}" gathers "${g.from}", which no step inside it makes`, ["steps", i, "gather"]);
+      if (named.filter((x) => x === s.item).length > 1) say(`loop "${s.id}" calls each item "${s.item}", a name something else has too`, ["steps", i, "item"]);
     }
     if (s.kind === "action" && !declared.has(s.action)) say(`step "${s.id}" takes "${s.action}", which is not a declared action`, ["steps", i, "action"]);
     if (s.kind === "action" && s.otherwise) {
@@ -389,17 +494,22 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
   });
 
   // Every way into a step must have made what it reads: a value made only on
-  // one branch of a decision can't be read where the branches meet.
-  const all = new Set<string>([...RUN_VALUES, ...d.steps.flatMap((s) => s.outputs)]);
+  // one branch of a decision can't be read where the branches meet. Into a
+  // loop's first step comes its item; after the loop, only what it
+  // gathered: what its passes made is gone.
+  const all = new Set<string>(named);
   const into = new Map<string, Set<string>>(d.steps.map((s, i) => [s.id, new Set(i === 0 ? RUN_VALUES : all)]));
-  const preds = new Map<string, AgentStep[]>(d.steps.map((s) => [s.id, []]));
-  for (const s of d.steps) for (const n of nextOf(s)) if (n && preds.has(n)) preds.get(n)!.push(s);
+  const preds = new Map<string, { from: AgentStep; adds: string[] }[]>(d.steps.map((s) => [s.id, []]));
+  for (const s of d.steps) {
+    for (const n of onward(s)) if (n && preds.has(n)) preds.get(n)!.push({ from: s, adds: s.outputs });
+    if (s.kind === "loop" && preds.has(s.body)) preds.get(s.body)!.push({ from: s, adds: [s.item] });
+  }
   for (let changed = true, rounds = 0; changed && rounds < 100; rounds++) {
     changed = false;
     d.steps.forEach((s, i) => {
       if (i === 0 || !seen.has(s.id)) return;
-      const from = preds.get(s.id)!.filter((p) => seen.has(p.id));
-      const next = new Set([...all].filter((v) => from.every((p) => into.get(p.id)!.has(v) || p.outputs.includes(v))));
+      const from = preds.get(s.id)!.filter((p) => seen.has(p.from.id));
+      const next = new Set([...all].filter((v) => from.every((p) => into.get(p.from.id)!.has(v) || p.adds.includes(v))));
       if (next.size !== into.get(s.id)!.size) {
         into.set(s.id, next);
         changed = true;
@@ -409,9 +519,15 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
   d.steps.forEach((s, i) => {
     if (!seen.has(s.id)) return;
     for (const input of s.inputs) {
-      if (produced.has(input) && !into.get(s.id)!.has(input)) {
-        say(`step "${s.id}" reads "${input}", but not every way to it makes "${input}" first`, ["steps", i, "inputs"]);
-      }
+      if (!produced.has(input) || into.get(s.id)!.has(input)) continue;
+      const chain = loopChain(loops, s.id);
+      const gone = d.steps.find((l) => l.kind === "loop" && !chain.includes(l.id) && madeInside(d, loops, l.id).has(input));
+      say(
+        gone
+          ? `step "${s.id}" reads "${input}", which is made inside the loop "${gone.id}" and is gone once its passes end: gather it in that loop (its outputs and gather) and read the gathered list`
+          : `step "${s.id}" reads "${input}", but not every way to it makes "${input}" first`,
+        ["steps", i, "inputs"],
+      );
     }
   });
 }

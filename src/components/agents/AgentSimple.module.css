@@ -74,6 +74,8 @@
 }
 .steps li {
   position: relative;
+  /* A loop's own steps sit in under it. */
+  margin-left: calc(var(--depth, 0) * 30px);
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr);
   gap: var(--s-3);

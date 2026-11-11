@@ -1,7 +1,7 @@
 import "server-only";
 import { completeJson, modelPrices, type ChatMessage, type JsonResult, type ModelConfig } from "../model";
 import { ANSWER_LIMITS } from "../modelLimits";
-import { MAX_EACH_ITEMS, RUN_VALUES, type ActionStepDef, type AgentDefinition, type AgentStep, type DecisionStepDef, type ToolName } from "./definition";
+import { loopChain, loopsOf, madeInside, MAX_EACH_ITEMS, MAX_LOOP_ITEMS, RUN_VALUES, type ActionStepDef, type AgentDefinition, type AgentStep, type DecisionStepDef, type LoopStepDef, type ToolName } from "./definition";
 import { runInSandbox, DEFAULT_TIME_MS } from "./sandbox";
 import { DATA_RULE, wrapData } from "./untrusted";
 import { MockTools, ToolError, TOOL_ARGS, TOOLS } from "./toolbox";
@@ -21,6 +21,11 @@ export type { JournalEntry, RunEvent, RunState } from "./types";
 // - action: the declared action's tool is called, with the step's first
 //   input when that is already the tool's arguments; a message to the owner
 //   can be made from any inputs.
+// - loop: the steps inside it run once per item of its list, the item in
+//   the bag under its name. A pass ends where those steps end; what the
+//   pass made is then gone, apart from what the loop gathers, which after
+//   the last pass is the list of every pass's value. A loop inside another
+//   does the same within each pass of the outer one.
 //
 // It stops at the end of the steps, at the first failure, or at the
 // agent's limits on steps, time and spend, and says which. Every step, tool
@@ -283,6 +288,40 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
   const untrusted = new Set(state.untrusted ?? []);
   const sources: Record<string, string[]> = { ...(state.sources ?? {}) };
   const sourcesOf = (keys: string[]) => [...new Set(keys.flatMap((k) => sources[k] ?? []))];
+  const loops = loopsOf(d);
+  const taint = (key: string, from: string[]) => {
+    if (!from.length) return;
+    untrusted.add(key);
+    sources[key] = [...new Set([...(sources[key] ?? []), ...from])];
+    state.untrusted = [...untrusted];
+    state.sources = sources;
+  };
+  // Where the run goes after a step: its next, or at the end of a loop's
+  // pass, the loop's next pass or, after the last, the step after the loop
+  // (and so on out, when that ends an outer pass too).
+  const passOn = (next: string | null): string | null => {
+    while (next === null && state.loops?.length) {
+      const frame = state.loops.at(-1)!;
+      const loop = byId.get(frame.step) as LoopStepDef;
+      for (const g of loop.gather) {
+        (frame.gathered[g.into] ??= []).push(state.bag[g.from] ?? null);
+        if (untrusted.has(g.from)) taint(g.into, sources[g.from] ?? []);
+      }
+      // What the pass made is gone: the next pass starts afresh.
+      for (const v of madeInside(d, loops, loop.id)) delete state.bag[v];
+      for (const s of d.steps) if (state.visits && loopChain(loops, s.id).includes(loop.id)) delete state.visits[s.id];
+      frame.index += 1;
+      const items = loopList(loop, state.bag);
+      if (Array.isArray(items) && frame.index < items.length) {
+        state.bag[loop.item] = items[frame.index];
+        return loop.body;
+      }
+      state.loops.pop();
+      for (const g of loop.gather) state.bag[g.into] = frame.gathered[g.into] ?? [];
+      next = loop.next;
+    }
+    return next;
+  };
   let segment = Date.now();
   const elapsed = () => state.ms + (Date.now() - segment);
   const flush = () => {
@@ -380,7 +419,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
     // screened before it runs, and the job waits for the renter when they
     // look like an attempt to give it instructions. The screen holds the
     // step's first journal place, so a pause and its answer replay.
-    const tainted = step.kind === "action" ? [] : step.inputs.filter((k) => untrusted.has(k));
+    const tainted = step.kind === "action" || step.kind === "loop" ? [] : step.inputs.filter((k) => untrusted.has(k));
     if (o.screen && tainted.length) {
       const prior = state.journal[0];
       if (prior?.tool === SCREEN) {
@@ -556,8 +595,35 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         next = step.outcomes[0]!.next;
       } else {
         const outcome = step.outcomes.find((x) => x.id === r.outcome)!;
+        // Inside a loop, the verdict is a value of its own, for the steps
+        // after it to count and for the loop to gather.
+        if (step.outputs[0] && loops.inside.get(step.id)) {
+          state.bag[step.outputs[0]] = { outcome: outcome.id, label: outcome.label, reason: r.note ?? "" };
+          taint(step.outputs[0], sourcesOf(step.inputs.filter((k) => untrusted.has(k))));
+        }
         done("ok", { outcome: outcome.id, label: outcome.label }, outcome.id, r.note, r.costUsd, r.model);
         next = outcome.next;
+      }
+    } else if (step.kind === "loop") {
+      const items = loopList(step, input);
+      if (!Array.isArray(items)) {
+        done("failed", null, null, `It was given no list to go through in "${step.over}".`);
+        return end("failed", "logic", `"${step.title}" was given no list to go through.`);
+      }
+      if (items.length > MAX_LOOP_ITEMS) {
+        done("failed", null, null, `It was given ${items.length} items to go through; the most is ${MAX_LOOP_ITEMS}.`);
+        return end("failed", "logic", `"${step.title}" was given more than ${MAX_LOOP_ITEMS} items to go through.`);
+      }
+      done("ok", { items: items.length }, null, items.length ? null : "Nothing to go through.");
+      if (!items.length) {
+        for (const g of step.gather) state.bag[g.into] = [];
+        next = step.next;
+      } else {
+        (state.loops ??= []).push({ step: step.id, index: 0, gathered: {} });
+        state.bag[step.item] = items[0];
+        const from = loopSource(step, input);
+        if (from && untrusted.has(from)) taint(step.item, sources[from] ?? []);
+        next = step.body;
       }
     } else {
       const action = d.actions.find((a) => a.id === step.action);
@@ -571,7 +637,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       if (nothingToDo(step, input)) {
         if (step.outputs[0]) state.bag[step.outputs[0]] = null;
         done("ok", null, null, "Nothing to do, so it was skipped.");
-        state.at = step.next;
+        state.at = passOn(step.next);
         state.journal = [];
         state.resumed = false;
         flush();
@@ -625,13 +691,29 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         next = step.next;
       }
     }
-    state.at = next;
+    state.at = passOn(next);
     state.journal = [];
     state.resumed = false;
     flush();
     await o.save?.(state);
   }
   return end("done", "end", "It reached the end of its steps.");
+}
+
+// Where a loop's list is: the input it names, or the bag (settings, rules
+// or memory) the loop reads that has a key of that name.
+function loopSource(step: LoopStepDef, from: Record<string, unknown>): string | undefined {
+  if (step.inputs.includes(step.over)) return step.over;
+  return ["settings", "rules", "memory"].find((bag) => {
+    const values = step.inputs.includes(bag) ? from[bag] : undefined;
+    return Boolean(values) && typeof values === "object" && step.over in (values as object);
+  });
+}
+
+function loopList(step: LoopStepDef, from: Record<string, unknown>): unknown {
+  const source = loopSource(step, from);
+  if (!source) return undefined;
+  return source === step.over ? from[source] : (from[source] as Record<string, unknown>)[step.over];
 }
 
 // The bench and the job make a decision the same way.
@@ -777,9 +859,18 @@ export async function runAgent(o: RunOptions): Promise<Extract<RunEvent, { type:
   const mock = new MockTools(o.bench, d.memory);
   const state = startState(d, { settings: { ...o.bench.settings }, rules: typedRules(d, o.bench.rules), memory: mock.memory, trigger: o.bench.trigger });
   o.onEvent({ type: "start", dryRun: o.dryRun });
+  // Inside a loop with no recorded answer, a dry run's decisions take turns
+  // over the outcomes, pass by pass, so it sees every way its items can go.
+  const inLoop = loopsOf(d).inside;
+  const turns = new Map<string, number>();
   const decide = async (step: DecisionStepDef, input: Record<string, unknown>, untrusted: string[]): Promise<Decided> => {
     if (o.dryRun) {
       const recorded = o.bench.decisions[step.id];
+      if (!recorded && !step.each && inLoop.get(step.id)) {
+        const turn = turns.get(step.id) ?? 0;
+        turns.set(step.id, turn + 1);
+        return { ok: true, outcome: step.outcomes[turn % step.outcomes.length]!.id, note: "Dry run: the outcomes in turn.", costUsd: 0, model: null };
+      }
       const outcome = recorded && step.outcomes.some((x) => x.id === recorded) ? recorded : step.outcomes[0]!.id;
       // Over a list with no recorded answer, the outcomes take turns, so a
       // dry run sees every way its items can go.

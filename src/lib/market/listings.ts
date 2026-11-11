@@ -162,7 +162,7 @@ export async function agentPage(rt: Runtime, agentId: string, viewerId: string |
     steps: d.steps
       // A value check's own step runs outside the job.
       .filter((s) => !d.triggers.some((t) => t.kind === "check" && t.step === s.id))
-      .map((s) => ({ kind: s.kind === "code" ? "works" : s.kind === "decision" ? "decides" : "acts", title: s.title, outcomes: s.kind === "decision" ? s.outcomes.map((o) => o.label) : [] })),
+      .map((s) => ({ kind: s.kind === "code" ? "works" : s.kind === "decision" ? "decides" : s.kind === "loop" ? "repeats" : "acts", title: s.title, outcomes: s.kind === "decision" ? s.outcomes.map((o) => o.label) : [] })),
     asks: d.settings.map((s) => ({ label: s.label, help: s.help, kind: s.type })),
     needs: connectionsNeeded(d),
     neverWithoutAsking,

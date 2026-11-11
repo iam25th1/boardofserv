@@ -141,7 +141,7 @@ export function JobTimeline({ initial, api }: { initial: JobDTO; api: JobApi }) 
                 <g transform="translate(0 12)">
                   <Mark kind={s.kind} />
                   <g className={styles.fill} data-fill="" style={{ transformOrigin: "12px 12px" }}>
-                    {s.kind === "code" ? <rect x={7} y={7} width={10} height={10} rx={1} /> : s.kind === "decision" ? <polygon points="12,5 19,12 12,19 5,12" /> : <circle cx={12} cy={12} r={5} />}
+                    {s.kind === "code" || s.kind === "loop" ? <rect x={7} y={7} width={10} height={10} rx={s.kind === "loop" ? 4 : 1} /> : s.kind === "decision" ? <polygon points="12,5 19,12 12,19 5,12" /> : <circle cx={12} cy={12} r={5} />}
                   </g>
                   {s.status === "failed" && <path d="M7 7 L17 17 M17 7 L7 17" className={styles.cross} />}
                 </g>

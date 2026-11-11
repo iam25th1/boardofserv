@@ -1,11 +1,8 @@
 import "server-only";
-import { asc, eq } from "drizzle-orm";
-import { db } from "../db";
-import { messages, type Agent, type User } from "../db/schema";
+import type { Agent, User } from "../db/schema";
 import type { AgentSummaryDTO } from "../types";
-import { loadSketch } from "../sketchStore";
 import { refusal } from "../spend";
-import { startPlan, startRewrite, summaryOf } from "./build";
+import { planInputFor, startPlan, startRewrite, summaryOf } from "./build";
 import { buildContext, NOT_AVAILABLE } from "./context";
 import { editableDraft } from "./store";
 
@@ -36,13 +33,7 @@ export async function changePlan(user: User, agent: Agent, change: { message: st
     if (!startRewrite(draft, change.step, ctx)) return { kind: "busy", agent: summaryOf(agent, draft), error: BUSY };
     return { kind: "started", agent: summaryOf(agent, { ...draft, buildState: "writing", buildNote: null }) };
   }
-  const cid = agent.sourceConversationId;
-  const sketch = cid ? await loadSketch(cid) : null;
-  const history = cid
-    ? await db.select({ role: messages.role, content: messages.content }).from(messages).where(eq(messages.conversationId, cid)).orderBy(asc(messages.createdAt))
-    : [];
-  const interview = sketch ?? { name: draft.definition.name, kind: "agent" as const, watches: null, when: null, how: null, tells: null, takes: null, does: null, gives: null, asking: null, live: false };
-  if (!startPlan(draft, { interview, history, current: draft.definition, feedback: change.message }, ctx, "fix")) {
+  if (!startPlan(draft, await planInputFor(agent.sourceConversationId, draft.definition, change.message), ctx, "fix")) {
     return { kind: "busy", agent: summaryOf(agent, draft), error: BUSY };
   }
   return { kind: "started", agent: summaryOf(agent, { ...draft, buildState: "fixing", buildNote: null }) };

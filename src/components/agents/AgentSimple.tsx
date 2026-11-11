@@ -6,7 +6,7 @@ import { ListingPanel, type ListingBody } from "@/components/market/ListingPanel
 import { animatePop } from "@/lib/motion";
 import { useStaggerIn } from "@/lib/useStaggerIn";
 import { setupShapeOf } from "@/lib/agents/definition";
-import { asksBefore, connectsTo, plain, stepLine, stepsInOrder } from "@/lib/agents/plainView";
+import { asksBefore, connectsTo, plain, stepDepths, stepLine, stepsInOrder } from "@/lib/agents/plainView";
 import type { AgentBuilderDTO, AgentSummaryDTO } from "@/lib/types";
 import { SetupFlow, type SetupApi } from "./SetupFlow";
 import styles from "./AgentSimple.module.css";
@@ -87,6 +87,7 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
   }
 
   const steps = stepsInOrder(d);
+  const depths = stepDepths(d);
   const connects = connectsTo(d);
   const asks = asksBefore(d);
   return (
@@ -99,6 +100,8 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
       </header>
 
       {agent.problem && <Problem text={agent.problem.text} busy={busy === "fix" || building} onFix={() => void act("fix", async () => ({ agent: await api.fix(agent.problem!) }))} />}
+      {/* Its self test failed, and Fix this is running on its own with what went wrong. */}
+      {!agent.problem && agent.buildState === "fixing" && agent.buildNote && <Problem text={agent.buildNote} busy onFix={() => undefined} />}
 
       <section className={styles.section} aria-labelledby="does-h">
         <h2 id="does-h">What it does</h2>
@@ -109,7 +112,7 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
         <h2 id="steps-h">Its steps</h2>
         <ol className={styles.steps} ref={stepsRef}>
           {steps.map((s, i) => (
-            <li key={s.id} data-enter data-held={agent.steps.find((x) => x.id === s.id)?.code === "needs_attention" ? "true" : undefined}>
+            <li key={s.id} data-enter data-held={agent.steps.find((x) => x.id === s.id)?.code === "needs_attention" ? "true" : undefined} style={{ "--depth": depths.get(s.id) ?? 0 } as React.CSSProperties}>
               <span className={styles.no} aria-hidden="true">
                 {i + 1}
               </span>
@@ -159,6 +162,7 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
             {story}
           </p>
         )}
+        {agent.test?.fixed && agent.test.status === "passed" && <p className={styles.quiet}>It fixed what its first test found: {lowerFirst(agent.test.fixed)}</p>}
       </section>
 
       <footer className={styles.foot}>
@@ -199,6 +203,8 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
     </div>
   );
 }
+
+const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
 
 // What is wrong, in one sentence, and the one button that fixes it.
 function Problem({ text, busy, onFix }: { text: string; busy: boolean; onFix: () => void }) {

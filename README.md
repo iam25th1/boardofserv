@@ -63,9 +63,9 @@ in the `boardofserv_boardofserv_pgdata` volume either way.
   first set.
 - `INVITE_ONLY` (optional, on unless `0`, `false`, `no` or `off`): accounts
   wait for an admin's approval before they can chat (see "Invite-only").
-- `AGENT_PLAN_MAX_TOKENS` (optional, default 3500), `AGENT_PLAN_TIMEOUT_MS`
-  (120000) and `DOLPHIN_CODE_TIMEOUT_MS` (240000): how long SERV's plan of an
-  agent may be and take, and how long Dolphin may take to write one code step.
+- `AGENT_PLAN_TIMEOUT_MS` (optional, default 120000) and
+  `DOLPHIN_CODE_TIMEOUT_MS` (240000): how long each of SERV's planning answers
+  for an agent may take, and how long Dolphin may take to write one code step.
 - `CHAT_DAILY_LIMIT` (optional, default 30): messages each person may send a
   day. `DAILY_SPEND_LIMIT_USD` (optional, default 5): the most the site
   spends a day on the operator's model keys (see "Spend limits" below).
@@ -444,7 +444,11 @@ checked with zod.
   next. A code step carries a plain description of what its code must do and
   the tools it may call; a decision step carries a prompt for SERV and two to
   six outcomes, each with its own next step; an action step takes one
-  declared action. A run starts at the first step.
+  declared action; a loop step goes through a list (`over`: one of its
+  inputs, or a list setting's key with `settings` in its inputs), running the
+  steps inside it (from `body`) once per item, the item in the bag under its
+  name (`item`). A run starts at the first step; inside a loop, a next of
+  null ends the pass.
 - `actions`: the only actions the agent may ever take, each with a tool that
   changes something (`sheets.write`, `telegram.send`, `telegram.ask`,
   `wallet.pay`, `memory.set`); reading and working things out happen in code
@@ -466,7 +470,14 @@ checks beyond the shape:
 - action steps take declared actions, and side effects are declared;
 - an action whose tool needs exact arguments (`sheets.write`, `wallet.pay`,
   `memory.set`) takes them as its first input, a value of its own made by a
-  code step for it alone.
+  code step for it alone;
+- the steps inside a loop lead only to each other, and what a pass makes is
+  gone when the loop ends: a step after a loop reads what the loop gathered
+  (`gather`: each output is the list of one value from every pass, in
+  order), never one pass's value. A loop inside a loop gathers the same way
+  within each pass of the outer one, so "for each submission, for each
+  requirement" is one decision per requirement per submission, counted in
+  code after the inner loop, and summed up after the outer one.
 
 Most of these came from building the example agent live (see below): each
 is a way a plan from SERV passed the shape and still couldn't run.
@@ -519,8 +530,9 @@ The agent's dock (`src/components/chat/AgentDock.tsx`) shows the interview
 as seven chalk dots, filled as they are answered and turning while asked,
 and once the agent is planned, its real steps as a chalk diagram
 (`src/components/agents/StepDiagram.tsx`): a code step is a square, a
-decision a diamond, an action a circle, with links to each next step and one
-per outcome from a decision. New steps are chalked on one after another and
+decision a diamond, an action a circle, a loop a square with round corners
+leading into its first step, with links to each next step and one per
+outcome from a decision. New steps are chalked on one after another and
 their links drawn with anime.js; a step whose code is approved fills in.
 Helpers keep their takes / does / gives dock.
 
@@ -529,15 +541,25 @@ Helpers keep their takes / does / gives dock.
 Plan on the agent's dock (`POST /api/agents` with the conversation) makes the
 agent and its first draft, or plans its draft afresh, once the interview is
 complete. SERV, and only SERV, turns the interview and the conversation
-behind it into a whole definition (`src/lib/agents/plan.ts`, max tokens
-`AGENT_PLAN_MAX_TOKENS`, default 3500). Its answer is the format flattened
-for SERV's strict json_schema (every field present, "" or [] where it doesn't
-apply, no unions, no numeric range keywords), turned back into the format
-and checked. A plan that doesn't check out goes back to SERV with the
-reasons, up to three tries in all. One mistake with only one meaning is
-repaired on the way in: a step that lists a setting, rule or memory key as
-an input (or names one in its words) reads the bag it lives in. A whole plan
-is one answer of a few thousand tokens, not streamed, so it waits up to
+behind it into a whole definition (`src/lib/agents/plan.ts`), in two
+stages (`src/lib/agents/planStages.ts`): an outline (the agent's setup, and
+its steps' names, kinds, order, loops and what each is for), then the
+details of up to six steps a call (what each reads and makes, its code's
+brief, a decision's question and outcomes), a loop always with the steps
+inside it. SERV refuses a strict json_schema whose compiled grammar is too
+large, and the single schema a plan used to be asked in sat right at that
+limit; measured live (`src/test/plan-schema-live.test.ts`), the outline's
+schema has room for 12 more string fields per step and the details' for 48.
+Each answer is the format flattened for SERV's strict json_schema (every
+field present, "" or [] where it doesn't apply, no unions, no numeric range
+keywords); the two are joined, turned back into the format and checked
+with the planner's rules. Each reason goes back only to its stage: the
+outline (what wakes it, its setup, which steps there are and of which kind)
+or the details of the steps it names, which go back to the outline when
+they fail twice. A plan takes four calls or so, and at most ten. Some
+mistakes with only one meaning are repaired on the way in: a step that
+lists a setting, rule or memory key as an input (or names one in its words)
+reads the bag it lives in. Each answer is not streamed, so it waits up to
 `AGENT_PLAN_TIMEOUT_MS` (default 120000) rather than a reply's 20 seconds;
 a review waits a minute and a decision half a minute. Decision steps carry a prompt and their
 outcomes, action steps one declared action, code steps a plain description
@@ -549,7 +571,13 @@ request (Cloudflare closes a request after 100 seconds). The draft's
 `build_state` says where it is (`planning`, `writing`, `fixing`, `idle` or
 `failed` with a plain note), the dock polls `GET /api/agents/:id` every two
 seconds while it builds, and a state no job in this process owns (the
-server restarted) is called failed so the maker can plan again. Every model
+server restarted) is called failed so the maker can plan again. Once its
+code is written, every plan gets a self test on three sample items and a
+second run (`src/lib/agents/test.ts`). When it fails, the one plain
+sentence that says what went wrong is shown while Fix this runs once on its
+own with it: the plan is changed from that sentence, its changed steps
+written again and tested again. If that test fails too, the sentence stays
+with the Fix this button. Every model
 call writes a `reply_usage` row (`agent_plan`, `agent_code`, `agent_review`,
 `agent_decision`), so building counts towards the day's spend, and planning
 is refused like a chat turn when the day's limit is reached or the account

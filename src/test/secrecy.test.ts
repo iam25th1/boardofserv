@@ -58,6 +58,7 @@ import * as installationMessages from "@/app/api/installations/[id]/messages/rou
 import * as approvalsRoute from "@/app/api/approvals/route";
 import * as approvalRoute from "@/app/api/approvals/[id]/route";
 import * as jobRoute from "@/app/api/jobs/[id]/route";
+import { planAnswer } from "@/test/planAnswers";
 import * as installationJobs from "@/app/api/installations/[id]/jobs/route";
 import * as agentJobs from "@/app/api/agents/[id]/jobs/route";
 import * as installationControl from "@/app/api/installations/[id]/control/route";
@@ -390,7 +391,8 @@ beforeAll(async () => {
       const ask = JSON.stringify(body);
       return Response.json({ choices: [{ message: { content: "```js\n" + (ask.includes("Step: Compare suppliers") ? `// ${CODE_MARKER}\n${COMPARE}` : AGENT_CODE) + "\n```" } }] });
     }
-    if (body.response_format?.json_schema?.name === "agent_plan") return Response.json({ choices: [{ message: { content: JSON.stringify(AGENT_PLAN) } }] });
+    const planned = planAnswer(AGENT_PLAN, body);
+    if (planned) return Response.json({ choices: [{ message: { content: JSON.stringify(planned) } }] });
     if (body.response_format?.json_schema?.name === "code_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "approve", reason: "Fine." }) } }] });
     // The content screen passes posts (its holds are tested elsewhere).
     if (body.response_format?.json_schema?.name === "content_screen") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "ok", reason: "Fine." }) } }] });

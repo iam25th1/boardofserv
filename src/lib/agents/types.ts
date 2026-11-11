@@ -48,6 +48,9 @@ export interface TestResult {
   // change.
   sample?: BenchData;
   sampleOf?: string;
+  // A self test after Fix this ran on its own: the problem the test before
+  // it found, in its plain sentence.
+  fixed?: string;
 }
 
 // A search result, as the web.search tool returns it.
@@ -105,8 +108,12 @@ export interface RunState {
   sources?: Record<string, string[]>;
   // The renter let this job go over the weekly model budget.
   budgetOk?: boolean;
-  // How many times each step has started in this job.
+  // How many times each step has started in this job (in a loop, in this
+  // pass).
   visits?: Record<string, number>;
+  // The loops it is inside, outermost first: the loop step, the pass it is
+  // on (from 0) and what it has gathered from the passes before.
+  loops?: { step: string; index: number; gathered: Record<string, unknown[]> }[];
 }
 
 // The screen of a step's untrusted inputs takes the step's first journal

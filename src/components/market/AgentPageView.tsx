@@ -113,10 +113,10 @@ export function AgentPageView({ id, api }: { id: string; api: AgentPageApi }) {
           {page.steps.map((s, i) => (
             <li key={i} data-enter data-kind={s.kind}>
               <svg className={`${styles.mark} chalky`} viewBox="0 0 24 24" aria-hidden="true">
-                {s.kind === "works" ? <rect x="4" y="4" width="16" height="16" rx="2" /> : s.kind === "decides" ? <path d="M12 1 L23 12 L12 23 L1 12 Z" /> : <circle cx="12" cy="12" r="9" />}
+                {s.kind === "works" || s.kind === "repeats" ? <rect x="4" y="4" width="16" height="16" rx={s.kind === "repeats" ? 7 : 2} /> : s.kind === "decides" ? <path d="M12 1 L23 12 L12 23 L1 12 Z" /> : <circle cx="12" cy="12" r="9" />}
               </svg>
               <div>
-                <span className={styles.stepKind}>{s.kind === "works" ? "works out" : s.kind === "decides" ? "decides" : "does"}</span>
+                <span className={styles.stepKind}>{s.kind === "works" ? "works out" : s.kind === "decides" ? "decides" : s.kind === "repeats" ? "for each" : "does"}</span>
                 <strong>{s.title}</strong>
                 {s.outcomes.length > 0 && <span className={styles.outcomes}>{s.outcomes.join(", or ")}</span>}
               </div>
