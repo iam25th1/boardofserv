@@ -4,7 +4,7 @@ import Link from "next/link";
 import { animate } from "animejs";
 import { StepDiagram, type DiagramStep, type NodeState } from "@/components/agents/StepDiagram";
 import { animatePop, ease, prefersReducedMotion } from "@/lib/motion";
-import { INTERVIEW_FIELDS, INTERVIEW_LABELS, type SketchKind } from "@/lib/sketchFields";
+import { ASKED_FIELDS, INTERVIEW_LABELS, type SketchKind } from "@/lib/sketchFields";
 import type { AgentSummaryDTO, SketchDTO } from "@/lib/types";
 import { KindSwitch } from "./KindSwitch";
 import styles from "./AgentDock.module.css";
@@ -13,18 +13,19 @@ import frame from "./SketchDock.module.css";
 // The dock for an agent, on top of the composer like the helper's: the
 // agent's card. While SERV interviews the maker it shows the interview,
 // topic by topic, filled in as they are answered, the one being asked
-// turning; Plan turns a finished interview into steps. Once the agent is
+// turning (only what it needs to understand the job: the guided setup
+// collects the rest); Plan turns a finished interview into steps. Once the agent is
 // planned it shows its real steps (StepDiagram), which grow as the plan and
 // its code come in, where it stands in plain words, the last test's story
 // or what is wrong, and what can be done from here: Test it, Fix it,
 // Publish and Details (its page).
 
-type Field = (typeof INTERVIEW_FIELDS)[number];
+type Field = (typeof ASKED_FIELDS)[number];
 
-const DOT_WORD: Record<Field, string> = { wakes: "wakes", looks: "looks", handles: "acts", finish: "done", asks: "asks", setup: "setup", remembers: "keeps" };
+const DOT_WORD: Record<Field, string> = { wakes: "wakes", looks: "looks", handles: "acts", finish: "done", asks: "asks" };
 
 export function interviewDone(sketch: SketchDTO): boolean {
-  return INTERVIEW_FIELDS.every((k) => Boolean(sketch[k]));
+  return ASKED_FIELDS.every((k) => Boolean(sketch[k]));
 }
 
 // How the dock draws each step: its code's progress, or whether the build
@@ -60,7 +61,7 @@ export function agentStatus(sketch: SketchDTO, agent: AgentSummaryDTO | null): s
     }
   }
   if (interviewDone(sketch)) return "Ready to plan";
-  if (sketch.asking && (INTERVIEW_FIELDS as readonly string[]).includes(sketch.asking)) return "Waiting on one answer from you";
+  if (sketch.asking && (ASKED_FIELDS as readonly string[]).includes(sketch.asking)) return "Waiting on one answer from you";
   return "Interviewing";
 }
 
@@ -136,7 +137,7 @@ export function AgentDock({ sketch, agent, sketching = false, onKind, onPlan, pl
       </div>
       {agent && actions && (planned || agent.buildState === "failed") && <Card agent={agent} building={building} actions={actions} />}
       <ul className={frame.details} id={detailsId} ref={details} hidden={!open}>
-        {INTERVIEW_FIELDS.map((k) => (
+        {ASKED_FIELDS.map((k) => (
           <li key={k} data-status={sketch.asking === k ? "waiting" : sketch[k] ? "set" : "empty"}>
             <small>{INTERVIEW_LABELS[k]}</small>
             <b>{sketch[k] || (sketch.asking === k ? "waiting on you" : "Waiting")}</b>
@@ -150,11 +151,11 @@ export function AgentDock({ sketch, agent, sketching = false, onKind, onPlan, pl
 // The interview as seven chalk dots: filled once answered, turning while
 // asked.
 function Interview({ sketch }: { sketch: SketchDTO }) {
-  const answered = INTERVIEW_FIELDS.filter((k) => sketch[k]).length;
+  const answered = ASKED_FIELDS.filter((k) => sketch[k]).length;
   return (
     <div className={styles.interview}>
-      <svg className="chalky" viewBox={`0 0 ${INTERVIEW_FIELDS.length * 40} 34`} width={INTERVIEW_FIELDS.length * 40} height={34} aria-hidden="true" focusable="false">
-        {INTERVIEW_FIELDS.map((k, i) => (
+      <svg className="chalky" viewBox={`0 0 ${ASKED_FIELDS.length * 40} 34`} width={ASKED_FIELDS.length * 40} height={34} aria-hidden="true" focusable="false">
+        {ASKED_FIELDS.map((k, i) => (
           <g key={k} data-state={sketch.asking === k ? "ask" : sketch[k] ? "on" : "off"}>
             <circle className={styles.dot} cx={20 + i * 40} cy={9} r={6} />
             <text x={20 + i * 40} y={30}>
@@ -164,7 +165,7 @@ function Interview({ sketch }: { sketch: SketchDTO }) {
         ))}
       </svg>
       <span className="visually-hidden">
-        {answered} of {INTERVIEW_FIELDS.length} answered
+        {answered} of {ASKED_FIELDS.length} answered
       </span>
     </div>
   );

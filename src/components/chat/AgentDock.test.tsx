@@ -55,8 +55,9 @@ describe("the agent dock", () => {
   it("shows the interview as it is answered, the question being asked turning", () => {
     const { container } = render(<AgentDock sketch={interview} agent={null} onPlan={() => {}} />);
     const dots = [...container.querySelectorAll("[data-state]")].map((g) => g.getAttribute("data-state"));
-    expect(dots).toEqual(["on", "on", "ask", "off", "off", "off", "off"]);
-    expect(screen.getByText("2 of 7 answered")).toBeInTheDocument();
+    // Only what the chat asks: what it sets up and remembers aren't topics.
+    expect(dots).toEqual(["on", "on", "ask", "off", "off"]);
+    expect(screen.getByText("2 of 5 answered")).toBeInTheDocument();
     expect(screen.getByText("Waiting on one answer from you")).toBeInTheDocument();
     // No Plan until the interview is done.
     expect(screen.queryByRole("button", { name: "Plan" })).toBeNull();

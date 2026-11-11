@@ -98,9 +98,11 @@ async function interviewed(user: schema.User, done = true): Promise<string> {
     looks: "the Stock sheet and three suppliers",
     handles: "orders what is low from the best supplier",
     finish: "every low fabric has an order",
-    asks: "orders over 250 USDC",
-    setup: "the stock and orders sheets",
-    remembers: done ? "the last order" : null,
+    // What it must never do without asking is the last thing the chat asks;
+    // what it sets up and remembers it never asks at all.
+    asks: done ? "orders over 250 USDC" : null,
+    setup: null,
+    remembers: null,
   });
   return convo!.id;
 }

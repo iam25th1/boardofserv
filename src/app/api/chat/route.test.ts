@@ -304,14 +304,14 @@ describe("an agent's interview", () => {
     expect(t.sketch?.sketch).toMatchObject({ kind: "agent", wakes: "every morning at eight", handles: "orders what is low", asking: "looks" });
     expect(t.choices).toEqual(["A Google sheet", "My shop's website"]);
     const reply = calls.at(-1)!;
-    expect(reply.messages[0]!.content).toContain("Known so far: name Fabric restock, kind agent, wakes every morning at eight, handles orders what is low; missing: looks, finish, asks, setup, remembers.");
+    expect(reply.messages[0]!.content).toContain("Known so far: name Fabric restock, kind agent, wakes every morning at eight, handles orders what is low; missing: looks, finish, asks.");
     expect(reply.messages[0]!.content).toContain('Ask about: looks (where it looks). The user will see these buttons: "A Google sheet", "My shop\'s website".');
     expect(await sketchRow(t.conversationId)).toMatchObject({ kind: "agent", wakes: "every morning at eight", looks: null });
 
     // With the interview complete, the reply points at the Plan button.
     nextReply = ["Got it, ready to plan."];
-    nextSketch = extraction({ looks: "the Stock sheet", finish: "an order is recorded", asks: "orders over 250 USDC", setup: "the sheets", remembers: "the last order" });
-    await turn("The Stock sheet; done once an order is recorded; ask over 250 USDC; it needs the sheets; remember the last order", t.conversationId);
+    nextSketch = extraction({ looks: "the Stock sheet", finish: "an order is recorded", asks: "orders over 250 USDC" });
+    await turn("The Stock sheet; done once an order is recorded; ask over 250 USDC", t.conversationId);
     expect(calls.at(-1)!.messages[0]!.content).toContain("say the Plan button on the sketch turns it into steps to test");
   });
 });
