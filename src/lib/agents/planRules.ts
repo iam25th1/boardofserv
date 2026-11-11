@@ -16,7 +16,7 @@ import { nextOf, type AgentDefinition } from "./definition";
 //   to memory reads it first.
 
 const COUNTING =
-  /\bhow many\b|\bcount(?:s|ing)?\b|\b(?:fewer|less|more|greater) than (?:half|\d)|\bat (?:least|most) (?:half|\d)|\bhalf (?:of|the)\b|\bthreshold\b|\b\d+\s*(?:%|percent)\b|\bover \d|\bunder \d|\bexceeds?\b|\bequal(?:s)? to\b/i;
+  /\bhow many\b|\bcount(?:s|ing)?\b|\b(?:fraction|proportion|ratio|percentage)\b|\b(?:fewer|less|more|greater) than (?:half|\d)|\bat (?:least|most) (?:half|\d)|\bhalf (?:of|the)\b|\bthreshold\b|\b\d+\s*(?:%|percent)\b|\bover \d|\bunder \d|\bexceeds?\b|\bequal(?:s)? to\b/i;
 const LEFT = /\b(?:any|more|another|next|other)\s+(?:new\s+)?(?:rows?|items?|entries|submissions?|records?|messages?|ones?)\b|\b(?:rows?|items?|submissions?|records?|entries)\s+(?:left|remaining|to (?:process|check|go|handle))\b|\bis there (?:another|a next|one more|anything)\b|\bany (?:left|remaining)\b/i;
 
 const JUDGES = /\b(?:judge[sd]?|judging|assess(?:es|ed|ing)?|(?:evaluat(?:e|es|ed|ing)|determin(?:e|es|ed|ing)) (?:whether|if|how well)\b[^.]*\b(?:meets?|met|good|quality|worth|requirement))/i;

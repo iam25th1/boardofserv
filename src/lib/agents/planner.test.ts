@@ -62,6 +62,12 @@ describe("the test case", () => {
     expect(planProblems(fine)).toEqual([]);
   });
 
+  it("catches a decision asked to work out a fraction, as SERV wrote it live", () => {
+    const d = hackathonDefinition();
+    const live = { ...d, steps: d.steps.map((s) => (s.id === "judge" ? { ...s, prompt: "Check whether each submission satisfies all the listed requirements and calculate what fraction were met." } : s)) };
+    expect(planProblems(live).join(" ")).toMatch(/decision "judge" decides a count or a comparison/);
+  });
+
   it("still catches a position saved without reading the last one, if a plan gets past the reading", () => {
     const d = hackathonDefinition();
     const saving = { ...d, memory: [{ key: "last_row", description: "The last row checked", type: "number" as const }], steps: d.steps.map((s) => (s.id === "tally" ? { ...s, tools: [...(s as CodeStepDef).tools, "memory.set" as const] } : s)) };
