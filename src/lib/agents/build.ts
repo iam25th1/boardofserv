@@ -10,12 +10,14 @@ import { dolphinProvider, writeStep } from "./code";
 import { codeSpec, givenAnswers, nextOf, setupShapeOf, type AgentDefinition, type CodeStepDef } from "./definition";
 import { stepDepths, stepLine, stepsInOrder } from "./plainView";
 import { planAgent, type PlanInput } from "./plan";
-import { setStepCode, updateDraft, versionById } from "./store";
+import { setHeal, setStepCode, updateDraft, versionById } from "./store";
 import { planFailure, problemOf } from "./plainWords";
 import { selfTest } from "./test";
 import type { StepCode, TestResult } from "./types";
 import { errorText } from "../db/errors";
 import { recordAttempts } from "../modelAttempts";
+import { codeDiagnosis, planDiagnosis, testDiagnosis, withDiagnosis } from "./diagnosis";
+import type { Diagnosis } from "./types";
 
 // The build: planning, then the code, runs in the background,
 // because it can take longer than a request may. One job per draft at a
@@ -28,6 +30,13 @@ const jobs = new Map<string, Promise<void>>();
 // The job running on a draft, if any (tests wait on it).
 export function jobFor(versionId: string): Promise<void> | undefined {
   return jobs.get(versionId);
+}
+
+// Every failure of a build is kept as a diagnosis (diagnosis.ts) on the
+// draft's heal log, for the fixer and the details view.
+export async function diagnosed(versionId: string, diagnosis: Diagnosis): Promise<void> {
+  const v = await versionById(versionId);
+  if (v) await setHeal(versionId, withDiagnosis(v.heal, diagnosis));
 }
 
 export interface BuildContext {
@@ -182,6 +191,7 @@ async function settleWriting(versionId: string, ctx: BuildContext, settle: Settl
       const definition = Object.keys(plain).length ? { ...now.definition, steps: now.definition.steps.map((s) => (plain[s.id] && !s.plain ? { ...s, plain: plain[s.id] } : s)) } : undefined;
       const result = settle.fixed ? { ...tested.result, fixed: settle.fixed } : tested.result;
       await updateDraft(versionId, { testResult: result, bench: tested.bench, ...(definition ? { definition } : {}) });
+      if (result.status === "failed") await diagnosed(versionId, testDiagnosis(definition ?? now.definition, result, tested.events, now.code));
       const sentence = result.status === "failed" ? result.problems[0]?.text : undefined;
       if (sentence && settle.autoFix && (await fixOnce(versionId, ctx, definition ?? now.definition, sentence))) return;
       await updateDraft(versionId, { buildState: "idle", buildNote: null });
@@ -205,6 +215,7 @@ async function fixOnce(versionId: string, ctx: BuildContext, current: AgentDefin
   const version = await versionById(versionId);
   if (!plan.definition || !version) {
     console.error(`agents: Fix this on its own made no plan. ${plan.errors.join(" ")}`);
+    await diagnosed(versionId, planDiagnosis(plan.errors, current));
     return false;
   }
   const saved = await updateDraft(versionId, { definition: plan.definition, code: carryCode(plan.definition, version.code), buildState: "writing", buildNote: null });
@@ -230,6 +241,7 @@ export async function writeAllCode(version: AgentVersion, definition: AgentDefin
     current = fit.definition;
     // A draft published or replanned meanwhile stops the writing.
     if (!(await setStepCode(version.id, step.id, fit.entry))) return;
+    if (fit.entry.status === "needs_attention") await diagnosed(version.id, codeDiagnosis(current, step.id, fit.entry));
   }
   await settleWriting(version.id, ctx, settle);
 }
@@ -249,6 +261,7 @@ export function startRewrite(version: AgentVersion, stepId: string, ctx: BuildCo
       const written = await writeStep(step, definition, spec, { dolphin: dolphinProvider(), serv: ctx.serv, fetchImpl, writer: "serv", hooks: writeHooks(version, step, spec, ctx) });
       const fit = await fitPlan(version.id, definition, step, written);
       await setStepCode(version.id, step.id, fit.entry);
+      if (fit.entry.status === "needs_attention") await diagnosed(version.id, codeDiagnosis(fit.definition, step.id, fit.entry));
       await settleWriting(version.id, ctx, settle);
     } catch (err) {
       console.error(`agents: a rewrite stopped: ${errorText(err, "unknown error")}`);
@@ -287,6 +300,7 @@ export function startPlan(version: AgentVersion, input: PlanInput, ctx: BuildCon
         // Why, in plain words, and what to add (plainWords.ts): the
         // checker's own reasons name steps by id, so they stay in the log.
         const why = plan.calls.some((c) => c.content) ? planFailure(plan.errors) : NO_MODEL;
+        await diagnosed(version.id, planDiagnosis(plan.errors, version.definition));
         // A change that didn't come together in the chat leaves the steps
         // as they were, and says so; anything else is a failed build.
         if (o.planned && version.definition) await updateDraft(version.id, { buildState: "idle", buildNote: null });

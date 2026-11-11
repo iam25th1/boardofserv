@@ -37,8 +37,9 @@ export interface TestResult {
   // passed, 1 rejected, summary sent", or for an agent that handles one
   // thing, what it did in order.
   story: string;
-  // What is wrong, one plain sentence each, and the step it is about.
-  problems: { step: string | null; text: string }[];
+  // What is wrong, one plain sentence each, the step it is about and the
+  // check that found it.
+  problems: { step: string | null; text: string; check?: CheckId }[];
   // What the sample items are: "submission", "submissions", and the
   // items' own names (one, or three for an agent that goes through a
   // list), as they appear in the sample data.
@@ -53,6 +54,78 @@ export interface TestResult {
   // A self test after Fix this ran on its own: the problem the test before
   // it found, in its plain sentence.
   fixed?: string;
+}
+
+// The self test's checks (test.ts), by name: the run got through; no tool
+// error was passed over; it did its job on a sample made for it; the
+// summary covers every item; it doesn't add its results to the tab it
+// reads; run again, it skips what it did; told no, it does nothing.
+export type CheckId = "ran" | "tool_error" | "did_job" | "summary" | "write_back" | "second_run" | "said_no";
+
+// What went wrong, as the build found it, with everything there is to act
+// on: where (the stage and the step), what happened, what was expected, and
+// the evidence. Every failure of a build makes one (diagnosis.ts), and the
+// fixer (fixer.ts) reads it.
+export interface Diagnosis {
+  stage: "plan" | "code" | "test" | "connect" | "live";
+  // The step it is about, when there is one.
+  step: { id: string; title: string } | null;
+  // What happened, in the system's own words (a review's reason, a check's
+  // sentence, the plan checker's reasons).
+  failure: string;
+  // What should have happened instead.
+  expected: string;
+  evidence: {
+    // The plan as it was, when there was one.
+    plan: unknown;
+    // What the step had to do: its brief, what it reads and makes, its tools.
+    spec: string | null;
+    code: string | null;
+    // The code review's reason, and the check that failed.
+    review: string | null;
+    check: CheckId | null;
+    // The test run, one line per step and tool call.
+    trace: string[];
+    // The sample data the test ran on.
+    sample: BenchData | null;
+    // The plan checker's reasons, or the setup's.
+    errors: string[];
+  };
+  at: string;
+}
+
+// One repair round: what was wrong, what the fixer made of it, what it did
+// and how that went.
+export interface HealRound {
+  diagnosis: Diagnosis;
+  // code: the step's code was wrong; plan: the steps were; test: the
+  // sample or the choice of checks; unclear: only the maker can say.
+  verdict: "code" | "plan" | "test" | "unclear" | null;
+  // The fixer's reason, and what it changed, in words.
+  why: string;
+  repair: string;
+  // pending: still being made; rejected: the safety check turned it down.
+  outcome: "pending" | "fixed" | "failed" | "rejected" | "asked";
+  rejected?: string | null;
+  // What it learned, once it fixed it (lessons.ts).
+  lesson?: { kind: string; text: string } | null;
+  at: string;
+}
+
+// How a build healed itself, kept on the version for the details view:
+// every round, the plain lines the Build and Try it cards show, a question
+// waiting for the maker, and where it gave up.
+export interface HealLog {
+  rounds: HealRound[];
+  lines: { text: string; tone: "working" | "fixed" | "asked" | "stopped"; at: string }[];
+  question?: { text: string; choices: string[] } | null;
+  gaveUp?: string | null;
+  // What the fixer's own model calls cost on this build, in US dollars.
+  costUsd?: number;
+}
+
+export function emptyHeal(): HealLog {
+  return { rounds: [], lines: [], question: null, gaveUp: null, costUsd: 0 };
 }
 
 // A search result, as the web.search tool returns it.

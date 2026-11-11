@@ -13,6 +13,8 @@ import { REVIEW_BLOCKED, REVIEW_DOWN, vetVersion } from "./publish";
 import type { Runtime } from "./runtime/context";
 import { install, installationDTO, InstallRefused, loadInstallation } from "./runtime/installations";
 import { draftOf, publishDraft, updateDraft, versionsOf } from "./store";
+import { diagnosed } from "./build";
+import { liveDiagnosis } from "./diagnosis";
 
 // Go live, from the chat: the steps the maker built and tried become a
 // version that never changes (with the code review every version gets),
@@ -45,6 +47,7 @@ export async function publishedFor(rt: Runtime, user: User, agent: Agent): Promi
   if (frozen) throw new NotLive(`It can't go live now: boardofserv froze it. ${frozen.reason}`);
   const review = await vetVersion(rt, user, draft);
   if (review.status === "unreviewed") throw new NotLive(REVIEW_DOWN, 503);
+  if (review.status === "blocked") await diagnosed(draft.id, liveDiagnosis(draft.definition, review.findings, draft.code));
   if (review.status === "blocked") throw new NotLive(`${REVIEW_BLOCKED} ${review.findings.find((f) => f.severity === "blocking")?.finding ?? ""}`.trim());
   const published = await publishDraft(agent.id);
   if (!published) throw new NotLive("It couldn't go live just now. Try again.");

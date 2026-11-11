@@ -74,13 +74,13 @@ export async function testVersion(v: { definition: AgentDefinition; code: Record
   if (end.status !== "done") {
     const failed = [...events].reverse().find((e): e is Extract<RunEvent, { type: "step_done" }> => e.type === "step_done" && e.status === "failed");
     const step = failed ? d.steps.find((s) => s.id === failed.stepId) : undefined;
-    problems.push({ step: step?.id ?? null, text: step ? `"${step.title}" didn't work on the ${sampled}.` : `It didn't get through the ${sampled}.` });
+    problems.push({ step: step?.id ?? null, text: step ? `"${step.title}" didn't work on the ${sampled}.` : `It didn't get through the ${sampled}.`, check: "ran" });
   } else {
     // A call that went wrong and was passed over: the run went on with
     // nothing, which only looks like it worked.
     const wrong = events.find((e): e is ToolEvent => e.type === "tool" && Boolean(e.error));
     const step = wrong ? d.steps.find((s) => s.id === wrong.stepId) : undefined;
-    if (wrong) problems.push({ step: step?.id ?? null, text: `"${step?.title ?? "A step"}" couldn't ${TOOL_VERBS[wrong.tool] ?? "do its part"} on the ${sampled}, so it went on with nothing.` });
+    if (wrong) problems.push({ step: step?.id ?? null, text: `"${step?.title ?? "A step"}" couldn't ${TOOL_VERBS[wrong.tool] ?? "do its part"} on the ${sampled}, so it went on with nothing.`, check: "tool_error" });
   }
   const status = problems.length ? "failed" : "passed";
   const story = storyOf(d, events, end, sample.items);
@@ -181,7 +181,7 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   const asked = d.actions.filter((a) => a.tool === "telegram.ask");
   const job = jobs.length ? (jobs.some((a) => did(a.tool)) ? null : jobs[0]!) : asked.length && !asked.some((a) => did(a.tool)) ? asked[0]! : null;
   if (job) {
-    problems.push({ step: d.steps.find((s) => s.kind === "action" && s.action === job.id)?.id ?? null, text: `On its sample it didn't ${lowerFirst(plain(job.description)).replace(/\.$/, "")}: it found nothing to do in data made for it to work on.` });
+    problems.push({ step: d.steps.find((s) => s.kind === "action" && s.action === job.id)?.id ?? null, text: `On its sample it didn't ${lowerFirst(plain(job.description)).replace(/\.$/, "")}: it found nothing to do in data made for it to work on.`, check: "did_job" });
   }
 
   // The summary: the last message it sends, after going through the list.
@@ -194,7 +194,7 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
     const words = [items.plural, items.noun].map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
     const counted = new RegExp(`\\b(?:${items.labels.length}|three)\\s+(?:new\\s+)?(?:${words})\\b`).test(text);
     if (named < items.labels.length && !counted) {
-      problems.push({ step: summary.stepId, text: `Its summary covers ${named === 0 ? "none" : "only some"} of the ${items.plural}, not all ${items.labels.length}.` });
+      problems.push({ step: summary.stepId, text: `Its summary covers ${named === 0 ? "none" : "only some"} of the ${items.plural}, not all ${items.labels.length}.`, check: "summary" });
     }
   }
 
@@ -205,7 +205,7 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
         return reads.has(String(a.sheet)) && a.mode !== "replace";
       })
     : undefined;
-  if (added) problems.push({ step: added.stepId, text: `It adds its results as new rows of the sheet it reads ${items.plural} from, so they would come back as new ${items.plural}.` });
+  if (added) problems.push({ step: added.stepId, text: `It adds its results as new rows of the sheet it reads ${items.plural} from, so they would come back as new ${items.plural}.`, check: "write_back" });
 
   if (keepsPlace(d)) {
     const again: RunEvent[] = [];
@@ -225,7 +225,7 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
       const a = e.args as { sheet?: unknown; rows?: unknown };
       return reads.has(String(a.sheet)) && labels.test(JSON.stringify(a.rows ?? []));
     });
-    if ((many && judged(d, again) > 0) || twice || rewritten) problems.push({ step: null, text: `Run again, it would go through the same ${items.plural} a second time: it should only take new ones.` });
+    if ((many && judged(d, again) > 0) || twice || rewritten) problems.push({ step: null, text: `Run again, it would go through the same ${items.plural} a second time: it should only take new ones.`, check: "second_run" });
   }
 
   return told({ ...first, result: { ...first.result, status: problems.length ? "failed" : "passed", problems } });

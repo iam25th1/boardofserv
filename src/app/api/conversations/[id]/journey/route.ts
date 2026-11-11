@@ -8,6 +8,8 @@ import { checkAnswers } from "@/lib/agents/settingsForm";
 import { agentForConversation, currentVersion } from "@/lib/agents/store";
 import { hasConnection } from "@/lib/connections/vault";
 import { connectionsNeeded, spends } from "@/lib/agents/definition";
+import { diagnosed } from "@/lib/agents/build";
+import { connectDiagnosis } from "@/lib/agents/diagnosis";
 
 export const runtime = "nodejs";
 
@@ -51,7 +53,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const needs = connectionsNeeded(d);
   if (needs.telegram && rt.services.telegramToken && !(await hasConnection(rt, user.id, "telegram"))) errors.telegram = "Link your Telegram first.";
   if (needs.google && rt.services.google && !(await hasConnection(rt, user.id, "google"))) errors.google = "Connect Google first.";
-  if (Object.keys(errors).length) return Response.json({ error: "Some answers need another look.", errors }, { status: 400 });
+  if (Object.keys(errors).length) {
+    await diagnosed(version.id, connectDiagnosis(d, errors));
+    return Response.json({ error: "Some answers need another look.", errors }, { status: 400 });
+  }
 
   await updateCard(card.id, { ...card.card, answers: { ...a, payee: a.payee ?? null } }, "Connected: it has what it needs.");
   const latest = (await cardsIn(convo.id)).at(-1);

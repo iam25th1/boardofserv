@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, bigserial, json, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
 import type { AgentDefinition } from "../agents/definition";
-import type { BenchData, RunState, StepCode, TestResult } from "../agents/types";
+import type { BenchData, HealLog, RunState, StepCode, TestResult } from "../agents/types";
 import type { JourneyCard } from "../journey";
 import { CURRENCIES } from "../money";
 import { DISPUTE_REASONS } from "../spending/disputeWords";
@@ -542,6 +542,9 @@ export const agentVersions = pgTable(
     buildNote: text("build_note"),
     // The last test of this version, in plain words (agents/test.ts).
     testResult: jsonb("test_result").$type<TestResult>(),
+    // How its build healed itself: what went wrong at each failure, and each
+    // repair (agents/diagnosis.ts, agents/fixer.ts).
+    heal: jsonb("heal").$type<HealLog>(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     publishedAt: timestamp("published_at", { withTimezone: true }),

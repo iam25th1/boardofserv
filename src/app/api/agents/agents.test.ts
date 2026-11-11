@@ -220,6 +220,10 @@ describe("planning an agent from its conversation", () => {
     // Why, in plain words, and what to add: never the checker's own reasons.
     expect(after.agent).toMatchObject({ buildState: "failed", buildNote: "I couldn't work out the steps: it didn't say what starts it. Say when it should run, for example every 15 minutes or every morning." });
     expect(after.definition).toBeNull();
+    // The checker's reasons are kept, as a diagnosis.
+    const heal = (await draftOf(a.id))!.heal!;
+    expect(heal.rounds[0]!.diagnosis).toMatchObject({ stage: "plan", step: null });
+    expect(heal.rounds[0]!.diagnosis.evidence.errors.join(" ")).toMatch(/trigger/);
   });
 });
 
@@ -414,5 +418,10 @@ describe("a self test that fails", () => {
     expect(after.agent.problem).toEqual({ text: SENTENCE, step: "compare", fix: "replan" });
     expect(after.agent.test).toMatchObject({ status: "failed", fixed: SENTENCE });
     expect(seen.filter((s) => s.schema === "agent_outline")).toHaveLength(2);
+    // Each failed test is kept as a diagnosis: the check, the step, the run.
+    const heal = (await draftOf(id))!.heal!;
+    expect(heal.rounds.map((r) => r.diagnosis.stage)).toEqual(["test", "test"]);
+    expect(heal.rounds[0]!.diagnosis).toMatchObject({ step: { id: "compare" }, failure: SENTENCE, evidence: { check: "ran" } });
+    expect(heal.rounds[0]!.diagnosis.evidence.trace.join("\n")).toContain("compare failed");
   });
 });
