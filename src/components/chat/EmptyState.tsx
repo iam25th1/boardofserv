@@ -96,7 +96,7 @@ export function EmptyState({ onPick, disabled }: { onPick: (text: string) => voi
           </svg>
           <span data-note>just say it plainly</span>
         </div>
-        <p data-line>I&apos;ll ask what I need, sketch the agent as we talk, then run it for you. No code and no setup screens.</p>
+        <p data-line>I&apos;ll ask only what I need to understand the job and sketch the agent as we talk. No code: you connect your sheets and Telegram in a few guided steps at the end.</p>
         <ul className={styles.ideas} aria-label="Examples to start from">
           {IDEAS.map((idea) => (
             <li key={idea.k}>
