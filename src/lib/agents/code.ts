@@ -2,7 +2,7 @@ import "server-only";
 import { Script } from "node:vm";
 import { completeJson, DOLPHIN_LABEL, modelConfig, type ChatMessage, type JsonResult, type ModelConfig, type Provider } from "../model";
 import { ANSWER_LIMITS } from "../modelLimits";
-import { ARGS_TOOLS, type AgentDefinition, type CodeStepDef } from "./definition";
+import { ARGS_TOOLS, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
 import { TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
 import type { StepCode } from "./types";
@@ -42,7 +42,7 @@ export const CODE_PROMPT = [
 
 export const REVIEW_PROMPT = [
   "You review JavaScript written for one step of an agent, before it is saved and run in a sandbox.",
-  "Approve only if all of these hold: it does what the step says, reading only its inputs and returning exactly its outputs; it calls only the tools listed; it does nothing risky (no reaching for the network, files, timers or globals, no endless loops or huge allocations, nothing sent anywhere except through the listed tools).",
+  "Approve only if all of these hold: it does what the step says, reading only its inputs and returning exactly its outputs; it calls only the tools listed (the list is exactly what the code calls, so a tool the step's words mention but the code doesn't need is not listed); it does nothing risky (no reaching for the network, files, timers or globals, no endless loops or huge allocations, nothing sent anywhere except through the listed tools).",
   "If you reject it, say in one or two plain sentences what to change. Never use em dashes.",
 ].join(" ");
 
@@ -132,6 +132,28 @@ export function checkCode(source: string, step: CodeStepDef): string | null {
   if (stray.length) return `It calls ${stray.join(", ")}, which this step may not use (allowed: ${step.tools.join(", ") || "none"}).`;
   return null;
 }
+
+// The tools a function calls, each once, as tools.<group>.<name>(...).
+export function toolsCalled(source: string): string[] {
+  return [...new Set([...source.matchAll(/\btools\s*\.\s*([a-z]+)\s*\.\s*([a-zA-Z]+)/g)].map((m) => `${m[1]}.${m[2]}`))];
+}
+
+// Tools that only look: listing one a step's code calls changes nothing it
+// may do, so the list takes it rather than the code being sent back.
+const LOOKS: readonly ToolName[] = ["sheets.read", "web.fetch", "web.search", "memory.get"];
+
+// The step's tool list made to match its code: a listed tool the code never
+// calls comes off (SERV's review held steps for that), and a tool that only
+// looks, called but not listed, goes on. A tool that changes something,
+// called but not listed, stays off: the code is sent back for it.
+export function fitTools(step: CodeStepDef, source: string): ToolName[] {
+  const called = toolsCalled(source);
+  const kept = step.tools.filter((t) => called.includes(t));
+  const looks = called.filter((t): t is ToolName => (LOOKS as readonly string[]).includes(t) && !kept.includes(t as ToolName));
+  return [...kept, ...looks];
+}
+
+const sameTools = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((t) => b.includes(t));
 
 // Dolphin not answering (failing or timing out) this many times on one
 // step hands its writing to SERV.
@@ -333,7 +355,10 @@ export async function writeStep(
       continue;
     }
     source = code;
-    const problem = checkCode(code, step);
+    // The list is made to match the code before anything checks it.
+    const tools = fitTools(step, code);
+    const fitted = { ...step, tools };
+    const problem = checkCode(code, fitted);
     if (problem) {
       note = problem;
     } else {
@@ -342,13 +367,15 @@ export async function writeStep(
         note = "SERV couldn't review it just now.";
         break;
       }
-      const review = await reviewCode(code, step, opts.serv, { fetchImpl: opts.fetchImpl, signal: opts.signal });
+      const review = await reviewCode(code, fitted, opts.serv, { fetchImpl: opts.fetchImpl, signal: opts.signal });
       if (review) await opts.hooks.record("agent_review", review.result);
       if (!review) {
         note = "SERV couldn't review it just now.";
         break;
       }
-      if (review.approved) return { spec, status: "approved", source: code, rounds: round, note: review.reason || null, ...(writer === "serv" ? { writer } : {}), updatedAt: new Date().toISOString() };
+      if (review.approved) {
+        return { spec, status: "approved", source: code, rounds: round, note: review.reason || null, ...(writer === "serv" ? { writer } : {}), ...(sameTools(tools, step.tools) ? {} : { tools }), updatedAt: new Date().toISOString() };
+      }
       note = review.reason || "SERV rejected it.";
     }
     conversation.push(

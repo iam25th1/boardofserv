@@ -6,6 +6,7 @@ import { INTERVIEW_FIELDS, INTERVIEW_LABELS } from "../sketchFields";
 import type { SketchDTO } from "../types";
 import { ACTION_TOOLS, AGENT_FORMAT, checkDefinition, SETTING_TYPES, RULE_TYPES, TOOL_NAMES, type AgentDefinition } from "./definition";
 import { TOOLS } from "./toolbox";
+import { planProblems } from "./planRules";
 
 // Planning: SERV turns the maker's interview (and the conversation behind
 // it) into a whole agent definition, which is checked against the format.
@@ -75,6 +76,7 @@ export const AGENT_PLAN_SCHEMA = {
       obj({
         id: str("snake_case"),
         title: str("a few words"),
+        plain: str("the step in one plain sentence for someone who never saw code, with no names of values or tools"),
         kind: { type: "string", enum: ["code", "decision", "action"] },
         inputs: strings("values it reads"),
         outputs: strings("values it adds"),
@@ -82,6 +84,7 @@ export const AGENT_PLAN_SCHEMA = {
         description: str("code: exactly what the code must do with its inputs and what it returns, else empty"),
         tools: { type: "array", items: { type: "string", enum: [...TOOL_NAMES] }, description: "code: the tools it may call, else []" },
         prompt: str("decision: what to judge, else empty"),
+        each: str("decision over a list only: the input holding the list whose items it judges one by one, else empty"),
         outcomes: list(obj({ id: str("snake_case"), label: str("a few words"), next: str('the step it leads to, or ""') }), "decision: 2 to 6 outcomes, else []"),
         action: str("action: a declared action id, else empty"),
         otherwise: str('action that waits for the owner (telegram.ask, or a payment over a limit): the step to go to when no answer comes in time, or "" to stop'),
@@ -124,21 +127,49 @@ function readBags(steps: { inputs: string[]; outputs: string[]; description?: st
   }
 }
 
+// Where a step (as wireToDefinition shapes it) can go next.
+function nextIds(step: unknown): string[] {
+  const st = step as { next?: string | null; otherwise?: string; outcomes?: { next: string | null }[] };
+  return [st.next ?? null, st.otherwise ?? null, ...(st.outcomes ?? []).map((o) => o.next)].filter((x): x is string => Boolean(x));
+}
+
 // SERV's flat answer, back in the format's shape. Whatever doesn't fit is
 // left for checkDefinition to name.
 export function wireToDefinition(w: Wire): unknown {
   const steps = arr(w.steps).map((x) => {
     const st = x as Wire;
-    const base = { id: s(st.id), title: s(st.title), inputs: arr(st.inputs).map(s), outputs: arr(st.outputs).map(s) };
+    const base = { id: s(st.id), title: s(st.title), ...(s(st.plain) ? { plain: s(st.plain).slice(0, 200) } : {}), inputs: arr(st.inputs).map(s), outputs: arr(st.outputs).map(s) };
     if (st.kind === "decision") {
-      return { ...base, kind: "decision", prompt: s(st.prompt), outcomes: arr(st.outcomes).map((o) => ({ id: s((o as Wire).id), label: s((o as Wire).label), next: nextOrNull((o as Wire).next) })) };
+      return {
+        ...base,
+        kind: "decision",
+        prompt: s(st.prompt),
+        outcomes: arr(st.outcomes).map((o) => ({ id: s((o as Wire).id), label: s((o as Wire).label), next: nextOrNull((o as Wire).next) })),
+        ...(s(st.each) ? { each: s(st.each) } : {}),
+      };
     }
     if (st.kind === "action") return { ...base, kind: "action", action: s(st.action), next: nextOrNull(st.next), ...(s(st.otherwise) ? { otherwise: s(st.otherwise) } : {}) };
     return { ...base, kind: "code", description: s(st.description), tools: arr(st.tools).map(s), next: nextOrNull(st.next) };
   });
   readBags(steps as { inputs: string[]; outputs: string[]; description?: string; prompt?: string }[], w);
+  const first = steps[0]?.id;
   const triggers = arr(w.triggers).map((x) => {
     const t = x as Wire;
+    // A check whose own step is the run's first step is a clock in
+    // disguise ("every 15 minutes, check for new rows"): its step would
+    // never be part of the run, and nothing after it could be reached.
+    // It is the schedule it meant.
+    if (t.kind === "check" && s(t.step) && s(t.step) === first) {
+      // Its step, which only checked and ended there, now goes on to the
+      // first step nothing else leads to: where the run was meant to start.
+      const head = steps[0] as { next?: string | null };
+      if (head && "next" in head && head.next === null) {
+        const led = new Set(steps.flatMap((x) => nextIds(x)));
+        const start = steps.slice(1).find((x) => !led.has(x.id));
+        if (start) head.next = start.id;
+      }
+      return { kind: "schedule", every: "minutes", interval: Math.max(minIntervalMinutes(), Math.round(n(t.everyMinutes)) || 15), at: null, description: s(t.description) || `Every ${Math.round(n(t.everyMinutes)) || 15} minutes` };
+    }
     if (t.kind === "check") return { kind: "check", everyMinutes: Math.round(n(t.everyMinutes)), watch: s(t.watch), when: s(t.when), ...(s(t.step) ? { step: s(t.step) } : {}) };
     if (t.kind === "message") return { kind: "message", from: "telegram", description: s(t.description) };
     const every = t.every === "minutes" || t.every === "hours" || t.every === "week" ? t.every : t.every === "hour" ? "hours" : "day";
@@ -197,12 +228,17 @@ export const PLAN_AGENT_PROMPT = [
   "You plan an agent for boardofserv from the maker's interview. Answer with the whole agent as JSON in the given schema.",
   "Steps. code: reading and working things out, in a sandbox (read sheets, fetch pages, search, compare, compute); describe exactly what the code must do with its inputs and what it returns, and list only the tools it calls.",
   "decision: a judgement made by a model, with 2 to 6 outcomes, each naming the step it leads to.",
+  "Judgement (is this submission's demo working? is this enquiry worth a reply?) goes to a decision. Counting, comparing numbers, thresholds (fewer than half), going through a list and whether any rows or items are left all go to code, never to a decision.",
+  "To judge many items (each row, or each requirement of each submission), use one decision with each: the input holding the list, made by a code step before it (for example one item per submission and requirement, with what is needed to judge it). It judges every item in one go and its first output is the verdicts in the list's order ({ item, outcome, label, reason }), which a code step after it counts and combines. Every outcome of such a decision goes on to the same step. Steps never loop back to an earlier step.",
+  "Whatever a step uses after going through many items (a summary, a count, a position to save) covers all of them, never just the last one. A saved position builds on the one saved before: the step that makes it reads memory and keeps the larger.",
   "action: takes one declared action, which only changes things (sheets.write, telegram.send, telegram.ask, wallet.pay, memory.set); never use an action to read. For sheets.write, wallet.pay and memory.set its first input must already be that tool's arguments ({ sheet, rows }, { to, amountUsdc, memo } or { key, value }), a value of its own made by a code step before it for that action alone; telegram.send and telegram.ask make their message from any inputs. The step's first output holds the tool's result (telegram.ask gives { answer }).",
   'A run starts at the first step. next is the next step\'s id, or "" when the run ends there.',
   `A schedule runs every N minutes (every "minutes", everyMinutes N, at least ${minIntervalMinutes()}; every 2 hours is 120), every day at a time (every "day", at "HH:MM") or every week on some days at a time (every "week", the days in when, at "HH:MM"), in the renter's time zone. For anything that runs on a clock, use a schedule: "every 15 minutes" is every minutes with everyMinutes 15, "twice a week" is every week on two days.`,
   'Use a check trigger only to run when a watched value changes, not to run on a clock. A check trigger names its own code step (step), listed with the steps but outside the run: it reads the watched value with tools that only read, from settings, rules and memory, and returns { holds } (true when the condition is met, and optionally value). The run starts when holds turns true. Its next is "" and no step leads to it.',
   'Inputs name values a step reads: settings, rules, memory, trigger, or an output of an earlier step. Outputs name what it adds. A setting is read as settings.<key>: a step that uses one lists "settings" in its inputs, never the key itself; the same for rules and memory.',
-  "In code step descriptions, name the exact sheets, columns and fields the maker gave, and the shape of what the step returns.",
+  "In code step descriptions, name the exact sheets, columns and fields the maker gave, and the shape of what the step returns. A code step lists in tools only the tools its own code calls: a step given rows by an earlier step doesn't read the sheet again.",
+  'Something that runs on a clock ("every 15 minutes, check for new rows") is a schedule, never a check trigger.',
+  "Give every step plain: one sentence a first-time user understands, with no names of values or tools.",
   `Tools: ${TOOL_NAMES.map((t) => `${t} (${TOOLS[t].summary})`).join("; ")}.`,
   "Every side effect (sheets.write, telegram.send, telegram.ask, wallet.pay) must be a declared action. Anything the maker said it must never do without asking goes through telegram.ask first.",
   "A question to the owner (telegram.ask) waits for their answer for approvalHours; an action step that asks can name otherwise, the step to go to when no answer comes, or leave it empty to stop. Spending is a payment (wallet.pay), or rows written to a sheet whose amountColumn holds each row's amount in USDC (orders). A spending action can name askOver, a usdc rule: the runtime asks the owner before any spending that takes the job's running total over it, and askOverDay, the same for the day's total. The runtime keeps those totals across every action and line, so never add a decision or question of your own for those limits.",
@@ -278,8 +314,11 @@ export async function planAgent(
       continue;
     }
     const checked = checkDefinition(wireToDefinition(wire as Wire));
-    if (checked.ok) return { definition: checked.definition, answers, errors: [], calls };
-    errors = checked.errors;
+    // A plan in the format still has to keep the planner's rules
+    // (planRules.ts): judgement in decisions, counting in code, no loops.
+    const broken = checked.ok ? planProblems(checked.definition) : [];
+    if (checked.ok && !broken.length) return { definition: checked.definition, answers, errors: [], calls };
+    errors = checked.ok ? broken : checked.errors;
     messages.push(
       { role: "assistant", content: result.content.slice(0, 12000) },
       { role: "user", content: `That plan has problems:\n${errors.map((e) => `- ${e}`).join("\n")}\nSend the whole corrected plan.` },

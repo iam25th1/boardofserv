@@ -147,7 +147,16 @@ export const DecisionStep = z.object({
   // What SERV is asked, with the step's inputs beside it.
   prompt: text(800),
   outcomes: z.array(Outcome).min(2).max(6),
+  // A judgement over a list: the input holding the list, each of whose
+  // items SERV judges on its own, in one call. Its first output is then the
+  // verdicts in the list's order ({ item, outcome, label, reason }), for a
+  // code step after it to count and combine, and every outcome goes on to
+  // the same step. Without it, one judgement picks the way the run goes.
+  each: key.optional(),
 });
+
+// The most items one decision over a list judges in a run.
+export const MAX_EACH_ITEMS = 40;
 
 export const ActionStep = z.object({
   ...stepBase,
@@ -321,6 +330,11 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
       );
     }
     if (s.kind === "decision") for (const id of duplicates(s.outcomes.map((o) => o.id))) say(`step "${s.id}" has two outcomes called "${id}"`, ["steps", i, "outcomes"]);
+    if (s.kind === "decision" && s.each) {
+      if (!s.inputs.includes(s.each)) say(`step "${s.id}" judges each item of "${s.each}", so "${s.each}" must be one of its inputs`, ["steps", i, "each"]);
+      if (!s.outputs.length) say(`step "${s.id}" judges each item of a list, so its first output must name the verdicts it gives`, ["steps", i, "outputs"]);
+      if (new Set(s.outcomes.map((o) => o.next)).size > 1) say(`step "${s.id}" judges each item of a list, so every outcome goes on to the same step`, ["steps", i, "outcomes"]);
+    }
     if (s.kind === "action" && !declared.has(s.action)) say(`step "${s.id}" takes "${s.action}", which is not a declared action`, ["steps", i, "action"]);
     if (s.kind === "action" && s.otherwise) {
       const action = declared.get(s.action);

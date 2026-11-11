@@ -18,7 +18,8 @@ const FAILURES: [RegExp, string, string | null][] = [
   [/which is not a step|is not a declared action/, "a step pointed at something that isn't there", null],
   [/a schedule runs at most every|value check runs at most every|hourly schedule|weekly schedule/, "it asked to run on a clock it can't keep", "Say how often it should run, for example every 15 minutes or every morning."],
   [/no declared action uses it|which only reads/, "a step tried to send or write without saying so up front", "Say what it sends or writes, and to whom."],
-  [/decides a count|loops back|is there another|last time round/, "it used a judgement step for counting or going through a list", null],
+  [/decides a count|decides whether items are left|loops back|last time round/, "it used a judgement step for counting or going through a list", null],
+  [/saves to memory without reading/, "it saved its place without looking at where it got to last time", null],
   [/not JSON|No model answered/, "SERV's answer came back incomplete", null],
 ];
 

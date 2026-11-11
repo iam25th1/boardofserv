@@ -1,6 +1,7 @@
 import "server-only";
 import { completeJson, modelPrices, type ChatMessage, type JsonResult, type ModelConfig } from "../model";
-import { RUN_VALUES, type ActionStepDef, type AgentDefinition, type AgentStep, type DecisionStepDef, type ToolName } from "./definition";
+import { ANSWER_LIMITS } from "../modelLimits";
+import { MAX_EACH_ITEMS, RUN_VALUES, type ActionStepDef, type AgentDefinition, type AgentStep, type DecisionStepDef, type ToolName } from "./definition";
 import { runInSandbox, DEFAULT_TIME_MS } from "./sandbox";
 import { DATA_RULE, wrapData } from "./untrusted";
 import { MockTools, ToolError, TOOL_ARGS, TOOLS } from "./toolbox";
@@ -129,8 +130,17 @@ export interface ToolHost {
   call(step: AgentStep, tool: ToolName, args: unknown, approval?: { answer: string | null }, ctx?: CallContext): Promise<unknown>;
 }
 
+// One item's verdict, from a decision over a list: the item's place in the
+// list (from 0), the outcome picked for it and why.
+export interface Verdict {
+  item: number;
+  outcome: string;
+  label: string;
+  reason: string;
+}
+
 export type Decided =
-  | { ok: true; outcome: string; note: string | null; costUsd: number; model: string | null }
+  | { ok: true; outcome: string; note: string | null; costUsd: number; model: string | null; verdicts?: Verdict[] }
   | { ok: false; note: string; reason: string; costUsd: number; infra: boolean };
 
 export type EndCause = "end" | "logic" | "limit" | "stop" | "declined" | "infra" | "blocked";
@@ -502,16 +512,43 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
           }
         }
       }
-      const r = await o.decide(step, input, step.inputs.filter((k) => untrusted.has(k)));
+      // A judgement over a list: every item judged in one call, the verdicts
+      // in the list's order as the step's first output. An empty list needs
+      // no call at all.
+      if (step.each) {
+        const items = input[step.each];
+        if (!Array.isArray(items)) {
+          done("failed", null, null, `It was given no list to judge in "${step.each}".`);
+          return end("failed", "logic", `"${step.title}" was given no list to judge.`);
+        }
+        if (items.length > MAX_EACH_ITEMS) {
+          done("failed", null, null, `It was given ${items.length} items to judge at once; the most is ${MAX_EACH_ITEMS}.`);
+          return end("failed", "logic", `"${step.title}" was given more than ${MAX_EACH_ITEMS} items to judge at once.`);
+        }
+      }
+      const listed = step.each ? (input[step.each] as unknown[]) : null;
+      const r: Decided = listed && !listed.length ? { ok: true, outcome: step.outcomes[0]!.id, note: "Nothing to judge.", costUsd: 0, model: null, verdicts: [] } : await o.decide(step, input, step.inputs.filter((k) => untrusted.has(k)));
       state.costUsd += r.costUsd;
       if (!r.ok) {
         done("failed", null, null, r.note, r.costUsd);
         if (r.infra && o.retryInfra) return { kind: "retry", reason: r.reason };
         return end("failed", r.infra ? "infra" : "logic", r.reason);
       }
-      const outcome = step.outcomes.find((x) => x.id === r.outcome)!;
-      done("ok", { outcome: outcome.id, label: outcome.label }, outcome.id, r.note, r.costUsd, r.model);
-      next = outcome.next;
+      if (step.each) {
+        const verdicts = r.verdicts ?? [];
+        if (step.outputs[0]) {
+          state.bag[step.outputs[0]] = verdicts;
+          // Judged from untrusted items, the verdicts are untrusted too.
+          if (untrusted.has(step.each)) untrusted.add(step.outputs[0]);
+          state.untrusted = [...untrusted];
+        }
+        done("ok", { verdicts }, null, r.note, r.costUsd, r.model);
+        next = step.outcomes[0]!.next;
+      } else {
+        const outcome = step.outcomes.find((x) => x.id === r.outcome)!;
+        done("ok", { outcome: outcome.id, label: outcome.label }, outcome.id, r.note, r.costUsd, r.model);
+        next = outcome.next;
+      }
     } else {
       const action = d.actions.find((a) => a.id === step.action);
       if (!action) {
@@ -586,10 +623,35 @@ export const DECISION_PROMPT = [
 // The decision's question, with the values from outside set apart in a
 // fenced DATA block.
 export function decisionRequest(step: DecisionStepDef, input: Record<string, unknown>, untrusted: string[] = []): string {
+  if (step.each) return eachRequest(step, step.each, input, untrusted);
   const trusted = Object.fromEntries(Object.entries(input).filter(([k]) => !untrusted.includes(k)));
   const web = Object.fromEntries(Object.entries(input).filter(([k]) => untrusted.includes(k)));
   const lines = [step.prompt, "", "Outcomes:", ...step.outcomes.map((o) => `- ${o.id}: ${o.label}`), "", "Values:", JSON.stringify(trusted).slice(0, 12000)];
   if (untrusted.length) lines.push("", wrapData("from web pages, sheets, messages or memory", web, 12000));
+  return lines.join("\n");
+}
+
+// A judgement over a list: the question asked of every item, the items
+// numbered from 1, and the rest of the step's inputs beside them.
+function eachRequest(step: DecisionStepDef, each: string, input: Record<string, unknown>, untrusted: string[]): string {
+  const items = Array.isArray(input[each]) ? (input[each] as unknown[]) : [];
+  const numbered = items.map((x, i) => ({ item: i + 1, value: x }));
+  const rest = Object.fromEntries(Object.entries(input).filter(([k]) => k !== each));
+  const trusted = Object.fromEntries(Object.entries(rest).filter(([k]) => !untrusted.includes(k)));
+  const web = Object.fromEntries(Object.entries(rest).filter(([k]) => untrusted.includes(k)));
+  const lines = [
+    `Judge each item below on its own: ${step.prompt}`,
+    `Give exactly one verdict for every item, ${items.length} in all, in order, with its item number.`,
+    "",
+    "Outcomes:",
+    ...step.outcomes.map((o) => `- ${o.id}: ${o.label}`),
+    "",
+    "Values:",
+    JSON.stringify(trusted).slice(0, 6000),
+    "",
+    untrusted.includes(each) ? wrapData("the items, from web pages, sheets, messages or memory", numbered, 16000) : `Items:\n${JSON.stringify(numbered).slice(0, 16000)}`,
+  ];
+  if (Object.keys(web).length) lines.push("", wrapData("from web pages, sheets, messages or memory", web, 6000));
   return lines.join("\n");
 }
 
@@ -603,18 +665,33 @@ export async function askServ(
     { role: "system", content: DECISION_PROMPT },
     { role: "user", content: decisionRequest(step, input, opts.untrusted) },
   ];
-  const schema = {
-    name: "decision",
-    schema: {
-      type: "object",
-      additionalProperties: false,
-      required: ["outcome", "reason"],
-      properties: { outcome: { type: "string", enum: step.outcomes.map((o) => o.id) }, reason: { type: "string", description: "one short sentence" } },
-    },
-  };
-  // Not streamed: half a minute, not a reply's first-token wait.
-  const config = { ...serv, firstTokenTimeoutMs: Math.max(serv.firstTokenTimeoutMs, 30_000) };
-  return completeJson(messages, { config, purpose: "decision", schema, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
+  const outcome = { type: "string", enum: step.outcomes.map((o) => o.id) };
+  const schema = step.each
+    ? {
+        name: "decisions",
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["verdicts"],
+          properties: {
+            verdicts: {
+              type: "array",
+              description: "one per item, in order",
+              items: { type: "object", additionalProperties: false, required: ["item", "outcome", "reason"], properties: { item: { type: "number", description: "the item's number" }, outcome, reason: { type: "string", description: "one short sentence" } } },
+            },
+          },
+        },
+      }
+    : {
+        name: "decision",
+        schema: { type: "object", additionalProperties: false, required: ["outcome", "reason"], properties: { outcome, reason: { type: "string", description: "one short sentence" } } },
+      };
+  // Not streamed: half a minute (a minute for a list), not a reply's
+  // first-token wait. A list's verdicts take room in the answer.
+  const config = { ...serv, firstTokenTimeoutMs: Math.max(serv.firstTokenTimeoutMs, step.each ? 60_000 : 30_000) };
+  const items = step.each && Array.isArray(input[step.each]) ? (input[step.each] as unknown[]).length : 0;
+  const maxTokens = step.each ? Math.min(4000, ANSWER_LIMITS.decision + items * 60) : undefined;
+  return completeJson(messages, { config, purpose: "decision", schema, maxTokens, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
 }
 
 export function costOf(call: JsonResult): number {
@@ -622,9 +699,29 @@ export function costOf(call: JsonResult): number {
   return ((call.promptTokens ?? 0) * price.input + (call.completionTokens ?? 0) * price.output) / 1_000_000;
 }
 
-// SERV's answer as a decision: the outcome it picked, or why there is none.
-export function readDecision(step: DecisionStepDef, call: JsonResult): Decided {
+// SERV's answer as a decision: the outcome it picked (or, over a list, a
+// verdict for every item), or why there is none.
+export function readDecision(step: DecisionStepDef, call: JsonResult, items = 0): Decided {
   const costUsd = costOf(call);
+  if (step.each) {
+    type Raw = { item?: unknown; outcome?: unknown; reason?: unknown };
+    let verdicts: Raw[] = [];
+    try {
+      const parsed = call.content ? (JSON.parse(call.content) as { verdicts?: unknown }) : null;
+      if (Array.isArray(parsed?.verdicts)) verdicts = parsed.verdicts as Raw[];
+    } catch {
+      verdicts = [];
+    }
+    const byItem = new Map(verdicts.map((v) => [Number(v.item), v]));
+    const out: Verdict[] = [];
+    for (let i = 0; i < items; i++) {
+      const v = byItem.get(i + 1);
+      const found = step.outcomes.find((o) => o.id === v?.outcome);
+      if (!found) return { ok: false, note: "SERV didn't judge every item just now.", reason: `"${step.title}" didn't get a verdict for every item from SERV.`, costUsd, infra: true };
+      out.push({ item: i, outcome: found.id, label: found.label, reason: typeof v?.reason === "string" ? v.reason.slice(0, 300) : "" });
+    }
+    return { ok: true, outcome: step.outcomes[0]!.id, note: `${items} judged.`, costUsd, model: call.model, verdicts: out };
+  }
   let parsed: { outcome?: string; reason?: string } | null = null;
   try {
     parsed = call.content ? (JSON.parse(call.content) as { outcome?: string; reason?: string }) : null;
@@ -661,12 +758,22 @@ export async function runAgent(o: RunOptions): Promise<Extract<RunEvent, { type:
     if (o.dryRun) {
       const recorded = o.bench.decisions[step.id];
       const outcome = recorded && step.outcomes.some((x) => x.id === recorded) ? recorded : step.outcomes[0]!.id;
+      // Over a list with no recorded answer, the outcomes take turns, so a
+      // dry run sees every way its items can go.
+      if (step.each) {
+        const items = Array.isArray(input[step.each]) ? (input[step.each] as unknown[]) : [];
+        const verdicts = items.map((_, i) => {
+          const o2 = recorded ? step.outcomes.find((x) => x.id === outcome)! : step.outcomes[i % step.outcomes.length]!;
+          return { item: i, outcome: o2.id, label: o2.label, reason: "Dry run." };
+        });
+        return { ok: true, outcome, note: recorded ? "Dry run: the recorded answer for every item." : "Dry run: the outcomes in turn.", costUsd: 0, model: null, verdicts };
+      }
       return { ok: true, outcome, note: recorded ? "Dry run: the recorded answer." : "Dry run: no answer recorded, so the first outcome.", costUsd: 0, model: null };
     }
     if (!o.serv) return { ok: false, note: "SERV isn't set up for decisions.", reason: "SERV isn't set up, so decisions can only run dry.", costUsd: 0, infra: false };
     const call = await askServ(step, input, o.serv, { ...o, untrusted });
     await o.record?.(call);
-    return readDecision(step, call);
+    return readDecision(step, call, step.each && Array.isArray(input[step.each]) ? (input[step.each] as unknown[]).length : 0);
   };
   const r = await runSteps({ definition: d, code: o.code, state, tools: { call: (_step, tool, args) => mock.call(tool, args) }, decide, onEvent: o.onEvent, signal: o.signal, dryRun: o.dryRun });
   // The bench's mocks never wait and nothing is retried: every run ends.

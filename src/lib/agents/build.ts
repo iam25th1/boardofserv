@@ -10,6 +10,7 @@ import { codeSpec, nextOf, type AgentDefinition, type CodeStepDef } from "./defi
 import { planAgent, type PlanInput } from "./plan";
 import { setStepCode, updateDraft, versionById } from "./store";
 import { planFailure, problemOf } from "./plainWords";
+import { selfTest } from "./test";
 import type { StepCode } from "./types";
 import { errorText } from "../db/errors";
 import { recordAttempts } from "../modelAttempts";
@@ -120,11 +121,36 @@ function writeHooks(version: AgentVersion, step: CodeStepDef, spec: string, ctx:
   };
 }
 
-// The note a draft keeps once its code is written: how many steps wait for
-// the maker.
-async function settleWriting(versionId: string): Promise<void> {
+// A step whose code calls other tools than the plan listed: the plan is
+// changed to match (code.ts fitTools), and the code's spec with it, so the
+// list never disagrees with the code.
+async function fitPlan(versionId: string, definition: AgentDefinition, step: CodeStepDef, entry: StepCode): Promise<{ definition: AgentDefinition; entry: StepCode }> {
+  if (!entry.tools) return { definition, entry };
+  const { tools, ...rest } = entry;
+  const fitted: CodeStepDef = { ...step, tools };
+  const next = { ...definition, steps: definition.steps.map((s) => (s.id === step.id ? fitted : s)) };
+  await updateDraft(versionId, { definition: next });
+  return { definition: next, entry: { ...rest, spec: codeSpec(fitted) } };
+}
+
+// Once the code is written: with every step ready, the plan gets its self
+// test (test.ts: three sample items, then a second run), kept as the
+// draft's last test with its sample as the test bench; then the note says
+// how many steps wait for the maker.
+async function settleWriting(versionId: string, ctx: BuildContext): Promise<void> {
   const now = await versionById(versionId);
   const attention = Object.values(now?.code ?? {}).filter((c) => c.status === "needs_attention").length;
+  if (now?.definition && !attention && now.definition.steps.every((s) => s.kind !== "code" || now.code[s.id]?.status === "approved")) {
+    try {
+      const tested = await selfTest(
+        { definition: now.definition, code: now.code, testResult: now.testResult },
+        { serv: ctx.serv, record: (call) => recordAgentCall(ctx, "agent_plan", call) },
+      );
+      await updateDraft(versionId, { testResult: tested.result, bench: tested.bench });
+    } catch (err) {
+      console.error(`agents: the self test stopped: ${errorText(err, "unknown error")}`);
+    }
+  }
   await updateDraft(versionId, { buildState: "idle", buildNote: attention ? `${attention} ${attention === 1 ? "step needs" : "steps need"} your attention.` : null });
 }
 
@@ -134,17 +160,20 @@ async function settleWriting(versionId: string): Promise<void> {
 export async function writeAllCode(version: AgentVersion, definition: AgentDefinition, ctx: BuildContext, fetchImpl?: typeof fetch): Promise<void> {
   const dolphin = dolphinProvider();
   const todo = definition.steps.filter((s): s is CodeStepDef => s.kind === "code" && version.code[s.id]?.status !== "approved");
+  let current = definition;
   for (const step of todo) {
     const spec = codeSpec(step);
     if (!dolphin) {
       await setStepCode(version.id, step.id, { spec, status: "needs_attention", source: null, rounds: 0, note: "Code writing isn't set up here.", updatedAt: new Date().toISOString() });
       continue;
     }
-    const entry = await writeStep(step, definition, spec, { dolphin, serv: ctx.serv, fetchImpl, hooks: writeHooks(version, step, spec, ctx) });
+    const written = await writeStep(step, current, spec, { dolphin, serv: ctx.serv, fetchImpl, hooks: writeHooks(version, step, spec, ctx) });
+    const fit = await fitPlan(version.id, current, step, written);
+    current = fit.definition;
     // A draft published or replanned meanwhile stops the writing.
-    if (!(await setStepCode(version.id, step.id, entry))) return;
+    if (!(await setStepCode(version.id, step.id, fit.entry))) return;
   }
-  await settleWriting(version.id);
+  await settleWriting(version.id, ctx);
 }
 
 // "Fix this" on a step on hold: SERV writes its code again from the start
@@ -159,9 +188,10 @@ export function startRewrite(version: AgentVersion, stepId: string, ctx: BuildCo
     await updateDraft(version.id, { buildState: "writing", buildNote: null });
     try {
       const spec = codeSpec(step);
-      const entry = await writeStep(step, definition, spec, { dolphin: dolphinProvider(), serv: ctx.serv, fetchImpl, writer: "serv", hooks: writeHooks(version, step, spec, ctx) });
-      await setStepCode(version.id, step.id, entry);
-      await settleWriting(version.id);
+      const written = await writeStep(step, definition, spec, { dolphin: dolphinProvider(), serv: ctx.serv, fetchImpl, writer: "serv", hooks: writeHooks(version, step, spec, ctx) });
+      const fit = await fitPlan(version.id, definition, step, written);
+      await setStepCode(version.id, step.id, fit.entry);
+      await settleWriting(version.id, ctx);
     } catch (err) {
       console.error(`agents: a rewrite stopped: ${errorText(err, "unknown error")}`);
       await updateDraft(version.id, { buildState: "idle", buildNote: "Rewriting that step stopped part way. Try again." }).catch(() => null);

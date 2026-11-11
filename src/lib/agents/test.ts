@@ -36,6 +36,7 @@ export interface Tested {
   // The sample data it ran on, for a draft's test bench.
   bench: BenchData;
   events: RunEvent[];
+  end: Extract<RunEvent, { type: "end" }>;
 }
 
 // The sample a version's last test was made on, when it still fits.
@@ -80,5 +81,75 @@ export async function testVersion(v: { definition: AgentDefinition; code: Record
     sample: sample.bench,
     sampleOf: sampleKey(d),
   };
-  return { result, bench: sample.bench, events };
+  return { result, bench: sample.bench, events, end };
+}
+
+type ToolEvent = Extract<RunEvent, { type: "tool" }>;
+const toolEvents = (events: RunEvent[], tool: string) => events.filter((e): e is ToolEvent => e.type === "tool" && e.tool === tool && !e.error);
+
+// How many items a run judged in its decisions over a list.
+function judged(events: RunEvent[]): number {
+  return events.reduce((n, e) => {
+    const verdicts = e.type === "step_done" && e.status === "ok" ? (e.output as { verdicts?: unknown } | null)?.verdicts : undefined;
+    return n + (Array.isArray(verdicts) ? verdicts.length : 0);
+  }, 0);
+}
+
+// The rows a run changed in place, as "tab:row".
+function updatedRows(events: RunEvent[]): Set<string> {
+  return new Set(
+    toolEvents(events, "sheets.update").flatMap((e) => {
+      const a = e.args as { sheet?: string; updates?: { row?: number }[] };
+      return (a.updates ?? []).map((u) => `${a.sheet}:${u.row}`);
+    }),
+  );
+}
+
+// The check every new plan gets once its code is written: it runs on three
+// sample items, dry (its decisions take turns over the outcomes, and no
+// model is asked), and again on what the first run left behind. It fails
+// when the first run doesn't get through, when the summary it sends
+// doesn't cover all three items, when it writes its results as new rows of
+// the very tab it reads, or when the second run would go through the same
+// items again.
+export async function selfTest(v: { definition: AgentDefinition; code: Record<string, StepCode>; testResult?: TestResult | null }, o: Omit<TestOptions, "live" | "kind">): Promise<Tested> {
+  const first = await testVersion(v, { ...o, live: false, kind: "self" });
+  if (first.result.status === "failed" || !first.result.items) return first;
+  const d = v.definition;
+  const items = first.result.items;
+  const problems = [...first.result.problems];
+
+  const sends = toolEvents(first.events, "telegram.send");
+  const summary = sends.at(-1);
+  if (summary) {
+    const text = String((summary.args as { text?: unknown }).text ?? "").toLowerCase();
+    const named = items.labels.filter((l) => text.includes(l.toLowerCase())).length;
+    const counted = new RegExp(`\\b(${items.labels.length}|three)\\b`).test(text);
+    if (named < items.labels.length && !counted) {
+      problems.push({ step: summary.stepId, text: `Its summary covers ${named === 0 ? "none" : "only some"} of the ${items.plural}, not all ${items.labels.length}.` });
+    }
+  }
+
+  const reads = new Set(toolEvents(first.events, "sheets.read").map((e) => String((e.args as { sheet?: unknown }).sheet)));
+  const added = toolEvents(first.events, "sheets.write").find((e) => {
+    const a = e.args as { sheet?: unknown; mode?: unknown };
+    return reads.has(String(a.sheet)) && a.mode !== "replace";
+  });
+  if (added) problems.push({ step: added.stepId, text: `It adds its results as new rows of the sheet it reads ${items.plural} from, so they would come back as new ${items.plural}.` });
+
+  const again: RunEvent[] = [];
+  await runAgent({
+    definition: d,
+    code: v.code,
+    bench: { ...first.bench, sheets: first.end.sheets, memory: first.end.memory },
+    dryRun: true,
+    signal: o.signal,
+    onEvent: (e) => again.push(e),
+  });
+  const before = updatedRows(first.events);
+  const twice = [...updatedRows(again)].some((r) => before.has(r));
+  const rewritten = toolEvents(again, "sheets.write").some((e) => JSON.stringify((e.args as { rows?: unknown }).rows ?? []).match(new RegExp(items.labels.map((l) => l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "i")));
+  if (judged(again) > 0 || twice || rewritten) problems.push({ step: null, text: `Run again, it would go through the same ${items.plural} a second time: it should only take new ones.` });
+
+  return { ...first, result: { ...first.result, status: problems.length ? "failed" : "passed", problems } };
 }
