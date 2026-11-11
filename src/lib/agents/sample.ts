@@ -56,7 +56,7 @@ export function sampleRequest(d: AgentDefinition): string {
     ...(d.settings.length ? d.settings.map((s) => `- ${s.key} (${s.type}${s.choices.length ? `: ${s.choices.join(", ")}` : ""}): ${s.label}`) : ["- (none)"]),
     "",
     "Steps:",
-    ...d.steps.map((s) => `- ${s.id} (${s.title}): ${s.kind === "code" ? s.description : s.kind === "decision" ? s.prompt : (d.actions.find((a) => a.id === s.action)?.description ?? "")}`),
+    ...d.steps.map((s) => `- ${s.id} (${s.title}): ${s.kind === "code" ? s.description : s.kind === "decision" ? s.prompt : s.kind === "loop" ? `for each item of ${s.over}` : (d.actions.find((a) => a.id === s.action)?.description ?? "")}`),
   ].join("\n");
 }
 

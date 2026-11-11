@@ -82,7 +82,7 @@ function show(value: unknown): string {
 }
 
 const money = (usd: number) => (usd === 0 ? "$0" : usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`);
-const KIND_WORD = { code: "Code", decision: "Decision", action: "Action" } as const;
+const KIND_WORD = { code: "Code", decision: "Decision", action: "Action", loop: "For each" } as const;
 const CODE_WORD = { queued: "waiting to be written", writing: "being written", reviewing: "being reviewed", approved: "approved", needs_attention: "needs your attention" } as const;
 
 export function AgentBuilder({ initial, api, children }: { initial: AgentBuilderDTO; api: BuilderApi; children?: React.ReactNode }) {
@@ -474,6 +474,12 @@ function StepItem({ step, d, code }: { step: AgentStep; d: AgentDefinition; code
             ))}
           </ul>
         </>
+      )}
+      {step.kind === "loop" && (
+        <p>
+          Goes through each item of {step.over}, called {step.item}, starting at {title(step.body)}
+          {step.gather.length ? `; keeps ${step.gather.map((g) => `${g.from} from every pass as ${g.into}`).join(", ")}` : ""}
+        </p>
       )}
       {step.kind === "action" && (
         <p>

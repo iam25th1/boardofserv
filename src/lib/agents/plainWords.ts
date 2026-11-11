@@ -1,4 +1,4 @@
-import type { AgentDefinition } from "./definition";
+import { loopsOf, type AgentDefinition } from "./definition";
 import type { RunEvent, TestResult } from "./types";
 
 // What a maker reads about their agent when details are off: why a plan
@@ -18,9 +18,14 @@ const FAILURES: [RegExp, string, string | null][] = [
   [/which is not a step|is not a declared action/, "a step pointed at something that isn't there", null],
   [/a schedule runs at most every|value check runs at most every|hourly schedule|weekly schedule/, "it asked to run on a clock it can't keep", "Say how often it should run, for example every 15 minutes or every morning."],
   [/no declared action uses it|which only reads/, "a step tried to send or write without saying so up front", "Say what it sends or writes, and to whom."],
-  [/decides a count|decides whether items are left|loops back|last time round/, "it used a judgement step for counting or going through a list", null],
+  [/made inside the loop .* gone once its passes end/, "a step after going through the items looked at only the last one, not all of them", "Say what it should do with the results of every item, for example a summary naming each one."],
+  [/reached both inside and outside a loop|starts each pass at|so ".*" must be one of its inputs|outputs the lists it gathers|gathers ".*", which no step inside it makes|calls each item/, "the steps it repeats for each item weren't joined up", "Say what it goes through one at a time, and what it keeps from each."],
+  [/judges many things at once/, "it judged many things in one go instead of one at a time", "Say what is judged for each item, for example each requirement of each submission."],
+  [/loops back|last time round/, "it went back to an earlier step instead of going through the items one at a time", null],
+  [/decides a count|decides whether items are left/, "it used a judgement step for counting or going through a list", null],
   [/code step .* judges/, "it left a judgement to code instead of SERV", null],
   [/saves to memory without reading/, "it saved its place without looking at where it got to last time", null],
+  [/reads its place from memory, but no step saves it/, "it looked up where it got to last time, but never saved where it got to", "Say how it should tell new rows from ones it has checked, for example by an empty Status column."],
   [/judges each item of/, "its judgement over a list wasn't joined up", "Say what each item is judged on, and what happens with the results."],
   [/not JSON|No model answered/, "SERV's answer came back incomplete", null],
 ];
@@ -93,9 +98,12 @@ export function storyOf(d: AgentDefinition, events: RunEvent[], end: Extract<Run
   if (paid) parts.push(paid === 1 ? "1 payment made" : `${paid} payments made`);
 
   const n = items?.labels.length ?? 0;
+  // Items judged: by decisions over a list, or one a pass inside a loop.
+  const inLoop = loopsOf(d).inside;
   const judged = events.reduce((k, e) => {
-    const v = e.type === "step_done" && e.status === "ok" ? (e.output as { verdicts?: unknown } | null)?.verdicts : undefined;
-    return k + (Array.isArray(v) ? v.length : 0);
+    if (e.type !== "step_done" || e.status !== "ok") return k;
+    const v = (e.output as { verdicts?: unknown } | null)?.verdicts;
+    return k + (Array.isArray(v) ? v.length : e.outcome !== null && inLoop.get(e.stepId) ? 1 : 0);
   }, 0);
   const did = Boolean(items && n && (updated || judged));
   const head = !items || !n ? "It ran" : updated ? `${updated} ${updated === 1 ? items.noun : items.plural} checked` : judged ? `${n} ${items.plural} judged` : `${n} sample ${items.plural}`;

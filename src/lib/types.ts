@@ -1,6 +1,6 @@
 import type { MoneyKind } from "./moneyWords";
 import type { SketchFieldKey } from "./sketchFields";
-import type { AgentDefinition } from "./agents/definition";
+import type { AgentDefinition, StepKind } from "./agents/definition";
 import type { BenchData, CodeStatus } from "./agents/types";
 // Shapes the browser works with. Dates arrive as ISO strings over JSON.
 export interface ConversationDTO {
@@ -91,7 +91,7 @@ export interface AgentSummaryDTO {
   steps: {
     id: string;
     title: string;
-    kind: "code" | "decision" | "action";
+    kind: StepKind;
     next: (string | null)[];
     // A code step's code: null for other kinds.
     code: "queued" | "writing" | "reviewing" | "approved" | "needs_attention" | null;
@@ -276,7 +276,7 @@ export interface AgentListingDTO {
 export interface AgentPageDTO extends AgentListingDTO {
   done: string;
   runs: string[];
-  steps: { kind: "works" | "decides" | "acts"; title: string; outcomes: string[] }[];
+  steps: { kind: "works" | "decides" | "acts" | "repeats"; title: string; outcomes: string[] }[];
   // What the renter answers at setup.
   asks: { label: string; help: string; kind: string }[];
   needs: { telegram: boolean; google: boolean };
@@ -393,7 +393,7 @@ export interface JobStepDTO {
   seq: number;
   stepId: string;
   title: string;
-  kind: "code" | "decision" | "action";
+  kind: StepKind;
   status: "running" | "ok" | "failed" | "waiting";
   ms: number;
   model: string | null;
@@ -413,7 +413,7 @@ export interface JobDTO extends JobSummaryDTO {
   untrusted: string[];
   steps: JobStepDTO[];
   // The agent's steps, for the timeline's names.
-  plan: { id: string; title: string; kind: "code" | "decision" | "action" }[];
+  plan: { id: string; title: string; kind: StepKind }[];
   approvals: ApprovalDTO[];
 }
 

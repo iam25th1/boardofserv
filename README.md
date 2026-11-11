@@ -444,7 +444,11 @@ checked with zod.
   next. A code step carries a plain description of what its code must do and
   the tools it may call; a decision step carries a prompt for SERV and two to
   six outcomes, each with its own next step; an action step takes one
-  declared action. A run starts at the first step.
+  declared action; a loop step goes through a list (`over`: one of its
+  inputs, or a list setting's key with `settings` in its inputs), running the
+  steps inside it (from `body`) once per item, the item in the bag under its
+  name (`item`). A run starts at the first step; inside a loop, a next of
+  null ends the pass.
 - `actions`: the only actions the agent may ever take, each with a tool that
   changes something (`sheets.write`, `telegram.send`, `telegram.ask`,
   `wallet.pay`, `memory.set`); reading and working things out happen in code
@@ -466,7 +470,14 @@ checks beyond the shape:
 - action steps take declared actions, and side effects are declared;
 - an action whose tool needs exact arguments (`sheets.write`, `wallet.pay`,
   `memory.set`) takes them as its first input, a value of its own made by a
-  code step for it alone.
+  code step for it alone;
+- the steps inside a loop lead only to each other, and what a pass makes is
+  gone when the loop ends: a step after a loop reads what the loop gathered
+  (`gather`: each output is the list of one value from every pass, in
+  order), never one pass's value. A loop inside a loop gathers the same way
+  within each pass of the outer one, so "for each submission, for each
+  requirement" is one decision per requirement per submission, counted in
+  code after the inner loop, and summed up after the outer one.
 
 Most of these came from building the example agent live (see below): each
 is a way a plan from SERV passed the shape and still couldn't run.
@@ -519,8 +530,9 @@ The agent's dock (`src/components/chat/AgentDock.tsx`) shows the interview
 as seven chalk dots, filled as they are answered and turning while asked,
 and once the agent is planned, its real steps as a chalk diagram
 (`src/components/agents/StepDiagram.tsx`): a code step is a square, a
-decision a diamond, an action a circle, with links to each next step and one
-per outcome from a decision. New steps are chalked on one after another and
+decision a diamond, an action a circle, a loop a square with round corners
+leading into its first step, with links to each next step and one per
+outcome from a decision. New steps are chalked on one after another and
 their links drawn with anime.js; a step whose code is approved fills in.
 Helpers keep their takes / does / gives dock.
 

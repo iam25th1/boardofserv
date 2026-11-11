@@ -6,7 +6,8 @@ import type { StepKind } from "@/lib/agents/definition";
 import styles from "./StepDiagram.module.css";
 
 // An agent's real steps as a chalk diagram, in the dock and in the builder.
-// A code step is a square, a decision a diamond, an action a circle; links
+// A code step is a square, a decision a diamond, an action a circle, a loop
+// a square with round corners that leads into its first step; links
 // run from each step to the next, one per outcome from a decision, and a
 // link back to an earlier step loops underneath. Steps are laid out by how
 // far they are from the first.
@@ -102,7 +103,7 @@ export function layoutSteps(steps: DiagramStep[], size: keyof typeof SIZES = "co
 }
 
 function Shape({ kind, x, y, r, ...rest }: { kind: StepKind; x: number; y: number; r: number } & React.SVGProps<SVGElement>) {
-  if (kind === "code") return <rect x={x - r} y={y - r} width={r * 2} height={r * 2} rx={3} {...(rest as React.SVGProps<SVGRectElement>)} />;
+  if (kind === "code" || kind === "loop") return <rect x={x - r} y={y - r} width={r * 2} height={r * 2} rx={kind === "loop" ? r * 0.7 : 3} {...(rest as React.SVGProps<SVGRectElement>)} />;
   if (kind === "decision") {
     const k = r * 1.3;
     return <polygon points={`${x},${y - k} ${x + k},${y} ${x},${y + k} ${x - k},${y}`} {...(rest as React.SVGProps<SVGPolygonElement>)} />;
@@ -114,7 +115,7 @@ function short(title: string, max: number): string {
   return title.length <= max ? title : `${title.slice(0, max - 1).trimEnd()}...`;
 }
 
-const KIND_WORD: Record<StepKind, string> = { code: "code", decision: "decision", action: "action" };
+const KIND_WORD: Record<StepKind, string> = { code: "code", decision: "decision", action: "action", loop: "loop" };
 const STATE_WORD: Record<NodeState, string> = {
   planned: "planned",
   writing: "code being written",

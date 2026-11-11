@@ -4,7 +4,7 @@ import { completeJson, contextFor, type ChatMessage, type JsonResult, type Model
 import { ANSWER_LIMITS } from "../modelLimits";
 import { INTERVIEW_FIELDS, INTERVIEW_LABELS } from "../sketchFields";
 import type { SketchDTO } from "../types";
-import { AGENT_FORMAT, checkDefinition, TOOL_NAMES, type AgentDefinition } from "./definition";
+import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAMES, type AgentDefinition, type AgentStep } from "./definition";
 import { TOOLS } from "./toolbox";
 import { planProblems } from "./planRules";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
@@ -102,6 +102,61 @@ function listVerdicts(steps: Wire[]) {
   }
 }
 
+// Some for loops, each with one meaning. A loop reads the list it goes
+// through. A step inside a loop that leads back to the loop or to its first
+// step, or on to the step after the loop, means the pass ends there (the
+// loop goes on to the next item by itself, and on after the last). A step
+// inside a loop never makes the loop's item: it is there already. A loop
+// that gathers a name nothing inside it makes gathers the one value made
+// in its passes whose name that is the plural of ("verdicts" from
+// "verdict"), or else the verdict of the one decision inside it that has
+// none named. A step after a loop that reads a value made inside it, which
+// is gone by then, means the list the loop gathers from that value, when it
+// gathers one.
+function loopRepairs(steps: AgentStep[], bagOf: Map<string, string>) {
+  for (const st of steps) {
+    if (st.kind !== "loop") continue;
+    // A setting's list is read from its bag.
+    const bag = bagOf.get(st.over);
+    const reads = bag && !steps.some((x) => x.outputs.includes(st.over)) ? bag : st.over;
+    if (reads && !st.inputs.includes(reads)) st.inputs = [...st.inputs, reads];
+    st.gather = st.gather.map((g) => ({ ...g, from: g.from || g.into }));
+  }
+  const loops = loopsOf({ steps });
+  const byId = new Map(steps.map((x) => [x.id, x]));
+  const items = (id: string) => loopChain(loops, id).flatMap((l) => (byId.get(l)?.kind === "loop" ? [(byId.get(l) as { item: string }).item] : []));
+  for (const st of steps) if (st.kind !== "loop") st.outputs = st.outputs.filter((o) => !items(st.id).includes(o));
+  for (const loop of steps) {
+    if (loop.kind !== "loop") continue;
+    const own = steps.filter((x) => loops.inside.get(x.id) === loop.id);
+    loop.gather = loop.gather.map((g) => {
+      if (madeInside({ steps }, loops, loop.id).has(g.from)) return g;
+      const plural = own.flatMap((x) => x.outputs).filter((v) => [`${v}s`, `${v}es`, `${v}_list`, `all_${v}`].includes(g.from));
+      if (plural.length === 1) return { ...g, from: plural[0]! };
+      const silent = own.filter((x) => x.kind === "decision" && !x.outputs.length);
+      if (silent.length === 1) silent[0]!.outputs = [g.from];
+      return g;
+    });
+  }
+  for (const st of steps) {
+    const loop = steps.find((l) => l.id === loops.inside.get(st.id));
+    if (loop?.kind !== "loop") continue;
+    const back = (n: string | null) => (n === loop.id || n === loop.body || (n !== null && n === loop.next) ? null : n);
+    if (st.kind === "decision") st.outcomes = st.outcomes.map((o) => ({ ...o, next: back(o.next) }));
+    else st.next = back(st.next);
+  }
+  const after = loopsOf({ steps });
+  for (const st of steps) {
+    const chain = new Set<string>();
+    for (let at = after.inside.get(st.id) ?? null; at && !chain.has(at); at = after.inside.get(at) ?? null) chain.add(at);
+    st.inputs = st.inputs.map((input) => {
+      const loop = steps.find((l) => l.kind === "loop" && l.id !== st.id && !chain.has(l.id) && madeInside({ steps }, after, l.id).has(input));
+      const gathered = loop?.kind === "loop" ? loop.gather.filter((g) => g.from === input) : [];
+      return gathered.length === 1 && !st.inputs.includes(gathered[0]!.into) ? gathered[0]!.into : input;
+    });
+  }
+}
+
 // A decision over a list: the input holding the list, when its description
 // is exactly the name of one of its inputs.
 function listInput(st: Wire): string | null {
@@ -133,11 +188,17 @@ export function wireToDefinition(w: Wire): unknown {
       };
     }
     if (st.kind === "action") return { ...base, kind: "action", action: s(st.action), next: nextOrNull(st.next), ...(s(st.otherwise) ? { otherwise: s(st.otherwise) } : {}) };
+    if (st.kind === "loop") {
+      // Each output gathers the value named in the same place in gather.
+      const from = arr(st.gather).map(s);
+      return { ...base, kind: "loop", over: s(st.over), item: s(st.item), body: s(st.body), gather: base.outputs.map((into, i) => ({ from: from[i] ?? "", into })), next: nextOrNull(st.next) };
+    }
     return { ...base, kind: "code", description: s(st.description), tools: arr(st.tools).map(s), next: nextOrNull(st.next) };
   });
   readBags(steps as { inputs: string[]; outputs: string[]; description?: string; prompt?: string }[], w);
   buildOnMemory(steps as { kind?: string; inputs: string[]; outputs: string[]; description?: string; tools?: string[] }[], w);
   listVerdicts(steps as Wire[]);
+  loopRepairs(steps as AgentStep[], new Map((["settings", "rules", "memory"] as const).flatMap((bag) => arr(w[bag]).map((x) => [s((x as Wire).key), bag] as [string, string]))));
   const first = steps[0]?.id;
   const triggers = arr(w.triggers).map((x) => {
     const t = x as Wire;

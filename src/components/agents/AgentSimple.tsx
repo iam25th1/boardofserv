@@ -6,7 +6,7 @@ import { ListingPanel, type ListingBody } from "@/components/market/ListingPanel
 import { animatePop } from "@/lib/motion";
 import { useStaggerIn } from "@/lib/useStaggerIn";
 import { setupShapeOf } from "@/lib/agents/definition";
-import { asksBefore, connectsTo, plain, stepLine, stepsInOrder } from "@/lib/agents/plainView";
+import { asksBefore, connectsTo, plain, stepDepths, stepLine, stepsInOrder } from "@/lib/agents/plainView";
 import type { AgentBuilderDTO, AgentSummaryDTO } from "@/lib/types";
 import { SetupFlow, type SetupApi } from "./SetupFlow";
 import styles from "./AgentSimple.module.css";
@@ -87,6 +87,7 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
   }
 
   const steps = stepsInOrder(d);
+  const depths = stepDepths(d);
   const connects = connectsTo(d);
   const asks = asksBefore(d);
   return (
@@ -109,7 +110,7 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
         <h2 id="steps-h">Its steps</h2>
         <ol className={styles.steps} ref={stepsRef}>
           {steps.map((s, i) => (
-            <li key={s.id} data-enter data-held={agent.steps.find((x) => x.id === s.id)?.code === "needs_attention" ? "true" : undefined}>
+            <li key={s.id} data-enter data-held={agent.steps.find((x) => x.id === s.id)?.code === "needs_attention" ? "true" : undefined} style={{ "--depth": depths.get(s.id) ?? 0 } as React.CSSProperties}>
               <span className={styles.no} aria-hidden="true">
                 {i + 1}
               </span>
