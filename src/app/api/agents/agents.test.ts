@@ -15,6 +15,7 @@ import * as run from "./[id]/run/route";
 import * as fix from "./[id]/fix/route";
 import * as bench from "./[id]/bench/route";
 import * as publish from "./[id]/publish/route";
+import * as testRoute from "./[id]/test/route";
 import * as messagesRoute from "../conversations/[id]/messages/route";
 
 // Building an agent through the real routes, on the real migrations: SERV
@@ -50,8 +51,30 @@ beforeAll(async () => {
       const src = ask.includes("Step: Find low stock") ? FIND_LOW : COMPARE;
       return Response.json({ choices: [{ message: { content: "```js\n" + src + "\n```" } }], usage: { prompt_tokens: 300, completion_tokens: 120 } });
     }
+    // SERV writing a step's code itself ("Fix this" on a step on hold).
+    if (!body.response_format && String(body.messages[0]?.content).startsWith("You write one JavaScript function")) {
+      seen.push({ to: "serv", schema: "code", body });
+      const src = String(body.messages[1].content).includes("Step: Find low stock") ? FIND_LOW : COMPARE;
+      return Response.json({ choices: [{ message: { content: "```js\n" + src + "\n```" } }], usage: { prompt_tokens: 300, completion_tokens: 120 } });
+    }
     const name = body.response_format?.json_schema?.name as string;
     seen.push({ to: "serv", schema: name, body });
+    // Sample data for a test, made from the plan: the restock bench, as
+    // SERV's flat lists.
+    if (name === "agent_sample") {
+      const b = restockBench();
+      const sample = {
+        noun: "fabric",
+        plural: "fabrics",
+        labels: b.sheets.Stock!.map((r) => String(r.fabric)),
+        settings: Object.entries(b.settings).map(([key, value]) => ({ key, value: String(value) })),
+        sheets: Object.entries(b.sheets).map(([sheet, rows]) => ({ sheet, columns: Object.keys(rows[0] ?? { fabric: "" }), rows: rows.map((r) => ({ cells: Object.values(r).map(String) })) })),
+        pages: [],
+        searches: [],
+        answers: b.telegram.answers,
+      };
+      return Response.json({ choices: [{ message: { content: JSON.stringify(sample) } }], usage: { prompt_tokens: 900, completion_tokens: 400 } });
+    }
     if (name === "agent_plan") return Response.json({ choices: [{ message: { content: JSON.stringify(plans.shift() ?? RESTOCK_WIRE) } }], usage: { prompt_tokens: 1500, completion_tokens: 1100 } });
     if (name === "code_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "approve", reason: "Does what the step says." }) } }], usage: { prompt_tokens: 500, completion_tokens: 20 } });
     if (name === "version_review") {
@@ -309,3 +332,40 @@ describe("the builder", () => {
     expect(await res.json()).toEqual({ error: '"Compare suppliers" still needs approved code.' });
   });
 });
+
+describe("the card's actions", () => {
+  it("fixes a step on hold with no typing: SERV writes it again, reviewed in a call of its own", async () => {
+    const { id } = await built();
+    const draft = (await draftOf(id))!;
+    await db.update(schema.agentVersions).set({ code: { ...draft.code, compare: { ...draft.code.compare!, status: "needs_attention", note: "It ignores delivery time." } } }).where(eq(schema.agentVersions.id, draft.id));
+    const held = await builderOf(id);
+    expect(held.agent.problem).toMatchObject({ step: "compare", fix: "rewrite" });
+    seen.length = 0;
+    const res = await fix.POST(json(`/api/agents/${id}/fix`, "POST", { step: "compare" }), { params: Promise.resolve({ id }) });
+    expect(res.status).toBe(202);
+    await jobFor(draft.id);
+    // SERV wrote it, SERV reviewed it, and Dolphin wasn't asked.
+    expect(seen.slice(0, 2).map((x) => x.schema)).toEqual(["code", "code_review"]);
+    expect(seen.some((x) => x.to === "dolphin")).toBe(false);
+    const after = await builderOf(id);
+    expect(after.code.compare).toMatchObject({ status: "approved", writer: "serv" });
+    expect(after.agent.problem, JSON.stringify(after.agent.problem)).toBeNull();
+  });
+
+  it("tests it on sample data made from its plan, and tells the run as a story", async () => {
+    const { id } = await built();
+    seen.length = 0;
+    const res = await testRoute.POST(json(`/api/agents/${id}/test`, "POST"), { params: Promise.resolve({ id }) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { test: { status: string; story: string; items: { labels: string[] } }; agent: AgentSummaryDTO };
+    expect(body.test.items.labels).toEqual(["Linen, natural", "Cotton twill", "Wool felt"]);
+    expect(body.test.story).toMatch(/^3 fabrics checked/);
+    expect(body.agent.test).toMatchObject({ story: body.test.story });
+    // The sample is now the draft's test bench, and made only once.
+    expect((await builderOf(id)).bench.sheets.Stock).toHaveLength(3);
+    seen.length = 0;
+    await testRoute.POST(json(`/api/agents/${id}/test`, "POST"), { params: Promise.resolve({ id }) });
+    expect(seen.map((x) => x.schema)).not.toContain("agent_sample");
+  });
+});
+

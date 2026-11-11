@@ -95,4 +95,27 @@ describe("the agent dock", () => {
     expect(agentStatus(done, agent({ state: "published" }))).toBe("Published, version 1");
     expect(agentStatus({ ...interview, asking: null }, null)).toBe("Interviewing");
   });
+
+  it("once planned, says where it stands and offers Test it, Fix it, Publish and Details", () => {
+    const actions = { onTest: vi.fn(), onFix: vi.fn(), onPublish: vi.fn(), busy: null };
+    const story = "3 items checked: 2 passed, 1 rejected, summary sent.";
+    render(<AgentDock sketch={done} agent={agent({ test: { status: "passed", story, checkedAt: "2026-11-11T00:00:00Z" } })} actions={actions} />);
+    expect(screen.getByText("Tested, ready to publish")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(story);
+    // No Open, no Plan: the card does it all.
+    expect(screen.queryByRole("link", { name: "Open" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Plan" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Test it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fix it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    expect([actions.onTest, actions.onFix, actions.onPublish].map((f) => f.mock.calls.length)).toEqual([1, 1, 1]);
+    expect(screen.getByRole("link", { name: "Details" })).toHaveAttribute("href", "/app/agents/a1?details=1");
+    cleanup();
+    // A problem reads in one sentence, and nothing can be published.
+    const problem = { text: '"Find low stock" didn\'t pass SERV\'s check of its code, so it\'s on hold.', step: "find_low", fix: "rewrite" as const };
+    render(<AgentDock sketch={done} agent={agent({ problem })} actions={actions} />);
+    expect(screen.getByText("Something needs fixing")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(problem.text);
+    expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled();
+  });
 });

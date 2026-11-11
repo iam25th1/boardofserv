@@ -1,0 +1,214 @@
+{
+  "definition": {
+    "format": 1,
+    "name": "Hackathon Submission Checker",
+    "job": {
+      "does": "Checks new hackathon submissions in your sheet against your requirements, marks each Passed or Rejected with reasons, and sends you a summary.",
+      "done": "Every new submission has a Status and Reasons, and you have the summary."
+    },
+    "triggers": [
+      {
+        "kind": "schedule",
+        "every": "minutes",
+        "interval": 15,
+        "at": null,
+        "description": "Every 15 minutes"
+      }
+    ],
+    "settings": [
+      {
+        "key": "submissions_sheet",
+        "label": "Your submissions sheet",
+        "type": "sheet",
+        "help": "The tab the submissions arrive in, one per row.",
+        "choices": []
+      },
+      {
+        "key": "requirements",
+        "label": "The requirements, one per line",
+        "type": "list",
+        "help": "What every submission must have.",
+        "choices": []
+      }
+    ],
+    "rules": [],
+    "memory": [],
+    "steps": [
+      {
+        "id": "find_new",
+        "title": "Find new submissions",
+        "plain": "Read the submissions sheet and pick out the ones not checked yet",
+        "inputs": [
+          "settings"
+        ],
+        "outputs": [
+          "submissions",
+          "checks"
+        ],
+        "kind": "code",
+        "description": "Read the tab settings.submissions_sheet. New submissions are rows whose Status is empty: return submissions, each { row: its _row, project: the Project column, demo: the Demo column, notes: the Notes column }, and checks, one per submission and requirement in settings.requirements: { submission: its place in submissions, project, demo, notes, requirement }.",
+        "tools": [
+          "sheets.read"
+        ],
+        "next": "judge"
+      },
+      {
+        "id": "judge",
+        "title": "Judge each requirement",
+        "plain": "Judge every requirement of every new submission: met or not met",
+        "inputs": [
+          "checks"
+        ],
+        "outputs": [
+          "verdicts"
+        ],
+        "kind": "decision",
+        "prompt": "Does this submission meet this requirement, from its project, demo and notes?",
+        "outcomes": [
+          {
+            "id": "met",
+            "label": "Met",
+            "next": "tally"
+          },
+          {
+            "id": "not_met",
+            "label": "Not met",
+            "next": "tally"
+          }
+        ],
+        "each": "checks"
+      },
+      {
+        "id": "tally",
+        "title": "Count and mark",
+        "plain": "Count the requirements each one met, and mark it Passed, or Rejected when fewer than half are met",
+        "inputs": [
+          "settings",
+          "submissions",
+          "checks",
+          "verdicts"
+        ],
+        "outputs": [
+          "status_updates",
+          "summary"
+        ],
+        "kind": "code",
+        "description": "For each submission count the verdicts (by item, matching checks) that are met. Rejected when fewer than half of its requirements are met, else Passed; Reasons lists the requirements not met. Return status_updates as sheets.update's arguments { sheet: settings.submissions_sheet, updates: [{ row, values: { Status, Reasons } }] } and summary { text } naming every submission and its result. With no submissions, return both as null.",
+        "tools": [],
+        "next": "write_status"
+      },
+      {
+        "id": "write_status",
+        "title": "Write the results",
+        "plain": "Write Status and Reasons into each submission's own row",
+        "inputs": [
+          "status_updates"
+        ],
+        "outputs": [
+          "written"
+        ],
+        "kind": "action",
+        "action": "write_results",
+        "next": "send"
+      },
+      {
+        "id": "send",
+        "title": "Send the summary",
+        "plain": "Send you a summary of the run on Telegram",
+        "inputs": [
+          "summary"
+        ],
+        "outputs": [
+          "sent"
+        ],
+        "kind": "action",
+        "action": "send_summary",
+        "next": null
+      }
+    ],
+    "actions": [
+      {
+        "id": "write_results",
+        "tool": "sheets.update",
+        "description": "Write Status and Reasons into each submission's own row"
+      },
+      {
+        "id": "send_summary",
+        "tool": "telegram.send",
+        "description": "Send you a summary of the run"
+      }
+    ],
+    "limits": {
+      "maxSteps": 20,
+      "maxRunSeconds": 120,
+      "maxSpendUsd": 0.2
+    },
+    "approvalHours": 24
+  },
+  "code": {
+    "find_new": {
+      "spec": "[\"Read the tab settings.submissions_sheet. New submissions are rows whose Status is empty: return submissions, each { row: its _row, project: the Project column, demo: the Demo column, notes: the Notes column }, and checks, one per submission and requirement in settings.requirements: { submission: its place in submissions, project, demo, notes, requirement }.\",[\"settings\"],[\"submissions\",\"checks\"],[\"sheets.read\"]]",
+      "status": "approved",
+      "source": "async function run(input, tools) {\n  const sheet = input.settings.submissions_sheet;\n  const { rows } = await tools.sheets.read({ sheet });\n  const reqs = (input.settings.requirements || []).filter(Boolean);\n  const submissions = rows.filter((r) => !r.Status).map((r) => ({ row: r._row, project: String(r.Project || \"\"), demo: String(r.Demo || \"\"), notes: String(r.Notes || \"\") }));\n  const checks = [];\n  submissions.forEach((s, i) => reqs.forEach((requirement) => checks.push({ submission: i, project: s.project, demo: s.demo, notes: s.notes, requirement })));\n  return { submissions, checks };\n}",
+      "rounds": 1,
+      "note": null,
+      "updatedAt": "2026-11-11T00:00:00.000Z"
+    },
+    "tally": {
+      "spec": "[\"For each submission count the verdicts (by item, matching checks) that are met. Rejected when fewer than half of its requirements are met, else Passed; Reasons lists the requirements not met. Return status_updates as sheets.update's arguments { sheet: settings.submissions_sheet, updates: [{ row, values: { Status, Reasons } }] } and summary { text } naming every submission and its result. With no submissions, return both as null.\",[\"settings\",\"submissions\",\"checks\",\"verdicts\"],[\"status_updates\",\"summary\"],[]]",
+      "status": "approved",
+      "source": "async function run(input) {\n  const subs = input.submissions || [];\n  if (!subs.length) return { status_updates: null, summary: null };\n  const checks = input.checks || [];\n  const results = subs.map((s) => ({ row: s.row, project: s.project, met: 0, total: 0, missing: [] }));\n  (input.verdicts || []).forEach((v) => {\n    const c = checks[v.item];\n    if (!c) return;\n    const r = results[c.submission];\n    r.total += 1;\n    if (v.outcome === \"met\") r.met += 1;\n    else r.missing.push(c.requirement);\n  });\n  const updates = results.map((r) => {\n    const passed = r.total > 0 && r.met * 2 >= r.total;\n    return { row: r.row, values: { Status: passed ? \"Passed\" : \"Rejected\", Reasons: r.missing.length ? \"Not met: \" + r.missing.join(\"; \") : \"All requirements met\" } };\n  });\n  const passed = updates.filter((u) => u.values.Status === \"Passed\").length;\n  const lines = results.map((r, i) => r.project + \": \" + updates[i].values.Status + \" (\" + r.met + \" of \" + r.total + \" met)\");\n  const text = \"Checked \" + subs.length + \" submissions: \" + passed + \" passed, \" + (subs.length - passed) + \" rejected.\\n\" + lines.join(\"\\n\");\n  return { status_updates: { sheet: input.settings.submissions_sheet, updates }, summary: { text } };\n}",
+      "rounds": 1,
+      "note": null,
+      "updatedAt": "2026-11-11T00:00:00.000Z"
+    }
+  },
+  "bench": {
+    "settings": {
+      "submissions_sheet": "Submissions",
+      "requirements": [
+        "A working demo",
+        "A public repository",
+        "A short write-up"
+      ]
+    },
+    "rules": {},
+    "trigger": null,
+    "sheets": {
+      "Submissions": [
+        {
+          "Project": "Tide Tracker",
+          "Demo": "https://tide.example",
+          "Notes": "Repo on GitHub, write-up in the README",
+          "Status": "",
+          "Reasons": ""
+        },
+        {
+          "Project": "Lunch Vote",
+          "Demo": "",
+          "Notes": "Slides only",
+          "Status": "",
+          "Reasons": ""
+        },
+        {
+          "Project": "Plant Pal",
+          "Demo": "https://plant.example",
+          "Notes": "Open source, two-page write-up",
+          "Status": "",
+          "Reasons": ""
+        }
+      ]
+    },
+    "pages": {},
+    "search": {},
+    "telegram": {
+      "answers": []
+    },
+    "memory": {},
+    "wallet": {
+      "balanceUsdc": 0
+    },
+    "decisions": {}
+  },
+  "story": "3 submissions checked: 2 passed, 1 rejected, summary sent."
+}
