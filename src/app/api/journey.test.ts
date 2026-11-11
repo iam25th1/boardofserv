@@ -43,6 +43,10 @@ let planning: Record<string, unknown> = PRICE_WIRE;
 // Code for a step, by its title: the price watcher's, or what a test sets.
 let sources: Record<string, string> = {};
 const seen: string[] = [];
+// What the fixer answers, one a round ("{}" when none is left), and what
+// Dolphin was asked.
+let fixes: object[] = [];
+const asked: string[] = [];
 
 const sourceFor = (ask: string) => {
   const title = /^Step: (.+)$/m.exec(ask)?.[1] ?? "";
@@ -61,7 +65,11 @@ beforeAll(async () => {
     const body = JSON.parse(String(init.body));
     if (url.includes("dphn.ai")) {
       seen.push("dolphin");
-      return Response.json({ choices: [{ message: { content: "```js\n" + sourceFor(body.messages[1].content) + "\n```" } }], usage: { prompt_tokens: 300, completion_tokens: 120 } });
+      const ask = body.messages[1].content as string;
+      asked.push(ask);
+      // Written again with what went wrong beside it: the step's own code.
+      const healed = ask.includes("An earlier version of this step didn't pass") ? PRICE_SOURCES[(PRICE_WIRE.steps as { id: string; title: string }[]).find((x) => x.title === /^Step: (.+)$/m.exec(ask)?.[1])?.id ?? ""] : undefined;
+      return Response.json({ choices: [{ message: { content: "```js\n" + (healed ?? sourceFor(ask)) + "\n```" } }], usage: { prompt_tokens: 300, completion_tokens: 120 } });
     }
     const name = body.response_format?.json_schema?.name as string;
     seen.push(name);
@@ -74,6 +82,7 @@ beforeAll(async () => {
     const planned = planAnswer(planning, body);
     if (planned) return Response.json({ choices: [{ message: { content: JSON.stringify(planned) } }], usage: { prompt_tokens: 1500, completion_tokens: 900 } });
     if (name === "code_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "approve", reason: "Does what the step says." }) } }], usage: { prompt_tokens: 500, completion_tokens: 20 } });
+    if (name === "agent_fix") return Response.json({ choices: [{ message: { content: JSON.stringify(fixes.shift() ?? {}) } }], usage: { prompt_tokens: 3000, completion_tokens: 200 } });
     if (name === "version_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ findings: [] }) } }], usage: { prompt_tokens: 2000, completion_tokens: 20 } });
     return Response.json({ choices: [{ message: { content: "{}" } }] });
   });
@@ -84,6 +93,8 @@ beforeEach(() => {
   plans = [];
   sources = {};
   seen.length = 0;
+  fixes = [];
+  asked.length = 0;
 });
 
 afterAll(async () => {
@@ -237,5 +248,91 @@ describe("the journey in the chat", () => {
     expect((await agents.POST(json("/api/agents", "POST", { conversationId: cid, review: true }))).status).toBe(404);
     const rows = await db.select().from(schema.messages).where(eq(schema.messages.conversationId, cid)).orderBy(asc(schema.messages.createdAt));
     expect(rows.some((m) => m.card)).toBe(false);
+  });
+});
+
+describe("a build that heals itself, in the chat", () => {
+  const BROKEN = "async function run() { throw new Error('no price'); }";
+  const userSaid = (c: Awaited<ReturnType<typeof conversation>>) => c.messages.filter((m) => m.role === "user").map((m) => m.content);
+
+  it("writes a step again from the fixer's corrected brief, with the reason beside it, and goes on to Connect with nothing typed", async () => {
+    const cid = await described();
+    sources = { "Write the reminder": BROKEN };
+    fixes = [{ verdict: "code_wrong", step: "make_reminder", why: "The reminder's code throws instead of using the price it was given.", spec: "Make the reminder from price and settings.product_url: return reminder as { text } with the price and the link.", change: "", sample: "", question: "", choices: [], lesson: "Code uses the values it is given instead of throwing.", kind: "other" }];
+    const id = await madeIt(cid);
+    await build.POST(json(`/api/agents/${id}/build`, "POST"), at(id));
+    await jobFor((await draftOf(id))!.id);
+    const c = await conversation(cid);
+    // One Try it card: the test after the repair stays on it.
+    expect(stages(c)).toEqual(["steps", "build", "try", "connect"]);
+    expect(c.agent!.test).toMatchObject({ status: "passed" });
+    expect(c.agent!.heal!.lines).toEqual([
+      { text: "Found a problem in step 6 while trying it. Fixing it.", tone: "working" },
+      { text: "Writing step 6 again.", tone: "working" },
+      { text: "Fixed.", tone: "fixed" },
+    ]);
+    // Dolphin wrote it from the corrected brief, told what went wrong.
+    const again = asked.find((a) => a.includes("An earlier version of this step didn't pass"))!;
+    expect(again).toContain("What it must do: Make the reminder from price and settings.product_url");
+    expect(again).toContain('An earlier version of this step didn\'t pass: "Write the reminder" didn\'t work on the sample product.');
+    // Nothing for the maker to read or type.
+    expect(userSaid(c)).toEqual([expect.stringMatching(/^Every day, check a product page/)]);
+    expect(c.agent!.problem).toBeNull();
+  });
+
+  it("asks one plain question with answers to tap when only the maker can say, and goes on with the answer", async () => {
+    const cid = await described();
+    sources = { "Write the reminder": BROKEN };
+    fixes = [{ verdict: "unclear", step: "", why: "Only the maker knows how they want to be reminded.", spec: "", change: "", sample: "", question: "Should the reminder include the link to the product?", choices: ["Yes, include the link", "No, just the price"], lesson: "", kind: "setup" }];
+    const id = await madeIt(cid);
+    await build.POST(json(`/api/agents/${id}/build`, "POST"), at(id));
+    await jobFor((await draftOf(id))!.id);
+    let c = await conversation(cid);
+    expect(c.messages.at(-1)).toMatchObject({ role: "assistant", content: "Should the reminder include the link to the product?" });
+    expect(c.agent!.heal!.question).toMatchObject({ text: "Should the reminder include the link to the product?", choices: ["Yes, include the link", "No, just the price"], messageId: expect.any(String) });
+    expect(c.agent!.heal!.lines.at(-1)).toEqual({ text: "I need to ask you one thing.", tone: "asked" });
+    expect(c.agent!.buildState).toBe("idle");
+
+    // The maker taps an answer: the steps change with it, and the build goes on.
+    sources = {};
+    plans = [{ ...PRICE_WIRE, steps: PRICE_WIRE.steps.map((s) => (s.id === "make_reminder" ? { ...s, description: `${s.description} Include the link to the product.` } : s)) }];
+    seen.length = 0;
+    const res = await journeyRoute.POST(json(`/api/conversations/${cid}/journey`, "POST", { action: "answer", answer: "Yes, include the link" }), at(cid));
+    expect(res.status).toBe(202);
+    await jobFor((await draftOf(id))!.id);
+    c = await conversation(cid);
+    expect(userSaid(c).at(-1)).toBe("Yes, include the link");
+    const outline = seen.indexOf("agent_outline");
+    expect(outline).toBeGreaterThanOrEqual(0);
+    expect(c.agent!.heal!.question).toBeNull();
+    expect(c.agent!.test).toMatchObject({ status: "passed" });
+    expect(stages(c).at(-1)).toBe("connect");
+    // Asked again, with no question waiting, it says so.
+    expect((await journeyRoute.POST(json(`/api/conversations/${cid}/journey`, "POST", { action: "answer", answer: "Yes" }), at(cid))).status).toBe(409);
+  });
+
+  it("gives up in one plain sentence after its rounds, and a simpler version is a choice, never a fix box", async () => {
+    const cid = await described();
+    sources = { "Write the reminder": BROKEN };
+    const sample = { verdict: "test_wrong", step: "", why: "The sample has no price.", spec: "", change: "", sample: "A page with a price on it.", question: "", choices: [], lesson: "", kind: "sample_items" };
+    fixes = [sample, sample, sample];
+    const id = await madeIt(cid);
+    await build.POST(json(`/api/agents/${id}/build`, "POST"), at(id));
+    await jobFor((await draftOf(id))!.id);
+    let c = await conversation(cid);
+    expect(seen.filter((x) => x === "agent_fix")).toHaveLength(3);
+    expect(seen.filter((x) => x === "agent_sample")).toHaveLength(4);
+    expect(c.agent!.heal!.gaveUp).toBe('I couldn\'t get step 6, "Write the reminder", to work on its sample.');
+    expect(c.agent!.buildState).toBe("idle");
+
+    plans = [PRICE_WIRE];
+    seen.length = 0;
+    const res = await journeyRoute.POST(json(`/api/conversations/${cid}/journey`, "POST", { action: "simpler" }), at(cid));
+    expect(res.status).toBe(202);
+    await jobFor((await draftOf(id))!.id);
+    c = await conversation(cid);
+    expect(c.messages.some((m) => m.role === "assistant" && m.content === "Making a simpler version of it.")).toBe(true);
+    expect(stages(c).at(-1)).toBe("steps");
+    expect(seen[0]).toBe("agent_outline");
   });
 });

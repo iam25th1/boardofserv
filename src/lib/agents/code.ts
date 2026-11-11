@@ -339,12 +339,16 @@ export async function writeStep(
   spec: string,
   // writer: "serv" has SERV write it from the start ("Fix this" on a held
   // step); without Dolphin set up, SERV writes it too.
-  opts: { dolphin: Provider | null; serv: ModelConfig; hooks: WriteHooks; fetchImpl?: typeof fetch; signal?: AbortSignal; writer?: "dolphin" | "serv" },
+  // hint: why an earlier version of this step didn't pass (the fixer
+  // sends it with the step's corrected brief), so it isn't written that
+  // way again. rounds: how many tries before it is held.
+  opts: { dolphin: Provider | null; serv: ModelConfig; hooks: WriteHooks; fetchImpl?: typeof fetch; signal?: AbortSignal; writer?: "dolphin" | "serv"; hint?: string | null; rounds?: number },
 ): Promise<StepCode> {
   const conversation: ChatMessage[] = [
     { role: "system", content: CODE_PROMPT },
-    { role: "user", content: codeRequest(step, d) },
+    { role: "user", content: opts.hint ? `${codeRequest(step, d)}\n\nAn earlier version of this step didn't pass: ${opts.hint}\nWrite it so that can't happen again.` : codeRequest(step, d) },
   ];
+  const maxRounds = opts.rounds ?? MAX_CODE_ROUNDS;
   let source: string | null = null;
   let note = "";
   let rounds = 0;
@@ -363,7 +367,7 @@ export async function writeStep(
       if (dolphinFailures >= DOLPHIN_TRIES) writer = "serv";
     }
   };
-  for (let round = 1; round <= MAX_CODE_ROUNDS; round++) {
+  for (let round = 1; round <= maxRounds; round++) {
     rounds = round;
     await opts.hooks.progress("writing", round);
     const written = await write(round);

@@ -32,6 +32,8 @@ let db: PgliteDatabase<typeof schema>;
 let ana: schema.User;
 let ben: schema.User;
 let plans: object[] = [];
+// What the fixer answers, one a round ("{}" when none is left).
+let fixes: object[] = [];
 let planning: Record<string, unknown> = RESTOCK_WIRE;
 // What SERV's version review finds ("down" for no answer).
 let review: { step: string; severity: string; finding: string }[] | "down" = [];
@@ -87,6 +89,7 @@ beforeAll(async () => {
       if (review === "down") return new Response("{}", { status: 503 });
       return Response.json({ choices: [{ message: { content: JSON.stringify({ findings: review }) } }], usage: { prompt_tokens: 2200, completion_tokens: 60 } });
     }
+    if (name === "agent_fix") return Response.json({ choices: [{ message: { content: JSON.stringify(fixes.shift() ?? {}) } }], usage: { prompt_tokens: 3000, completion_tokens: 200 } });
     if (name === "decision") {
       const ids = body.response_format.json_schema.schema.properties.outcome.enum as string[];
       return Response.json({ choices: [{ message: { content: JSON.stringify({ outcome: ids.includes("within") ? "within" : ids[0], reason: "Under the limit." }) } }], usage: { prompt_tokens: 400, completion_tokens: 15 } });
@@ -99,6 +102,7 @@ beforeEach(() => {
   state.user = ana;
   seen.length = 0;
   plans = [];
+  fixes = [];
   vi.stubEnv("INVITE_ONLY", "");
   vi.stubEnv("DAILY_SPEND_LIMIT_USD", "");
 });
@@ -211,14 +215,20 @@ describe("planning an agent from its conversation", () => {
     expect(seen).toEqual([]);
   });
 
-  it("calls a failed plan failed, in plain words", async () => {
-    plans = Array.from({ length: 12 }, () => ({ ...RESTOCK_WIRE, triggers: [] }));
+  it("heals a plan that didn't come together, and says in one sentence when it can't", async () => {
+    plans = Array.from({ length: 30 }, () => ({ ...RESTOCK_WIRE, triggers: [] }));
     const conversationId = await interviewed(ana);
+    // The fixer says what to change; the plan still doesn't come together.
+    fixes = [{ verdict: "plan_wrong", step: "", why: "It has nothing that starts it.", spec: "", change: "Add a schedule: every morning at eight.", sample: "", question: "", choices: [], lesson: "Every agent says what starts it.", kind: "missing_step" }];
     const { agent: a } = (await (await agents.POST(json("/api/agents", "POST", { conversationId }))).json()) as { agent: AgentSummaryDTO };
     await jobFor((await draftOf(a.id))!.id);
     const after = await builderOf(a.id);
-    // Why, in plain words, and what to add: never the checker's own reasons.
-    expect(after.agent).toMatchObject({ buildState: "failed", buildNote: "I couldn't work out the steps: it didn't say what starts it. Say when it should run, for example every 15 minutes or every morning." });
+    // The fixer's change went to the planner, as what the maker said.
+    const outlines = seen.filter((x) => x.schema === "agent_outline");
+    expect(outlines.at(-1)!.body.messages[1]!.content).toContain("Also: Add a schedule: every morning at eight.");
+    // One plain sentence, never the checker's own reasons.
+    expect(after.agent).toMatchObject({ buildState: "failed", buildNote: "I couldn't work out steps that fit together for this job." });
+    expect(after.agent.heal).toMatchObject({ gaveUp: "I couldn't work out steps that fit together for this job." });
     expect(after.definition).toBeNull();
     // The checker's reasons are kept, as a diagnosis.
     const heal = (await draftOf(a.id))!.heal!;
@@ -395,33 +405,62 @@ describe("a self test that fails", () => {
   // gives: the self test stops there.
   const broken = { ...RESTOCK_WIRE, steps: RESTOCK_WIRE.steps.map((s) => (s.id === "compare" ? { ...s, outputs: [...s.outputs, "notes"] } : s)) };
   const SENTENCE = '"Compare suppliers" didn\'t work on the sample fabric.';
+  const CHANGE = { verdict: "plan_wrong", step: "compare", why: "Compare suppliers is asked for notes its job never makes.", spec: "", change: "Remove notes from the outputs of compare.", sample: "", question: "", choices: [], lesson: "A step only returns what its job makes.", kind: "wrong_value" };
 
-  it("runs Fix this once on its own with the one sentence that says what went wrong, and keeps the plan that passes", async () => {
+  it("heals itself: the fixer reads the diagnosis, the steps are changed, and the plan that passes is kept", async () => {
     plans = [broken, RESTOCK_WIRE];
+    fixes = [CHANGE];
     const { id } = await built();
     const after = await builderOf(id);
     expect(after.agent.buildState).toBe("idle");
     expect(after.agent.problem).toBeNull();
-    expect(after.agent.test).toMatchObject({ status: "passed", fixed: SENTENCE });
-    // Two plans: the second asked for with the sentence as what the maker said.
+    expect(after.agent.test).toMatchObject({ status: "passed" });
+    // The fixer read what failed, where, and the run.
+    const asked = seen.find((s) => s.schema === "agent_fix")!.body.messages[1]!.content;
+    expect(asked).toContain(`What happened: ${SENTENCE}`);
+    expect(asked).toContain("Step: Compare suppliers (compare)");
+    expect(asked).toContain("The check that failed:\nran");
+    // Its change went to the planner as what to change.
     const outlines = seen.filter((s) => s.schema === "agent_outline");
     expect(outlines).toHaveLength(2);
-    expect(outlines[1]!.body.messages[1]!.content).toContain(`The maker says: ${SENTENCE}`);
+    expect(outlines[1]!.body.messages[1]!.content).toContain("The maker says: Remove notes from the outputs of compare.");
     expect(after.definition!.steps.find((s) => s.id === "compare")!.outputs).toEqual(["order", "order_rows", "total_way", "question"]);
+    expect(after.agent.heal!.lines.map((l) => l.text)).toEqual([expect.stringMatching(/^Found a problem in step \d while trying it\. Fixing it\.$/), "Changing its steps.", "Fixed."]);
+    const heal = (await draftOf(id))!.heal!;
+    expect(heal.rounds.map((r) => [r.diagnosis.stage, r.verdict, r.outcome])).toEqual([["test", "plan", "fixed"]]);
+    expect(heal.rounds[0]!.lesson).toEqual({ kind: "wrong_value", text: "A step only returns what its job makes." });
   });
 
-  it("shows the sentence with Fix this when the fix on its own fails too, and fixes only once", async () => {
-    plans = [broken, broken];
+  it("goes round again when a repair doesn't fix it, and gives up with one plain sentence after its rounds", async () => {
+    plans = [broken, broken, broken, broken];
+    fixes = [CHANGE, CHANGE, CHANGE];
     const { id } = await built();
     const after = await builderOf(id);
     expect(after.agent.buildState).toBe("idle");
-    expect(after.agent.problem).toEqual({ text: SENTENCE, step: "compare", fix: "replan" });
-    expect(after.agent.test).toMatchObject({ status: "failed", fixed: SENTENCE });
-    expect(seen.filter((s) => s.schema === "agent_outline")).toHaveLength(2);
-    // Each failed test is kept as a diagnosis: the check, the step, the run.
+    expect(after.agent.test).toMatchObject({ status: "failed" });
+    expect(seen.filter((s) => s.schema === "agent_fix")).toHaveLength(3);
+    expect(after.agent.heal!.gaveUp).toMatch(/^I couldn't get step \d, "[^"]+", to work on its sample\.$/);
+    expect(after.agent.heal!.lines.at(-1)).toEqual({ text: after.agent.heal!.gaveUp, tone: "stopped" });
+    // Every round is kept, with what failed in each.
     const heal = (await draftOf(id))!.heal!;
-    expect(heal.rounds.map((r) => r.diagnosis.stage)).toEqual(["test", "test"]);
+    expect(heal.rounds.map((r) => [r.diagnosis.stage, r.verdict, r.outcome])).toEqual([
+      ["test", "plan", "failed"],
+      ["test", "plan", "failed"],
+      ["test", "plan", "failed"],
+      ["test", null, "pending"],
+    ]);
     expect(heal.rounds[0]!.diagnosis).toMatchObject({ step: { id: "compare" }, failure: SENTENCE, evidence: { check: "ran" } });
     expect(heal.rounds[0]!.diagnosis.evidence.trace.join("\n")).toContain("compare failed");
+  });
+
+  it("stops at the build's model budget, whatever rounds are left", async () => {
+    vi.stubEnv("AGENT_BUILD_COST_USD", "0.0001");
+    plans = [broken];
+    fixes = [CHANGE];
+    const { id } = await built();
+    const after = await builderOf(id);
+    expect(seen.some((s) => s.schema === "agent_fix")).toBe(false);
+    expect(after.agent.heal!.gaveUp).toBeTruthy();
+    vi.stubEnv("AGENT_BUILD_COST_USD", "");
   });
 });

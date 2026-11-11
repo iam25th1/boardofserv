@@ -26,6 +26,12 @@ import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinP
 // check out (at most MAX_REPAIRS times). A plan typically takes two to
 // four: the outline and a call or more of details.
 export const MAX_PLAN_CALLS = 10;
+// The calls one plan may take: MAX_PLAN_CALLS for any agent, more for a
+// bigger one (its steps detailed in more calls, and room to repair them).
+export function planCallCap(d: { steps?: unknown } | null): number {
+  const n = Array.isArray(d?.steps) ? d.steps.length : 0;
+  return Math.max(MAX_PLAN_CALLS, 4 + 2 * Math.ceil(n / STEPS_PER_CALL) + 2 * MAX_REPAIRS);
+}
 // When a plan doesn't check out, SERV is asked to put right only the parts
 // at fault this many times, then planning gives up.
 export const MAX_REPAIRS = 2;
@@ -298,7 +304,7 @@ export function planRequest({ interview, history, current, feedback }: PlanInput
   if (current) {
     lines.push("", "The plan as it is:", JSON.stringify(current));
     if (feedback) lines.push("", `The maker says: ${feedback}`, "Change only what this needs. Keep the ids of steps that stay the same.");
-  }
+  } else if (feedback) lines.push("", `Also: ${feedback}`);
   return lines.join("\n");
 }
 

@@ -7,7 +7,7 @@ import { loadSketch } from "../sketchStore";
 import { describedEnough } from "../sketchFields";
 import { refusal } from "../spend";
 import type { AgentSummaryDTO } from "../types";
-import { jobFor, planInputFor, plainSteps, startBuild, startPlan, startRewrite, summaryOf, type BuildContext, type Settle } from "./build";
+import { answerQuestion, jobFor, planInputFor, plainSteps, startBuild, startPlan, startRewrite, summaryOf, type BuildContext, type Settle } from "./build";
 import { buildContext, NOT_AVAILABLE } from "./context";
 import type { AgentDefinition } from "./definition";
 import { plain } from "./plainView";
@@ -177,16 +177,20 @@ async function ready(user: User, agent: Agent): Promise<Ready | Refused> {
   return { user, agent, ctx, conversationId };
 }
 
-// How the build in the chat settles: a test card as the test starts, and
-// Connect once it passes. A failure stays with the maker, never fixed on
-// its own.
-function settleIn(conversationId: string, agentId: string): Settle {
+// How the build in the chat settles: a test card as the first test starts
+// (a test again, after a repair, stays on it), and Connect once it passes.
+// A failure heals itself (build.ts), its lines on the card it happens on;
+// a question the fixer has for the maker is asked in the chat, with its
+// answers to tap.
+export function settleIn(conversationId: string, agentId: string): Settle {
   return {
-    autoFix: false,
-    onTest: async () => void (await addCard(conversationId, { stage: "try", agentId }, "Trying it on a sample.")),
+    onTest: async () => {
+      if ((await cardsIn(conversationId)).at(-1)?.card?.stage !== "try") await addCard(conversationId, { stage: "try", agentId }, "Trying it on a sample.");
+    },
     onTested: async (result) => {
       if (result.status === "passed") await addCard(conversationId, { stage: "connect", agentId }, "Connecting it to what it needs.");
     },
+    onAsk: async (question) => (await say(conversationId, question.text)).id,
   };
 }
 
@@ -196,7 +200,7 @@ export type Moved = { agent: AgentSummaryDTO } | Refused;
 
 // Make it: the agent's steps are worked out, and wait for the maker to
 // look at them.
-export async function makeIt(user: User, conversationId: string): Promise<Moved> {
+export async function makeIt(user: User, conversationId: string, feedback: string | null = null): Promise<Moved> {
   const sketch = await loadSketch(conversationId);
   if (!describedEnough(sketch)) return { refused: { status: 400, error: "Tell me a little more about the job first." } };
   const ctx = buildContext(user, conversationId);
@@ -211,12 +215,13 @@ export async function makeIt(user: User, conversationId: string): Promise<Moved>
     .where(eq(messages.conversationId, conversationId))
     .orderBy(asc(messages.createdAt));
   if (jobFor(draft.id)) return { refused: { status: 409, error: BUSY } };
-  await addCard(conversationId, { stage: "steps", agentId: agent.id }, "Working out the steps.");
-  startPlan(draft, { interview: sketch!, history }, ctx, "plan", {
+  if ((await cardsIn(conversationId)).at(-1)?.card?.stage !== "steps") await addCard(conversationId, { stage: "steps", agentId: agent.id }, "Working out the steps.");
+  startPlan(draft, { interview: sketch!, history, feedback }, ctx, "plan", {
     stop: true,
     planned: async (_before, after) => {
       if (after) await setStepsWords(conversationId, after);
     },
+    settle: settleIn(conversationId, agent.id),
   });
   return { agent: summaryOf(agent, { ...draft, buildState: "planning", buildNote: null }) };
 }
@@ -305,6 +310,36 @@ export async function fixIt(user: User, agent: Agent, change: { message: string 
 }
 
 const lowerFirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
+
+// The maker's answer to the fixer's question (tapped, or typed in the chat,
+// where it is their message already): the build goes on with it.
+export async function answer(user: User, agent: Agent, text: string, o: { said?: boolean } = {}): Promise<Moved> {
+  const r = await ready(user, agent);
+  if ("refused" in r) return r;
+  const draft = await editableDraft(agent.id);
+  if (!draft.heal?.question) return { refused: { status: 409, error: "There's no question waiting for you." } };
+  if (jobFor(draft.id)) return { refused: { status: 409, error: BUSY } };
+  if (!o.said) await heard(r.conversationId, text);
+  const settle = settleIn(r.conversationId, agent.id);
+  // No steps yet: once they come together, they wait for the maker to look.
+  const after = draft.definition ? undefined : { stop: true, planned: async (_b: AgentDefinition | null, d: AgentDefinition | null) => void (d && (await setStepsWords(r.conversationId, d))), settle };
+  answerQuestion(draft, text, r.ctx, settle, after);
+  return { agent: summaryOf(agent, { ...draft, buildState: "fixing", buildNote: null }) };
+}
+
+// Try a simpler version, when it gave up: the steps are changed to leave out
+// what it couldn't do, and wait for the maker to look.
+export async function simpler(user: User, agent: Agent): Promise<Moved> {
+  const r = await ready(user, agent);
+  if ("refused" in r) return r;
+  const draft = await editableDraft(agent.id);
+  const gaveUp = draft.heal?.gaveUp;
+  if (!gaveUp) return { refused: { status: 409, error: "It hasn't given up on anything." } };
+  await say(r.conversationId, "Making a simpler version of it.");
+  const change = `Make a simpler version that leaves out what it couldn't do (${gaveUp}), keeping the rest of the job as I described it.`;
+  if (!draft.definition) return makeIt(user, r.conversationId, change);
+  return changeSteps(user, agent, change, { said: true });
+}
 
 // The stage a conversation's journey is at, by its cards.
 export async function stageIn(conversationId: string): Promise<Stage | null> {

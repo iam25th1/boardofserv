@@ -111,6 +111,10 @@ export interface AgentSummaryDTO {
   setup?: (SetupShape & { given: Record<string, string> }) | null;
   // What it does, in a sentence or two: its description on the board.
   does?: string | null;
+  // How this build is healing itself, in plain lines; a question for the
+  // maker (and the chat message that asks it); and the one sentence it
+  // ends with when it gives up.
+  heal?: { lines: { text: string; tone: "working" | "fixed" | "asked" | "stopped" }[]; question: { text: string; choices: string[]; messageId: string | null } | null; gaveUp: string | null } | null;
 }
 
 // Everything the agent's own builder shows its maker: the definition, each

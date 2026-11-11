@@ -26,6 +26,9 @@ export const ANSWER_LIMITS = {
   agent_steps: 2500,
   // Sample data for an agent's test: settings, three items and their tabs.
   agent_sample: 1800,
+  // The fixer reading a failed build's diagnosis: a verdict, a step's brief
+  // written again or a change to the steps, a question, and a lesson.
+  agent_fix: 1200,
   // Dolphin writing one step's code (not SERV).
   code: 4000,
   // SERV's review of one step's code: measured 59 to 63.

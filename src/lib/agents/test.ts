@@ -31,6 +31,8 @@ export interface TestOptions {
   record?: (call: JsonResult, kind: "sample" | "decision") => Promise<void>;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
+  // What the last sample lacked (the fixer): a new one is made with it.
+  sampleNote?: string | null;
 }
 
 export interface Tested {
@@ -51,9 +53,9 @@ function keptSample(d: AgentDefinition, last: TestResult | null | undefined): Sa
 
 export async function testVersion(v: { definition: AgentDefinition; code: Record<string, StepCode>; testResult?: TestResult | null }, o: TestOptions): Promise<Tested> {
   const d = v.definition;
-  let sample = keptSample(d, v.testResult);
+  let sample = o.sampleNote ? null : keptSample(d, v.testResult);
   if (!sample) {
-    const made = await makeSample(d, o.serv, { signal: o.signal, fetchImpl: o.fetchImpl });
+    const made = await makeSample(d, o.serv, { signal: o.signal, fetchImpl: o.fetchImpl, note: o.sampleNote });
     if (made.call) await o.record?.(made.call, "sample");
     sample = made.sample;
   }

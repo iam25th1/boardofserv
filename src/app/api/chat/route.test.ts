@@ -83,7 +83,7 @@ async function turn(content: string, conversationId?: string): Promise<Turn> {
     shown: events.filter((e) => e.event === "delta").map((e) => e.data.text).join(""),
     sketch: events.find((e) => e.event === "sketch")?.data as Turn["sketch"],
     choices: events.find((e) => e.event === "reply_end")?.data.choices as string[] | undefined,
-    conversationId: events.find((e) => e.event === "meta" || e.event === "sketch")!.data.conversationId as string,
+    conversationId: (events.find((e) => e.event === "meta" || e.event === "sketch") ?? events.find((e) => e.data.conversationId))!.data.conversationId as string,
   };
 }
 
@@ -380,6 +380,33 @@ describe("an agent with steps", () => {
     // A plain answer about it goes through as it is.
     nextReply = ["It checks every 15 minutes."];
     expect((await turn("How often does it run?", cid)).shown).toBe("It checks every 15 minutes.");
+  });
+});
+
+describe("a question from the fixer", () => {
+  it("takes what the maker types as its answer, with no model writing the reply, and the build goes on with it", async () => {
+    const { hackathonDefinition } = await import("@/test/hackathonFixture");
+    const { jobFor } = await import("@/lib/agents/build");
+    const [convo] = await state.db.insert(schema.conversations).values({ userId: (state.user as schema.User).id, title: "Asked" }).returning();
+    await state.db.insert(schema.agentSketches).values({ conversationId: convo!.id, name: "Checker", kind: "agent", wakes: "every 15 minutes", looks: "the sheet", handles: "judges each requirement" });
+    const [agent] = await state.db.insert(schema.agents).values({ ownerUserId: (state.user as schema.User).id, sourceConversationId: convo!.id, name: "Checker" }).returning();
+    const question = { text: "Which requirements should it check?", choices: ["The ones in my sheet", "A list I give you"], messageId: null };
+    const [version] = await state.db.insert(schema.agentVersions).values({ agentId: agent!.id, number: 1, definition: hackathonDefinition(), heal: { rounds: [], lines: [], question } }).returning();
+    const before = calls.length;
+    const t = await turn("A list I give you", convo!.id);
+    expect(t.shown).toBe("Thanks. I'll carry on with that.");
+    // Neither the turn's plan nor a reply was asked of a model: the next
+    // call is the build going on with the answer.
+    expect(calls.slice(before).some((c) => c.stream)).toBe(false);
+    expect(t.events.find((e) => e.event === "agent")?.data).toMatchObject({ agent: { buildState: "fixing" } });
+    await jobFor(version!.id);
+    const replan = calls.slice(before).find((c) => JSON.stringify(c.messages).includes("They answered"));
+    expect(replan!.messages[1]!.content).toContain('The maker was asked "Which requirements should it check?" They answered "A list I give you".');
+    const rows = await state.db.select().from(schema.messages).where(eq(schema.messages.conversationId, convo!.id)).orderBy(schema.messages.createdAt);
+    expect(rows.map((m) => [m.role, m.content])).toEqual([
+      ["user", "A list I give you"],
+      ["assistant", "Thanks. I'll carry on with that."],
+    ]);
   });
 });
 

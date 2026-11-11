@@ -117,15 +117,18 @@ export interface HealRound {
 // waiting for the maker, and where it gave up.
 export interface HealLog {
   rounds: HealRound[];
+  // Where this build's rounds start: the ones before are earlier builds'.
+  since?: number;
   lines: { text: string; tone: "working" | "fixed" | "asked" | "stopped"; at: string }[];
-  question?: { text: string; choices: string[] } | null;
+  // A question waiting for the maker, and the chat message that asks it.
+  question?: { text: string; choices: string[]; messageId?: string | null } | null;
   gaveUp?: string | null;
-  // What the fixer's own model calls cost on this build, in US dollars.
+  // What this build's model calls have cost so far, in US dollars.
   costUsd?: number;
 }
 
 export function emptyHeal(): HealLog {
-  return { rounds: [], lines: [], question: null, gaveUp: null, costUsd: 0 };
+  return { rounds: [], since: 0, lines: [], question: null, gaveUp: null, costUsd: 0 };
 }
 
 // A search result, as the web.search tool returns it.
