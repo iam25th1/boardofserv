@@ -52,6 +52,8 @@ export function MessageList({ messages, streaming, error, busy, onRetry, onRegen
     const el = scroller.current;
     if (!el || !restore || restored.current === restore.key || !messages.length) return;
     restored.current = restore.key;
+    // Never scrolled here before in this tab: the latest message.
+    if (restore.top < 0) return;
     el.scrollTop = restore.top;
     skipPin.current = true;
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight;

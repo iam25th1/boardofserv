@@ -12,7 +12,7 @@ import { buildContext, NOT_AVAILABLE } from "./context";
 import type { AgentDefinition } from "./definition";
 import { plain } from "./plainView";
 import { problemOf } from "./plainWords";
-import { agentForConversation, createAgent, currentVersion, editableDraft } from "./store";
+import { agentForConversation, agentsOf, createAgent, currentVersion, editableDraft } from "./store";
 
 // The journey in the chat, on the server (src/lib/journey.ts has the
 // stages): each stage's card is a message, put in the conversation as the
@@ -204,7 +204,7 @@ export async function makeIt(user: User, conversationId: string): Promise<Moved>
   const no = await refusal(user.id, { ownKey: ctx.ownKey });
   if (no) return { refused: { status: 429, error: no.error } };
   const existing = await agentForConversation(conversationId);
-  const { agent, draft } = existing ? { agent: existing, draft: await editableDraft(existing.id) } : await createAgent({ ownerUserId: user.id, conversationId, name: sketch!.name ?? "Unnamed agent" });
+  const { agent, draft } = existing ? { agent: existing, draft: await editableDraft(existing.id) } : await createAgent({ ownerUserId: user.id, conversationId, name: await nameOfNew(user.id, sketch!.name ?? "Unnamed agent") });
   const history = await db
     .select({ role: messages.role, content: messages.content })
     .from(messages)
@@ -219,6 +219,14 @@ export async function makeIt(user: User, conversationId: string): Promise<Moved>
     },
   });
   return { agent: summaryOf(agent, { ...draft, buildState: "planning", buildNote: null }) };
+}
+
+// A name none of the maker's other agents has: "Price watcher 2" beside
+// "Price watcher".
+export async function nameOfNew(ownerUserId: string, name: string): Promise<string> {
+  const taken = new Set((await agentsOf(ownerUserId)).map((a) => a.name.trim().toLowerCase()));
+  if (!taken.has(name.trim().toLowerCase())) return name;
+  for (let i = 2; ; i++) if (!taken.has(`${name} ${i}`.toLowerCase())) return `${name} ${i}`;
 }
 
 // The latest Steps card says its steps in words, for the history.

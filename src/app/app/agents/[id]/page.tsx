@@ -8,7 +8,6 @@ import { Page } from "@/components/shell/Page";
 import { AgentBuilder, type BuilderApi } from "@/components/agents/AgentBuilder";
 import { AgentRuns } from "@/components/agents/AgentRuns";
 import { AgentSimple, type SimpleApi } from "@/components/agents/AgentSimple";
-import { useShellAccount } from "@/components/shell/AccountContext";
 import { privyAppId } from "@/lib/privy-config";
 import type { AgentBuilderDTO } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
@@ -88,18 +87,18 @@ function Builder({ id }: { id: string }) {
     builderApi.load().then(setData, () => setMissing(true));
   }, [builderApi]);
 
-  // Show details: the maker's kept choice, or on for this visit from the
-  // chat card's Details link. Turning it either way keeps it.
-  const shell = useShellAccount();
-  const [visit, setVisit] = useState<boolean | null>(null);
+  // Show details: off for an agent the maker hasn't looked at in detail
+  // before, so a first-time maker never lands in it; on from the chat
+  // card's Details link. Turning it either way is kept for this agent only.
+  const [details, setShown] = useState(false);
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("details") === "1") setVisit(true);
-  }, []);
-  const details = visit ?? shell.account?.agentDetails ?? false;
+    const asked = new URLSearchParams(window.location.search).get("details") === "1";
+    if (asked) keepDetails(id, true);
+    setShown(asked || keptDetails(id));
+  }, [id]);
   const setDetails = (on: boolean) => {
-    setVisit(on);
-    shell.setAccount((a) => a && { ...a, agentDetails: on });
-    api.setAgentDetails(on).catch(() => {});
+    setShown(on);
+    keepDetails(id, on);
   };
 
   // While it builds (a change, a rewrite), the plain view follows it; the
@@ -141,4 +140,21 @@ function Builder({ id }: { id: string }) {
       )}
     </>
   );
+}
+
+// Which agents this maker shows in detail, in this browser.
+function keptDetails(id: string): boolean {
+  try {
+    return window.localStorage.getItem(`bos-details:${id}`) === "1";
+  } catch {
+    return false;
+  }
+}
+function keepDetails(id: string, on: boolean): void {
+  try {
+    if (on) window.localStorage.setItem(`bos-details:${id}`, "1");
+    else window.localStorage.removeItem(`bos-details:${id}`);
+  } catch {
+    // Without storage it starts off each time.
+  }
 }

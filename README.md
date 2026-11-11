@@ -574,6 +574,17 @@ The agent's page stays for the step graph, the code, the test bench and the
 versions, reached from a small Details link on the latest card. Helpers
 keep their takes / does / gives dock.
 
+The chat keeps its place. The open conversation is in the address
+(`/app/chat?c=...`), so Back from another page (or the way back from
+Google) returns to it, scrolled to where it was (kept for the tab), and the
+chat opens on the last conversation unless the maker last pressed New
+agent, which is always in view. Chats never look the same in the list: a
+name another has too gets a number ("Price watcher 2"), and a new agent
+with a name the maker used already is numbered the same way. Show details
+on an agent's page starts off, and is kept per agent once turned on there
+or opened from a card's Details link, so a first-time maker never lands in
+the developer view.
+
 ### Planning
 
 Make it in the chat (`POST /api/agents` with the conversation) makes the

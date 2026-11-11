@@ -84,7 +84,7 @@ async function openBlurb() {
   await act(async () => {});
   fireEvent.click(screen.getByRole("button", { name: /^(\d+ agents?|No agents yet)$/ }));
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: /^Shop blurb writer/ }));
+    fireEvent.click(within(screen.getByRole("region", { name: "Today" })).getByRole("button", { name: /^Shop blurb writer/ }));
   });
 }
 
