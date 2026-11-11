@@ -82,7 +82,7 @@ async function openBlurb() {
     </ToastProvider>,
   );
   await act(async () => {});
-  fireEvent.click(screen.getByRole("button", { name: /agent/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^(\d+ agents?|No agents yet)$/ }));
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: /^Shop blurb writer/ }));
   });
@@ -219,7 +219,7 @@ describe("publishing from the chat", () => {
     await openBlurb();
     expect(screen.getByRole("link", { name: "View" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /agent/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^(\d+ agents?|No agents yet)$/ }));
     // Its row in the popover has the filled ring of a live helper.
     expect(document.querySelector('[aria-current="true"][data-state="live"]')).toHaveTextContent("Shop blurb writerOn the board");
     fireEvent.click(screen.getByRole("button", { name: "Take Shop blurb writer off the board" }));
@@ -270,7 +270,7 @@ describe("prices", () => {
       </ToastProvider>,
     );
     await act(async () => {});
-    fireEvent.click(screen.getByRole("button", { name: /agent/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^(\d+ agents?|No agents yet)$/ }));
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Set the price of Shop blurb writer" }));
     });
