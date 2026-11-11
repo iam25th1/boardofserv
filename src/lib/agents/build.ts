@@ -1,8 +1,9 @@
 import "server-only";
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { meterPlatform, platformRoom } from "./metering";
-import { replyUsage, type Agent, type AgentVersion } from "../db/schema";
+import { messages, replyUsage, type Agent, type AgentVersion } from "../db/schema";
+import { loadSketch } from "../sketchStore";
 import { describeFailures, type JsonResult, type ModelConfig } from "../model";
 import type { AgentSummaryDTO } from "../types";
 import { dolphinProvider, writeStep } from "./code";
@@ -133,11 +134,33 @@ async function fitPlan(versionId: string, definition: AgentDefinition, step: Cod
   return { definition: next, entry: { ...rest, spec: codeSpec(fitted) } };
 }
 
+// What changing a plan starts from: the maker's interview and the
+// conversation behind it (when the agent has one), the plan as it is and
+// what should change.
+export async function planInputFor(conversationId: string | null, current: AgentDefinition, feedback: string): Promise<PlanInput> {
+  const sketch = conversationId ? await loadSketch(conversationId) : null;
+  const history = conversationId
+    ? await db.select({ role: messages.role, content: messages.content }).from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt))
+    : [];
+  const interview = sketch ?? { name: current.name, kind: "agent" as const, watches: null, when: null, how: null, tells: null, takes: null, does: null, gives: null, asking: null, live: false };
+  return { interview, history, current, feedback };
+}
+
+// How the self test after writing goes on: whether a failure runs Fix this
+// once on its own, and the problem an earlier run of it fixed.
+interface Settle {
+  autoFix: boolean;
+  fixed?: string;
+}
+
 // Once the code is written: with every step ready, the plan gets its self
 // test (test.ts: three sample items, then a second run), kept as the
 // draft's last test with its sample as the test bench; then the note says
-// how many steps wait for the maker.
-async function settleWriting(versionId: string, ctx: BuildContext): Promise<void> {
+// how many steps wait for the maker. A self test that fails runs Fix this
+// once on its own, with the one plain sentence that says what went wrong:
+// the plan is changed from it, written and tested again. If that test
+// fails too, the sentence stays with the Fix this button.
+async function settleWriting(versionId: string, ctx: BuildContext, settle: Settle = { autoFix: true }): Promise<void> {
   const now = await versionById(versionId);
   const attention = Object.values(now?.code ?? {}).filter((c) => c.status === "needs_attention").length;
   if (now?.definition && !attention && now.definition.steps.every((s) => s.kind !== "code" || now.code[s.id]?.status === "approved")) {
@@ -150,7 +173,10 @@ async function settleWriting(versionId: string, ctx: BuildContext): Promise<void
       // view: they go on the plan (what a step does is unchanged).
       const plain = tested.plain ?? {};
       const definition = Object.keys(plain).length ? { ...now.definition, steps: now.definition.steps.map((s) => (plain[s.id] && !s.plain ? { ...s, plain: plain[s.id] } : s)) } : undefined;
-      await updateDraft(versionId, { testResult: tested.result, bench: tested.bench, ...(definition ? { definition } : {}) });
+      const result = settle.fixed ? { ...tested.result, fixed: settle.fixed } : tested.result;
+      await updateDraft(versionId, { testResult: result, bench: tested.bench, ...(definition ? { definition } : {}) });
+      const sentence = result.status === "failed" ? result.problems[0]?.text : undefined;
+      if (sentence && settle.autoFix && (await fixOnce(versionId, ctx, definition ?? now.definition, sentence))) return;
     } catch (err) {
       console.error(`agents: the self test stopped: ${errorText(err, "unknown error")}`);
     }
@@ -158,10 +184,28 @@ async function settleWriting(versionId: string, ctx: BuildContext): Promise<void
   await updateDraft(versionId, { buildState: "idle", buildNote: attention ? `${attention} ${attention === 1 ? "step needs" : "steps need"} your attention.` : null });
 }
 
+// Fix this, run on its own after a failed self test: the plan is changed
+// from the test's sentence, its changed steps written, and it is tested
+// again, with no second fix on its own. While it runs, the sentence is the
+// build's note. False when no plan came of it: the failed test stays.
+async function fixOnce(versionId: string, ctx: BuildContext, current: AgentDefinition, sentence: string): Promise<boolean> {
+  await updateDraft(versionId, { buildState: "fixing", buildNote: sentence });
+  const plan = await planAgent(await planInputFor(ctx.conversationId, current, sentence), { config: ctx.serv, signal: new AbortController().signal });
+  for (const call of plan.calls) await recordAgentCall(ctx, "agent_plan", call);
+  const version = await versionById(versionId);
+  if (!plan.definition || !version) {
+    console.error(`agents: Fix this on its own made no plan. ${plan.errors.join(" ")}`);
+    return false;
+  }
+  const saved = await updateDraft(versionId, { definition: plan.definition, code: carryCode(plan.definition, version.code), buildState: "writing", buildNote: null });
+  if (saved) await writeAllCode(saved, plan.definition, ctx, undefined, { autoFix: false, fixed: sentence });
+  return true;
+}
+
 // Once a plan is saved: write each code step that has no approved code,
 // one at a time, Dolphin writing and SERV reviewing (code.ts). The dock
 // sees each step's progress as it goes.
-export async function writeAllCode(version: AgentVersion, definition: AgentDefinition, ctx: BuildContext, fetchImpl?: typeof fetch): Promise<void> {
+export async function writeAllCode(version: AgentVersion, definition: AgentDefinition, ctx: BuildContext, fetchImpl?: typeof fetch, settle?: Settle): Promise<void> {
   const dolphin = dolphinProvider();
   const todo = definition.steps.filter((s): s is CodeStepDef => s.kind === "code" && version.code[s.id]?.status !== "approved");
   let current = definition;
@@ -177,7 +221,7 @@ export async function writeAllCode(version: AgentVersion, definition: AgentDefin
     // A draft published or replanned meanwhile stops the writing.
     if (!(await setStepCode(version.id, step.id, fit.entry))) return;
   }
-  await settleWriting(version.id, ctx);
+  await settleWriting(version.id, ctx, settle);
 }
 
 // "Fix this" on a step on hold: SERV writes its code again from the start
@@ -255,7 +299,7 @@ export function summaryOf(agent: Agent, version: AgentVersion): AgentSummaryDTO 
     buildState: version.buildState,
     buildNote: version.buildNote,
     steps: steps.map((s) => ({ id: s.id, title: s.title, kind: s.kind, next: nextOf(s), code: s.kind === "code" ? (version.code[s.id]?.status ?? "queued") : null })),
-    test: version.testResult ? { status: version.testResult.status, story: version.testResult.story, checkedAt: version.testResult.checkedAt } : null,
+    test: version.testResult ? { status: version.testResult.status, story: version.testResult.story, checkedAt: version.testResult.checkedAt, fixed: version.testResult.fixed ?? null } : null,
     problem: problemOf(version),
   };
 }

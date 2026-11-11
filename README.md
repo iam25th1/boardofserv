@@ -571,7 +571,13 @@ request (Cloudflare closes a request after 100 seconds). The draft's
 `build_state` says where it is (`planning`, `writing`, `fixing`, `idle` or
 `failed` with a plain note), the dock polls `GET /api/agents/:id` every two
 seconds while it builds, and a state no job in this process owns (the
-server restarted) is called failed so the maker can plan again. Every model
+server restarted) is called failed so the maker can plan again. Once its
+code is written, every plan gets a self test on three sample items and a
+second run (`src/lib/agents/test.ts`). When it fails, the one plain
+sentence that says what went wrong is shown while Fix this runs once on its
+own with it: the plan is changed from that sentence, its changed steps
+written again and tested again. If that test fails too, the sentence stays
+with the Fix this button. Every model
 call writes a `reply_usage` row (`agent_plan`, `agent_code`, `agent_review`,
 `agent_decision`), so building counts towards the day's spend, and planning
 is refused like a chat turn when the day's limit is reached or the account

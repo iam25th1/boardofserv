@@ -98,7 +98,8 @@ export interface AgentSummaryDTO {
   }[];
   // The last test, as its story; and what is wrong now, in one sentence,
   // with how "Fix this" fixes it (agents/plainWords.ts).
-  test: { status: "passed" | "failed"; story: string; checkedAt: string } | null;
+  // fixed: what Fix this, run on its own, fixed first (its plain sentence).
+  test: { status: "passed" | "failed"; story: string; checkedAt: string; fixed?: string | null } | null;
   problem: { text: string; step: string | null; fix: "rewrite" | "replan" | "plan" } | null;
 }
 

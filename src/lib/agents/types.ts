@@ -48,6 +48,9 @@ export interface TestResult {
   // change.
   sample?: BenchData;
   sampleOf?: string;
+  // A self test after Fix this ran on its own: the problem the test before
+  // it found, in its plain sentence.
+  fixed?: string;
 }
 
 // A search result, as the web.search tool returns it.

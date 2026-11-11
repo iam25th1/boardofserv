@@ -100,6 +100,8 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
       </header>
 
       {agent.problem && <Problem text={agent.problem.text} busy={busy === "fix" || building} onFix={() => void act("fix", async () => ({ agent: await api.fix(agent.problem!) }))} />}
+      {/* Its self test failed, and Fix this is running on its own with what went wrong. */}
+      {!agent.problem && agent.buildState === "fixing" && agent.buildNote && <Problem text={agent.buildNote} busy onFix={() => undefined} />}
 
       <section className={styles.section} aria-labelledby="does-h">
         <h2 id="does-h">What it does</h2>
@@ -160,6 +162,7 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
             {story}
           </p>
         )}
+        {agent.test?.fixed && agent.test.status === "passed" && <p className={styles.quiet}>It fixed what its first test found: {lowerFirst(agent.test.fixed)}</p>}
       </section>
 
       <footer className={styles.foot}>
@@ -200,6 +203,8 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
     </div>
   );
 }
+
+const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
 
 // What is wrong, in one sentence, and the one button that fixes it.
 function Problem({ text, busy, onFix }: { text: string; busy: boolean; onFix: () => void }) {

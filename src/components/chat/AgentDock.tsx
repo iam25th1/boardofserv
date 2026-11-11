@@ -174,7 +174,8 @@ function Interview({ sketch }: { sketch: SketchDTO }) {
 // The planned agent's card: the last test's story or what is wrong, in one
 // plain sentence, and what can be done from here.
 function Card({ agent, building, actions }: { agent: AgentSummaryDTO; building: boolean; actions: DockActions }) {
-  const line = actions.said ?? agent.problem?.text ?? agent.test?.story ?? (agent.buildState === "failed" ? agent.buildNote : null);
+  // While Fix this runs on its own, its note is what the self test found.
+  const line = actions.said ?? agent.problem?.text ?? (agent.buildState === "fixing" ? agent.buildNote : null) ?? agent.test?.story ?? (agent.buildState === "failed" ? agent.buildNote : null);
   const lineRef = useRef<HTMLParagraphElement>(null);
   // A new story or problem arrives with a small pop, so it reads as news.
   useLayoutEffect(() => {
