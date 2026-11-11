@@ -249,6 +249,16 @@ export function actionArgs(step: ActionStepDef, tool: keyof typeof TOOL_ARGS, in
   return { ok: false, why: `This action needs its first input to be ${tool}'s arguments: ${TOOLS[tool].signature}` };
 }
 
+// An action whose first input a code step left empty: null, or a tool's
+// arguments with nothing in their list (no rows, no updates).
+export function nothingToDo(step: ActionStepDef, input: Record<string, unknown>): boolean {
+  if (!step.inputs[0]) return false;
+  const v = input[step.inputs[0]];
+  if (v === null || v === undefined) return true;
+  const list = v && typeof v === "object" ? ((v as { rows?: unknown; updates?: unknown }).rows ?? (v as { updates?: unknown }).updates) : undefined;
+  return Array.isArray(list) && list.length === 0;
+}
+
 // Arguments compared for a replay: the same call, whatever the key order.
 function same(a: unknown, b: unknown): boolean {
   const norm = (v: unknown): unknown =>
@@ -554,6 +564,19 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       if (!action) {
         done("failed", null, null, "Its action isn't declared.");
         return end("failed", "logic", `"${step.title}" takes an action that isn't declared.`);
+      }
+      // Nothing to do: the code step before it left its input empty (no new
+      // rows, nothing to report), so it is skipped and the run goes on. This
+      // is how code, not a decision, says there was nothing to go through.
+      if (nothingToDo(step, input)) {
+        if (step.outputs[0]) state.bag[step.outputs[0]] = null;
+        done("ok", null, null, "Nothing to do, so it was skipped.");
+        state.at = step.next;
+        state.journal = [];
+        state.resumed = false;
+        flush();
+        await o.save?.(state);
+        continue;
       }
       const args = actionArgs(step, action.tool, input);
       if (!args.ok) {
