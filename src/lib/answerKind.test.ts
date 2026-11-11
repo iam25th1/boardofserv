@@ -43,7 +43,7 @@ const plan = (o: Record<string, unknown>) =>
 describe("the plan for an answer helper", () => {
   it("offers the answer kind and its fields in the strict schema, with no banned keywords", () => {
     const { schema } = SKETCH_SCHEMA;
-    expect(schema.required).toEqual(["name", "kind", "watches", "when", "how", "tells", "takes", "does", "gives", "wakes", "looks", "handles", "finish", "asks", "setup", "remembers", "asking", "choices"]);
+    expect(schema.required).toEqual(["name", "kind", "watches", "when", "how", "tells", "takes", "does", "gives", "wakes", "looks", "handles", "finish", "asks", "setup", "remembers", "asking", "choices", "change"]);
     expect(schema.properties.kind.enum).toContain("answer");
     expect(schema.properties.asking.enum).toEqual(["watches", "when", "how", "tells", "takes", "does", "gives", "wakes", "looks", "handles", "finish", "asks", "setup", "remembers", "none"]);
     const text = JSON.stringify(SKETCH_SCHEMA);

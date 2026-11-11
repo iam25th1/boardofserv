@@ -23,6 +23,8 @@ export const ANSWER_LIMITS = {
   compile: 600,
   // An agent's whole plan: every step, rule and question.
   agent_plan: 3500,
+  // Sample data for an agent's test: settings, three items and their tabs.
+  agent_sample: 1800,
   // Dolphin writing one step's code (not SERV).
   code: 4000,
   // SERV's review of one step's code: measured 59 to 63.

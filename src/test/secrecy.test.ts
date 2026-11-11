@@ -47,6 +47,7 @@ import * as agentsRoute from "@/app/api/agents/route";
 import * as agentRoute from "@/app/api/agents/[id]/route";
 import * as agentRun from "@/app/api/agents/[id]/run/route";
 import * as agentFix from "@/app/api/agents/[id]/fix/route";
+import * as agentTest from "@/app/api/agents/[id]/test/route";
 import * as agentBench from "@/app/api/agents/[id]/bench/route";
 import * as agentPublish from "@/app/api/agents/[id]/publish/route";
 import * as agentInstall from "@/app/api/agents/[id]/installations/route";
@@ -159,6 +160,7 @@ const ROUTES: Record<string, object> = {
   "agents/[id]": agentRoute,
   "agents/[id]/run": agentRun,
   "agents/[id]/fix": agentFix,
+  "agents/[id]/test": agentTest,
   "agents/[id]/bench": agentBench,
   "agents/[id]/publish": agentPublish,
   "agents/[id]/installations": agentInstall,
@@ -902,6 +904,7 @@ describe("a helper's instructions stay on the server", () => {
       await hit("agent: job that isn't there", jobRoute.GET(req(`/api/jobs/${cid}`), { params: Promise.resolve({ id: cid }) }));
       await hit("agent: fix", agentFix.POST(req(`/api/agents/${id}/fix`, "POST", { message: "it ignored delivery time" }), p));
       await jobFor((await draftOf(id))!.id);
+      await hit("agent: test it", agentTest.POST(req(`/api/agents/${id}/test`, "POST"), p));
       await hit("agent: board", board.GET(req("/api/board")));
       await hit("market: an agent that isn't on the board", marketAgent.GET(req(`/api/market/agents/${id}`), { params: Promise.resolve({ id }) }));
 
@@ -1019,6 +1022,7 @@ describe("a helper's instructions stay on the server", () => {
         await hit(`agent: ${tag} save`, agentBench.PUT(req(`/api/agents/${id}/bench`, "PUT", { bench: restockBench() }), p));
         await hit(`agent: ${tag} publish`, agentPublish.POST(req(`/api/agents/${id}/publish`, "POST"), p));
         await hit(`agent: ${tag} fix`, agentFix.POST(req(`/api/agents/${id}/fix`, "POST", { message: "x" }), p));
+        await hit(`agent: ${tag} test`, agentTest.POST(req(`/api/agents/${id}/test`, "POST"), p));
         await hit(`agent: ${tag} list`, agentsRoute.GET(req("/api/agents")));
         await hit(`agent: ${tag} conversation`, conversationMessages.GET(req(`/api/conversations/${cid}/messages`), { params: Promise.resolve({ id: cid }) }));
         await hit(`agent: ${tag} install`, agentInstall.POST(req(`/api/agents/${id}/installations`, "POST", { settings: {}, rules: {}, timezone: "UTC" }), p));

@@ -175,6 +175,8 @@ const SketchBlock = z.object({
         : [],
     z.array(z.string()),
   ),
+  // A change to an agent that has steps already, in the person's words.
+  change: words(400).optional(),
 });
 
 export type ParsedSketch = z.infer<typeof SketchBlock>;

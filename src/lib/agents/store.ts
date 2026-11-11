@@ -63,7 +63,13 @@ export async function editableDraft(agentId: string): Promise<AgentVersion> {
   });
 }
 
-type DraftPatch = Partial<Pick<AgentVersion, "definition" | "code" | "bench" | "buildState" | "buildNote">>;
+type DraftPatch = Partial<Pick<AgentVersion, "definition" | "code" | "bench" | "buildState" | "buildNote" | "testResult">>;
+
+// A version's last test (agents/test.ts). Not part of what a published
+// version keeps unchanged (its plan, code and bench), so any version takes it.
+export async function setTestResult(versionId: string, result: AgentVersion["testResult"]): Promise<void> {
+  await db.update(agentVersions).set({ testResult: result }).where(eq(agentVersions.id, versionId));
+}
 
 // Change a draft. Null when the version is not a draft (published, or gone):
 // a published version is never written to.

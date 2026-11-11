@@ -295,7 +295,9 @@ export async function writeStep(
   step: CodeStepDef,
   d: AgentDefinition,
   spec: string,
-  opts: { dolphin: Provider; serv: ModelConfig; hooks: WriteHooks; fetchImpl?: typeof fetch; signal?: AbortSignal },
+  // writer: "serv" has SERV write it from the start ("Fix this" on a held
+  // step); without Dolphin set up, SERV writes it too.
+  opts: { dolphin: Provider | null; serv: ModelConfig; hooks: WriteHooks; fetchImpl?: typeof fetch; signal?: AbortSignal; writer?: "dolphin" | "serv" },
 ): Promise<StepCode> {
   const conversation: ChatMessage[] = [
     { role: "system", content: CODE_PROMPT },
@@ -304,13 +306,13 @@ export async function writeStep(
   let source: string | null = null;
   let note = "";
   let rounds = 0;
-  let writer = "dolphin" as "dolphin" | "serv";
+  let writer: "dolphin" | "serv" = opts.writer ?? (opts.dolphin ? "dolphin" : "serv");
   let dolphinFailures = 0;
   // One draft: Dolphin's, or SERV's once Dolphin hasn't answered twice.
   const write = async (round: number): Promise<TextResult> => {
     for (;;) {
       const w =
-        writer === "serv"
+        writer === "serv" || !opts.dolphin
           ? await writeWithServ(opts.serv, conversation, { fetchImpl: opts.fetchImpl, signal: opts.signal })
           : await writeWithDolphin(opts.dolphin, conversation, { thinking: round > 1, fetchImpl: opts.fetchImpl, signal: opts.signal });
       await opts.hooks.record("agent_code", w);

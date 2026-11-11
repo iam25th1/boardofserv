@@ -7,8 +7,9 @@ import { describeFailures, type JsonResult, type ModelConfig } from "../model";
 import type { AgentSummaryDTO } from "../types";
 import { dolphinProvider, writeStep } from "./code";
 import { codeSpec, nextOf, type AgentDefinition, type CodeStepDef } from "./definition";
-import { planAgent, MAX_PLAN_TRIES, type PlanInput } from "./plan";
+import { planAgent, type PlanInput } from "./plan";
 import { setStepCode, updateDraft, versionById } from "./store";
+import { planFailure, problemOf } from "./plainWords";
 import type { StepCode } from "./types";
 import { errorText } from "../db/errors";
 import { recordAttempts } from "../modelAttempts";
@@ -101,6 +102,32 @@ export function carryCode(definition: AgentDefinition, before: Record<string, St
   return out;
 }
 
+// How a step's writing reports back: each step's progress for the dock, and
+// every call for the usage records. Dolphin runs on the site's key, whoever
+// is building; SERV (its reviews, and code it writes when Dolphin can't) on
+// the builder's. A review is the platform's own call, metered against its
+// budget.
+function writeHooks(version: AgentVersion, step: CodeStepDef, spec: string, ctx: BuildContext) {
+  return {
+    progress: async (status: "writing" | "reviewing", round: number) => {
+      await setStepCode(version.id, step.id, { spec, status, source: null, rounds: round, note: null, updatedAt: new Date().toISOString() });
+    },
+    record: async (kind: "agent_code" | "agent_review", call: Parameters<typeof recordAgentCall>[2]) => {
+      await recordAgentCall(ctx, kind, call, kind === "agent_code" && call.provider === "dolphin" ? false : ctx.ownKey);
+      if (kind === "agent_review" && "attempts" in call) await meterPlatform(db as never, { purpose: "code_review", userId: ctx.userId, agentId: version.agentId, call, ownKey: ctx.ownKey }).catch(() => undefined);
+    },
+    reviewRoom: () => platformRoom(db as never, ctx.ownKey),
+  };
+}
+
+// The note a draft keeps once its code is written: how many steps wait for
+// the maker.
+async function settleWriting(versionId: string): Promise<void> {
+  const now = await versionById(versionId);
+  const attention = Object.values(now?.code ?? {}).filter((c) => c.status === "needs_attention").length;
+  await updateDraft(versionId, { buildState: "idle", buildNote: attention ? `${attention} ${attention === 1 ? "step needs" : "steps need"} your attention.` : null });
+}
+
 // Once a plan is saved: write each code step that has no approved code,
 // one at a time, Dolphin writing and SERV reviewing (code.ts). The dock
 // sees each step's progress as it goes.
@@ -113,33 +140,37 @@ export async function writeAllCode(version: AgentVersion, definition: AgentDefin
       await setStepCode(version.id, step.id, { spec, status: "needs_attention", source: null, rounds: 0, note: "Code writing isn't set up here.", updatedAt: new Date().toISOString() });
       continue;
     }
-    const entry = await writeStep(step, definition, spec, {
-      dolphin,
-      serv: ctx.serv,
-      fetchImpl,
-      hooks: {
-        progress: async (status, round) => {
-          await setStepCode(version.id, step.id, { spec, status, source: null, rounds: round, note: null, updatedAt: new Date().toISOString() });
-        },
-        // Dolphin runs on the site's key, whoever is building; SERV (its
-        // reviews, and code it writes when Dolphin can't) on the builder's.
-        // A review is the platform's own call, metered against its budget.
-        record: async (kind, call) => {
-          await recordAgentCall(ctx, kind, call, kind === "agent_code" && call.provider === "dolphin" ? false : ctx.ownKey);
-          if (kind === "agent_review") await meterPlatform(db as never, { purpose: "code_review", userId: ctx.userId, agentId: version.agentId, call, ownKey: ctx.ownKey }).catch(() => undefined);
-        },
-        reviewRoom: () => platformRoom(db as never, ctx.ownKey),
-      },
-    });
+    const entry = await writeStep(step, definition, spec, { dolphin, serv: ctx.serv, fetchImpl, hooks: writeHooks(version, step, spec, ctx) });
     // A draft published or replanned meanwhile stops the writing.
     if (!(await setStepCode(version.id, step.id, entry))) return;
   }
-  const now = await versionById(version.id);
-  const attention = Object.values(now?.code ?? {}).filter((c) => c.status === "needs_attention").length;
-  await updateDraft(version.id, { buildState: "idle", buildNote: attention ? `${attention} ${attention === 1 ? "step needs" : "steps need"} your attention.` : null });
+  await settleWriting(version.id);
 }
 
-const PLAN_FAILED = `The plan didn't come together after ${MAX_PLAN_TRIES} tries. Try again, or add a detail in the chat.`;
+// "Fix this" on a step on hold: SERV writes its code again from the start
+// (its review still a call of its own), in the background like a build.
+// False when a job is already running on the draft, or there's no such
+// code step.
+export function startRewrite(version: AgentVersion, stepId: string, ctx: BuildContext, fetchImpl?: typeof fetch): boolean {
+  const definition = version.definition;
+  const step = definition?.steps.find((s): s is CodeStepDef => s.id === stepId && s.kind === "code");
+  if (!definition || !step || jobs.has(version.id)) return false;
+  const job = (async () => {
+    await updateDraft(version.id, { buildState: "writing", buildNote: null });
+    try {
+      const spec = codeSpec(step);
+      const entry = await writeStep(step, definition, spec, { dolphin: dolphinProvider(), serv: ctx.serv, fetchImpl, writer: "serv", hooks: writeHooks(version, step, spec, ctx) });
+      await setStepCode(version.id, step.id, entry);
+      await settleWriting(version.id);
+    } catch (err) {
+      console.error(`agents: a rewrite stopped: ${errorText(err, "unknown error")}`);
+      await updateDraft(version.id, { buildState: "idle", buildNote: "Rewriting that step stopped part way. Try again." }).catch(() => null);
+    }
+  })().finally(() => jobs.delete(version.id));
+  jobs.set(version.id, job);
+  return true;
+}
+
 const NO_MODEL = "Planning isn't available right now. Try again in a few minutes.";
 
 // Plan (or change the plan of) a draft in the background. False when a job
@@ -154,7 +185,9 @@ export function startPlan(version: AgentVersion, input: PlanInput, ctx: BuildCon
       if (!plan.definition) {
         const failures = plan.calls.flatMap((c) => c.failures);
         console.error(`agents: no plan. ${plan.calls.some((c) => c.content) ? plan.errors.join(" ") : describeFailures(failures, ctx.serv.firstTokenTimeoutMs)}`);
-        await updateDraft(version.id, { buildState: "failed", buildNote: plan.calls.some((c) => c.content) ? PLAN_FAILED : NO_MODEL });
+        // Why, in plain words, and what to add (plainWords.ts): the
+        // checker's own reasons name steps by id, so they stay in the log.
+        await updateDraft(version.id, { buildState: "failed", buildNote: plan.calls.some((c) => c.content) ? planFailure(plan.errors) : NO_MODEL });
         return;
       }
       const saved = await updateDraft(version.id, { definition: plan.definition, code: carryCode(plan.definition, version.code), buildState: "writing" });
@@ -188,5 +221,7 @@ export function summaryOf(agent: Agent, version: AgentVersion): AgentSummaryDTO 
     buildState: version.buildState,
     buildNote: version.buildNote,
     steps: steps.map((s) => ({ id: s.id, title: s.title, kind: s.kind, next: nextOf(s), code: s.kind === "code" ? (version.code[s.id]?.status ?? "queued") : null })),
+    test: version.testResult ? { status: version.testResult.status, story: version.testResult.story, checkedAt: version.testResult.checkedAt } : null,
+    problem: problemOf(version),
   };
 }

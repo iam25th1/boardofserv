@@ -52,7 +52,11 @@ export interface TurnPlan {
 // confirmed; an answer helper is asked for its rules and voice, then confirmed
 // as ready to publish. Without a plan (it failed or did not validate), the
 // reply picks the question itself and there are no buttons.
-export function askLine(sketch: SketchDTO | null, plan: TurnPlan | null): string {
+export function askLine(sketch: SketchDTO | null, plan: TurnPlan | null, planned = false): string {
+  // Once the agent has steps, its card holds what can be done with it.
+  if (planned) {
+    return "The agent already has steps, shown on its card with Test it, Fix it, Publish and Details. Answer in a sentence or two. You can't change, test or publish it yourself: never say you did, and never mention a Plan button. If they want it to work differently, ask what should change.";
+  }
   if (plan?.asking) {
     const ask = `Ask about: ${plan.asking} (${ABOUT[plan.asking]}).`;
     if (!plan.choices.length) return ask;
@@ -70,8 +74,8 @@ export function askLine(sketch: SketchDTO | null, plan: TurnPlan | null): string
   return "Ask about the most important missing piece.";
 }
 
-export function replySystemPrompt(sketch: SketchDTO | null, plan: TurnPlan | null): string {
-  return `${SYSTEM_PROMPT}\n${knownLine(sketch)}\n${askLine(sketch, plan)}`;
+export function replySystemPrompt(sketch: SketchDTO | null, plan: TurnPlan | null, planned = false): string {
+  return `${SYSTEM_PROMPT}\n${knownLine(sketch)}\n${askLine(sketch, plan, planned)}`;
 }
 
 // The plan: the sketch as JSON, plus the next question and its buttons. Kept
@@ -79,4 +83,4 @@ export function replySystemPrompt(sketch: SketchDTO | null, plan: TurnPlan | nul
 // A one-shot answer helper is the default kind; an agent when it runs on its
 // own: on a schedule, watching data or acting over time.
 export const PLAN_PROMPT =
-  'Update the sketch of the agent the person is describing from what they said. Keep known values unless they changed them. Use a few plain words per field and "" if unknown. Kind is answer unless it runs on its own: on a schedule, watching data or acting over time (agent).';
+  'Update the sketch of the agent the person is describing from what they said. Keep known values unless they changed them. Use a few plain words per field and "" if unknown. Kind is answer unless it runs on its own: on a schedule, watching data or acting over time (agent). When the agent already has steps and the person asks for it to work differently, put that change in change.';

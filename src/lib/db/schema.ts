@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, bigserial, json, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
 import type { AgentDefinition } from "../agents/definition";
-import type { BenchData, RunState, StepCode } from "../agents/types";
+import type { BenchData, RunState, StepCode, TestResult } from "../agents/types";
 import { CURRENCIES } from "../money";
 import { DISPUTE_REASONS } from "../spending/disputeWords";
 
@@ -533,6 +533,8 @@ export const agentVersions = pgTable(
     review: jsonb("review").$type<{ status: "passed" | "blocked" | "unreviewed"; findings: { step: string; severity: "blocking" | "warning"; finding: string }[]; by: "local" | "serv"; model: string | null; reviewedAt: string }>(),
     buildState: text("build_state", { enum: ["idle", "planning", "writing", "fixing", "failed"] }).notNull().default("idle"),
     buildNote: text("build_note"),
+    // The last test of this version, in plain words (agents/test.ts).
+    testResult: jsonb("test_result").$type<TestResult>(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     publishedAt: timestamp("published_at", { withTimezone: true }),

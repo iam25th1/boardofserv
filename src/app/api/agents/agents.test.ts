@@ -184,7 +184,8 @@ describe("planning an agent from its conversation", () => {
     const { agent: a } = (await (await agents.POST(json("/api/agents", "POST", { conversationId }))).json()) as { agent: AgentSummaryDTO };
     await jobFor((await draftOf(a.id))!.id);
     const after = await builderOf(a.id);
-    expect(after.agent).toMatchObject({ buildState: "failed", buildNote: "The plan didn't come together after 3 tries. Try again, or add a detail in the chat." });
+    // Why, in plain words, and what to add: never the checker's own reasons.
+    expect(after.agent).toMatchObject({ buildState: "failed", buildNote: "The plan didn't come together: it didn't say what starts it. Say when it should run, for example every 15 minutes or every morning." });
     expect(after.definition).toBeNull();
   });
 });

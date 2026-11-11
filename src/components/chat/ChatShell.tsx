@@ -54,6 +54,12 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
   const [published, setPublished] = useState<PublicHelperDTO | null>(null);
   // The agent built from the active conversation, as its dock shows it.
   const [agent, setAgent] = useState<AgentSummaryDTO | null>(null);
+  // What the agent's card is doing (Test it, Fix it, Publish), what the last
+  // of those came to when the agent doesn't say it itself, and the composer's
+  // hint after Fix it with nothing to fix: say what should change.
+  const [dockBusy, setDockBusy] = useState<"test" | "fix" | "publish" | null>(null);
+  const [dockSaid, setDockSaid] = useState<string | null>(null);
+  const [fixHint, setFixHint] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -175,6 +181,8 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
       setActiveId(id);
       activeRef.current = id;
       setError(null);
+      setDockSaid(null);
+      setFixHint(false);
       try {
         const { messages: rows, sketch: stored, published: helper, agent: builtAgent } = await api.getConversation(id);
         // Another conversation was opened while this one loaded.
@@ -203,6 +211,8 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
     setSketch(null);
     setPublished(null);
     setAgent(null);
+    setDockSaid(null);
+    setFixHint(false);
     setChips(null);
     setError(null);
     setTimeout(() => (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus(), 30);
@@ -245,7 +255,7 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
       // unlocks and the plan's answers show under the reply. Only done is
       // still to come, and it may arrive after the next turn began, so from
       // here on this turn only touches what is still its own.
-      const endReply = (messageId: string | undefined, source: string, label: string, choices: string[] = []) => {
+      const endReply = (messageId: string | undefined, source: string | null, label: string | null, choices: string[] = []) => {
         if (replyId !== null) return;
         replyId = messageId ?? live.key;
         const content = live.content + dropPending();
@@ -267,6 +277,13 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
           if (convoId !== activeRef.current || turn < sketchTurnRef.current) return;
           sketchTurnRef.current = turn;
           setSketch(e.sketch);
+        } else if (e.type === "agent") {
+          // A change asked in the chat: the card follows it from here.
+          adopt(e.conversationId);
+          if (convoId === activeRef.current) {
+            setDockSaid(null);
+            setAgent(e.agent);
+          }
         } else if (e.type === "meta") {
           adopt(e.conversationId);
           live = { ...live, source: e.source, sourceLabel: e.label };
@@ -317,6 +334,7 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
 
   const send = useCallback(
     (text: string) => {
+      setFixHint(false);
       const optimistic: MessageView = { id: crypto.randomUUID(), role: "user", content: text };
       setMessages((prev) => [...prev, optimistic]);
       run({ conversationId: activeId ?? undefined, content: text }, { id: optimistic.id, text });
@@ -448,6 +466,46 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
       setPlanning(false);
     }
   }, [api, activeId, toast]);
+
+  // The card's actions on the planned agent. Each answers with the agent as
+  // it is now; a failure says why on the card, never as a guess.
+  const cardAction = useCallback(
+    async (kind: "test" | "fix" | "publish", act: () => Promise<AgentSummaryDTO | null>, done?: string) => {
+      const id = activeId;
+      setDockBusy(kind);
+      setDockSaid(null);
+      try {
+        const next = await act();
+        if (next && activeRef.current === id) {
+          setAgent(next);
+          if (done) setDockSaid(done);
+        }
+      } catch (err) {
+        if (activeRef.current === id) setDockSaid(err instanceof Error ? err.message : "That didn't work. Try again.");
+      } finally {
+        setDockBusy(null);
+      }
+    },
+    [activeId],
+  );
+  const doTest = useCallback(() => {
+    if (agent) void cardAction("test", async () => (await api.testAgent(agent.id)).agent);
+  }, [agent, api, cardAction]);
+  const doFix = useCallback(() => {
+    if (!agent) return;
+    const p = agent.problem;
+    // Nothing is wrong: the change is the maker's to say, in the chat.
+    if (!p) {
+      setFixHint(true);
+      (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus();
+      return;
+    }
+    if (p.fix === "plan") return void doPlan();
+    void cardAction("fix", () => (p.fix === "rewrite" && p.step ? api.rewriteStep(agent.id, p.step) : api.fixAgent(agent.id, `Fix this: ${p.text}`)));
+  }, [agent, api, cardAction, doPlan]);
+  const doPublishAgent = useCallback(() => {
+    if (agent) void cardAction("publish", async () => (await api.publishAgent(agent.id)).agent, "Published. It's in testing on your agents page.");
+  }, [agent, api, cardAction]);
 
   const building = agent !== null && ["planning", "writing", "fixing"].includes(agent.buildState);
   const agentId = agent?.id ?? null;
@@ -601,7 +659,7 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
         conversationKey={activeId ?? "new"}
         busy={busy}
         disabled={Boolean(blocked) && !busy}
-        placeholder={blocked ? "Back after midnight UTC" : undefined}
+        placeholder={blocked ? "Back after midnight UTC" : fixHint && agent ? "Say what should change, and I'll change the plan" : undefined}
         notice={notice}
         prefill={putBack?.text}
         prefillNonce={putBack?.nonce}
@@ -619,6 +677,7 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
               onKind={(kind) => void doKind(kind)}
               onPlan={() => void doPlan()}
               planning={planning}
+              actions={{ onTest: doTest, onFix: doFix, onPublish: doPublishAgent, busy: dockBusy, said: dockSaid }}
             />
           ) : sketch?.name ? (
             // Keyed by conversation: opening another one brings its dock in fresh.

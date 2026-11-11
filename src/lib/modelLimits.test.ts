@@ -42,7 +42,7 @@ function listening() {
 describe("answer limits", () => {
   it("are set for every purpose, in one place, each a whole number", () => {
     expect(MODEL_PURPOSES.sort()).toEqual(
-      ["agent_plan", "chat", "code", "code_review", "compile", "decision", "guard", "helper_use", "key_check", "post_screen", "publish_review", "screen", "sketch"].sort(),
+      ["agent_plan", "agent_sample", "chat", "code", "code_review", "compile", "decision", "guard", "helper_use", "key_check", "post_screen", "publish_review", "screen", "sketch"].sort(),
     );
     for (const p of MODEL_PURPOSES) expect(Number.isInteger(ANSWER_LIMITS[p]) && ANSWER_LIMITS[p] > 0, p).toBe(true);
     // The chat's and the plan call's are the defaults the environment can change.

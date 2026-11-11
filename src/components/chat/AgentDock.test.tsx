@@ -38,6 +38,8 @@ const agent = (o: Partial<AgentSummaryDTO> = {}): AgentSummaryDTO => ({
     { id: "decide", title: "Order?", kind: "decision", next: ["record", null], code: null },
     { id: "record", title: "Record", kind: "action", next: [null], code: null },
   ],
+  test: null,
+  problem: null,
   ...o,
 });
 
@@ -75,7 +77,7 @@ describe("the agent dock", () => {
     const { container } = render(<AgentDock sketch={done} agent={agent({ buildState: "writing", steps: agent().steps.map((s) => (s.id === "find_low" ? { ...s, code: "reviewing" } : s)) })} onPlan={() => {}} />);
     expect(container.querySelector('[data-node="find_low"]')!.getAttribute("data-state")).toBe("writing");
     expect(container.querySelector('[data-node="decide"]')!.getAttribute("data-state")).toBe("planned");
-    expect(screen.getByText("Writing code, 0 of 1 ready")).toBeInTheDocument();
+    expect(screen.getByText("Writing its steps, 0 of 1 ready")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/app/agents/a1");
     cleanup();
     const ready = render(<AgentDock sketch={done} agent={agent()} />);
@@ -85,9 +87,11 @@ describe("the agent dock", () => {
 
   it("says where the build is in plain words", () => {
     expect(agentStatus(done, agent({ buildState: "planning", steps: [] }))).toBe("Planning the steps...");
-    expect(agentStatus(done, agent({ buildState: "failed", buildNote: "The plan didn't come together after 3 tries. Try again, or add a detail in the chat." }))).toMatch(/^The plan didn't come together/);
-    expect(agentStatus(done, agent({ steps: agent().steps.map((s) => (s.kind === "code" ? { ...s, code: "needs_attention" } : s)) }))).toBe("A step needs your attention");
-    expect(agentStatus(done, agent({ state: "published" }))).toBe("In testing");
+    expect(agentStatus(done, agent({ buildState: "failed", steps: [], buildNote: "The plan didn't come together: it didn't say what starts it." }))).toBe("The plan didn't come together");
+    expect(agentStatus(done, agent({ buildState: "failed" }))).toBe("The change didn't come together");
+    expect(agentStatus(done, agent({ steps: agent().steps.map((s) => (s.kind === "code" ? { ...s, code: "needs_attention" } : s)) }))).toBe("Something needs fixing");
+    expect(agentStatus(done, agent({ test: { status: "passed", story: "3 items checked.", checkedAt: "2026-11-11T00:00:00Z" } }))).toBe("Tested, ready to publish");
+    expect(agentStatus(done, agent({ state: "published" }))).toBe("Published, version 1");
     expect(agentStatus({ ...interview, asking: null }, null)).toBe("Interviewing");
   });
 });
