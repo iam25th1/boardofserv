@@ -1,4 +1,4 @@
-import { fieldsOf, type SketchFieldKey } from "./sketchFields";
+import { describedEnough, fieldsOf, type SketchFieldKey } from "./sketchFields";
 import type { SketchDTO } from "./types";
 
 // The system prompts. Both ride along on every request, so they stay short:
@@ -59,6 +59,11 @@ export function askLine(sketch: SketchDTO | null, plan: TurnPlan | null, planned
   if (planned) {
     return "The agent has steps, shown in the chat as cards: its steps, the build, its test, connecting it and going live, each with its own buttons. Answer in a sentence or two. You can't change, build, test or connect it yourself: never say you did. If they want it to work differently, ask what should change.";
   }
+  // An agent whose job is clear has Make it under the reply: nothing more
+  // is asked.
+  if (sketch?.kind === "agent" && describedEnough(sketch)) {
+    return "The job is clear: say it back in one or two sentences in the person's own words, with their numbers and conditions exactly, then say you have what you need and Make it, just below, works out its steps. Ask nothing.";
+  }
   if (plan?.asking) {
     const ask = `Ask about: ${plan.asking} (${ABOUT[plan.asking]}).`;
     if (!plan.choices.length) return ask;
@@ -67,9 +72,6 @@ export function askLine(sketch: SketchDTO | null, plan: TurnPlan | null, planned
   if (fieldsOf(sketch?.kind ?? null).every((k) => sketch?.[k])) {
     if (sketch?.kind === "answer") {
       return "The helper is fully described. If the conversation has no rules or voice for it yet, ask what it must always or never do and how it should sound; otherwise confirm it and say the Publish button on the sketch puts it on the board.";
-    }
-    if (sketch?.kind === "agent") {
-      return "The job is clear: say it back in one or two sentences in the person's own words, with their numbers and conditions exactly, then say you have what you need and Make it, just below, works out its steps. Ask nothing.";
     }
     return "The agent is fully described: confirm that, say switching it on comes in the next update, and ask nothing.";
   }

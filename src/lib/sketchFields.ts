@@ -25,9 +25,11 @@ export const INTERVIEW_FIELDS = ["wakes", "looks", "handles", "finish", "asks", 
 // and what it remembers is the planner's to work out.
 export const ASKED_FIELDS = ["wakes", "looks", "handles"] as const;
 
-// The chat has what it needs to make the agent: Make it is offered.
+// The chat has what it needs to make the agent, and Make it is offered:
+// when it runs and what it does. Where it looks is asked, but an agent that
+// reads nothing (a morning line sent on Telegram) has no answer to give.
 export function describedEnough(sketch: Pick<SketchDTO, "kind" | "wakes" | "looks" | "handles"> | null): boolean {
-  return Boolean(sketch && sketch.kind === "agent" && ASKED_FIELDS.every((k) => sketch[k]));
+  return Boolean(sketch && sketch.kind === "agent" && sketch.wakes && sketch.handles);
 }
 export const SKETCH_FIELDS = [...AGENT_FIELDS, ...ANSWER_FIELDS, ...INTERVIEW_FIELDS] as const;
 

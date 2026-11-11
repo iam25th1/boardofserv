@@ -296,15 +296,14 @@ describe("an agent's interview", () => {
       name: "Fabric restock",
       kind: "agent",
       wakes: "every morning at eight",
-      handles: "orders what is low",
       asking: "looks",
       choices: ["A Google sheet", "My shop's website"],
     });
-    const t = await turn("Every morning, check my fabric stock and reorder what's low");
-    expect(t.sketch?.sketch).toMatchObject({ kind: "agent", wakes: "every morning at eight", handles: "orders what is low", asking: "looks" });
+    const t = await turn("Every morning, check my fabric stock");
+    expect(t.sketch?.sketch).toMatchObject({ kind: "agent", wakes: "every morning at eight", asking: "looks" });
     expect(t.choices).toEqual(["A Google sheet", "My shop's website"]);
     const reply = calls.at(-1)!;
-    expect(reply.messages[0]!.content).toContain("Known so far: name Fabric restock, kind agent, wakes every morning at eight, handles orders what is low; missing: looks.");
+    expect(reply.messages[0]!.content).toContain("Known so far: name Fabric restock, kind agent, wakes every morning at eight; missing: looks, handles.");
     expect(reply.messages[0]!.content).toContain('Ask about: looks (where it looks). The user will see these buttons: "A Google sheet", "My shop\'s website".');
     expect(await sketchRow(t.conversationId)).toMatchObject({ kind: "agent", wakes: "every morning at eight", looks: null });
 
@@ -314,8 +313,8 @@ describe("an agent's interview", () => {
     // Make it comes under it, as a card. A reply that claims it is set up
     // never shows.
     nextReply = ["Every morning at eight it checks the Stock sheet and orders what is low. ", "Your restock agent is all set!"];
-    nextSketch = extraction({ looks: "the Stock sheet", asks: "orders over 250 USDC" });
-    const done = await turn("The Stock sheet, and ask me before orders over 250 USDC", t.conversationId);
+    nextSketch = extraction({ looks: "the Stock sheet", handles: "orders what is low", asks: "orders over 250 USDC" });
+    const done = await turn("The Stock sheet: reorder what's low, and ask me before orders over 250 USDC", t.conversationId);
     expect(calls.at(-1)!.messages[0]!.content).toContain("Make it, just below, works out its steps");
     expect(done.shown).toBe("Every morning at eight it checks the Stock sheet and orders what is low.");
     const card = done.events.find((e) => e.event === "card")?.data as { message: { card: { stage: string }; content: string } };
