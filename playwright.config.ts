@@ -8,6 +8,11 @@ import { E2E_PRIVY_APP_ID } from "./e2e/session";
 // tests at a server that is already running instead.
 const PORT = 3100;
 const baseURL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`;
+// E2E_PROD=1 serves a production build made beforehand (next build, with
+// the same made-up Privy app id) instead of the dev server. CI does: on a
+// busy runner the dev server's compile on demand made first visits wait
+// past the tests' limits.
+const PROD = process.env.E2E_PROD === "1";
 
 export default defineConfig({
   testDir: "e2e",
@@ -30,7 +35,7 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
-        command: `npx next dev -p ${PORT}`,
+        command: PROD ? `npx next start -p ${PORT}` : `npx next dev -p ${PORT}`,
         url: `${baseURL}/login`,
         timeout: 120_000,
         reuseExistingServer: false,

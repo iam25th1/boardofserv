@@ -36,10 +36,18 @@ jobs:
           NEXT_PUBLIC_PRIVY_APP_ID: ci-placeholder
           TEST_POSTGRES_URL: postgres://postgres:locktest@localhost:5432/postgres
       # Clicks in real browser engines (Chromium, and WebKit for Safari), on
-      # the dev server with a made-up Privy app and a session answered by
-      # the tests themselves: no key, nothing leaves the runner.
+      # a production build with a made-up Privy app and a session answered
+      # by the tests themselves: no key, nothing leaves the runner. Not the
+      # dev server: its compile on demand made first visits wait past the
+      # tests' limits on a busy runner.
       - run: npx playwright install --with-deps chromium webkit
+      - run: npx next build
+        env:
+          NEXT_PUBLIC_PRIVY_APP_ID: e2etestappid0000000000000
+          NEXT_TELEMETRY_DISABLED: "1"
       - run: npm run test:e2e
+        env:
+          E2E_PROD: "1"
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

@@ -103,6 +103,7 @@ test.describe("signed in", () => {
 });
 
 test("a rental's cancel dialog: its buttons can be reached, Keep it and Escape close it", async ({ page }) => {
+  test.skip(process.env.E2E_PROD === "1", "The development harness (/demo) isn't in a production build.");
   await page.goto("/demo?market=rental");
   const open = page.getByRole("button", { name: "Cancel", exact: true });
   await press(page, open);
