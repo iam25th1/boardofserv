@@ -1,0 +1,245 @@
+{
+  "definition": {
+    "format": 1,
+    "name": "Price watcher",
+    "job": {
+      "does": "Every day it reads the price on your product page, and when it is at or below your target it asks you on Telegram whether to send a reminder to buy it.",
+      "done": "The price was checked, and a reminder went out only if you said yes."
+    },
+    "triggers": [
+      {
+        "kind": "schedule",
+        "every": "day",
+        "at": "09:00",
+        "description": "Every day at 9:00"
+      }
+    ],
+    "settings": [
+      {
+        "key": "product_url",
+        "label": "The product page",
+        "type": "url",
+        "help": "The page whose price it reads.",
+        "choices": []
+      },
+      {
+        "key": "target_price",
+        "label": "Your target price",
+        "type": "number",
+        "help": "It asks you when the price is at or below this.",
+        "choices": []
+      }
+    ],
+    "rules": [],
+    "memory": [],
+    "steps": [
+      {
+        "id": "read_price",
+        "title": "Read the price",
+        "inputs": [
+          "settings"
+        ],
+        "outputs": [
+          "price",
+          "price_way"
+        ],
+        "kind": "code",
+        "description": "Fetch settings.product_url and find the price on the page: the first amount after a currency sign. Return price as a number, or null when there is none. Also return price_way: \"low\" when the price is at or below settings.target_price, else \"not_low\".",
+        "tools": [
+          "web.fetch"
+        ],
+        "next": "is_low"
+      },
+      {
+        "id": "is_low",
+        "title": "At or below your target?",
+        "inputs": [
+          "price_way"
+        ],
+        "outputs": [],
+        "kind": "decision",
+        "prompt": "Is the price at or below the target?",
+        "outcomes": [
+          {
+            "id": "low",
+            "label": "At or below the target",
+            "next": "make_question"
+          },
+          {
+            "id": "not_low",
+            "label": "Above the target",
+            "next": null
+          }
+        ],
+        "from": "price_way"
+      },
+      {
+        "id": "make_question",
+        "title": "Write the question",
+        "inputs": [
+          "price",
+          "settings"
+        ],
+        "outputs": [
+          "question"
+        ],
+        "kind": "code",
+        "description": "Return question as telegram.ask's arguments: the price, the target and the page, asking whether to send a reminder to buy it, with the choices Yes and No.",
+        "tools": [],
+        "next": "ask"
+      },
+      {
+        "id": "ask",
+        "title": "Ask you",
+        "inputs": [
+          "question"
+        ],
+        "outputs": [
+          "reply"
+        ],
+        "kind": "action",
+        "action": "ask_owner",
+        "next": "said_yes"
+      },
+      {
+        "id": "said_yes",
+        "title": "Did you say yes?",
+        "inputs": [
+          "reply"
+        ],
+        "outputs": [],
+        "kind": "decision",
+        "prompt": "Did the owner say yes?",
+        "outcomes": [
+          {
+            "id": "yes",
+            "label": "Yes",
+            "next": "make_reminder"
+          },
+          {
+            "id": "no",
+            "label": "No",
+            "next": null
+          }
+        ],
+        "from": "reply"
+      },
+      {
+        "id": "make_reminder",
+        "title": "Write the reminder",
+        "inputs": [
+          "price",
+          "settings"
+        ],
+        "outputs": [
+          "reminder"
+        ],
+        "kind": "code",
+        "description": "Return reminder as telegram.send's arguments: a reminder to buy it, with the price and the page.",
+        "tools": [],
+        "next": "send"
+      },
+      {
+        "id": "send",
+        "title": "Send the reminder",
+        "inputs": [
+          "reminder"
+        ],
+        "outputs": [],
+        "kind": "action",
+        "action": "send_reminder",
+        "next": null
+      }
+    ],
+    "actions": [
+      {
+        "id": "ask_owner",
+        "tool": "telegram.ask",
+        "description": "Ask you whether to send a reminder to buy it"
+      },
+      {
+        "id": "send_reminder",
+        "tool": "telegram.send",
+        "description": "Send you the reminder to buy it"
+      }
+    ],
+    "limits": {
+      "maxSteps": 20,
+      "maxRunSeconds": 60,
+      "maxSpendUsd": 0.05
+    },
+    "approvalHours": 24
+  },
+  "code": {
+    "read_price": {
+      "source": "async function run(input, tools) {\n  const page = await tools.web.fetch({ url: input.settings.product_url });\n  const m = /[$\u00a3\u20ac]\\s*([0-9]+(?:[.,][0-9]{2})?)/.exec(page.text || \"\");\n  const price = m ? Number(m[1].replace(\",\", \".\")) : null;\n  return { price, price_way: price !== null && price <= Number(input.settings.target_price) ? \"low\" : \"not_low\" };\n}"
+    },
+    "make_question": {
+      "source": "async function run(input) {\n  return { question: { question: \"The price is now \" + input.price + \", at or below your target of \" + input.settings.target_price + \". Send you a reminder to buy it? \" + input.settings.product_url, choices: [\"Yes\", \"No\"] } };\n}"
+    },
+    "make_reminder": {
+      "source": "async function run(input) {\n  return { reminder: { text: \"Reminder: buy it now at \" + input.price + \". \" + input.settings.product_url } };\n}"
+    }
+  },
+  "bench": {
+    "settings": {
+      "product_url": "https://shop.example/kettle",
+      "target_price": 50
+    },
+    "rules": {},
+    "trigger": null,
+    "sheets": {},
+    "pages": {
+      "https://shop.example/kettle": "Stone Kettle. Now $42.00. Free delivery."
+    },
+    "search": {},
+    "telegram": {
+      "answers": [
+        "Yes"
+      ]
+    },
+    "memory": {},
+    "wallet": {
+      "balanceUsdc": 0
+    },
+    "decisions": {}
+  },
+  "plain": [
+    {
+      "id": "read_price",
+      "text": "Read the price",
+      "depth": 0
+    },
+    {
+      "id": "is_low",
+      "text": "At or below your target? If above the target, it stops there.",
+      "depth": 0
+    },
+    {
+      "id": "make_question",
+      "text": "Write the question",
+      "depth": 0
+    },
+    {
+      "id": "ask",
+      "text": "Ask you whether to send a reminder to buy it",
+      "depth": 0
+    },
+    {
+      "id": "said_yes",
+      "text": "Did you say yes? If no, it stops there.",
+      "depth": 0
+    },
+    {
+      "id": "make_reminder",
+      "text": "Write the reminder",
+      "depth": 0
+    },
+    {
+      "id": "send",
+      "text": "Send you the reminder to buy it",
+      "depth": 0
+    }
+  ],
+  "story": "Passed. It read the page, asked you on Telegram \"The price is now 42, at or below your target of 50. Send you a reminder to buy it? http...\" (you answered \"Yes\") and sent you \"Reminder: buy it now at 42. https://shop.example/kettle\" on Telegram."
+}

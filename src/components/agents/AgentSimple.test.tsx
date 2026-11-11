@@ -49,7 +49,7 @@ describe("the plain agent page", () => {
   it("shows what it does, its steps in order, what it connects to and asks, in plain words", () => {
     const { container } = render(<AgentSimple data={data()} api={noApi} onData={() => {}} />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Hackathon Submission Checker");
-    expect(screen.getByText("Draft, not tested yet")).toBeInTheDocument();
+    expect(screen.getByText("Not tried yet")).toBeInTheDocument();
     const steps = screen.getByRole("heading", { name: "Its steps" }).parentElement!.querySelectorAll("li");
     expect([...steps].map((li) => li.textContent)).toEqual([
       "1Read the submissions sheet and pick out the ones not checked yet",
@@ -89,7 +89,7 @@ describe("the plain agent page", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Test it" })));
     rerender(<AgentSimple data={shown} api={{ ...noApi, test }} onData={(next) => (shown = next)} />);
     expect(screen.getByText(story)).toBeInTheDocument();
-    expect(screen.getByText("Draft, tested")).toBeInTheDocument();
+    expect(screen.getByText("Tried, not ready to run yet")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Test it again" })).toBeInTheDocument();
   });
 });

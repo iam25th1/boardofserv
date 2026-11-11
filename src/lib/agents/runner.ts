@@ -246,6 +246,26 @@ function summary(input: Record<string, unknown>): string {
 }
 
 // The tool arguments an action step is taken with.
+const YES = /^(?:y|yes|yeah|yep|sure|ok|okay|please|true|approve[ds]?|confirm(?:ed)?|go ahead)\b/i;
+const NO = /^(?:n|no|nope|not now|false|decline[ds]?|reject(?:ed)?|cancel(?:led)?|stop)\b/i;
+
+// The way a decision that goes by a value takes: the outcome the value
+// names (its id or its label), an answer of yes or no (a question's reply
+// as it comes back, { answer }, too), or true for the first outcome and
+// false for the second. Null when the value names none of them.
+export function wayOf(step: DecisionStepDef, value: unknown): DecisionStepDef["outcomes"][number] | null {
+  const v = value && typeof value === "object" && !Array.isArray(value) ? ((value as Record<string, unknown>).outcome ?? (value as Record<string, unknown>).answer ?? (value as Record<string, unknown>).way ?? null) : value;
+  const byWords = (re: RegExp) => step.outcomes.find((o) => re.test(o.id.replace(/_/g, " ")) || re.test(o.label));
+  if (typeof v === "boolean") return v ? (byWords(YES) ?? step.outcomes[0]!) : (byWords(NO) ?? step.outcomes[1] ?? null);
+  if (typeof v !== "string" || !v.trim()) return null;
+  const said = v.trim().toLowerCase();
+  const named = step.outcomes.find((o) => o.id.toLowerCase() === said || o.label.toLowerCase() === said);
+  if (named) return named;
+  if (YES.test(said)) return byWords(YES) ?? null;
+  if (NO.test(said)) return byWords(NO) ?? null;
+  return null;
+}
+
 export function actionArgs(step: ActionStepDef, tool: keyof typeof TOOL_ARGS, input: Record<string, unknown>): { ok: true; args: unknown } | { ok: false; why: string } {
   const first = step.inputs[0] ? input[step.inputs[0]] : undefined;
   if (TOOL_ARGS[tool].safeParse(first).success) return { ok: true, args: first };
@@ -254,12 +274,14 @@ export function actionArgs(step: ActionStepDef, tool: keyof typeof TOOL_ARGS, in
   return { ok: false, why: `This action needs its first input to be ${tool}'s arguments: ${TOOLS[tool].signature}` };
 }
 
-// An action whose first input a code step left empty: null, or a tool's
-// arguments with nothing in their list (no rows, no updates).
+// An action whose first input a code step left empty: null, a tool's
+// arguments with nothing in their list (no rows, no updates), or a payment
+// of nothing.
 export function nothingToDo(step: ActionStepDef, input: Record<string, unknown>): boolean {
   if (!step.inputs[0]) return false;
   const v = input[step.inputs[0]];
   if (v === null || v === undefined) return true;
+  if (v && typeof v === "object" && "amountUsdc" in v && Number((v as { amountUsdc: unknown }).amountUsdc) === 0) return true;
   const list = v && typeof v === "object" ? ((v as { rows?: unknown; updates?: unknown }).rows ?? (v as { updates?: unknown }).updates) : undefined;
   return Array.isArray(list) && list.length === 0;
 }
@@ -527,6 +549,16 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       state.sources = sources;
       done("ok", pick(out as Record<string, unknown>, step.outputs), null, null);
       next = step.next;
+    } else if (step.kind === "decision" && step.from) {
+      // Decided by a value a step before it made: no judgement, no call.
+      const way = wayOf(step, input[step.from]);
+      if (!way) {
+        done("failed", null, null, `It was given no way to go in "${step.from}".`);
+        return end("failed", "logic", `"${step.title}" was given no way to go.`);
+      }
+      if (step.outputs[0] && loops.inside.get(step.id)) state.bag[step.outputs[0]] = { outcome: way.id, label: way.label, reason: "" };
+      done("ok", { outcome: way.id, label: way.label }, way.id, null);
+      next = way.next;
     } else if (step.kind === "decision") {
       if (!o.dryRun && state.costUsd >= d.limits.maxSpendUsd) {
         done("failed", null, null, "The run's spend limit is reached.");

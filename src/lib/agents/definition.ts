@@ -97,6 +97,10 @@ export const Setting = z.object({
   help: text(200),
   // The answers to pick from, for a choice; empty otherwise.
   choices: z.array(text(40)).max(12),
+  // The maker's own answer, when they said it while describing the job (a
+  // page link, a target price): their own setup starts from it. Never
+  // shown to anyone else (setupShapeOf leaves it out).
+  given: z.string().trim().max(500).optional(),
 });
 
 export const RULE_TYPES = ["number", "usdc", "boolean", "list", "text"] as const;
@@ -155,6 +159,12 @@ export const DecisionStep = z.object({
   // code step after it to count and combine, and every outcome goes on to
   // the same step. Without it, one judgement picks the way the run goes.
   each: key.optional(),
+  // Decided by a value, not by SERV: the input holding the way to go, made
+  // by a code step (an outcome's id, or true for the first outcome and
+  // false for the second) or the owner's answer to a question ("Yes"). A
+  // plain comparison (a price against a target, whether the owner said
+  // yes) needs no judgement and no model call.
+  from: key.optional(),
 });
 
 // The most items one decision over a list judges in a run.
@@ -252,7 +262,14 @@ export function connectionsNeeded(d: AgentDefinition): { telegram: boolean; goog
 export type SetupShape = Pick<AgentDefinition, "name" | "settings" | "rules" | "triggers"> & { needs: { telegram: boolean; google: boolean }; spends?: boolean };
 
 export function setupShapeOf(d: AgentDefinition): SetupShape {
-  return { name: d.name, settings: d.settings, rules: d.rules, triggers: d.triggers.filter((t) => t.kind === "schedule"), needs: connectionsNeeded(d), spends: d.actions.some(spends) };
+  const settings = d.settings.map(({ given: _given, ...rest }) => rest);
+  return { name: d.name, settings, rules: d.rules, triggers: d.triggers.filter((t) => t.kind === "schedule"), needs: connectionsNeeded(d), spends: d.actions.some(spends) };
+}
+
+// The answers the maker gave while describing the job, by setting: where
+// their own setup starts.
+export function givenAnswers(d: AgentDefinition): Record<string, string> {
+  return Object.fromEntries(d.settings.flatMap((s) => (s.given ? [[s.key, s.given]] : [])));
 }
 
 // Why moving an installation from one version of an agent to another
@@ -426,6 +443,10 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
       );
     }
     if (s.kind === "decision") for (const id of duplicates(s.outcomes.map((o) => o.id))) say(`step "${s.id}" has two outcomes called "${id}"`, ["steps", i, "outcomes"]);
+    if (s.kind === "decision" && s.from) {
+      if (!s.inputs.includes(s.from)) say(`step "${s.id}" goes by the value "${s.from}", so "${s.from}" must be one of its inputs`, ["steps", i, "from"]);
+      if (s.each) say(`step "${s.id}" goes by one value, so it can't also judge each item of a list`, ["steps", i, "from"]);
+    }
     if (s.kind === "decision" && s.each) {
       if (!s.inputs.includes(s.each)) say(`step "${s.id}" judges each item of "${s.each}", so "${s.each}" must be one of its inputs`, ["steps", i, "each"]);
       if (!s.outputs.length) say(`step "${s.id}" judges each item of a list, so its first output must name the verdicts it gives`, ["steps", i, "outputs"]);

@@ -2,9 +2,10 @@ import type { ConversationDTO } from "./types";
 
 // What each chat is called in the agents list. A chat with an agent sketch
 // goes by the agent's name; one without goes by its title, which is its
-// first message (or "New conversation" before there is one). Two chats
-// that would go by the same name each get a short detail that tells them
-// apart: when they were started, and a count when even that is the same.
+// first message (or "New conversation" before there is one). No two look
+// the same: a name another chat has too gets a number after the first one
+// started ("Price watcher 2"), and a short detail says when each was
+// started.
 
 export interface ChatName {
   name: string;
@@ -32,9 +33,7 @@ export function chatNames(conversations: readonly Pick<ConversationDTO, "id" | "
     const ordered = [...same].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const whens = ordered.map((c) => started(c.createdAt));
     ordered.forEach((c, i) => {
-      const twins = whens.filter((w) => w === whens[i]).length;
-      const nth = whens.slice(0, i + 1).filter((w) => w === whens[i]).length;
-      out.set(c.id, { name: nameOf(c), detail: twins > 1 ? `${whens[i]}, ${nth} of ${twins}` : whens[i]! });
+      out.set(c.id, { name: i === 0 ? nameOf(c) : `${nameOf(c)} ${i + 1}`, detail: whens[i]! });
     });
   }
   return out;

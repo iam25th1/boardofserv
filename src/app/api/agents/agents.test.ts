@@ -5,7 +5,7 @@ import type { PgliteDatabase } from "drizzle-orm/pglite";
 import { eq } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import { addUser, testDb } from "@/test/helperDb";
-import { COMPARE, FIND_LOW, RESTOCK_WIRE, restockBench } from "@/test/agentFixtures";
+import { COMPARE_PLANNED as COMPARE, FIND_LOW, RESTOCK_PLANNED as RESTOCK_WIRE, restockBench } from "@/test/agentFixtures";
 import { planAnswer } from "@/test/planAnswers";
 import { jobFor } from "@/lib/agents/build";
 import { draftOf } from "@/lib/agents/store";
@@ -125,11 +125,12 @@ async function interviewed(user: schema.User, done = true): Promise<string> {
     kind: "agent",
     wakes: "every morning at eight",
     looks: "the Stock sheet and three suppliers",
-    handles: "orders what is low from the best supplier",
+    // What it does with what it finds is the last thing the chat needs.
+    handles: done ? "orders what is low from the best supplier" : null,
     finish: "every low fabric has an order",
-    // What it must never do without asking is the last thing the chat asks;
-    // what it sets up and remembers it never asks at all.
-    asks: done ? "orders over 250 USDC" : null,
+    // What it asks first is kept when said; what it sets up and remembers
+    // the chat never asks at all.
+    asks: "orders over 250 USDC",
     setup: null,
     remembers: null,
   });
@@ -217,7 +218,7 @@ describe("planning an agent from its conversation", () => {
     await jobFor((await draftOf(a.id))!.id);
     const after = await builderOf(a.id);
     // Why, in plain words, and what to add: never the checker's own reasons.
-    expect(after.agent).toMatchObject({ buildState: "failed", buildNote: "The plan didn't come together: it didn't say what starts it. Say when it should run, for example every 15 minutes or every morning." });
+    expect(after.agent).toMatchObject({ buildState: "failed", buildNote: "I couldn't work out the steps: it didn't say what starts it. Say when it should run, for example every 15 minutes or every morning." });
     expect(after.definition).toBeNull();
   });
 });
@@ -244,12 +245,16 @@ describe("the builder", () => {
     const res = await run.POST(json(`/api/agents/${id}/run`, "POST", { dryRun: true, bench: restockBench() }), { params: Promise.resolve({ id }) });
     expect(res.headers.get("content-type")).toMatch(/text\/event-stream/);
     const e = await events(res);
-    expect(e.filter((x) => x.type === "step_done").map((x) => `${x.stepId}:${x.status}`)).toEqual(["find_low:ok", "compare:ok", "check_total:ok", "record:ok"]);
+    // The order is over the limit by the way "Compare suppliers" works it
+    // out, so it asks, and the sample's yes lets it through: no judgement.
+    expect(e.filter((x) => x.type === "step_done").map((x) => `${x.stepId}:${x.status}`)).toEqual(["find_low:ok", "compare:ok", "check_total:ok", "ask_owner:ok", "approved:ok", "record:ok"]);
     expect(e.at(-1)).toMatchObject({ type: "end", status: "done" });
     expect(seen).toEqual([]);
   });
 
   it("asks SERV for decisions on a live run, and records each call", async () => {
+    // A judgement, which only SERV can make.
+    plans = [{ ...RESTOCK_WIRE, steps: RESTOCK_WIRE.steps.map((s) => (s.id === "check_total" ? { ...s, from: "", inputs: ["order"], prompt: "Does this order look sensible for a small fabric shop?", outcomes: [{ id: "over", label: "Needs your look", next: "ask_owner" }, { id: "within", label: "Looks fine", next: "record" }] } : s)) }];
     const { id } = await built();
     seen.length = 0;
     const e = await events(await run.POST(json(`/api/agents/${id}/run`, "POST", { dryRun: false, bench: restockBench() }), { params: Promise.resolve({ id }) }));
@@ -365,10 +370,12 @@ describe("the card's actions", () => {
     const res = await testRoute.POST(json(`/api/agents/${id}/test`, "POST"), { params: Promise.resolve({ id }) });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { test: { status: string; story: string; items: { labels: string[] } }; agent: AgentSummaryDTO };
-    expect(body.test.items.labels).toEqual(["Linen, natural", "Cotton twill", "Wool felt"]);
+    // It goes through the stock in code, not one item at a time: one
+    // sample item, and the tab it reads has the rows its job needs.
+    expect(body.test.items.labels).toEqual(["Linen, natural"]);
     // It wrote orders, not results into the fabrics' own rows: the story
-    // says what it did, never that the fabrics were checked.
-    expect(body.test.story).toMatch(/^3 sample fabrics: \d+ rows? written/);
+    // says what it did, in order, never that the fabrics were checked.
+    expect(body.test.story).toMatch(/^Passed\. It read 3 rows of your sheet.* added \d+ rows? to your sheet/);
     expect(body.agent.test).toMatchObject({ story: body.test.story });
     // The sample is now the draft's test bench, and made only once.
     expect((await builderOf(id)).bench.sheets.Stock).toHaveLength(3);
@@ -383,7 +390,7 @@ describe("a self test that fails", () => {
   // A plan whose "Compare suppliers" must return a value its code never
   // gives: the self test stops there.
   const broken = { ...RESTOCK_WIRE, steps: RESTOCK_WIRE.steps.map((s) => (s.id === "compare" ? { ...s, outputs: [...s.outputs, "notes"] } : s)) };
-  const SENTENCE = '"Compare suppliers" didn\'t work on the sample fabrics.';
+  const SENTENCE = '"Compare suppliers" didn\'t work on the sample fabric.';
 
   it("runs Fix this once on its own with the one sentence that says what went wrong, and keeps the plan that passes", async () => {
     plans = [broken, RESTOCK_WIRE];
@@ -396,7 +403,7 @@ describe("a self test that fails", () => {
     const outlines = seen.filter((s) => s.schema === "agent_outline");
     expect(outlines).toHaveLength(2);
     expect(outlines[1]!.body.messages[1]!.content).toContain(`The maker says: ${SENTENCE}`);
-    expect(after.definition!.steps.find((s) => s.id === "compare")!.outputs).toEqual(["order", "order_rows"]);
+    expect(after.definition!.steps.find((s) => s.id === "compare")!.outputs).toEqual(["order", "order_rows", "total_way", "question"]);
   });
 
   it("shows the sentence with Fix this when the fix on its own fails too, and fixes only once", async () => {

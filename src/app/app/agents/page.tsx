@@ -47,7 +47,7 @@ function List() {
   if (!agents.length) {
     return (
       <p className={styles.quiet}>
-        None yet. Describe one that runs on its own in <Link href="/app/chat">the chat</Link>, then press Plan.
+        None yet. Describe one that runs on its own in <Link href="/app/chat">the chat</Link>, then press Make it.
       </p>
     );
   }

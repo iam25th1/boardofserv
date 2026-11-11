@@ -5,10 +5,13 @@ import type { AgentDefinition } from "./definition";
 import { emptyBench, type BenchData, type TestResult } from "./types";
 
 // Sample data for "Test it", made from the plan: what a renter would answer
-// at setup, and three items for the agent to work through (three rows of
-// the sheet it reads, say), so a maker never types JSON to see it run. SERV
-// writes it from the plan in one call; without SERV, or when its answer
-// doesn't fit, a plain stand-in is made from the plan's own questions.
+// at setup, and the items for the agent to work through, so a maker never
+// types JSON to see it run. An agent that goes through a list (a loop, or
+// a judgement over a list) gets three items, different from each other;
+// one that handles one thing (one product page, one message) gets that one
+// thing. SERV writes it from the plan in one call; without SERV, or when
+// its answer doesn't fit, a plain stand-in is made from the plan's own
+// questions.
 //
 // The schema is flat lists, as SERV's strict json_schema needs: no records
 // with keys of its own choosing, so each setting, tab and row is an object.
@@ -23,7 +26,7 @@ export const SAMPLE_SCHEMA = {
   schema: obj({
     noun: str("what one of the items it works through is called, singular, plain: submission, enquiry, product"),
     plural: str("the same, plural"),
-    labels: strings("the three items' own names, exactly as they appear in the data below"),
+    labels: strings("the items' own names, exactly as they appear in the data below"),
     settings: list(obj({ key: str("a setting's key"), value: str("the renter's answer, as text") }), "an answer for every setting"),
     sheets: list(
       obj({ sheet: str("the tab's name, as a sheet setting's answer names it"), columns: strings("its columns, in order"), rows: list(obj({ cells: strings("one row's values, in column order") }), "its rows") }),
@@ -36,16 +39,32 @@ export const SAMPLE_SCHEMA = {
   }),
 };
 
-export const SAMPLE_PROMPT = [
-  "You make sample data to test an automated agent, the way its maker would try it the first time. Answer with JSON in the given schema.",
-  "Give exactly three items for it to work through (three rows of the tab it reads, three enquiries, three products), realistic and different from each other: where the agent judges or filters, make one that should clearly pass and one that should clearly fail.",
-  "Answer every setting. A sheet setting's answer is a tab name: give that tab with the columns the steps name and the three items as rows. Leave empty the columns the agent itself fills in (a status or result it writes).",
-  "Give pages or search results only if a step fetches or searches. Answers only if it asks its owner something.",
-  "Also say what every step does in one plain sentence a first-time maker understands, with no names of values or tools.",
-  "Never use em dashes.",
-].join("\n");
+// How many items the sample has: three for an agent that goes through a
+// list, one for an agent that handles one thing.
+export function sampleCount(d: Pick<AgentDefinition, "steps">): 1 | 3 {
+  return goesThroughList(d) ? 3 : 1;
+}
 
-// The plan, as SAMPLE_PROMPT needs it: what it does, what it asks at setup
+// Whether the agent goes through a list of items: a loop over one, or a
+// judgement over a list.
+export function goesThroughList(d: Pick<AgentDefinition, "steps">): boolean {
+  return d.steps.some((s) => s.kind === "loop" || (s.kind === "decision" && Boolean(s.each)));
+}
+
+export function samplePrompt(count: 1 | 3): string {
+  return [
+    "You make sample data to test an automated agent, the way its maker would try it the first time. Answer with JSON in the given schema.",
+    count === 3
+      ? "It goes through a list: give exactly three items for it to work through (three rows of the tab it reads, three enquiries, three submissions), realistic and different from each other: where the agent judges or filters, make one that should clearly pass and one that should clearly fail."
+      : "It handles one thing each run: give exactly one item (the one product, the one message), realistic, the kind the maker would watch for: where it compares against a target or threshold, make it one that meets it. A tab it reads still has the rows its job needs (the day's sales to add up).",
+    `Answer every setting, with values that fit together (a target the item meets, a page address the pages below use). A sheet setting's answer is a tab name: give that tab with the columns the steps name${count === 3 ? " and the three items as rows" : ""}. Leave empty the columns the agent itself fills in (a status or result it writes).`,
+    'Give pages or search results only if a step fetches or searches. Answers only if it asks its owner something: then answer as the owner who says yes ("Yes").',
+    "Also say what every step does in one plain sentence a first-time maker understands, with no names of values or tools.",
+    "Never use em dashes.",
+  ].join("\n");
+}
+
+// The plan, as the sample's prompt needs it: what it does, what it asks at setup
 // and what each step does. No code.
 export function sampleRequest(d: AgentDefinition): string {
   return [
@@ -113,18 +132,19 @@ export function readSample(d: AgentDefinition, content: string | null): Sample |
   }
   bench.telegram.answers = texts(w.answers).slice(0, 20);
   for (const rule of d.rules) bench.rules[rule.key] = rule.value;
-  const labels = texts(w.labels).slice(0, 3);
+  const count = sampleCount(d);
+  const labels = texts(w.labels).slice(0, count);
   const noun = text(w.noun, 40).toLowerCase();
-  if (labels.length !== 3 || !noun) return null;
+  if (labels.length !== count || !noun) return null;
   const plain = Object.fromEntries((w.steps ?? []).flatMap((x) => (d.steps.some((st) => st.id === text(x.id, 40)) && text(x.plain, 200) ? [[text(x.id, 40), text(x.plain, 200)]] : [])));
   return { bench, items: { noun, plural: text(w.plural, 40).toLowerCase() || `${noun}s`, labels }, plain };
 }
 
 // Without SERV: every setting answered from its own words, every sheet
-// setting a tab of three plain rows.
+// setting a tab of plain rows, one for each item.
 export function plainSample(d: AgentDefinition): Sample {
   const bench = emptyBench();
-  const labels = ["Sample one", "Sample two", "Sample three"];
+  const labels = ["Sample one", "Sample two", "Sample three"].slice(0, sampleCount(d));
   for (const s of d.settings) {
     if (s.type === "sheet") {
       const tab = s.label.replace(/[^\w\s-]/g, "").trim().slice(0, 40) || "Sheet";
@@ -138,9 +158,11 @@ export function plainSample(d: AgentDefinition): Sample {
 
 export async function makeSample(d: AgentDefinition, serv: ModelConfig | null, opts: { signal?: AbortSignal; fetchImpl?: typeof fetch } = {}): Promise<{ sample: Sample; call: JsonResult | null }> {
   if (!serv) return { sample: plainSample(d), call: null };
+  // Today's date rides along (not in the fingerprint): an agent that works
+  // on today's rows needs rows dated today.
   const messages: ChatMessage[] = [
-    { role: "system", content: SAMPLE_PROMPT },
-    { role: "user", content: sampleRequest(d) },
+    { role: "system", content: samplePrompt(sampleCount(d)) },
+    { role: "user", content: `${sampleRequest(d)}\n\nToday is ${new Date().toISOString().slice(0, 10)}: date the sample's rows from today where the job looks at dates.` },
   ];
   const config = { ...serv, firstTokenTimeoutMs: Math.max(serv.firstTokenTimeoutMs, 60_000) };
   const call = await completeJson(messages, { config, purpose: "agent_sample", schema: SAMPLE_SCHEMA, maxTokens: ANSWER_LIMITS.agent_sample, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });

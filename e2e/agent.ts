@@ -37,6 +37,9 @@ function summary(o: { problem?: Problem; tested?: boolean; state?: "draft" | "pu
     })),
     test: o.tested ? { status: "passed", story: STORY, checkedAt: "2026-11-11T09:00:00.000Z" } : null,
     problem: o.problem ?? null,
+    plain: (steps as (Step & { plain?: string })[]).map((s) => ({ id: s.id, text: s.plain || s.title, depth: 0 })),
+    setup: null,
+    does: null,
   };
 }
 

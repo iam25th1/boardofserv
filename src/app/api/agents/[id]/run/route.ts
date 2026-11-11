@@ -33,7 +33,7 @@ export async function POST(req: Request, route: { params: Promise<{ id: string }
   if (!parsed.success) return Response.json({ error: "Say whether it is a dry run, and send sample data the bench can read." }, { status: 400 });
   const version = await currentVersion(who.agent.id);
   const definition = version?.definition;
-  if (!version || !definition) return Response.json({ error: "Plan it first." }, { status: 400 });
+  if (!version || !definition) return Response.json({ error: "There are no steps yet." }, { status: 400 });
 
   const ctx = parsed.data.dryRun ? null : buildContext(who.user, who.agent.sourceConversationId);
   if (!parsed.data.dryRun) {

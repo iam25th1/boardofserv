@@ -7,7 +7,7 @@ import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import * as schema from "@/lib/db/schema";
 import { addHelper, addUser, testDb } from "./helperDb";
-import { COMPARE, FIND_LOW, RESTOCK_WIRE, restockBench } from "./agentFixtures";
+import { COMPARE_PLANNED as COMPARE, FIND_LOW, RESTOCK_PLANNED as RESTOCK_WIRE, restockBench } from "./agentFixtures";
 import { jobFor } from "@/lib/agents/build";
 import { draftOf } from "@/lib/agents/store";
 import { FakeChain, addr } from "./fakeChain";
@@ -48,6 +48,9 @@ import * as agentsRoute from "@/app/api/agents/route";
 import * as agentRoute from "@/app/api/agents/[id]/route";
 import * as agentRun from "@/app/api/agents/[id]/run/route";
 import * as agentFix from "@/app/api/agents/[id]/fix/route";
+import * as agentBuild from "@/app/api/agents/[id]/build/route";
+import * as agentGoLive from "@/app/api/agents/[id]/golive/route";
+import * as conversationJourney from "@/app/api/conversations/[id]/journey/route";
 import * as agentTest from "@/app/api/agents/[id]/test/route";
 import * as agentBench from "@/app/api/agents/[id]/bench/route";
 import * as agentPublish from "@/app/api/agents/[id]/publish/route";
@@ -163,6 +166,9 @@ const ROUTES: Record<string, object> = {
   "agents/[id]": agentRoute,
   "agents/[id]/run": agentRun,
   "agents/[id]/fix": agentFix,
+  "agents/[id]/build": agentBuild,
+  "agents/[id]/golive": agentGoLive,
+  "conversations/[id]/journey": conversationJourney,
   "agents/[id]/test": agentTest,
   "agents/[id]/bench": agentBench,
   "agents/[id]/publish": agentPublish,
@@ -466,6 +472,9 @@ describe("a helper's instructions stay on the server", () => {
     await hit("agent that isn't there", agentRoute.GET(req(`/api/agents/${cid}`), { params: Promise.resolve({ id: cid }) }));
     await hit("run an agent that isn't there", agentRun.POST(req(`/api/agents/${cid}/run`, "POST", { dryRun: true }), { params: Promise.resolve({ id: cid }) }));
     await hit("fix an agent that isn't there", agentFix.POST(req(`/api/agents/${cid}/fix`, "POST", { message: "x" }), { params: Promise.resolve({ id: cid }) }));
+    await hit("build an agent that isn't there", agentBuild.POST(req(`/api/agents/${cid}/build`, "POST"), { params: Promise.resolve({ id: cid }) }));
+    await hit("put live an agent that isn't there", agentGoLive.POST(req(`/api/agents/${cid}/golive`, "POST", { how: "run" }), { params: Promise.resolve({ id: cid }) }));
+    await hit("connect a helper's conversation", conversationJourney.POST(req(`/api/conversations/${cid}/journey`, "POST", { action: "connect", answers: { settings: {}, rules: {}, timezone: "UTC" } }), { params: Promise.resolve({ id: cid }) }));
     await hit("save an agent that isn't there", agentBench.PUT(req(`/api/agents/${cid}/bench`, "PUT", {}), { params: Promise.resolve({ id: cid }) }));
     await hit("publish an agent that isn't there", agentPublish.POST(req(`/api/agents/${cid}/publish`, "POST"), { params: Promise.resolve({ id: cid }) }));
     await hit("my agents", agentsRoute.GET(req("/api/agents")));
@@ -762,6 +771,12 @@ describe("a helper's instructions stay on the server", () => {
       await hit("agent: dry run", agentRun.POST(req(`/api/agents/${id}/run`, "POST", { dryRun: true, bench: restockBench() }), p));
       await hit("agent: live run", agentRun.POST(req(`/api/agents/${id}/run`, "POST", { dryRun: false, bench: restockBench() }), p));
       await hit("agent: save", agentBench.PUT(req(`/api/agents/${id}/bench`, "PUT", { bench: restockBench() }), p));
+      // Its journey in the chat: Looks right builds and tries it, and its
+      // cards say so in plain words; connecting and going live wait their turn.
+      await hit("agent: looks right", agentBuild.POST(req(`/api/agents/${id}/build`, "POST"), p));
+      await jobFor((await draftOf(id))!.id);
+      await hit("agent: journey", conversationMessages.GET(req(`/api/conversations/${cid}/messages`), { params: Promise.resolve({ id: cid }) }));
+      await hit("agent: go live early", agentGoLive.POST(req(`/api/agents/${id}/golive`, "POST", { how: "run" }), p));
       await hit("agent: publish", agentPublish.POST(req(`/api/agents/${id}/publish`, "POST"), p));
       // The admin's safety page shows every review, never the code.
       vi.stubEnv("ADMIN_USER_IDS", maya.id);

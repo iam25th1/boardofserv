@@ -5,6 +5,7 @@ import { ownedAgent } from "@/lib/agents/owned";
 import { currentVersion, setTestResult, updateDraft } from "@/lib/agents/store";
 import { testVersion } from "@/lib/agents/test";
 import { refusal } from "@/lib/spend";
+import { addCard, cardsIn } from "@/lib/agents/journey";
 import { errorText } from "@/lib/db/errors";
 
 export const runtime = "nodejs";
@@ -22,7 +23,7 @@ export async function POST(req: Request, route: { params: Promise<{ id: string }
   const shut = notLetIn(who.user);
   if (shut) return shut;
   const version = await currentVersion(who.agent.id);
-  if (!version?.definition) return Response.json({ error: "Plan it first." }, { status: 400 });
+  if (!version?.definition) return Response.json({ error: "There are no steps yet." }, { status: 400 });
   if (version.state === "draft" && version.buildState !== "idle") return Response.json({ error: "Wait for it to finish building." }, { status: 409 });
   const waiting = version.definition.steps.find((s) => s.kind === "code" && version.code[s.id]?.status !== "approved");
   if (waiting) return Response.json({ error: `"${waiting.title}" isn't ready yet, so it can't run.` }, { status: 409 });
@@ -43,6 +44,12 @@ export async function POST(req: Request, route: { params: Promise<{ id: string }
     );
     await setTestResult(version.id, tested.result);
     if (version.state === "draft") await updateDraft(version.id, { bench: tested.bench });
+    // Tried again from the chat's Try it card: a pass goes on to Connect.
+    const journey = Boolean(((await req.json().catch(() => null)) as { journey?: unknown } | null)?.journey);
+    const conversationId = who.agent.sourceConversationId;
+    if (journey && conversationId && tested.result.status === "passed" && (await cardsIn(conversationId)).at(-1)?.card?.stage === "try") {
+      await addCard(conversationId, { stage: "connect", agentId: who.agent.id }, "Connecting it to what it needs.");
+    }
     return Response.json({ test: tested.result, agent: summaryOf(who.agent, { ...version, testResult: tested.result }) });
   } catch (err) {
     console.error(`agents: a test stopped: ${errorText(err, "unknown error")}`);

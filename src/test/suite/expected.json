@@ -1,0 +1,90 @@
+[
+  {
+    "id": "price",
+    "stage": 4,
+    "passed": true,
+    "plan": [
+      "1. Retrieve the page and extract the current price as a number.",
+      "2. Determine whether the current price is lower than the target price.",
+      "3. Prepare a message asking for confirmation with yes and no options.",
+      "4. Send the confirmation question to the owner through the messaging service.",
+      "5. Check whether the owner approved the reminder.",
+      "6. Prepare a message notifying the owner that the price target has been met.",
+      "7. Send the reminder message to the owner through the messaging service."
+    ],
+    "story": "Passed. It read the page, asked you on Telegram \"Do you want to buy a reminder for the product at https://example.com/products/wireless-...\" (you answered \"Yes\") and sent you \"The product is now available at $74.5, which is below your target price of $79.99. Woul...\" on Telegram."
+  },
+  {
+    "id": "motivation",
+    "stage": 4,
+    "passed": true,
+    "plan": [
+      "1. Select motivational line",
+      "2. Send a motivational message to Telegram"
+    ],
+    "story": "Passed. It sent you \"Discipline is choosing what you want most over what you want now.\" on Telegram."
+  },
+  {
+    "id": "sales",
+    "stage": 4,
+    "passed": true,
+    "plan": [
+      "1. Fetch all rows and columns from the specified sales sheet.",
+      "2. Keep only rows matching today's date and discard older entries.",
+      "3. Add up all amounts in the filtered rows and count how many sales occurred.",
+      "4. Format the total revenue and number of sales into a message for sending.",
+      "5. Deliver the daily summary message to the messaging platform."
+    ],
+    "story": "Passed. It read 4 rows of your sheet and sent you \"Today's sales: 0 in total across 0 sales.\" on Telegram."
+  },
+  {
+    "id": "enquiries",
+    "stage": 4,
+    "passed": false,
+    "plan": [
+      "1. Retrieve the row number where the system last stopped checking, or start from the beginning if this is the first run.",
+      "2. Load all new customer messages from the spreadsheet that have not yet been assigned a priority level.",
+      "3. Go through each unchecked enquiry one at a time to determine its urgency level.",
+      "  4. Decide whether the current customer message requires immediate attention or can be handled normally based on its content.",
+      "5. Combine the urgency decisions with each message's row details to prepare them for writing back to the spreadsheet.",
+      "6. Write the urgency classifications into the appropriate column in the spreadsheet.",
+      "7. Remember the last row number that was processed so the next run knows where to continue from."
+    ],
+    "story": "3 sample enquiries, nothing written or sent."
+  },
+  {
+    "id": "supplies",
+    "stage": 4,
+    "passed": false,
+    "plan": [
+      "1. Fetch all rows from the supply sheet and identify items where the current quantity is below the minimum quantity threshold.",
+      "2. For each low-stock item, calculate how many units need to be ordered to reach the minimum and multiply by the unit price to get the cost.",
+      "3. Compose a message listing each item to restock with its quantity and cost, then sum the total amount due.",
+      "4. Send the summary message to the owner via messaging and ask for yes or no.",
+      "5. Check approval response: owner approved restock or owner rejected restock",
+      "6. Structure a payment record with the supplier name, total amount in currency, and a description of what is being purchased.",
+      "7. Execute the payment to the supplier for the approved restock order."
+    ],
+    "story": "It read 3 rows of your sheet, noted where it got to, for next time, asked you on Telegram \"Supplies are below minimum, but no items were found to restock. Total cost: 0.00 Approv...\" (you answered \"Yes\") and found \"owner approved restock\", so there was nothing more to do."
+  },
+  {
+    "id": "hackathon",
+    "stage": 2,
+    "passed": false,
+    "plan": [
+      "1. Get previously checked row IDs",
+      "2. Read all submissions from Sheet",
+      "3. For each submission",
+      "  4. Judge one requirement: requirement met or requirement not met",
+      "  5. Count met requirements and determine status",
+      "  6. Prepare Status and Reasons for update",
+      "  7. Write Status and Reasons to the submission row",
+      "8. Compile all submission results",
+      "9. Prepare Telegram summary message",
+      "10. Send summary of all submissions checked in this run",
+      "11. Prepare what it writes",
+      "12. Save the list of newly checked row IDs to memory"
+    ],
+    "story": null
+  }
+]

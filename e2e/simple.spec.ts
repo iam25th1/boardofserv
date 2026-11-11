@@ -5,9 +5,9 @@ import { FIRST_VISIT } from "./warm";
 
 // Making an agent simply, in Chromium and WebKit at desktop and phone
 // width, signed in, with the hackathon submission checker answered locally
-// (e2e/agent.ts): New agent always in view on the chat, the planned agent's
-// card with Test it, Fix it, Publish and Details, and the agent's plain
-// page, its problem fixed with one button and its details a switch away.
+// (e2e/agent.ts): New agent in view on the chat, an agent made before the
+// chat had its stages picking up at its steps, and the agent's plain page,
+// its problem fixed with one button and its details a switch away.
 
 async function press(page: Page, target: Locator): Promise<void> {
   if (test.info().project.use.hasTouch) await target.tap();
@@ -43,17 +43,18 @@ test("the chat always has New agent in view, and it starts a new chat", async ({
   await expect(button).toBeVisible();
 });
 
-test("a planned agent's card says where it stands, and tests it into a story", async ({ context, page }) => {
+test("an agent made before the stages picks up at its steps, with Looks right and Details", async ({ context, page }) => {
   await signIn(context);
-  const { asked } = await withHackathon(context);
+  await withHackathon(context);
   await openChat(page);
-  await expect(page.getByText("Ready to test")).toBeVisible();
-  for (const name of ["Test it", "Fix it", "Publish"]) await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Details" })).toHaveAttribute("href", `/app/agents/${AGENT_ID}?details=1`);
-  await press(page, page.getByRole("button", { name: "Test it", exact: true }));
-  await expect(page.getByText(STORY)).toBeVisible();
-  await expect(page.getByText("Tested, ready to publish")).toBeVisible();
-  expect(asked.map((a) => a.url)).toEqual([`/api/agents/${AGENT_ID}/test`]);
+  const steps = page.getByRole("region", { name: "2. Steps" });
+  await expect(steps.getByRole("listitem")).toHaveCount(5);
+  await expect(steps.getByRole("listitem").first()).toContainText("Read the submissions sheet and pick out the ones not checked yet");
+  await expect(steps.getByRole("button", { name: "Looks right" })).toBeVisible();
+  await expect(steps.getByRole("link", { name: "Details" })).toHaveAttribute("href", `/app/agents/${AGENT_ID}?details=1`);
+  // The old card's buttons are gone: the stages are the way on.
+  for (const name of ["Plan", "Test it", "Fix it", "Publish"]) await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Making your agent" }).locator('[aria-current="step"]')).toContainText("Steps");
 });
 
 test("the agent page is plain until Show details, which shows everything", async ({ context, page }) => {
@@ -70,10 +71,12 @@ test("the agent page is plain until Show details, which shows everything", async
   for (const word of ["sheets.read", "sheets.update", "telegram.send", "submissions_sheet", "status_updates", "{", "decision", "test bench"]) expect(text, word).not.toContain(word);
   await press(page, page.getByRole("button", { name: "Test it" }));
   await expect(page.getByText(STORY)).toBeVisible();
-  // Show details: the full view, and the choice kept for the maker.
+  // Show details: the full view, kept for this agent only.
   await press(page, page.getByRole("switch", { name: "Show details" }));
   await expect(page.getByRole("heading", { name: "Test bench" })).toBeVisible();
-  expect(asked.find((a) => a.url === "/api/account/details")?.body).toEqual({ on: true });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Test bench" })).toBeVisible(FIRST_VISIT);
+  expect(asked.find((a) => a.url === "/api/account/details")).toBeUndefined();
 });
 
 test("a problem shows as one sentence, and Fix this has SERV fix it with no typing", async ({ context, page }) => {

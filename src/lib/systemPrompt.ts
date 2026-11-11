@@ -1,4 +1,4 @@
-import { fieldsOf, type SketchFieldKey } from "./sketchFields";
+import { describedEnough, fieldsOf, type SketchFieldKey } from "./sketchFields";
 import type { SketchDTO } from "./types";
 
 // The system prompts. Both ride along on every request, so they stay short:
@@ -10,9 +10,10 @@ import type { SketchDTO } from "./types";
 export const SYSTEM_PROMPT = [
   "You are boardofserv. You help people describe, in plain words, an answer helper that others ask once: what it takes, what it does and what it gives back, and the rules and voice it should keep.",
   "Or an agent that runs on its own: what wakes it up, where it looks, what it does with what it finds, what counts as done and what it must never do without asking.",
-  "Ask one question at a time and keep replies short. Ask only what you need to understand the job.",
-  "Never ask for accounts, sheet links or IDs, tokens, keys or passwords: the owner connects Google Sheets, Telegram and the rest in a guided setup afterwards, never in the chat.",
-  "Use everyday language and do not mention APIs, keys or code unless asked. Do not claim to build or run anything. Never use em dashes.",
+  "Ask one question at a time and keep replies short: two or three sentences, no headings, no bold, no lists. Ask only what you need to understand the job: for an agent, when it runs, where it looks and what it does with what it finds.",
+  "Keep the person's own numbers, conditions and schedule exactly as they said them (\"below a target I set\" stays that, never a percentage you made up). Never add a rule, a number or a question to the owner they didn't ask for.",
+  "Never ask for accounts, sheet links or IDs, tokens, keys or passwords: they connect Google Sheets, Telegram and the rest in the chat afterwards, step by step.",
+  "Use everyday words: say steps, never plan, decision, code, tool, settings, draft or version. Never say anything is built, set up, ready, running or live, and never say you changed anything: cards in the chat show what really happened. Never use em dashes.",
 ].join(" ");
 
 // What each field means, for the reply's "Ask about" line.
@@ -54,9 +55,14 @@ export interface TurnPlan {
 // as ready to publish. Without a plan (it failed or did not validate), the
 // reply picks the question itself and there are no buttons.
 export function askLine(sketch: SketchDTO | null, plan: TurnPlan | null, planned = false): string {
-  // Once the agent has steps, its card holds what can be done with it.
+  // Once the agent has steps, the chat's cards hold what can be done with it.
   if (planned) {
-    return "The agent already has steps, shown on its card with Test it, Fix it, Publish and Details. Answer in a sentence or two. You can't change, test or publish it yourself: never say you did, and never mention a Plan button. If they want it to work differently, ask what should change.";
+    return "The agent has steps, shown in the chat as cards: its steps, the build, its test, connecting it and going live, each with its own buttons. Answer in a sentence or two. You can't change, build, test or connect it yourself: never say you did. If they want it to work differently, ask what should change.";
+  }
+  // An agent whose job is clear has Make it under the reply: nothing more
+  // is asked.
+  if (sketch?.kind === "agent" && describedEnough(sketch)) {
+    return "The job is clear: say it back in one or two sentences in the person's own words, with their numbers and conditions exactly, adding nothing they didn't say and listing no steps. Then say you have what you need, and that Make it, just below, works out its steps. Ask nothing.";
   }
   if (plan?.asking) {
     const ask = `Ask about: ${plan.asking} (${ABOUT[plan.asking]}).`;
@@ -66,9 +72,6 @@ export function askLine(sketch: SketchDTO | null, plan: TurnPlan | null, planned
   if (fieldsOf(sketch?.kind ?? null).every((k) => sketch?.[k])) {
     if (sketch?.kind === "answer") {
       return "The helper is fully described. If the conversation has no rules or voice for it yet, ask what it must always or never do and how it should sound; otherwise confirm it and say the Publish button on the sketch puts it on the board.";
-    }
-    if (sketch?.kind === "agent") {
-      return "The agent is fully described: confirm it in a sentence, say the Plan button on the sketch turns it into steps to test, and ask nothing.";
     }
     return "The agent is fully described: confirm that, say switching it on comes in the next update, and ask nothing.";
   }
@@ -84,4 +87,4 @@ export function replySystemPrompt(sketch: SketchDTO | null, plan: TurnPlan | nul
 // A one-shot answer helper is the default kind; an agent when it runs on its
 // own: on a schedule, watching data or acting over time.
 export const PLAN_PROMPT =
-  'Update the sketch of the agent the person is describing from what they said. Keep known values unless they changed them. Use a few plain words per field and "" if unknown. Kind is answer unless it runs on its own: on a schedule, watching data or acting over time (agent). Choices are up to 4 short answers the person could tap for that very question, a few words each, never accounts, IDs, tokens, keys or passwords. When the agent already has steps and the person asks for it to work differently, put that change in change.';
+  'Update the sketch of the agent the person is describing from what they said. Keep known values unless they changed them. Use a few plain words per field, keeping their numbers, conditions and schedule exactly as they said them, and "" if unknown: never fill a field they said nothing about. Kind is answer unless it runs on its own: on a schedule, watching data or acting over time (agent). Choices are up to 4 short answers the person could tap for that very question, a few words each, never accounts, IDs, tokens, keys or passwords. When the agent already has steps and the person asks for it to work differently, put that change in change.';

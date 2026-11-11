@@ -83,3 +83,30 @@ export function restockBench(): BenchData {
     decisions: { check_total: "within", approved: "yes" },
   };
 }
+
+// The same agent as the planner shapes it now (planRepairs.ts): whether
+// the order is big goes by the way "Compare suppliers" works out, the
+// question to the owner is written for it alone, and the owner's yes goes
+// by their answer. What SERV is mocked to plan in the route tests, so the
+// planner's repairs leave it as it is.
+export const RESTOCK_PLANNED = {
+  ...RESTOCK_WIRE,
+  steps: RESTOCK_WIRE.steps.map((s) => {
+    if (s.id === "compare") {
+      return {
+        ...s,
+        outputs: ["order", "order_rows", "total_way", "question"],
+        description: `${s.description} Return order_rows as sheets.write's arguments. Also return total_way: "over" when order.total_usdc is over rules.approval_over_usdc, else "within"; and question as telegram.ask's arguments { question, choices }: the order's total, asking whether to place it, with the choices Yes and No.`,
+      };
+    }
+    if (s.id === "check_total") return { ...s, inputs: ["total_way"], from: "total_way" };
+    if (s.id === "ask_owner") return { ...s, inputs: ["question"] };
+    if (s.id === "approved") return { ...s, from: "answer" };
+    return s;
+  }),
+};
+
+export const COMPARE_PLANNED = COMPARE.replace(
+  "return { order: { lines, total_usdc: total }, order_rows: { sheet: input.settings.orders_sheet, rows: orderRows } };",
+  'return { order: { lines, total_usdc: total }, order_rows: { sheet: input.settings.orders_sheet, rows: orderRows }, total_way: total > Number(input.rules.approval_over_usdc) ? "over" : "within", question: { question: "Place an order of " + total + " USDC?", choices: ["Yes", "No"] } };',
+);

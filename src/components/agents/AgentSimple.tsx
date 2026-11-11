@@ -30,12 +30,12 @@ export interface SimpleApi {
 
 // Where it stands, in a few plain words.
 export function pageStatus(agent: AgentSummaryDTO): string {
-  if (agent.buildState === "planning") return "Planning its steps...";
-  if (agent.buildState === "fixing") return "Changing the plan...";
-  if (agent.buildState === "writing") return "Writing its steps...";
+  if (agent.buildState === "planning") return "Working out its steps...";
+  if (agent.buildState === "fixing") return "Changing its steps...";
+  if (agent.buildState === "writing") return "Building its steps...";
   if (agent.problem) return "Something needs fixing";
-  if (agent.state === "published") return `Published, version ${agent.version}`;
-  return agent.test?.status === "passed" ? "Draft, tested" : "Draft, not tested yet";
+  if (agent.state === "published") return "Ready to run";
+  return agent.test?.status === "passed" ? "Tried, not ready to run yet" : "Not tried yet";
 }
 
 export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api: SimpleApi; onData: (next: AgentBuilderDTO) => void }) {
@@ -171,7 +171,7 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
             {busy === "publish" ? "Publishing..." : "Publish"}
           </Button>
         ) : (
-          <span className={styles.quiet}>Published, version {agent.version}.</span>
+          <span className={styles.quiet}>Ready to run.</span>
         )}
         {api.setup && data.runnable && (
           <Button variant={installing ? "ghost" : "primary"} onClick={() => setInstalling(!installing)} aria-expanded={installing}>
@@ -187,7 +187,7 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
 
       {installing && api.setup && data.runnable && (
         <section className={styles.section} aria-label="Run it for real">
-          <h2>Run version {data.runnable.version} for real</h2>
+          <h2>Run it for real</h2>
           <SetupFlow
             agentId={agent.id}
             setup={setupShapeOf(data.runnable.definition)}

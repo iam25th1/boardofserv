@@ -12,6 +12,8 @@ const api = vi.hoisted(() => ({
   emit: null as null | ((e: ChatEvent) => void),
   sent: [] as Record<string, unknown>[],
   planned: [] as string[],
+  // What the conversation holds, as the server would send it again.
+  conversation: { messages: [] as unknown[], sketch: null as unknown, agent: null as unknown },
 }));
 
 vi.mock("@privy-io/react-auth", () => ({ usePrivy: () => ({ logout: () => {} }) }));
@@ -19,12 +21,15 @@ vi.mock("@/lib/useOpenServLink", () => ({ useOpenServLink: () => async () => {} 
 vi.mock("@/lib/publicApi", () => ({ fetchPayments: async () => ({ enabled: false, currencies: [] }), fetchHelper: async () => ({ missing: true }) }));
 vi.mock("@/lib/useApi", () => {
   const client = {
-    listConversations: async () => [],
+    // A first visit has none; once a message is sent, that chat.
+    listConversations: async () => (api.sent.length ? [{ id: "c1", title: "First chat", sketchName: null, publishedSlug: null, createdAt: "2026-11-11T09:00:00.000Z", updatedAt: "2026-11-11T09:00:00.000Z" }] : []),
     getAccount: async () => api.account,
-    getConversation: async () => ({ messages: [], sketch: null }),
-    planAgent: async (conversationId: string) => {
+    getConversation: async () => api.conversation,
+    makeIt: async (conversationId: string) => {
       api.planned.push(conversationId);
-      return { id: "a1", version: 1, state: "draft", buildState: "planning", buildNote: null, steps: [] };
+      const agent = { id: "a1", version: 1, state: "draft", buildState: "planning", buildNote: null, steps: [], test: null, problem: null, plain: [] };
+      api.conversation = { ...api.conversation, agent, messages: [...api.conversation.messages, { id: "k2", role: "assistant", content: "Working out the steps.", card: { stage: "steps", agentId: "a1" } }] };
+      return agent;
     },
     getAgent: async () => ({ id: "a1", version: 1, state: "draft", buildState: "planning", buildNote: null, steps: [] }),
     sendChat: (body: Record<string, unknown>, on: (e: ChatEvent) => void) => {
@@ -78,14 +83,16 @@ const ETH = { name: "ETH floor watch", kind: "watcher", watches: "ETH price", wh
 const answers = () => screen.queryByRole("group", { name: "Suggested answers" });
 
 describe("ChatShell", () => {
-  it("always shows New agent with its shortcut, and it starts a new chat", async () => {
+  it("shows New agent with its shortcut once there is a chat, and it starts a new chat", async () => {
     await renderShell();
-    const button = screen.getByRole("button", { name: /^New agent/ });
-    expect(button).toHaveAttribute("aria-keyshortcuts", "Meta+Shift+O Control+Shift+O");
+    // A first visit: nothing but the sentence, the examples and the way ahead.
+    expect(screen.queryByRole("button", { name: /^New agent/ })).toBeNull();
     fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "Check my sheet every morning" } });
     fireEvent.click(screen.getByLabelText("Send message"));
-    await emit({ type: "meta", conversationId: "c1", ...SERV }, { type: "delta", text: "Which sheet?" }, { type: "reply_end", messageId: "m1", ...SERV, choices: [] });
+    await emit({ type: "meta", conversationId: "c1", ...SERV }, { type: "delta", text: "Which sheet?" }, { type: "reply_end", messageId: "m1", ...SERV, choices: [] }, { type: "done", messageId: "m1", ...SERV });
     expect(screen.getByRole("log")).toHaveTextContent("Which sheet?");
+    const button = screen.getByRole("button", { name: /^New agent/ });
+    expect(button).toHaveAttribute("aria-keyshortcuts", "Meta+Shift+O Control+Shift+O");
     fireEvent.click(button);
     expect(screen.queryByRole("log")).toBeNull();
     // The shortcut does the same.
@@ -237,8 +244,10 @@ describe("ChatShell", () => {
     expect(screen.getByText("boardofserv has hit today's limit. It resets at midnight UTC.")).toHaveAttribute("role", "status");
   });
 
-  it("gives an agent its own dock with Plan, and keeps a helper's dock for a helper", async () => {
+  it("offers Make it as a card once an agent's job is clear, follows it to its steps, and keeps a helper's dock for a helper", async () => {
     await renderShell();
+    // The six stages, faint before the first message.
+    expect(screen.getByRole("navigation", { name: "Making your agent" })).toHaveAttribute("data-faint", "true");
     fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "Restock my fabric every morning" } });
     fireEvent.keyDown(screen.getByLabelText("Message boardofserv"), { key: "Enter" });
     const agentSketch = {
@@ -250,27 +259,39 @@ describe("ChatShell", () => {
       wakes: "every morning",
       looks: "the Stock sheet",
       handles: "orders what is low",
-      finish: "an order is recorded",
-      asks: "orders over 250 USDC",
-      setup: "the sheets",
-      remembers: "the last order",
+      finish: null,
+      asks: null,
+      setup: null,
+      remembers: null,
       asking: null,
     };
-    await emit({ type: "sketch", conversationId: "c1", sketch: agentSketch }, { type: "meta", conversationId: "c1", ...SERV }, { type: "done", messageId: "m1", ...SERV });
-    // The helper's dock (mocked here) is not used for an agent.
+    api.conversation = { messages: [{ id: "u1", role: "user", content: "Restock my fabric every morning" }, { id: "m1", role: "assistant", content: "Every morning it checks the Stock sheet." }, { id: "k1", role: "assistant", content: "I have what I need to make it.", card: { stage: "describe" } }], sketch: agentSketch, agent: null };
+    await emit(
+      { type: "sketch", conversationId: "c1", sketch: agentSketch },
+      { type: "meta", conversationId: "c1", ...SERV },
+      { type: "delta", text: "Every morning it checks the Stock sheet." },
+      { type: "reply_end", messageId: "m1", ...SERV, choices: [] },
+      { type: "card", conversationId: "c1", message: { id: "k1", role: "assistant", content: "I have what I need to make it.", card: { stage: "describe" }, createdAt: "2026-11-11T00:00:00.000Z" } },
+      { type: "done", messageId: "m1", ...SERV },
+    );
+    // No dock for an agent: its stages are cards in the chat.
     expect(screen.queryByTestId("dock")).toBeNull();
-    expect(screen.getByText("Ready to plan")).toBeInTheDocument();
+    const describe = screen.getByRole("region", { name: "1. Describe" });
+    expect(describe).toHaveTextContent("every morning");
+    expect(screen.queryByRole("button", { name: "Plan" })).toBeNull();
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Plan" }));
+      fireEvent.click(screen.getByRole("button", { name: "Make it" }));
     });
     expect(api.planned).toEqual(["c1"]);
-    expect(screen.getByText("Planning the steps...")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "2. Steps" })).toHaveTextContent("Working out the steps");
+    expect(screen.getByRole("navigation", { name: "Making your agent" })).not.toHaveAttribute("data-faint");
 
     // A helper's sketch keeps the helper's dock.
-    fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "Actually, a blurb writer" } });
+    api.conversation = { messages: [], sketch: null, agent: null };
+    fireEvent.click(screen.getByRole("button", { name: /^New agent/ }));
+    fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "A blurb writer" } });
     fireEvent.keyDown(screen.getByLabelText("Message boardofserv"), { key: "Enter" });
-    await emit({ type: "sketch", conversationId: "c1", sketch: { ...ETH, name: "Blurb writer", kind: "answer", asking: null } });
+    await emit({ type: "sketch", conversationId: "c2", sketch: { ...ETH, name: "Blurb writer", kind: "answer", asking: null } });
     expect(screen.getByTestId("dock")).toHaveTextContent("sketched Blurb writer");
-    expect(screen.queryByText("Planning the steps...")).toBeNull();
   });
 });

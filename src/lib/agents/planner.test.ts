@@ -50,7 +50,7 @@ describe("the test case", () => {
     expect(problems).not.toMatch(/saves to memory/);
     // Told back to the maker in plain words, never the step ids.
     const said = planFailure(planProblems((c as { definition: ReturnType<typeof hackathonDefinition> }).definition));
-    expect(said).toMatch(/^The plan didn't come together: it left a judgement to code instead of SERV, and it used a judgement step for counting or going through a list\./);
+    expect(said).toMatch(/^I couldn't work out the steps: it left a judgement to code instead of SERV, and it used a judgement step for counting or going through a list\./);
     expect(said).not.toMatch(/judge_row|any_new|more_rows/);
   });
 
@@ -216,7 +216,7 @@ describe("the self test", () => {
     const t = await selfTest({ definition: d, code: hackathonCode(d), testResult: sampled() }, { serv: null });
     expect(t.result.status).toBe("passed");
     expect(t.result.problems).toEqual([]);
-    expect(t.result.story).toBe("3 submissions checked: 2 passed, 1 rejected, summary sent.");
+    expect(t.result.story).toBe("Passed. 3 submissions checked: 2 passed, 1 rejected, summary sent.");
   });
 
   it("fails a plan whose summary covers only the last submission", async () => {
@@ -239,8 +239,7 @@ describe("the self test", () => {
     const t = await selfTest({ definition: bad.definition, code: hackathonCode(bad.definition, { find_new: FIND_NEW, tally: appending }), testResult: sampled(bad.definition) }, { serv: null });
     expect(t.result.status).toBe("failed");
     const said = t.result.problems.map((p) => p.text);
-    expect(said).toContain("It adds its results as new rows of the sheet it reads submissions from, so they would come back as new submissions.");
-    expect(said).toContain("Run again, it would go through the same submissions a second time: it should only take new ones.");
+    expect(said).toEqual(["It adds its results as new rows of the sheet it reads submissions from, so they would come back as new submissions."]);
     // That is the problem the maker sees, with Fix this handing it to SERV.
     expect(problemOf({ definition: bad.definition, code: {}, buildState: "idle", buildNote: null, testResult: t.result })).toMatchObject({ fix: "replan" });
   });

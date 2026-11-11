@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useApi } from "@/lib/useApi";
 import type { AccountDTO, AgentSummaryDTO, ConversationDTO } from "@/lib/types";
@@ -13,7 +13,10 @@ import { Composer } from "./Composer";
 import { EmptyState } from "./EmptyState";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { SketchDock } from "./SketchDock";
-import { AgentDock } from "./AgentDock";
+import { StageTracker } from "./journey/StageTracker";
+import { ConnectProblem, JourneyCardView, type JourneyApi } from "./journey/JourneyCards";
+import { stageOf, type JourneyCard, type Stage } from "@/lib/journey";
+import { describedEnough } from "@/lib/sketchFields";
 import { Chips } from "./Chips";
 import { PublishSheet, type PublishEdits } from "./PublishSheet";
 import { PriceFields, draftsOf, readPrices, type PriceDrafts } from "./PriceFields";
@@ -52,15 +55,8 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
   // The helper published from the active conversation, while it is on the
   // board, and the confirm sheet that publishes one.
   const [published, setPublished] = useState<PublicHelperDTO | null>(null);
-  // The agent built from the active conversation, as its dock shows it.
+  // The agent made in the active conversation, as its cards show it.
   const [agent, setAgent] = useState<AgentSummaryDTO | null>(null);
-  // What the agent's card is doing (Test it, Fix it, Publish), what the last
-  // of those came to when the agent doesn't say it itself, and the composer's
-  // hint after Fix it with nothing to fix: say what should change.
-  const [dockBusy, setDockBusy] = useState<"test" | "fix" | "publish" | null>(null);
-  const [dockSaid, setDockSaid] = useState<string | null>(null);
-  const [fixHint, setFixHint] = useState(false);
-  const [planning, setPlanning] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
@@ -80,6 +76,8 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
   const [refused, setRefused] = useState<string | null>(null);
   const [putBack, setPutBack] = useState<{ text: string; nonce: number } | null>(null);
 
+  // Where the conversation being opened was scrolled to when it was left.
+  const [restore, setRestore] = useState<{ key: string; top: number } | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
   // Deltas are gathered and applied once per animation frame, so a fast
   // stream renders (and dusts in) in a few batches, not a word at a time.
@@ -180,14 +178,14 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
       abortReply();
       setActiveId(id);
       activeRef.current = id;
+      remember(id);
+      setRestore({ key: id, top: scrollOf(id) });
       setError(null);
-      setDockSaid(null);
-      setFixHint(false);
       try {
         const { messages: rows, sketch: stored, published: helper, agent: builtAgent } = await api.getConversation(id);
         // Another conversation was opened while this one loaded.
         if (activeRef.current !== id) return;
-        setMessages(rows.map((m) => ({ id: m.id, role: m.role, content: m.content, source: m.source, sourceLabel: m.sourceLabel })));
+        setMessages(rows.map(toView));
         setSketch(stored);
         setPublished(helper ?? null);
         setAgent(builtAgent ?? null);
@@ -207,16 +205,47 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
     abortReply();
     setActiveId(null);
     activeRef.current = null;
+    remember(null);
     setMessages([]);
     setSketch(null);
     setPublished(null);
     setAgent(null);
-    setDockSaid(null);
-    setFixHint(false);
     setChips(null);
     setError(null);
     setTimeout(() => (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus(), 30);
   }, [abortReply]);
+
+  // Opening the chat: the conversation in the address (Back from another
+  // page, or the way back from Google), else the last one open, unless the
+  // maker last started a new one; never a blank chat they didn't ask for.
+  const opened = useRef(false);
+  useEffect(() => {
+    if (opened.current) return;
+    const asked = new URLSearchParams(window.location.search).get("c");
+    if (asked) {
+      opened.current = true;
+      void openConversation(asked);
+      return;
+    }
+    if (new URLSearchParams(window.location.search).has("new")) {
+      opened.current = true;
+      return;
+    }
+    let live = true;
+    api.listConversations().then(
+      (list) => {
+        if (!live || opened.current || activeRef.current) return;
+        opened.current = true;
+        const last = lastChat();
+        const pick = last === "" ? null : (list.find((c) => c.id === last) ?? list[0] ?? null);
+        if (pick) void openConversation(pick.id);
+      },
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [api, openConversation]);
 
   const run = useCallback(
     (body: { conversationId?: string; content?: string; regenerate?: boolean; editMessageId?: string }, sent?: { id: string; text: string }) => {
@@ -238,6 +267,7 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
         if (!activeId) {
           setActiveId(id);
           activeRef.current = id;
+          remember(id);
         }
       };
 
@@ -278,12 +308,13 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
           sketchTurnRef.current = turn;
           setSketch(e.sketch);
         } else if (e.type === "agent") {
-          // A change asked in the chat: the card follows it from here.
+          // A change asked in the chat: the cards follow it from here.
           adopt(e.conversationId);
-          if (convoId === activeRef.current) {
-            setDockSaid(null);
-            setAgent(e.agent);
-          }
+          if (convoId === activeRef.current) setAgent(e.agent);
+        } else if (e.type === "card") {
+          // Make it, under the reply that has what it needs.
+          adopt(e.conversationId);
+          if (convoId === activeRef.current) setMessages((prev) => [...prev.filter((m) => m.card?.stage !== "describe"), toView(e.message)]);
         } else if (e.type === "meta") {
           adopt(e.conversationId);
           live = { ...live, source: e.source, sourceLabel: e.label };
@@ -334,7 +365,6 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
 
   const send = useCallback(
     (text: string) => {
-      setFixHint(false);
       const optimistic: MessageView = { id: crypto.randomUUID(), role: "user", content: text };
       setMessages((prev) => [...prev, optimistic]);
       run({ conversationId: activeId ?? undefined, content: text }, { id: optimistic.id, text });
@@ -350,9 +380,10 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
   const regenerate = useCallback(() => {
     if (!activeId) return;
     setMessages((prev) => {
-      const idx = [...prev].reverse().findIndex((m) => m.role === "assistant");
+      const kept = prev.filter((m) => m.card?.stage !== "describe");
+      const idx = [...kept].reverse().findIndex((m) => m.role === "assistant" && !m.card);
       if (idx === -1) return prev;
-      return prev.slice(0, prev.length - 1 - idx);
+      return kept.slice(0, kept.length - 1 - idx);
     });
     run({ conversationId: activeId, regenerate: true });
   }, [activeId, run]);
@@ -451,74 +482,97 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
     [api, activeId, sketch, toast],
   );
 
-  // Plan the active conversation's agent. It builds in the background; the
-  // dock follows it until it settles.
-  const doPlan = useCallback(async () => {
-    const id = activeId;
+  // The journey in the chat (journey/JourneyCards.tsx): each card's action
+  // goes to the server, which puts the next card in; the conversation is
+  // read again to show it.
+  const reload = useCallback(async () => {
+    const id = activeRef.current;
     if (!id) return;
-    setPlanning(true);
     try {
-      const planned = await api.planAgent(id);
-      if (activeRef.current === id) setAgent(planned);
-    } catch (err) {
-      toast.show({ title: err instanceof Error ? err.message : "It could not be planned. Try again.", tone: "danger" });
-    } finally {
-      setPlanning(false);
+      const { messages: rows, agent: now } = await api.getConversation(id);
+      if (activeRef.current !== id) return;
+      setMessages((prev) => (sameCards(prev, rows) && prev.length === rows.length ? prev : rows.map(toView)));
+      setAgent(now ?? null);
+    } catch {
+      // The cards stay as they were; the next look tries again.
     }
-  }, [api, activeId, toast]);
+  }, [api]);
+  const cards = messages.filter((m) => m.card);
+  // An agent made before the chat had its stages (no cards): its card comes
+  // at the end, where the journey picks up again: its steps, with Looks
+  // right, or Make it once the job is clear.
+  const shown = useMemo<MessageView[]>(() => {
+    if (!activeId || cards.length) return messages;
+    const virtual: JourneyCard | null = agent?.steps.length ? { stage: "steps", agentId: agent.id } : !agent && describedEnough(sketch) ? { stage: "describe" } : null;
+    return virtual ? [...messages, { id: `card-${virtual.stage}`, role: "assistant", content: "", card: virtual }] : messages;
+  }, [activeId, cards.length, messages, agent, sketch]);
 
-  // The card's actions on the planned agent. Each answers with the agent as
-  // it is now; a failure says why on the card, never as a guess.
-  const cardAction = useCallback(
-    async (kind: "test" | "fix" | "publish", act: () => Promise<AgentSummaryDTO | null>, done?: string) => {
-      const id = activeId;
-      setDockBusy(kind);
-      setDockSaid(null);
-      try {
-        const next = await act();
-        if (next && activeRef.current === id) {
-          setAgent(next);
-          if (done) setDockSaid(done);
+  const at: Stage = stageOf(shown.map((m) => m.card));
+  const latestCard = cards.at(-1)?.card ?? null;
+  const live = Boolean(latestCard?.live?.installationId || latestCard?.live?.listed);
+  const journey = useMemo<JourneyApi>(
+    () => ({
+      makeIt: async () => {
+        const id = activeRef.current;
+        if (!id) return;
+        setAgent(await api.makeIt(id));
+        await reload();
+      },
+      looksRight: async () => {
+        if (!agent) return;
+        setAgent(await api.looksRight(agent.id));
+        await reload();
+      },
+      change: async (text: string) => {
+        if (!agent) return;
+        setAgent(await api.changeSteps(agent.id, text));
+        await reload();
+      },
+      fix: async (change: { message: string } | { step: string }) => {
+        if (!agent) return;
+        setAgent(await api.fixIt(agent.id, change));
+        await reload();
+      },
+      retry: async () => {
+        if (!agent) return;
+        await api.testAgent(agent.id, { journey: true });
+        await reload();
+      },
+      connect: async (answers: Parameters<JourneyApi["connect"]>[0]) => {
+        const id = activeRef.current;
+        if (!id) return;
+        try {
+          await api.connect(id, answers);
+        } catch (err) {
+          const errors = (err as { errors?: Record<string, string> | null }).errors;
+          if (errors) throw new ConnectProblem(err instanceof Error ? err.message : "Some answers need another look.", errors);
+          throw err;
         }
-      } catch (err) {
-        if (activeRef.current === id) setDockSaid(err instanceof Error ? err.message : "That didn't work. Try again.");
-      } finally {
-        setDockBusy(null);
-      }
-    },
-    [activeId],
+        await reload();
+      },
+      goLive: async (body: Parameters<JourneyApi["goLive"]>[0]) => {
+        if (!agent) return;
+        await api.goLive(agent.id, body);
+        await reload();
+      },
+      installation: api.getInstallation,
+      connections: api.listConnections,
+      telegramCode: api.telegramCode,
+      googleStart: api.googleStart,
+      inspectSheet: api.inspectSheet,
+    }),
+    [api, agent, reload],
   );
-  const doTest = useCallback(() => {
-    if (agent) void cardAction("test", async () => (await api.testAgent(agent.id)).agent);
-  }, [agent, api, cardAction]);
-  const doFix = useCallback(() => {
-    if (!agent) return;
-    const p = agent.problem;
-    // Nothing is wrong: the change is the maker's to say, in the chat.
-    if (!p) {
-      setFixHint(true);
-      (document.querySelector("[data-composer-input]") as HTMLTextAreaElement | null)?.focus();
-      return;
-    }
-    if (p.fix === "plan") return void doPlan();
-    void cardAction("fix", () => (p.fix === "rewrite" && p.step ? api.rewriteStep(agent.id, p.step) : api.fixAgent(agent.id, `Fix this: ${p.text}`)));
-  }, [agent, api, cardAction, doPlan]);
-  const doPublishAgent = useCallback(() => {
-    if (agent) void cardAction("publish", async () => (await api.publishAgent(agent.id)).agent, "Published. It's in testing on your agents page.");
-  }, [agent, api, cardAction]);
 
-  const building = agent !== null && ["planning", "writing", "fixing"].includes(agent.buildState);
-  const agentId = agent?.id ?? null;
+  // While something is under way (steps being worked out, built or tried),
+  // the cards are read again every two seconds until it settles.
+  const busyNow = agent !== null && ["planning", "writing", "fixing"].includes(agent.buildState);
+  const waiting = busyNow || (at === "try" && !agent?.test && agent?.buildState !== "idle");
   useEffect(() => {
-    if (!building || !agentId) return;
-    const timer = setInterval(() => {
-      api.getAgent(agentId).then(
-        (a) => setAgent((now) => (now?.id === agentId ? a : now)),
-        () => {},
-      );
-    }, 2000);
+    if (!waiting) return;
+    const timer = setInterval(() => void reload(), 2000);
     return () => clearInterval(timer);
-  }, [api, building, agentId]);
+  }, [waiting, reload]);
 
   const doUnpublish = useCallback(async () => {
     const c = conversations.find((x) => x.id === unpublishId);
@@ -599,6 +653,11 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
   }, [startNew]);
 
 
+  // Where this conversation is scrolled to, kept for coming back to it.
+  const keepScroll = useCallback((top: number) => {
+    if (activeRef.current) keepScrollOf(activeRef.current, top);
+  }, []);
+
   // The day's limits, from the account: own-key accounts have none.
   const blocked = refused ?? (account?.paused ? LIMIT_MESSAGE : account?.chat?.remaining === 0 ? chatLimitMessage(account.chat) : null);
   const notice = blocked ?? (account?.chat && account.chat.remaining < FEW_MESSAGES ? messagesLeft(account.chat.remaining) : null);
@@ -606,7 +665,9 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
   return (
     <div className={styles.app}>
       {/* The app shell has the top bar; the chat's own row holds its
-          conversations. */}
+          conversations. A first visit, with none yet, shows only the
+          sentence, the examples and the way ahead. */}
+      {(conversations.length > 0 || activeId || messages.length > 0) && (
       <div className={styles.row}>
         <AgentsPill
           ref={agentsRef}
@@ -637,18 +698,29 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
           )}
         </button>
       </div>
+      )}
+
+      {/* Making an agent, in six stages: faint until there is a job. */}
+      {sketch?.kind !== "answer" && <StageTracker at={at} live={live} faint={messages.length === 0 && !streaming} />}
 
       {messages.length === 0 && !streaming ? (
         <EmptyState onPick={send} disabled={busy || Boolean(blocked)} />
       ) : (
         <MessageList
-          messages={messages}
+          restore={restore}
+          onScrolled={keepScroll}
           streaming={streaming}
           error={error}
           busy={busy}
           onRetry={retry}
           onRegenerate={regenerate}
           onEdit={edit}
+          messages={shown}
+          renderCard={(m) =>
+            m.card && activeId ? (
+              <JourneyCardView card={m.card} latest={m.id === shown.filter((x) => x.card).at(-1)?.id} agent={agent} sketch={sketch} conversationId={activeId} api={journey} />
+            ) : null
+          }
           footer={
             chips && messages.at(-1)?.id === chips.messageId && !busy ? <Chips options={chips.options} onPick={send} /> : undefined
           }
@@ -659,7 +731,7 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
         conversationKey={activeId ?? "new"}
         busy={busy}
         disabled={Boolean(blocked) && !busy}
-        placeholder={blocked ? "Back after midnight UTC" : fixHint && agent ? "Say what should change, and I'll change the plan" : undefined}
+        placeholder={blocked ? "Back after midnight UTC" : PLACEHOLDER[at] ?? undefined}
         notice={notice}
         prefill={putBack?.text}
         prefillNonce={putBack?.nonce}
@@ -668,19 +740,10 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
         dock={
           fixture ? (
             <SketchDock sketch={fixture} canSwitch onToggle={(live) => setFixture({ ...fixture, live })} />
-          ) : sketch?.name && sketch.kind === "agent" ? (
-            <AgentDock
-              key={activeId ?? "new"}
-              sketch={sketch}
-              agent={agent}
-              sketching={sketchingTurn !== null}
-              onKind={(kind) => void doKind(kind)}
-              onPlan={() => void doPlan()}
-              planning={planning}
-              actions={{ onTest: doTest, onFix: doFix, onPublish: doPublishAgent, busy: dockBusy, said: dockSaid }}
-            />
-          ) : sketch?.name ? (
-            // Keyed by conversation: opening another one brings its dock in fresh.
+          ) : sketch?.name && sketch.kind !== "agent" && !agent ? (
+            // An answer helper's sketch, with Publish. Keyed by conversation:
+            // opening another one brings its dock in fresh. An agent's
+            // stages are cards in the chat instead.
             <SketchDock
               key={activeId ?? "new"}
               sketch={sketchFromDTO(sketch)}
@@ -794,4 +857,64 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
 function firstUpper(text: string | null | undefined): string {
   const t = (text ?? "").trim();
   return t ? t[0]!.toUpperCase() + t.slice(1) : "";
+}
+
+// A stored message as the list shows it, a stage card with its card.
+function toView(m: { id: string; role: "user" | "assistant"; content: string; source?: string | null; sourceLabel?: string | null; card?: JourneyCard | null }): MessageView {
+  return { id: m.id, role: m.role, content: m.content, source: m.source ?? null, sourceLabel: m.sourceLabel ?? null, card: m.card ?? null };
+}
+
+// Whether the stored messages show the same cards the list has: nothing to
+// redraw.
+function sameCards(shown: MessageView[], stored: { id: string; content: string; card?: JourneyCard | null }[]): boolean {
+  return shown.every((m, i) => m.id === stored[i]?.id && m.content === stored[i]?.content && JSON.stringify(m.card ?? null) === JSON.stringify(stored[i]?.card ?? null));
+}
+
+// What the composer invites at each stage.
+const PLACEHOLDER: Partial<Record<Stage, string>> = {
+  steps: "Ask anything, or say what should change",
+  build: "Ask anything while it builds",
+  try: "Ask anything, or say what's wrong",
+  connect: "Ask anything about connecting it",
+  live: "Ask anything about it",
+};
+
+// The conversation open now, in the address (so Back and a reload come back
+// to it) and remembered for the next time the chat opens; null for a new
+// one, which the chat then opens blank.
+const LAST_CHAT = "bos-last-chat";
+function remember(id: string | null): void {
+  try {
+    window.history.replaceState(window.history.state, "", id ? `/app/chat?c=${encodeURIComponent(id)}` : "/app/chat?new=1");
+  } catch {
+    // An address that can't change: Back still comes to the chat.
+  }
+  try {
+    window.localStorage.setItem(LAST_CHAT, id ?? "");
+  } catch {
+    // Private windows: the chat opens on the newest conversation instead.
+  }
+}
+function lastChat(): string | null {
+  try {
+    return window.localStorage.getItem(LAST_CHAT);
+  } catch {
+    return null;
+  }
+}
+
+// Where each conversation was scrolled to, for this tab.
+function scrollOf(id: string): number {
+  try {
+    return Number(window.sessionStorage.getItem(`bos-scroll:${id}`) ?? "-1");
+  } catch {
+    return -1;
+  }
+}
+function keepScrollOf(id: string, top: number): void {
+  try {
+    window.sessionStorage.setItem(`bos-scroll:${id}`, String(Math.round(top)));
+  } catch {
+    // Without storage it opens at the latest message.
+  }
 }

@@ -28,6 +28,7 @@ export function detailsOf(wire: Wire, ids: string[]): Wire {
       description: s.description ?? "",
       tools: s.tools ?? [],
       prompt: s.prompt ?? "",
+      from: s.from ?? "",
       outcomes: s.outcomes ?? [],
       action: s.action ?? "",
       otherwise: s.otherwise ?? "",

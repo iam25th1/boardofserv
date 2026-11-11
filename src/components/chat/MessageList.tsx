@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Message, type MessageView } from "./Message";
 import { Thinking } from "./Thinking";
 import { Button } from "@/components/ui";
@@ -23,19 +23,42 @@ interface Props {
   onRegenerate?: () => void;
   onEdit?: (id: string, content: string) => void;
   footer?: React.ReactNode;
+  // A message that is a stage card, drawn by the chat (journey).
+  renderCard?: (m: MessageView) => React.ReactNode;
+  // Where the conversation was scrolled to when it was left, to go back to.
+  restore?: { key: string; top: number } | null;
+  onScrolled?: (top: number) => void;
 }
 
-export function MessageList({ messages, streaming, error, busy, onRetry, onRegenerate, onEdit, footer }: Props) {
+export function MessageList({ messages, streaming, error, busy, onRetry, onRegenerate, onEdit, footer, renderCard, restore, onScrolled }: Props) {
   const scroller = useRef<HTMLDivElement>(null);
   const jumpRef = useRef<HTMLDivElement>(null);
   const [atBottom, setAtBottom] = useState(true);
+
+  // Back in a conversation: where it was scrolled to, once, instead of
+  // the bottom.
+  const restored = useRef<string | null>(null);
+  const skipPin = useRef(false);
 
   const checkBottom = useCallback(() => {
     const el = scroller.current;
     if (!el) return;
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
     setAtBottom(gap < 80);
-  }, []);
+    onScrolled?.(el.scrollTop);
+  }, [onScrolled]);
+
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el || !restore || restored.current === restore.key || !messages.length) return;
+    restored.current = restore.key;
+    // Never scrolled here before in this tab: the latest message.
+    if (restore.top < 0) return;
+    el.scrollTop = restore.top;
+    skipPin.current = true;
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setAtBottom(gap < 80);
+  }, [restore, messages.length]);
 
   const scrollToBottom = useCallback((smooth = true) => {
     const el = scroller.current;
@@ -45,6 +68,10 @@ export function MessageList({ messages, streaming, error, busy, onRetry, onRegen
 
   // Stay pinned to the bottom while content grows, unless the user scrolled up.
   useEffect(() => {
+    if (skipPin.current) {
+      skipPin.current = false;
+      return;
+    }
     if (atBottom) scrollToBottom(false);
   }, [messages, streaming?.content, atBottom, scrollToBottom]);
 
@@ -53,7 +80,9 @@ export function MessageList({ messages, streaming, error, busy, onRetry, onRegen
   }, [atBottom]);
 
   const lastUserId = [...messages].reverse().find((m) => m.role === "user")?.id;
-  const lastAssistantId = [...messages].reverse().find((m) => m.role === "assistant")?.id;
+  // A reply can be made again only when no stage card has come after it.
+  const lastShown = [...messages].reverse().find((m) => m.role === "assistant" && m.card?.stage !== "describe");
+  const lastAssistantId = lastShown && !lastShown.card ? lastShown.id : undefined;
 
   return (
     <div className={styles.wrap}>
@@ -61,7 +90,10 @@ export function MessageList({ messages, streaming, error, busy, onRetry, onRegen
         <div className={styles.column}>
           {/* One keyed list, so a streamed reply settles in place when it is done. */}
           {[
-            ...messages.map((m) => (
+            ...messages.map((m) =>
+              m.card && renderCard ? (
+                <div key={m.clientKey ?? m.id}>{renderCard(m)}</div>
+              ) : (
               <Message
                 key={m.clientKey ?? m.id}
                 message={m}
@@ -70,7 +102,8 @@ export function MessageList({ messages, streaming, error, busy, onRetry, onRegen
                 onRegenerate={onRegenerate}
                 onEdit={(content) => onEdit?.(m.id, content)}
               />
-            )),
+              ),
+            ),
             // Waiting before the first token: the scribble. Then the reply.
             streaming &&
               (streaming.content === "" ? (

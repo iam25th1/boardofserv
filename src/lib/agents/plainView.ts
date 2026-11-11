@@ -35,7 +35,14 @@ export function plain(text: string): string {
 // its title, with a decision's outcomes or an action's job beside it.
 export function stepLine(step: AgentStep, d: AgentDefinition): string {
   if (step.plain) return plain(step.plain);
-  if (step.kind === "decision") return `${plain(step.title)}: ${step.outcomes.map((o) => plain(o.label).toLowerCase()).join(" or ")}`;
+  if (step.kind === "decision") {
+    // A question with one way that ends the run reads as the question and
+    // when it stops: "Did you say yes? If no, it stops there."
+    const title = plain(step.title);
+    const ends = step.outcomes.filter((o) => o.next === null);
+    if (title.endsWith("?") && step.outcomes.length === 2 && ends.length === 1 && !step.each) return `${title} If ${plain(ends[0]!.label).toLowerCase()}, it stops there.`;
+    return `${title.replace(/\?$/, "")}: ${step.outcomes.map((o) => plain(o.label).toLowerCase()).join(" or ")}`;
+  }
   if (step.kind === "action") {
     const action = d.actions.find((a) => a.id === step.action);
     return action ? plain(action.description) : plain(step.title);

@@ -1,0 +1,135 @@
+.tracker {
+  position: relative;
+  width: 100%;
+  max-width: var(--col);
+  margin: 0 auto;
+  padding: var(--s-2) var(--gutter) var(--s-3);
+  transition: opacity var(--dur-slow) var(--ease);
+}
+
+.tracker[data-faint="true"] {
+  opacity: 0.45;
+}
+
+/* The chalk line runs through the middle of the dots: a dashed track, and
+   the drawn part over it, as far as the stage it is at. */
+.line {
+  position: absolute;
+  left: calc(var(--gutter) + 14px);
+  right: calc(var(--gutter) + 14px);
+  top: calc(var(--s-2) + 13px);
+  height: 0;
+  border-top: 2px dashed var(--line);
+}
+
+.drawn {
+  position: absolute;
+  left: 0;
+  top: -2px;
+  display: block;
+  height: 2px;
+  width: 0;
+  border-radius: var(--r-full);
+  background: var(--chalk-2);
+}
+
+/* Dots evenly spaced, so the line reaches each one exactly; each name sits
+   under its dot, the first and last kept inside the edges. */
+.stops {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  list-style: none;
+  margin: 0;
+  padding: 0 0 22px;
+}
+
+.stops li {
+  position: relative;
+  width: 28px;
+}
+
+.dot {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-full);
+  border: var(--stroke) dashed var(--chalk-3);
+  background: var(--slate);
+  color: var(--chalk-3);
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  line-height: 1;
+}
+
+.dot svg path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+[data-state="done"] .dot {
+  border-style: solid;
+  border-color: var(--chalk-2);
+  color: var(--chalk-2);
+}
+
+[data-state="now"] .dot {
+  border-style: solid;
+  border-color: var(--chalk);
+  background: var(--chalk);
+  color: var(--slate);
+}
+
+.name {
+  position: absolute;
+  top: 34px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: var(--t-2xs);
+  color: var(--chalk-3);
+  white-space: nowrap;
+}
+
+.stops li:first-child .name {
+  left: 0;
+  transform: none;
+}
+
+.stops li:last-child .name {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+[data-state="done"] .name {
+  color: var(--chalk-2);
+}
+
+[data-state="now"] .name {
+  color: var(--chalk);
+  font-weight: var(--w-semibold);
+}
+
+@media (max-width: 420px) {
+  .name {
+    top: 30px;
+    font-size: 0.6875rem;
+  }
+  .stops li {
+    width: 24px;
+  }
+  .dot {
+    width: 24px;
+    height: 24px;
+    font-size: var(--t-base);
+  }
+  .line {
+    left: calc(var(--gutter) + 12px);
+    right: calc(var(--gutter) + 12px);
+    top: calc(var(--s-2) + 11px);
+  }
+}

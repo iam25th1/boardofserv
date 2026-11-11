@@ -47,15 +47,15 @@ export const SKETCH_SCHEMA = {
       wakes: text("agent: what wakes it up (a schedule, a value it checks, a message)"),
       looks: text("agent: where it looks (sheets, sites, messages)"),
       handles: text("agent: what it does with what it finds"),
-      finish: text("agent: what counts as done"),
-      asks: text("agent: what it must never do without asking the owner"),
+      finish: text("agent: only if the person says it: what counts as done. Never asked"),
+      asks: text("agent: only if the person says it: what it must ask the owner before doing. Never asked, never guessed"),
       setup: text("agent: only if the person says it: what they will set up for it. Never asked"),
       remembers: text("agent: only if the person says it: what it remembers between jobs. Never asked"),
       asking: {
         type: "string",
         enum: [...SKETCH_FIELDS, "none"],
         description:
-          "most important empty field to ask next: takes, does, gives for answer; wakes, looks, handles, finish, asks for agent (never setup or remembers); none if all set",
+          "most important empty field to ask next: takes, does, gives for answer; wakes, looks, handles for agent (never finish, asks, setup or remembers); none if all set",
       },
       choices: { type: "array", items: { type: "string" }, description: "up to 4 short answers to that very question, a few words each; never accounts, IDs, tokens, keys or passwords" },
       change: text("only when the agent already has steps: the change to how it works the person asks for, in their own words; else empty"),
