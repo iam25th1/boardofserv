@@ -9,7 +9,7 @@ describe("the toolbox", () => {
   it("declares every tool, with a signature for Dolphin and whether it changes anything", () => {
     expect(Object.keys(TOOLS).sort()).toEqual([...TOOL_NAMES].sort());
     expect(TOOLS["telegram.ask"].signature).toBe("tools.telegram.ask({ question: string, choices?: string[] }): Promise<{ answer: string | null }>");
-    expect(TOOL_NAMES.filter((t) => TOOLS[t].sideEffect)).toEqual(["sheets.write", "telegram.send", "telegram.ask", "wallet.pay"]);
+    expect(TOOL_NAMES.filter((t) => TOOLS[t].sideEffect)).toEqual(["sheets.write", "sheets.update", "telegram.send", "telegram.ask", "wallet.pay"]);
     expect(toolTypes(["sheets.read", "memory.get"]).split("\n")).toHaveLength(2);
     expect(toolTypes([])).toMatch(/no tools/);
   });
@@ -26,7 +26,8 @@ describe("the mocks", () => {
   it("answer from the bench's data, on a copy the run can change", async () => {
     const bench = restockBench();
     const tools = new MockTools(bench);
-    expect(await tools.call("sheets.read", { sheet: "Stock" })).toEqual({ rows: bench.sheets.Stock });
+    // Each row comes with its number in the sheet (the header is row 1).
+    expect(await tools.call("sheets.read", { sheet: "Stock" })).toEqual({ rows: bench.sheets.Stock!.map((r, i) => ({ ...r, _row: i + 2 })) });
     expect(await tools.call("sheets.write", { sheet: "Orders", rows: [{ fabric: "Linen, natural", metres: 36 }] })).toEqual({ written: 1 });
     expect(tools.sheets.Orders).toEqual([{ fabric: "Linen, natural", metres: 36 }]);
     expect(bench.sheets.Orders).toEqual([]);

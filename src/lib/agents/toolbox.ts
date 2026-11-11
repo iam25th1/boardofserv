@@ -17,6 +17,9 @@ export type Row = z.infer<typeof row>;
 export const TOOL_ARGS = {
   "sheets.read": z.object({ sheet: z.string().min(1).max(80) }),
   "sheets.write": z.object({ sheet: z.string().min(1).max(80), rows: z.array(row).max(500), mode: z.enum(["append", "replace"]).optional() }),
+  // Rows already in the sheet, each by its number (row 1 is the header), and
+  // the named columns to write into it.
+  "sheets.update": z.object({ sheet: z.string().min(1).max(80), updates: z.array(z.object({ row: z.number().int().min(2).max(100_000), values: row })).min(1).max(500) }),
   "web.fetch": z.object({ url: z.string().url().max(2000) }),
   "web.search": z.object({ query: z.string().min(1).max(300) }),
   "telegram.send": z.object({ text: z.string().min(1).max(4000) }),
@@ -44,14 +47,20 @@ export interface ToolInfo {
 
 export const TOOLS: Record<ToolName, ToolInfo> = {
   "sheets.read": {
-    summary: "Read every row of a sheet.",
-    signature: "tools.sheets.read({ sheet: string }): Promise<{ rows: Array<Record<string, string | number | boolean | null>> }>",
+    summary: "Read every row of a sheet; each row has _row, its number in the sheet.",
+    signature: "tools.sheets.read({ sheet: string }): Promise<{ rows: Array<Record<string, string | number | boolean | null> & { _row: number }> }>",
     sideEffect: false,
     risk: "read",
   },
   "sheets.write": {
     summary: "Add rows to a sheet, or replace all of its rows.",
     signature: 'tools.sheets.write({ sheet: string, rows: Array<Record<string, string | number | boolean | null>>, mode?: "append" | "replace" }): Promise<{ written: number }>',
+    sideEffect: true,
+    risk: "write",
+  },
+  "sheets.update": {
+    summary: "Write named columns of rows already in a sheet, each row by its number (_row from sheets.read).",
+    signature: "tools.sheets.update({ sheet: string, updates: Array<{ row: number, values: Record<string, string | number | boolean | null> }> }): Promise<{ updated: number }>",
     sideEffect: true,
     risk: "write",
   },
@@ -154,6 +163,12 @@ export function memoryProblem(fields: readonly MemoryField[], key: string, value
   return null;
 }
 
+// A row as written to a sheet: a row's number (_row, from sheets.read) is
+// where it is, never a column of its own.
+export function withoutRowNumber<T extends Record<string, unknown>>(r: T): T {
+  return Object.fromEntries(Object.entries(r).filter(([k]) => k !== "_row")) as T;
+}
+
 // The mocks: one set per run, on a copy of the bench's data, so a run can
 // write sheets, remember values and pay without changing the bench. Every
 // call is logged for the test bench.
@@ -209,12 +224,23 @@ export class MockTools {
         const a = args as z.infer<(typeof TOOL_ARGS)["sheets.read"]>;
         const rows = d.sheets[a.sheet];
         if (!rows) throw new ToolError(tool, `There is no sheet called "${a.sheet}".`);
-        return { rows: structuredClone(rows) };
+        // Each row with its number in the sheet, as Google's rows are: the
+        // header is row 1.
+        return { rows: structuredClone(rows).map((r, i) => ({ ...r, _row: i + 2 })) };
       }
       case "sheets.write": {
         const a = args as z.infer<(typeof TOOL_ARGS)["sheets.write"]>;
-        d.sheets[a.sheet] = a.mode === "replace" ? a.rows : [...(d.sheets[a.sheet] ?? []), ...a.rows];
+        const rows = a.rows.map(withoutRowNumber);
+        d.sheets[a.sheet] = a.mode === "replace" ? rows : [...(d.sheets[a.sheet] ?? []), ...rows];
         return { written: a.rows.length };
+      }
+      case "sheets.update": {
+        const a = args as z.infer<(typeof TOOL_ARGS)["sheets.update"]>;
+        const rows = d.sheets[a.sheet];
+        if (!rows) throw new ToolError(tool, `There is no sheet called "${a.sheet}".`);
+        for (const u of a.updates) if (!rows[u.row - 2]) throw new ToolError(tool, `"${a.sheet}" has no row ${u.row}: it has rows 2 to ${rows.length + 1}.`);
+        for (const u of a.updates) rows[u.row - 2] = { ...rows[u.row - 2], ...withoutRowNumber(u.values) };
+        return { updated: a.updates.length };
       }
       case "web.fetch": {
         const a = args as z.infer<(typeof TOOL_ARGS)["web.fetch"]>;

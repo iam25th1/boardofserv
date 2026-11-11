@@ -33,6 +33,7 @@ export const AGENT_FORMAT = 1;
 export const TOOL_NAMES = [
   "sheets.read",
   "sheets.write",
+  "sheets.update",
   "web.fetch",
   "web.search",
   "telegram.send",
@@ -45,7 +46,7 @@ export type ToolName = (typeof TOOL_NAMES)[number];
 
 // Tools that change something outside the run: a step may use one only when
 // the agent declares an action with it.
-export const SIDE_EFFECT_TOOLS: readonly ToolName[] = ["sheets.write", "telegram.send", "telegram.ask", "wallet.pay"];
+export const SIDE_EFFECT_TOOLS: readonly ToolName[] = ["sheets.write", "sheets.update", "telegram.send", "telegram.ask", "wallet.pay"];
 
 // What a declared action may use: tools that change something. Reading and
 // working things out happen in code steps.
@@ -54,7 +55,7 @@ export const ACTION_TOOLS: readonly ToolName[] = [...SIDE_EFFECT_TOOLS, "memory.
 // Actions whose tool needs exact arguments: the step's first input must be
 // those arguments, made by a code step. A message to the owner can be made
 // from anything.
-export const ARGS_TOOLS: readonly ToolName[] = ["sheets.write", "wallet.pay", "memory.set"];
+export const ARGS_TOOLS: readonly ToolName[] = ["sheets.write", "sheets.update", "wallet.pay", "memory.set"];
 
 // Always in the bag when a run starts.
 export const RUN_VALUES = ["settings", "rules", "memory", "trigger"] as const;
@@ -214,7 +215,7 @@ export function connectionsNeeded(d: AgentDefinition): { telegram: boolean; goog
   const tools = new Set<ToolName>([...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))]);
   return {
     telegram: tools.has("telegram.send") || tools.has("telegram.ask") || d.triggers.some((t) => t.kind === "message"),
-    google: tools.has("sheets.read") || tools.has("sheets.write") || d.settings.some((s) => s.type === "sheet"),
+    google: tools.has("sheets.read") || tools.has("sheets.write") || tools.has("sheets.update") || d.settings.some((s) => s.type === "sheet"),
   };
 }
 

@@ -43,6 +43,7 @@ describe("the registry", () => {
     expect(Object.fromEntries(TOOL_NAMES.map((t) => [t, TOOLS[t].risk]))).toEqual({
       "sheets.read": "read",
       "sheets.write": "write",
+      "sheets.update": "write",
       "web.fetch": "read",
       "web.search": "read",
       "telegram.send": "outbound",

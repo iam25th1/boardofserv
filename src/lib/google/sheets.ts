@@ -5,10 +5,12 @@ import { accessToken, GoogleUnavailable } from "./oauth";
 
 // Google Sheets for agents (developers.google.com/workspace/sheets/api),
 // on the owner's own Google access. A tab reads as rows: its first row
-// names the columns, each row after it is a record of those columns. A
-// write adds rows under the last one (append), or clears the tab and
-// writes the header and rows again (replace); a key no column has yet
-// becomes a new column. Values go in as they are (RAW), never as
+// names the columns, each row after it is a record of those columns, with
+// _row, its number in the sheet. A write adds rows under the last one
+// (append), or clears the tab and writes the header and rows again
+// (replace); a key no column has yet becomes a new column, and _row is
+// never written. An update writes named columns of rows already there, by
+// their numbers, and nothing else. Values go in as they are (RAW), never as
 // formulas, so nothing an agent writes is run by the sheet.
 //
 // Google's limits: 60 requests a minute per user and 300 per project, a
@@ -102,21 +104,60 @@ export async function sheetInfo(rt: Runtime, ownerUserId: string, spreadsheetId:
 
 const cell = (v: unknown): Cell => (typeof v === "number" || typeof v === "boolean" ? v : v === undefined || v === null || v === "" ? null : String(v).slice(0, MAX_CELL));
 
-// A tab's rows, as records of its columns.
+// A tab's rows, as records of its columns, each with its number in the
+// sheet (_row: the header is row 1), counted before empty rows are left out.
 export async function readTab(rt: Runtime, ownerUserId: string, g: SheetGrant): Promise<SheetRow[]> {
   const got = await call<{ values?: unknown[][] }>(rt, ownerUserId, "GET", `${encodeURIComponent(g.spreadsheetId)}/values/${range(g.tab)}?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE`);
   const [head = [], ...rest] = got.values ?? [];
   const columns = head.map((h) => (h === null || h === undefined ? "" : String(h).trim().slice(0, 80)));
   return rest
     .slice(0, MAX_ROWS)
-    .filter((r) => r.some((v) => v !== "" && v !== null && v !== undefined))
-    .map((r) => Object.fromEntries(columns.flatMap((c, i) => (c ? [[c, cell(r[i])]] : []))));
+    .map((r, i) => ({ r, row: i + 2 }))
+    .filter(({ r }) => r.some((v) => v !== "" && v !== null && v !== undefined))
+    .map(({ r, row }) => ({ ...Object.fromEntries(columns.flatMap((c, i) => (c ? [[c, cell(r[i])]] : []))), _row: row }));
+}
+
+// A column's letters, from its place (0 is A).
+export function columnLetters(index: number): string {
+  let n = index + 1;
+  let out = "";
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    out = String.fromCharCode(65 + m) + out;
+    n = Math.floor((n - 1) / 26);
+  }
+  return out;
+}
+
+// Named columns of rows already in a tab, each row by its number. Only rows
+// that have something in them (row 2 to the last one) are written to, and
+// only the cells named; a column the tab doesn't have yet is added to its
+// header. Returns how many rows were written.
+export async function updateRows(rt: Runtime, ownerUserId: string, g: SheetGrant, updates: { row: number; values: SheetRow }[]): Promise<number> {
+  const id = encodeURIComponent(g.spreadsheetId);
+  const got = await call<{ values?: unknown[][] }>(rt, ownerUserId, "GET", `${id}/values/${range(g.tab)}?majorDimension=ROWS`);
+  const [rawHead = [], ...rest] = got.values ?? [];
+  const head = rawHead.map((h) => String(h ?? "").trim());
+  const last = rest.reduce((n, r, i) => (r.some((v) => v !== "" && v !== null && v !== undefined) ? i + 2 : n), 1);
+  for (const u of updates) {
+    if (!Number.isInteger(u.row) || u.row < 2 || u.row > last) throw new SheetRefused(`"${g.tab}" has no row ${u.row} with anything in it (it has rows 2 to ${last}).`);
+  }
+  const keys = [...new Set(updates.flatMap((u) => Object.keys(u.values).filter((k) => k !== "_row")))];
+  const columns = [...head, ...keys.filter((k) => !head.includes(k))];
+  if (columns.length !== head.length) await call(rt, ownerUserId, "PUT", `${id}/values/${range(g.tab, "!A1")}?valueInputOption=RAW`, { values: [columns] });
+  const data = updates.flatMap((u) =>
+    Object.entries(u.values)
+      .filter(([k]) => k !== "_row")
+      .map(([k, v]) => ({ range: `'${g.tab.replace(/'/g, "''")}'!${columnLetters(columns.indexOf(k))}${u.row}`, values: [[v === null ? "" : cell(v)]] })),
+  );
+  if (data.length) await call(rt, ownerUserId, "POST", `${id}/values:batchUpdate`, { valueInputOption: "RAW", data });
+  return updates.length;
 }
 
 // Rows written to a tab. Returns how many.
 export async function writeTab(rt: Runtime, ownerUserId: string, g: SheetGrant, rows: SheetRow[], mode: "append" | "replace"): Promise<number> {
   const id = encodeURIComponent(g.spreadsheetId);
-  const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))];
+  const keys = [...new Set(rows.flatMap((r) => Object.keys(r)))].filter((k) => k !== "_row");
   let columns: string[];
   if (mode === "replace") {
     columns = keys;
