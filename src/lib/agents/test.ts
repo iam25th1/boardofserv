@@ -111,7 +111,10 @@ function updatedRows(events: RunEvent[]): Set<string> {
 // when the first run doesn't get through, when the summary it sends
 // doesn't cover all three items, when it writes its results as new rows of
 // the very tab it reads, or when the second run would go through the same
-// items again.
+// items again: judge them again, write into the same rows again, or write
+// them back into the tab they came from. (An agent that orders what is
+// still low on its next run, into a tab of its own, isn't going over the
+// same items: it is doing its job again.)
 export async function selfTest(v: { definition: AgentDefinition; code: Record<string, StepCode>; testResult?: TestResult | null }, o: Omit<TestOptions, "live" | "kind">): Promise<Tested> {
   const first = await testVersion(v, { ...o, live: false, kind: "self" });
   if (first.result.status === "failed" || !first.result.items) return first;
@@ -124,7 +127,9 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   if (summary) {
     const text = String((summary.args as { text?: unknown }).text ?? "").toLowerCase();
     const named = items.labels.filter((l) => text.includes(l.toLowerCase())).length;
-    const counted = new RegExp(`\\b(${items.labels.length}|three)\\b`).test(text);
+    // "3 submissions" counts all three; "2 of 3 met" doesn't.
+    const words = [items.plural, items.noun].map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+    const counted = new RegExp(`\\b(?:${items.labels.length}|three)\\s+(?:new\\s+)?(?:${words})\\b`).test(text);
     if (named < items.labels.length && !counted) {
       problems.push({ step: summary.stepId, text: `Its summary covers ${named === 0 ? "none" : "only some"} of the ${items.plural}, not all ${items.labels.length}.` });
     }
@@ -148,7 +153,12 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   });
   const before = updatedRows(first.events);
   const twice = [...updatedRows(again)].some((r) => before.has(r));
-  const rewritten = toolEvents(again, "sheets.write").some((e) => JSON.stringify((e.args as { rows?: unknown }).rows ?? []).match(new RegExp(items.labels.map((l) => l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "i")));
+  // Rows written again into the tab the items came from, naming them.
+  const labels = new RegExp(items.labels.map((l) => l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "i");
+  const rewritten = toolEvents(again, "sheets.write").some((e) => {
+    const a = e.args as { sheet?: unknown; rows?: unknown };
+    return reads.has(String(a.sheet)) && labels.test(JSON.stringify(a.rows ?? []));
+  });
   if (judged(again) > 0 || twice || rewritten) problems.push({ step: null, text: `Run again, it would go through the same ${items.plural} a second time: it should only take new ones.` });
 
   return { ...first, result: { ...first.result, status: problems.length ? "failed" : "passed", problems } };

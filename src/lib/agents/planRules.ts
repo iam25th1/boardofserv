@@ -7,7 +7,8 @@ import { nextOf, type AgentDefinition } from "./definition";
 //
 // - Judgement goes to decisions; counting, comparing, thresholds and
 //   whether any items are left go to code. A decision whose question is a
-//   count, a comparison or "is there another row" is the wrong kind of step.
+//   count, a comparison or "is there another row" is the wrong kind of step,
+//   and so is a code step whose job is to judge.
 // - Steps never loop back. Going through many items happens inside a code
 //   step, or in one decision over a list (each); a loop through the steps
 //   leaves later steps with only the last time round's values.
@@ -18,8 +19,13 @@ const COUNTING =
   /\bhow many\b|\bcount(?:s|ing)?\b|\b(?:fewer|less|more|greater) than (?:half|\d)|\bat (?:least|most) (?:half|\d)|\bhalf (?:of|the)\b|\bthreshold\b|\b\d+\s*(?:%|percent)\b|\bover \d|\bunder \d|\bexceeds?\b|\bequal(?:s)? to\b/i;
 const LEFT = /\b(?:any|more|another|next|other)\s+(?:new\s+)?(?:rows?|items?|entries|submissions?|records?|messages?|ones?)\b|\b(?:rows?|items?|submissions?|records?|entries)\s+(?:left|remaining|to (?:process|check|go|handle))\b|\bis there (?:another|a next|one more|anything)\b|\bany (?:left|remaining)\b/i;
 
+const JUDGES = /\b(?:judge[sd]?|judging|assess(?:es|ed|ing)?|evaluat(?:e|es|ed|ing)\s+(?:whether|if|how well))\b/i;
+
 export function planProblems(d: AgentDefinition): string[] {
   const out: string[] = [];
+  for (const s of d.steps) {
+    if (s.kind === "code" && JUDGES.test(s.description)) out.push(`code step "${s.id}" judges ("${s.title}"): judgement goes to a decision step, over the list with each when there are many items; code only counts and combines its verdicts.`);
+  }
   for (const s of d.steps) {
     if (s.kind !== "decision") continue;
     const words = [s.title, s.prompt, ...s.outcomes.map((o) => o.label)].join(" ");
