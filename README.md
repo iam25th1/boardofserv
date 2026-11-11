@@ -653,6 +653,31 @@ call writes a `reply_usage` row (`agent_plan`, `agent_code`, `agent_review`,
 is refused like a chat turn when the day's limit is reached or the account
 isn't let in yet.
 
+### The regression suite
+
+Six real requests in a maker's own words (`src/test/suite/requests.ts`): a
+morning line on Telegram, the day's sales totals from a sheet, sorting
+enquiries in a sheet, the price watcher, restocking supplies with a
+payment, and the hackathon submission checker. The live suite
+(`src/test/suite-live.test.ts`, off unless `RUN_SUITE_LIVE=1` with
+`SERV_API_KEY` and `DOLPHIN_API_KEY`) takes each one through the journey in
+the chat, through the real routes (the chat turns, Make it, Looks right,
+the build and its self test), on an in-memory database, and prints a pass
+or fail table with the SERV and Dolphin calls each used; every call is
+counted against `LIVE_SERV_BUDGET` and `LIVE_DOLPHIN_BUDGET` (and
+`AGENT_SERV_CAP` and `AGENT_DOLPHIN_CAP` per request), `SUITE_REPORT` keeps
+the full report and `SUITE_RECORD` every answer. `SUITE_REPLAY` answers
+from a recording instead (`SUITE_REPLAY_ONLY` for some purposes only, the
+rest live). The recorded answers of the last live run
+(`src/test/suite/recorded.json`) let CI check the same plans offline
+(`src/test/suite.test.ts`), each request ending where it ends on them
+(`src/test/suite/expected.json`, rewritten with `SUITE_UPDATE=1`).
+
+The browser tests (`e2e/journey.spec.ts`) take the price watcher through
+the whole journey with every call answered by `e2e/journey.ts`: the stages
+in order, Change something, a failed test with its fix box, Run it for
+me, and Back from the agent's page to the same chat, where it was.
+
 ### Code writing and review
 
 Once a plan is saved, each code step without approved code is written
