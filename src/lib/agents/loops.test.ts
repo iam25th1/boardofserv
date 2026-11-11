@@ -175,7 +175,7 @@ describe("the self test", () => {
     const t = await selfTest({ definition: d, code, testResult: sampled() }, { serv: null });
     expect(t.result.problems).toEqual([]);
     expect(t.result.status).toBe("passed");
-    expect(t.result.story).toBe("3 submissions checked: 2 passed, 1 rejected, summary sent.");
+    expect(t.result.story).toBe("Passed. 3 submissions checked: 2 passed, 1 rejected, summary sent.");
   });
 
   it("fails a summary that covers only the last pass", async () => {

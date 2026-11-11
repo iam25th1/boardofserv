@@ -33,13 +33,15 @@ export interface StepCode {
 // those items were called and how it went.
 export interface TestResult {
   status: "passed" | "failed";
-  // What happened, as a short story: "3 submissions checked: 2 passed, 1
-  // rejected, summary sent".
+  // What happened, as a short story: "Passed. 3 submissions checked: 2
+  // passed, 1 rejected, summary sent", or for an agent that handles one
+  // thing, what it did in order.
   story: string;
   // What is wrong, one plain sentence each, and the step it is about.
   problems: { step: string | null; text: string }[];
-  // What the sample items are: "submission", "submissions", and the three
-  // items' own names, as they appear in the sample data.
+  // What the sample items are: "submission", "submissions", and the
+  // items' own names (one, or three for an agent that goes through a
+  // list), as they appear in the sample data.
   items: { noun: string; plural: string; labels: string[] } | null;
   kind: "manual" | "self";
   checkedAt: string;

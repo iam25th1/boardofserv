@@ -74,13 +74,89 @@ function writtenRows(events: RunEvent[]): Record<string, unknown>[] {
   return rows;
 }
 
-// A test run as a short story: "3 submissions checked: 2 passed, 1
-// rejected, summary sent." It says only what the run did with the sample
-// items: rows it wrote their results into (checked), else items its
-// decisions judged, else just the sample. Or where it stopped.
+// Text a run sent or asked, quoted short.
+function quoted(v: unknown, max = 90): string {
+  const t = String(v ?? "").replace(/\s+/g, " ").trim();
+  return `"${t.length > max ? `${t.slice(0, max - 3).trimEnd()}...` : t}"`;
+}
+
+// What one tool call did, as the words of a sentence that starts "It".
+function didWith(e: Extract<RunEvent, { type: "tool" }>): string | null {
+  const a = (e.args ?? {}) as Record<string, unknown>;
+  const r = (e.result ?? {}) as Record<string, unknown>;
+  switch (e.tool) {
+    case "sheets.read": {
+      const n = Array.isArray(r.rows) ? r.rows.length : null;
+      return n === null ? "read your sheet" : `read ${n} ${n === 1 ? "row" : "rows"} of your sheet`;
+    }
+    case "web.fetch":
+      return r.status === 200 ? "read the page" : "tried the page, which didn't answer";
+    case "web.search":
+      return "searched the web";
+    case "telegram.ask": {
+      const answer = typeof r.answer === "string" && r.answer.trim() ? `you answered ${quoted(r.answer, 30)}` : "no answer came";
+      return `asked you on Telegram ${quoted(a.question)} (${answer})`;
+    }
+    case "telegram.send":
+      return `sent you ${quoted(a.text)} on Telegram`;
+    case "sheets.update": {
+      const n = Array.isArray(a.updates) ? a.updates.length : 0;
+      return `wrote into ${n} ${n === 1 ? "row" : "rows"} of your sheet`;
+    }
+    case "sheets.write": {
+      const n = Array.isArray(a.rows) ? a.rows.length : 0;
+      return `added ${n} ${n === 1 ? "row" : "rows"} to your sheet`;
+    }
+    case "wallet.pay":
+      return `paid ${typeof a.amountUsdc === "number" ? a.amountUsdc : "some"} test USDC to ${quoted(a.to, 40)}`;
+    case "memory.set":
+      return "noted where it got to, for next time";
+    default:
+      return null;
+  }
+}
+
+// "a, b and c".
+function joined(parts: string[]): string {
+  return parts.length <= 1 ? (parts[0] ?? "") : `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
+}
+
+// A test run as a short story of what it did. An agent that goes through a
+// list counts what it did with the items: "3 submissions checked: 2
+// passed, 1 rejected, summary sent." One that handles one thing says what
+// it did, in order: "It read the page, asked you on Telegram "..." and you
+// answered "Yes", and sent you "..." on Telegram." Or where it stopped.
 export function storyOf(d: AgentDefinition, events: RunEvent[], end: Extract<RunEvent, { type: "end" }>, items: TestResult["items"]): string {
   const title = (id: string) => d.steps.find((s) => s.id === id)?.title ?? "a step";
   const tools = events.filter((e): e is Extract<RunEvent, { type: "tool" }> => e.type === "tool" && !e.error);
+  const failed = [...events].reverse().find((e): e is Extract<RunEvent, { type: "step_done" }> => e.type === "step_done" && e.status === "failed");
+  const at = failed ? ` at "${title(failed.stepId)}"` : "";
+  // Where it stopped, after what it did, or before it did anything.
+  const stopped = (did: string, before = "anything") => (did ? `${did}, then it stopped${at}.` : `It stopped${at}, before doing ${before}.`);
+  const inLoop = loopsOf(d).inside;
+  const many = d.steps.some((s) => s.kind === "loop" || (s.kind === "decision" && Boolean(s.each)));
+
+  if (!many) {
+    // Each thing it did, in order; and when a decision ended it with
+    // nothing more to do, which way it went.
+    const parts: string[] = [];
+    let ended: string | null = null;
+    for (const e of events) {
+      if (e.type === "tool" && !e.error) {
+        const said = didWith(e);
+        if (said && parts.at(-1) !== said) parts.push(said);
+        ended = null;
+      } else if (e.type === "step_done" && e.status === "ok" && e.outcome) {
+        const step = d.steps.find((s) => s.id === e.stepId);
+        ended = step?.kind === "decision" ? (step.outcomes.find((o) => o.id === e.outcome)?.label ?? null) : null;
+      }
+    }
+    if (end.status === "done" && ended) parts.push(`found ${quoted(ended.toLowerCase(), 60)}, so there was nothing more to do`);
+    const did = parts.length ? `It ${joined(parts)}` : "";
+    if (end.status !== "done") return stopped(did);
+    return did ? `${did}.` : "It ran to the end without writing or sending anything.";
+  }
+
   const count = (tool: string) => tools.filter((t) => t.tool === tool).length;
   const rows = writtenRows(events);
   const updated = tools.filter((t) => t.tool === "sheets.update").reduce((k, t) => k + ((t.args as { updates?: unknown[] }).updates?.length ?? 0), 0);
@@ -99,7 +175,6 @@ export function storyOf(d: AgentDefinition, events: RunEvent[], end: Extract<Run
 
   const n = items?.labels.length ?? 0;
   // Items judged: by decisions over a list, or one a pass inside a loop.
-  const inLoop = loopsOf(d).inside;
   const judged = events.reduce((k, e) => {
     if (e.type !== "step_done" || e.status !== "ok") return k;
     const v = (e.output as { verdicts?: unknown } | null)?.verdicts;
@@ -108,13 +183,16 @@ export function storyOf(d: AgentDefinition, events: RunEvent[], end: Extract<Run
   const did = Boolean(items && n && (updated || judged));
   const head = !items || !n ? "It ran" : updated ? `${updated} ${updated === 1 ? items.noun : items.plural} checked` : judged ? `${n} ${items.plural} judged` : `${n} sample ${items.plural}`;
   if (end.status !== "done") {
-    const failed = [...events].reverse().find((e): e is Extract<RunEvent, { type: "step_done" }> => e.type === "step_done" && e.status === "failed");
-    const at = failed ? ` at "${title(failed.stepId)}"` : "";
-    if (did) return `${head}, then it stopped${at}${parts.length ? ` after ${parts.join(", ")}` : ""}.`;
-    return items && n ? `It stopped${at}, before doing anything with the ${n} sample ${items.plural}.` : `It stopped${at}.`;
+    if (did) return stopped(`${head}${parts.length ? ` (${parts.join(", ")})` : ""}`);
+    return stopped("", items && n ? `anything with the ${n} sample ${items.plural}` : "anything");
   }
   if (!parts.length) return head === "It ran" ? "It ran to the end without writing or sending anything." : `${head}, nothing written or sent.`;
   return `${head}: ${parts.join(", ")}.`;
+}
+
+// A test's story as the maker reads it: a pass says so first.
+export function toldAs(status: TestResult["status"], story: string): string {
+  return status === "passed" ? `Passed. ${story}` : story;
 }
 
 export interface Problem {

@@ -154,9 +154,9 @@ interface Settle {
 }
 
 // Once the code is written: with every step ready, the plan gets its self
-// test (test.ts: three sample items, then a second run), kept as the
-// draft's last test with its sample as the test bench; then the note says
-// how many steps wait for the maker. A self test that fails runs Fix this
+// test (test.ts: its sample, one item or three, and the checks that fit
+// it), kept as the draft's last test with its sample as the test bench;
+// then the note says how many steps wait for the maker. A self test that fails runs Fix this
 // once on its own, with the one plain sentence that says what went wrong:
 // the plan is changed from it, written and tested again. If that test
 // fails too, the sentence stays with the Fix this button.

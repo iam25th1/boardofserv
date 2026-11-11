@@ -365,10 +365,12 @@ describe("the card's actions", () => {
     const res = await testRoute.POST(json(`/api/agents/${id}/test`, "POST"), { params: Promise.resolve({ id }) });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { test: { status: string; story: string; items: { labels: string[] } }; agent: AgentSummaryDTO };
-    expect(body.test.items.labels).toEqual(["Linen, natural", "Cotton twill", "Wool felt"]);
+    // It goes through the stock in code, not one item at a time: one
+    // sample item, and the tab it reads has the rows its job needs.
+    expect(body.test.items.labels).toEqual(["Linen, natural"]);
     // It wrote orders, not results into the fabrics' own rows: the story
-    // says what it did, never that the fabrics were checked.
-    expect(body.test.story).toMatch(/^3 sample fabrics: \d+ rows? written/);
+    // says what it did, in order, never that the fabrics were checked.
+    expect(body.test.story).toMatch(/^Passed\. It read 3 rows of your sheet.* added \d+ rows? to your sheet/);
     expect(body.agent.test).toMatchObject({ story: body.test.story });
     // The sample is now the draft's test bench, and made only once.
     expect((await builderOf(id)).bench.sheets.Stock).toHaveLength(3);
@@ -383,7 +385,7 @@ describe("a self test that fails", () => {
   // A plan whose "Compare suppliers" must return a value its code never
   // gives: the self test stops there.
   const broken = { ...RESTOCK_WIRE, steps: RESTOCK_WIRE.steps.map((s) => (s.id === "compare" ? { ...s, outputs: [...s.outputs, "notes"] } : s)) };
-  const SENTENCE = '"Compare suppliers" didn\'t work on the sample fabrics.';
+  const SENTENCE = '"Compare suppliers" didn\'t work on the sample fabric.';
 
   it("runs Fix this once on its own with the one sentence that says what went wrong, and keeps the plan that passes", async () => {
     plans = [broken, RESTOCK_WIRE];
