@@ -21,7 +21,33 @@ export interface StepCode {
   // Who wrote it: Dolphin unless it failed twice on this step and SERV
   // wrote it instead.
   writer?: "dolphin" | "serv";
+  // The step's tools as its code really calls them, when that differs from
+  // the plan's list (code.ts fitTools): the plan is changed to match.
+  tools?: ToolName[];
   updatedAt: string;
+}
+
+// The last test of a version, in plain words: "Test it" on the chat's card
+// or the agent's page, or the check every new plan gets once its code is
+// written. The sample data it ran on is the version's bench; this says what
+// those items were called and how it went.
+export interface TestResult {
+  status: "passed" | "failed";
+  // What happened, as a short story: "3 submissions checked: 2 passed, 1
+  // rejected, summary sent".
+  story: string;
+  // What is wrong, one plain sentence each, and the step it is about.
+  problems: { step: string | null; text: string }[];
+  // What the sample items are: "submission", "submissions", and the three
+  // items' own names, as they appear in the sample data.
+  items: { noun: string; plural: string; labels: string[] } | null;
+  kind: "manual" | "self";
+  checkedAt: string;
+  // The sample data it ran on, and a fingerprint of the plan it was made
+  // from: a new sample is made only when the plan's questions or steps
+  // change.
+  sample?: BenchData;
+  sampleOf?: string;
 }
 
 // A search result, as the web.search tool returns it.

@@ -304,14 +304,83 @@ describe("an agent's interview", () => {
     expect(t.sketch?.sketch).toMatchObject({ kind: "agent", wakes: "every morning at eight", handles: "orders what is low", asking: "looks" });
     expect(t.choices).toEqual(["A Google sheet", "My shop's website"]);
     const reply = calls.at(-1)!;
-    expect(reply.messages[0]!.content).toContain("Known so far: name Fabric restock, kind agent, wakes every morning at eight, handles orders what is low; missing: looks, finish, asks, setup, remembers.");
+    expect(reply.messages[0]!.content).toContain("Known so far: name Fabric restock, kind agent, wakes every morning at eight, handles orders what is low; missing: looks, finish, asks.");
     expect(reply.messages[0]!.content).toContain('Ask about: looks (where it looks). The user will see these buttons: "A Google sheet", "My shop\'s website".');
     expect(await sketchRow(t.conversationId)).toMatchObject({ kind: "agent", wakes: "every morning at eight", looks: null });
 
     // With the interview complete, the reply points at the Plan button.
     nextReply = ["Got it, ready to plan."];
-    nextSketch = extraction({ looks: "the Stock sheet", finish: "an order is recorded", asks: "orders over 250 USDC", setup: "the sheets", remembers: "the last order" });
-    await turn("The Stock sheet; done once an order is recorded; ask over 250 USDC; it needs the sheets; remember the last order", t.conversationId);
+    nextSketch = extraction({ looks: "the Stock sheet", finish: "an order is recorded", asks: "orders over 250 USDC" });
+    await turn("The Stock sheet; done once an order is recorded; ask over 250 USDC", t.conversationId);
     expect(calls.at(-1)!.messages[0]!.content).toContain("say the Plan button on the sketch turns it into steps to test");
+  });
+});
+
+describe("an agent with steps", () => {
+  let cid = "";
+  let versionId = "";
+
+  // A conversation whose agent is planned already: the hackathon checker.
+  beforeAll(async () => {
+    const { hackathonDefinition } = await import("@/test/hackathonFixture");
+    const [convo] = await state.db.insert(schema.conversations).values({ userId: (state.user as schema.User).id, title: "Hackathon" }).returning();
+    cid = convo!.id;
+    await state.db.insert(schema.messages).values([
+      { conversationId: cid, role: "user", content: "Check my hackathon submissions every 15 minutes." },
+      { conversationId: cid, role: "assistant", content: "Got it." },
+    ]);
+    await state.db.insert(schema.agentSketches).values({ conversationId: cid, name: "Hackathon Submission Checker", kind: "agent", wakes: "every 15 minutes", looks: "the submissions sheet", handles: "judges each requirement", finish: "every new row has a Status", asks: "nothing" });
+    const [agent] = await state.db.insert(schema.agents).values({ ownerUserId: (state.user as schema.User).id, sourceConversationId: cid, name: "Hackathon Submission Checker" }).returning();
+    const [version] = await state.db.insert(schema.agentVersions).values({ agentId: agent!.id, number: 1, definition: hackathonDefinition() }).returning();
+    versionId = version!.id;
+  });
+
+  it("changes the plan when it is asked to in the chat, the way Change the plan does, and says only what happened", async () => {
+    const { jobFor } = await import("@/lib/agents/build");
+    nextSketch = extraction({ name: "Hackathon Submission Checker", kind: "agent", change: "also check the demo link opens" });
+    const before = calls.length;
+    const t = await turn("Can it also check that the demo link opens?", cid);
+    // The plan call knew the agent has steps.
+    expect(calls[before]!.messages[1]!.content).toContain("The agent already has steps.");
+    // No model wrote the answer: it says exactly what happened.
+    expect(t.shown).toBe("Changing the plan: also check the demo link opens. The agent's card shows the new steps when it's done.");
+    expect(t.events.find((e) => e.event === "agent")?.data).toMatchObject({ conversationId: cid, agent: { buildState: "fixing" } });
+    const saved = await state.db.select().from(schema.messages).where(eq(schema.messages.conversationId, cid)).orderBy(desc(schema.messages.createdAt)).limit(1);
+    expect(saved[0]!.content).toBe(t.shown);
+    // The change went to SERV as the maker said it, with the plan as it is.
+    await jobFor(versionId);
+    const replan = calls.slice(before + 1).find((c) => !c.stream && JSON.stringify(c.messages).includes("The maker says"));
+    expect(replan!.messages[1]!.content).toContain("The maker says: Can it also check that the demo link opens?");
+    expect(replan!.messages[1]!.content).toContain("The plan as it is:");
+  });
+
+  it("never lets a reply say it changed the agent, or point at a Plan button the card doesn't have", async () => {
+    const { HONEST_REPLY } = await import("@/lib/replyClaims");
+    await state.db.update(schema.agentVersions).set({ buildState: "idle" }).where(eq(schema.agentVersions.id, versionId));
+    nextSketch = extraction({ name: "Hackathon Submission Checker", kind: "agent" });
+    nextReply = ["I've updated the plan. ", "Hit Plan again to see it."];
+    const t = await turn("Is it done?", cid);
+    expect(t.shown).toBe(HONEST_REPLY);
+    expect(t.shown).not.toMatch(/updated|Hit Plan/);
+    // A plain answer about it goes through as it is.
+    nextReply = ["It checks every 15 minutes."];
+    expect((await turn("How often does it run?", cid)).shown).toBe("It checks every 15 minutes.");
+  });
+});
+
+describe("questions and chips", () => {
+  it("never asks what the owner sets up, and never offers an account, ID, token, key or password as a chip", async () => {
+    nextReply = ["Who will own and run this agent?"];
+    nextSketch = extraction({ name: "Hackathon Submission Checker", kind: "agent", wakes: "every 15 minutes", asking: "setup", choices: ["Google Sheet ID", "Telegram bot token", "My account"] });
+    const t = await turn("Check my hackathon submissions every 15 minutes");
+    expect(t.sketch?.sketch.asking).toBeNull();
+    expect(t.choices).toEqual([]);
+    // And when it asks what it should, only short answers to that question.
+    nextReply = ["Where does it look for submissions?"];
+    nextSketch = extraction({ name: "Hackathon Submission Checker", kind: "agent", asking: "looks", choices: ["A Google sheet", "My Google Sheet ID", "The API key", "A form"] });
+    const u = await turn("Every 15 minutes", t.conversationId);
+    expect(u.choices).toEqual(["A Google sheet", "A form"]);
+    const prompt = calls.at(-1)!.messages[0]!.content;
+    expect(prompt).toContain("Never ask for accounts, sheet links or IDs, tokens, keys or passwords");
   });
 });

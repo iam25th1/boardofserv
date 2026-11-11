@@ -28,6 +28,8 @@ function dto(e: Example, state: "draft" | "published" = "draft"): AgentBuilderDT
       buildState: "idle",
       buildNote: null,
       steps: e.definition.steps.map((s) => ({ id: s.id, title: s.title, kind: s.kind, next: nextOf(s), code: s.kind === "code" ? (e.code[s.id]?.status ?? "queued") : null })),
+      test: null,
+      problem: null,
     },
     name: e.definition.name,
     conversationId: null,

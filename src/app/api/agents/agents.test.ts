@@ -15,6 +15,7 @@ import * as run from "./[id]/run/route";
 import * as fix from "./[id]/fix/route";
 import * as bench from "./[id]/bench/route";
 import * as publish from "./[id]/publish/route";
+import * as testRoute from "./[id]/test/route";
 import * as messagesRoute from "../conversations/[id]/messages/route";
 
 // Building an agent through the real routes, on the real migrations: SERV
@@ -50,8 +51,30 @@ beforeAll(async () => {
       const src = ask.includes("Step: Find low stock") ? FIND_LOW : COMPARE;
       return Response.json({ choices: [{ message: { content: "```js\n" + src + "\n```" } }], usage: { prompt_tokens: 300, completion_tokens: 120 } });
     }
+    // SERV writing a step's code itself ("Fix this" on a step on hold).
+    if (!body.response_format && String(body.messages[0]?.content).startsWith("You write one JavaScript function")) {
+      seen.push({ to: "serv", schema: "code", body });
+      const src = String(body.messages[1].content).includes("Step: Find low stock") ? FIND_LOW : COMPARE;
+      return Response.json({ choices: [{ message: { content: "```js\n" + src + "\n```" } }], usage: { prompt_tokens: 300, completion_tokens: 120 } });
+    }
     const name = body.response_format?.json_schema?.name as string;
     seen.push({ to: "serv", schema: name, body });
+    // Sample data for a test, made from the plan: the restock bench, as
+    // SERV's flat lists.
+    if (name === "agent_sample") {
+      const b = restockBench();
+      const sample = {
+        noun: "fabric",
+        plural: "fabrics",
+        labels: b.sheets.Stock!.map((r) => String(r.fabric)),
+        settings: Object.entries(b.settings).map(([key, value]) => ({ key, value: String(value) })),
+        sheets: Object.entries(b.sheets).map(([sheet, rows]) => ({ sheet, columns: Object.keys(rows[0] ?? { fabric: "" }), rows: rows.map((r) => ({ cells: Object.values(r).map(String) })) })),
+        pages: [],
+        searches: [],
+        answers: b.telegram.answers,
+      };
+      return Response.json({ choices: [{ message: { content: JSON.stringify(sample) } }], usage: { prompt_tokens: 900, completion_tokens: 400 } });
+    }
     if (name === "agent_plan") return Response.json({ choices: [{ message: { content: JSON.stringify(plans.shift() ?? RESTOCK_WIRE) } }], usage: { prompt_tokens: 1500, completion_tokens: 1100 } });
     if (name === "code_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "approve", reason: "Does what the step says." }) } }], usage: { prompt_tokens: 500, completion_tokens: 20 } });
     if (name === "version_review") {
@@ -98,9 +121,11 @@ async function interviewed(user: schema.User, done = true): Promise<string> {
     looks: "the Stock sheet and three suppliers",
     handles: "orders what is low from the best supplier",
     finish: "every low fabric has an order",
-    asks: "orders over 250 USDC",
-    setup: "the stock and orders sheets",
-    remembers: done ? "the last order" : null,
+    // What it must never do without asking is the last thing the chat asks;
+    // what it sets up and remembers it never asks at all.
+    asks: done ? "orders over 250 USDC" : null,
+    setup: null,
+    remembers: null,
   });
   return convo!.id;
 }
@@ -143,14 +168,15 @@ describe("planning an agent from its conversation", () => {
       ["approved", "decision", null],
       ["record", "action", null],
     ]);
-    // SERV planned and reviewed; Dolphin only wrote code.
-    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_plan", "dolphin", "code_review", "dolphin", "code_review"]);
+    // SERV planned and reviewed; Dolphin only wrote code. Then SERV made the
+    // sample data for the plan's self test, which runs dry.
+    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_plan", "dolphin", "code_review", "dolphin", "code_review", "agent_sample"]);
     // The conversation shows the agent beside its sketch.
     const convo = await (await messagesRoute.GET(json(`/api/conversations/${conversationId}/messages`), { params: Promise.resolve({ id: conversationId }) })).json();
     expect(convo.agent).toMatchObject({ id: first.id, buildState: "idle" });
     // Every model call is in the usage records.
     const usage = await db.select({ kind: schema.replyUsage.kind, provider: schema.replyUsage.provider }).from(schema.replyUsage).where(eq(schema.replyUsage.userId, ana.id));
-    expect(usage.map((u) => `${u.kind}/${u.provider}`).sort()).toEqual(["agent_code/dolphin", "agent_code/dolphin", "agent_plan/serv", "agent_review/serv", "agent_review/serv"]);
+    expect(usage.map((u) => `${u.kind}/${u.provider}`).sort()).toEqual(["agent_code/dolphin", "agent_code/dolphin", "agent_plan/serv", "agent_plan/serv", "agent_review/serv", "agent_review/serv"]);
   });
 
   it("refuses an interview that isn't finished, someone else's conversation, and planning twice at once", async () => {
@@ -184,7 +210,8 @@ describe("planning an agent from its conversation", () => {
     const { agent: a } = (await (await agents.POST(json("/api/agents", "POST", { conversationId }))).json()) as { agent: AgentSummaryDTO };
     await jobFor((await draftOf(a.id))!.id);
     const after = await builderOf(a.id);
-    expect(after.agent).toMatchObject({ buildState: "failed", buildNote: "The plan didn't come together after 3 tries. Try again, or add a detail in the chat." });
+    // Why, in plain words, and what to add: never the checker's own reasons.
+    expect(after.agent).toMatchObject({ buildState: "failed", buildNote: "The plan didn't come together: it didn't say what starts it. Say when it should run, for example every 15 minutes or every morning." });
     expect(after.definition).toBeNull();
   });
 });
@@ -236,8 +263,9 @@ describe("the builder", () => {
     const res = await fix.POST(json(`/api/agents/${id}/fix`, "POST", { message: "it ignored delivery time" }), { params: Promise.resolve({ id }) });
     expect(res.status).toBe(202);
     await jobFor((await draftOf(id))!.id);
-    // One plan, then only the changed step was written and reviewed.
-    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_plan", "dolphin", "code_review"]);
+    // One plan, then only the changed step was written and reviewed, and the
+    // changed plan got a new sample for its self test.
+    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_plan", "dolphin", "code_review", "agent_sample"]);
     expect(seen[0]!.body.messages[1]!.content).toContain("The maker says: it ignored delivery time");
     expect(seen[1]!.body.messages[1]!.content).toContain("Step: Compare suppliers");
     const after = await builderOf(id);
@@ -304,3 +332,42 @@ describe("the builder", () => {
     expect(await res.json()).toEqual({ error: '"Compare suppliers" still needs approved code.' });
   });
 });
+
+describe("the card's actions", () => {
+  it("fixes a step on hold with no typing: SERV writes it again, reviewed in a call of its own", async () => {
+    const { id } = await built();
+    const draft = (await draftOf(id))!;
+    await db.update(schema.agentVersions).set({ code: { ...draft.code, compare: { ...draft.code.compare!, status: "needs_attention", note: "It ignores delivery time." } } }).where(eq(schema.agentVersions.id, draft.id));
+    const held = await builderOf(id);
+    expect(held.agent.problem).toMatchObject({ step: "compare", fix: "rewrite" });
+    seen.length = 0;
+    const res = await fix.POST(json(`/api/agents/${id}/fix`, "POST", { step: "compare" }), { params: Promise.resolve({ id }) });
+    expect(res.status).toBe(202);
+    await jobFor(draft.id);
+    // SERV wrote it, SERV reviewed it, and Dolphin wasn't asked.
+    expect(seen.slice(0, 2).map((x) => x.schema)).toEqual(["code", "code_review"]);
+    expect(seen.some((x) => x.to === "dolphin")).toBe(false);
+    const after = await builderOf(id);
+    expect(after.code.compare).toMatchObject({ status: "approved", writer: "serv" });
+    expect(after.agent.problem, JSON.stringify(after.agent.problem)).toBeNull();
+  });
+
+  it("tests it on sample data made from its plan, and tells the run as a story", async () => {
+    const { id } = await built();
+    seen.length = 0;
+    const res = await testRoute.POST(json(`/api/agents/${id}/test`, "POST"), { params: Promise.resolve({ id }) });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { test: { status: string; story: string; items: { labels: string[] } }; agent: AgentSummaryDTO };
+    expect(body.test.items.labels).toEqual(["Linen, natural", "Cotton twill", "Wool felt"]);
+    // It wrote orders, not results into the fabrics' own rows: the story
+    // says what it did, never that the fabrics were checked.
+    expect(body.test.story).toMatch(/^3 sample fabrics: \d+ rows? written/);
+    expect(body.agent.test).toMatchObject({ story: body.test.story });
+    // The sample is now the draft's test bench, and made only once.
+    expect((await builderOf(id)).bench.sheets.Stock).toHaveLength(3);
+    seen.length = 0;
+    await testRoute.POST(json(`/api/agents/${id}/test`, "POST"), { params: Promise.resolve({ id }) });
+    expect(seen.map((x) => x.schema)).not.toContain("agent_sample");
+  });
+});
+

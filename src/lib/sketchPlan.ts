@@ -28,7 +28,7 @@ export const SKETCH_SCHEMA = {
   schema: {
     type: "object",
     additionalProperties: false,
-    required: ["name", "kind", "watches", "when", "how", "tells", "takes", "does", "gives", "wakes", "looks", "handles", "finish", "asks", "setup", "remembers", "asking", "choices"],
+    required: ["name", "kind", "watches", "when", "how", "tells", "takes", "does", "gives", "wakes", "looks", "handles", "finish", "asks", "setup", "remembers", "asking", "choices", "change"],
     properties: {
       name: text("short agent name"),
       kind: {
@@ -49,15 +49,16 @@ export const SKETCH_SCHEMA = {
       handles: text("agent: what it does with what it finds"),
       finish: text("agent: what counts as done"),
       asks: text("agent: what it must never do without asking the owner"),
-      setup: text("agent: what the owner sets up for it (accounts, sheets, limits)"),
-      remembers: text("agent: what it remembers between jobs"),
+      setup: text("agent: only if the person says it: what they will set up for it. Never asked"),
+      remembers: text("agent: only if the person says it: what it remembers between jobs. Never asked"),
       asking: {
         type: "string",
         enum: [...SKETCH_FIELDS, "none"],
         description:
-          "most important empty field to ask next: takes, does, gives for answer; wakes, looks, handles, finish, asks, setup, remembers for agent; none if all set",
+          "most important empty field to ask next: takes, does, gives for answer; wakes, looks, handles, finish, asks for agent (never setup or remembers); none if all set",
       },
-      choices: { type: "array", items: { type: "string" }, description: "up to 4 short answers to that question" },
+      choices: { type: "array", items: { type: "string" }, description: "up to 4 short answers to that very question, a few words each; never accounts, IDs, tokens, keys or passwords" },
+      change: text("only when the agent already has steps: the change to how it works the person asks for, in their own words; else empty"),
     },
   },
 };
@@ -75,14 +76,16 @@ export interface PlanInput {
   // The reply the person is answering, or null on a conversation's first turn.
   previous: string | null;
   said: string;
+  // The agent already has steps: what the person says may be a change to them.
+  planned?: boolean;
 }
 
 // The plan's only input, as one user message: the known fields as compact
 // JSON ({} on a first turn), the reply being answered and the new message.
-export function planInput({ stored, previous, said }: PlanInput): string {
+export function planInput({ stored, previous, said, planned }: PlanInput): string {
   const known = Object.fromEntries((["name", "kind", ...SKETCH_FIELDS] as const).flatMap((k) => (stored?.[k] ? [[k, stored[k]]] : [])));
   const asked = previous ? `\nLast reply: ${previous}` : "";
-  return `Sketch: ${JSON.stringify(known)}${asked}\nPerson: ${said}`;
+  return `Sketch: ${JSON.stringify(known)}${planned ? "\nThe agent already has steps." : ""}${asked}\nPerson: ${said}`;
 }
 
 export async function planTurn(input: PlanInput, opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch }): Promise<Plan> {

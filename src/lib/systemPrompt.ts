@@ -9,8 +9,9 @@ import type { SketchDTO } from "./types";
 // writes no JSON and only phrases that one question (replySystemPrompt).
 export const SYSTEM_PROMPT = [
   "You are boardofserv. You help people describe, in plain words, an answer helper that others ask once: what it takes, what it does and what it gives back, and the rules and voice it should keep.",
-  "Or an agent that runs on its own: what wakes it up, where it looks, what it does with what it finds, what counts as done, what it must never do without asking, what the owner sets up and what it remembers.",
-  "Ask one question at a time and keep replies short.",
+  "Or an agent that runs on its own: what wakes it up, where it looks, what it does with what it finds, what counts as done and what it must never do without asking.",
+  "Ask one question at a time and keep replies short. Ask only what you need to understand the job.",
+  "Never ask for accounts, sheet links or IDs, tokens, keys or passwords: the owner connects Google Sheets, Telegram and the rest in a guided setup afterwards, never in the chat.",
   "Use everyday language and do not mention APIs, keys or code unless asked. Do not claim to build or run anything. Never use em dashes.",
 ].join(" ");
 
@@ -52,7 +53,11 @@ export interface TurnPlan {
 // confirmed; an answer helper is asked for its rules and voice, then confirmed
 // as ready to publish. Without a plan (it failed or did not validate), the
 // reply picks the question itself and there are no buttons.
-export function askLine(sketch: SketchDTO | null, plan: TurnPlan | null): string {
+export function askLine(sketch: SketchDTO | null, plan: TurnPlan | null, planned = false): string {
+  // Once the agent has steps, its card holds what can be done with it.
+  if (planned) {
+    return "The agent already has steps, shown on its card with Test it, Fix it, Publish and Details. Answer in a sentence or two. You can't change, test or publish it yourself: never say you did, and never mention a Plan button. If they want it to work differently, ask what should change.";
+  }
   if (plan?.asking) {
     const ask = `Ask about: ${plan.asking} (${ABOUT[plan.asking]}).`;
     if (!plan.choices.length) return ask;
@@ -70,8 +75,8 @@ export function askLine(sketch: SketchDTO | null, plan: TurnPlan | null): string
   return "Ask about the most important missing piece.";
 }
 
-export function replySystemPrompt(sketch: SketchDTO | null, plan: TurnPlan | null): string {
-  return `${SYSTEM_PROMPT}\n${knownLine(sketch)}\n${askLine(sketch, plan)}`;
+export function replySystemPrompt(sketch: SketchDTO | null, plan: TurnPlan | null, planned = false): string {
+  return `${SYSTEM_PROMPT}\n${knownLine(sketch)}\n${askLine(sketch, plan, planned)}`;
 }
 
 // The plan: the sketch as JSON, plus the next question and its buttons. Kept
@@ -79,4 +84,4 @@ export function replySystemPrompt(sketch: SketchDTO | null, plan: TurnPlan | nul
 // A one-shot answer helper is the default kind; an agent when it runs on its
 // own: on a schedule, watching data or acting over time.
 export const PLAN_PROMPT =
-  'Update the sketch of the agent the person is describing from what they said. Keep known values unless they changed them. Use a few plain words per field and "" if unknown. Kind is answer unless it runs on its own: on a schedule, watching data or acting over time (agent).';
+  'Update the sketch of the agent the person is describing from what they said. Keep known values unless they changed them. Use a few plain words per field and "" if unknown. Kind is answer unless it runs on its own: on a schedule, watching data or acting over time (agent). Choices are up to 4 short answers the person could tap for that very question, a few words each, never accounts, IDs, tokens, keys or passwords. When the agent already has steps and the person asks for it to work differently, put that change in change.';

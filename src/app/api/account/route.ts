@@ -44,5 +44,7 @@ export async function GET(req: Request) {
     // Own-key accounts have no daily limit and never pause.
     chat: own ? null : await chatQuota(user.id),
     paused: own ? false : await siteLimitReached(),
+    // The agent page shows everything, not the plain view.
+    agentDetails: user.agentDetails,
   });
 }

@@ -1,7 +1,7 @@
 "use client";
 import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
-import type { BenchData, RunEvent } from "./agents/types";
+import type { BenchData, RunEvent, TestResult } from "./agents/types";
 import type { InstallAnswers } from "./agents/settingsForm";
 import type { AccountDTO, AdminDTO, AdminSafetyDTO, AuditPageDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, QuotaDTO, RentalDetailDTO, RentalDTO, RequestDTO, RequestPageDTO, SketchDTO, SpendingDTO, WalletDTO } from "./types";
 import type { SetupShape } from "./agents/definition";
@@ -157,6 +157,13 @@ export function useApi() {
       // Change the plan from what the maker says; it rebuilds in the background.
       fixAgent: (id: string, message: string) =>
         json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/fix`, { method: "POST", body: JSON.stringify({ message }) }).then((d) => d.agent),
+      // "Fix this" on a step on hold: SERV writes it again, in the background.
+      rewriteStep: (id: string, step: string) =>
+        json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/fix`, { method: "POST", body: JSON.stringify({ step }) }).then((d) => d.agent),
+      // "Show details" on the agent page, kept for this maker.
+      setAgentDetails: (on: boolean) => json<{ agentDetails: boolean }>("/api/account/details", { method: "PUT", body: JSON.stringify({ on }) }).then((d) => d.agentDetails),
+      // "Test it": one run on sample data made from the plan, as a story.
+      testAgent: (id: string) => json<{ test: TestResult; agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/test`, { method: "POST" }),
       // One test bench run, streamed. Returns an abort function.
       runAgent(id: string, body: { dryRun: boolean; bench: BenchData }, on: (e: RunEvent) => void): () => void {
         const controller = new AbortController();

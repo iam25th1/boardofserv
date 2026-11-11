@@ -16,6 +16,11 @@ export const SKETCH_KINDS = ["watcher", "digest", "helper", "answer", "agent"] a
 export const AGENT_FIELDS = ["watches", "when", "how", "tells"] as const;
 export const ANSWER_FIELDS = ["takes", "does", "gives"] as const;
 export const INTERVIEW_FIELDS = ["wakes", "looks", "handles", "finish", "asks", "setup", "remembers"] as const;
+// What the chat asks about an agent: only what it needs to understand the
+// job. What the owner sets up (accounts, sheets, Telegram) is collected by
+// the guided setup, never in the chat, and what it remembers is the
+// planner's to work out; both are kept when the maker says them anyway.
+export const ASKED_FIELDS = ["wakes", "looks", "handles", "finish", "asks"] as const;
 export const SKETCH_FIELDS = [...AGENT_FIELDS, ...ANSWER_FIELDS, ...INTERVIEW_FIELDS] as const;
 
 export type SketchKind = (typeof SKETCH_KINDS)[number];
@@ -25,7 +30,7 @@ export type SketchFieldKey = (typeof SKETCH_FIELDS)[number];
 // it is sketched as an agent.
 export function fieldsOf(kind: SketchDTO["kind"]): readonly SketchFieldKey[] {
   if (kind === "answer") return ANSWER_FIELDS;
-  if (kind === "agent") return INTERVIEW_FIELDS;
+  if (kind === "agent") return ASKED_FIELDS;
   return AGENT_FIELDS;
 }
 

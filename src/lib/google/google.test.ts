@@ -135,7 +135,7 @@ describe("tokens", () => {
     });
     const tools = new JobTools(rt, inst, (await loadInstallation(rt, inst.id))!.definition, null);
     const step = (await loadInstallation(rt, inst.id))!.definition.steps[0]!;
-    expect(await tools.call(step, "sheets.read", { sheet: "Stock" })).toEqual({ rows: [{ fabric: "Silk", metres: 1, minimum: 5 }] });
+    expect(await tools.call(step, "sheets.read", { sheet: "Stock" })).toEqual({ rows: [{ fabric: "Silk", metres: 1, minimum: 5, _row: 2 }] });
   });
 });
 

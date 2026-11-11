@@ -1,14 +1,17 @@
 "use client";
 import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from "react";
 import type { ConversationDTO } from "@/lib/types";
+import { chatNames } from "@/lib/chatNames";
 import { IconButton } from "@/components/ui";
 import { EditIcon, TrashIcon, SearchIcon, UnpublishIcon, PriceIcon } from "@/components/icons";
 import { animateDrop } from "@/lib/motion";
 import styles from "./AgentsPill.module.css";
 
-// The agents pill in the top bar. Real agents do not exist yet, so until they
-// do the popover lists the user's conversations. One with a sketch shows the
-// agent's name and counts as an agent; one without keeps its title. Ring
+// The agents pill on the chat's row. The popover lists the user's chats,
+// each an agent being made: one with a sketch shows the agent's name, one
+// without its first message, and two that would look the same each say when
+// they were started (chatNames). The pill counts exactly what the list
+// holds. Ring
 // states follow the mockup: dashed and spinning while a reply is in progress,
 // outline for a draft, filled for live (a helper on the board), and no ring
 // for a conversation with no sketch yet. Search, rename and delete moved here
@@ -103,8 +106,9 @@ export const AgentsPill = forwardRef<AgentsPillHandle, Props>(function AgentsPil
 
   const ringOf = (c: ConversationDTO): RingState =>
     c.id === replyingId ? "wiring" : c.publishedSlug ? "live" : c.sketchName ? "draft" : "none";
-  const nameOf = (c: ConversationDTO) => c.sketchName ?? c.title;
-  const agents = conversations.filter((c) => c.sketchName);
+  const names = chatNames(conversations);
+  const nameOf = (c: ConversationDTO) => names.get(c.id)?.name ?? c.title;
+  const detailOf = (c: ConversationDTO) => names.get(c.id)?.detail ?? null;
   const filtered = conversations.filter((c) => nameOf(c).toLowerCase().includes(query.trim().toLowerCase()));
   const groups = GROUPS.map((group) => ({ group, items: filtered.filter((c) => groupOf(c.updatedAt) === group) })).filter(
     (g) => g.items.length > 0,
@@ -121,11 +125,11 @@ export const AgentsPill = forwardRef<AgentsPillHandle, Props>(function AgentsPil
         onClick={() => (open ? close(false) : setOpen(true))}
       >
         <span className={styles.tally} aria-hidden="true">
-          {(agents.length ? agents.slice(0, 6) : [null]).map((c, i) => (
+          {(conversations.length ? conversations.slice(0, 6) : [null]).map((c, i) => (
             <i key={c?.id ?? i} className={c && ringOf(c) === "live" ? styles.on : undefined} />
           ))}
         </span>
-        <span>{countLabel(agents.length)}</span>
+        <span>{countLabel(conversations.length)}</span>
       </button>
 
       <div className={styles.pop} id={popId} ref={pop} hidden={!open}>
@@ -164,7 +168,7 @@ export const AgentsPill = forwardRef<AgentsPillHandle, Props>(function AgentsPil
                         <i className={styles.ring} aria-hidden="true" />
                         <span className={styles.text}>
                           <strong>{nameOf(c)}</strong>
-                          <small>{STATE_TEXT[state]}</small>
+                          <small>{detailOf(c) ? `${STATE_TEXT[state]}, ${detailOf(c)}` : STATE_TEXT[state]}</small>
                         </span>
                       </button>
                       {/* Focus goes back to the pill first, so it returns there when the dialog closes. */}

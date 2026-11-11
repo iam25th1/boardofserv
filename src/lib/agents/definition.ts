@@ -33,6 +33,7 @@ export const AGENT_FORMAT = 1;
 export const TOOL_NAMES = [
   "sheets.read",
   "sheets.write",
+  "sheets.update",
   "web.fetch",
   "web.search",
   "telegram.send",
@@ -45,7 +46,7 @@ export type ToolName = (typeof TOOL_NAMES)[number];
 
 // Tools that change something outside the run: a step may use one only when
 // the agent declares an action with it.
-export const SIDE_EFFECT_TOOLS: readonly ToolName[] = ["sheets.write", "telegram.send", "telegram.ask", "wallet.pay"];
+export const SIDE_EFFECT_TOOLS: readonly ToolName[] = ["sheets.write", "sheets.update", "telegram.send", "telegram.ask", "wallet.pay"];
 
 // What a declared action may use: tools that change something. Reading and
 // working things out happen in code steps.
@@ -54,7 +55,7 @@ export const ACTION_TOOLS: readonly ToolName[] = [...SIDE_EFFECT_TOOLS, "memory.
 // Actions whose tool needs exact arguments: the step's first input must be
 // those arguments, made by a code step. A message to the owner can be made
 // from anything.
-export const ARGS_TOOLS: readonly ToolName[] = ["sheets.write", "wallet.pay", "memory.set"];
+export const ARGS_TOOLS: readonly ToolName[] = ["sheets.write", "sheets.update", "wallet.pay", "memory.set"];
 
 // Always in the bag when a run starts.
 export const RUN_VALUES = ["settings", "rules", "memory", "trigger"] as const;
@@ -126,7 +127,9 @@ export const Action = z.object({
 });
 // (Its tool must be one of ACTION_TOOLS: checked with the rest, in checkGraph.)
 
-const stepBase = { id: key, title: text(80), inputs: z.array(key).max(12), outputs: z.array(key).max(12) };
+// plain: the step in one sentence for someone who has never seen code, as
+// the agent's page shows it with details off (no names of values or tools).
+const stepBase = { id: key, title: text(80), plain: z.string().trim().max(200).optional(), inputs: z.array(key).max(12), outputs: z.array(key).max(12) };
 
 export const CodeStep = z.object({
   ...stepBase,
@@ -145,7 +148,16 @@ export const DecisionStep = z.object({
   // What SERV is asked, with the step's inputs beside it.
   prompt: text(800),
   outcomes: z.array(Outcome).min(2).max(6),
+  // A judgement over a list: the input holding the list, each of whose
+  // items SERV judges on its own, in one call. Its first output is then the
+  // verdicts in the list's order ({ item, outcome, label, reason }), for a
+  // code step after it to count and combine, and every outcome goes on to
+  // the same step. Without it, one judgement picks the way the run goes.
+  each: key.optional(),
 });
+
+// The most items one decision over a list judges in a run.
+export const MAX_EACH_ITEMS = 40;
 
 export const ActionStep = z.object({
   ...stepBase,
@@ -203,7 +215,7 @@ export function connectionsNeeded(d: AgentDefinition): { telegram: boolean; goog
   const tools = new Set<ToolName>([...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))]);
   return {
     telegram: tools.has("telegram.send") || tools.has("telegram.ask") || d.triggers.some((t) => t.kind === "message"),
-    google: tools.has("sheets.read") || tools.has("sheets.write") || d.settings.some((s) => s.type === "sheet"),
+    google: tools.has("sheets.read") || tools.has("sheets.write") || tools.has("sheets.update") || d.settings.some((s) => s.type === "sheet"),
   };
 }
 
@@ -319,6 +331,11 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
       );
     }
     if (s.kind === "decision") for (const id of duplicates(s.outcomes.map((o) => o.id))) say(`step "${s.id}" has two outcomes called "${id}"`, ["steps", i, "outcomes"]);
+    if (s.kind === "decision" && s.each) {
+      if (!s.inputs.includes(s.each)) say(`step "${s.id}" judges each item of "${s.each}", so "${s.each}" must be one of its inputs`, ["steps", i, "each"]);
+      if (!s.outputs.length) say(`step "${s.id}" judges each item of a list, so its first output must name the verdicts it gives`, ["steps", i, "outputs"]);
+      if (new Set(s.outcomes.map((o) => o.next)).size > 1) say(`step "${s.id}" judges each item of a list, so its outcomes are the verdicts one item can get (like met and not_met), every one going on to the same code step, which counts them; whether there was anything to judge is for that code, not an outcome`, ["steps", i, "outcomes"]);
+    }
     if (s.kind === "action" && !declared.has(s.action)) say(`step "${s.id}" takes "${s.action}", which is not a declared action`, ["steps", i, "action"]);
     if (s.kind === "action" && s.otherwise) {
       const action = declared.get(s.action);

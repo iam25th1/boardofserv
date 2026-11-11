@@ -9,7 +9,7 @@ import { buildContext, NOT_AVAILABLE } from "@/lib/agents/context";
 import { agentForConversation, agentsOf, createAgent, editableDraft, versionsOf } from "@/lib/agents/store";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { listingOf } from "@/lib/market/listings";
-import { INTERVIEW_FIELDS } from "@/lib/sketchFields";
+import { ASKED_FIELDS } from "@/lib/sketchFields";
 import { loadSketch } from "@/lib/sketchStore";
 import { refusal } from "@/lib/spend";
 
@@ -33,7 +33,7 @@ export async function POST(req: Request) {
   if (!convo) return Response.json({ error: "Not found" }, { status: 404 });
 
   const sketch = await loadSketch(conversationId);
-  if (!sketch || sketch.kind !== "agent" || !INTERVIEW_FIELDS.every((k) => sketch[k])) {
+  if (!sketch || sketch.kind !== "agent" || !ASKED_FIELDS.every((k) => sketch[k])) {
     return Response.json({ error: "Finish describing the agent first." }, { status: 400 });
   }
   const ctx = buildContext(user, conversationId);

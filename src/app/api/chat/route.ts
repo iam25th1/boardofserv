@@ -14,6 +14,9 @@ import { refusal } from "@/lib/spend";
 import { replySystemPrompt, type TurnPlan } from "@/lib/systemPrompt";
 import { errorText } from "@/lib/db/errors";
 import { recordAttempts } from "@/lib/modelAttempts";
+import { agentForConversation, currentVersion } from "@/lib/agents/store";
+import { changePlan, type Changed } from "@/lib/agents/change";
+import { honestReply } from "@/lib/replyClaims";
 
 export const runtime = "nodejs";
 
@@ -98,6 +101,10 @@ export async function POST(req: Request) {
   // The plan call sees only the stored sketch, the reply the person is
   // answering and what they just said.
   const stored = await loadSketch(cid);
+  // The agent planned from this conversation, if there is one: once it has
+  // steps, what the person says may be a change to them.
+  const built = await agentForConversation(cid);
+  const planned = built ? Boolean((await currentVersion(built.id))?.definition) : false;
   const at = context.map((m) => m.role).lastIndexOf("user");
   const said = context[at]?.content ?? "";
   const previous = context.slice(0, Math.max(at, 0)).reverse().find((m) => m.role === "assistant")?.content ?? null;
@@ -130,7 +137,7 @@ export async function POST(req: Request) {
       // First the plan: the sketch from what the person just said, and what the
       // reply asks next with the answers shown as buttons. If it fails or does
       // not validate, the reply runs on the stored sketch with no buttons.
-      const plan = await planTurn({ stored, previous, said }, { config, signal: controller.signal });
+      const plan = await planTurn({ stored, previous, said, planned }, { config, signal: controller.signal });
       let sketch = stored;
       let turnPlan: TurnPlan | null = null;
       if (plan.sketch) {
@@ -141,10 +148,28 @@ export async function POST(req: Request) {
         send("sketch", { conversationId: cid, sketch });
       }
 
+      // A change asked for an agent that has steps goes the way "Change the
+      // plan" on its page does (agents/change.ts), and the reply says only
+      // what really happened: no model writes it.
+      const change = planned && built ? (plan.sketch?.change ?? null) : null;
+      if (change && built) {
+        const changed = await changePlan(user, built, { message: said });
+        if (changed.kind === "started" || changed.kind === "busy") send("agent", { conversationId: cid, agent: changed.agent });
+        const text = changeReply(changed, change);
+        send("delta", { text });
+        const [saved] = await db.insert(messages).values({ conversationId: cid, role: "assistant", content: text }).returning();
+        await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
+        send("reply_end", { messageId: saved?.id, source: null, label: null, choices: [] });
+        await finishUsage(usageId, null, plan.result, plan.sketch !== null, ownKey, "ok");
+        send("done", { messageId: saved?.id, source: null, label: null });
+        if (open) ctrl.close();
+        return;
+      }
+
       // Then the reply. Its system message carries what the sketch holds and
       // exactly what to ask, in words that fit the buttons.
       const chat: ChatMessage[] = [
-        { role: "system", content: replySystemPrompt(sketch, turnPlan) },
+        { role: "system", content: replySystemPrompt(sketch, turnPlan, planned) },
         ...context,
       ];
       // Replies no longer write a sketch, but if one still carries the old
@@ -153,10 +178,13 @@ export async function POST(req: Request) {
       // No em dashes on screen, code left alone (dashes.ts).
       const dashes = new DashFix();
       let full = "";
+      // About an agent with steps, the reply is held until it is whole and
+      // checked (replyClaims.ts): it may not say it changed, tested or
+      // published anything, or point at a Plan button the card doesn't have.
       const show = (text: string) => {
         if (!text) return;
         full += text;
-        send("delta", { text });
+        if (!planned) send("delta", { text });
       };
       let source = "";
       let label = "";
@@ -181,6 +209,10 @@ export async function POST(req: Request) {
         show(dashes.push(rest) + dashes.finish());
       }
 
+      if (planned && full.trim()) {
+        full = honestReply(full);
+        send("delta", { text: full });
+      }
       if (!full.trim()) {
         await finishUsage(usageId, result, plan.result, plan.sketch !== null, ownKey);
         // The details stay in the server's log; the thread gets one plain sentence.
@@ -233,7 +265,7 @@ async function startUsage(conversationId: string, userId: string, ownKey: boolea
   }
 }
 
-async function finishUsage(id: string | null, r: ReplyResult | null, x: JsonResult | null, sketchOk: boolean | null, ownKey: boolean): Promise<void> {
+async function finishUsage(id: string | null, r: ReplyResult | null, x: JsonResult | null, sketchOk: boolean | null, ownKey: boolean, outcome?: "ok"): Promise<void> {
   // Each try of the plan call and of the reply, in the attempt log.
   if (x) await recordAttempts(db as never, x.attempts, { ownKey });
   if (r) await recordAttempts(db as never, r.attempts, { ownKey });
@@ -248,7 +280,7 @@ async function finishUsage(id: string | null, r: ReplyResult | null, x: JsonResu
         completionTokens: r?.completionTokens ?? null,
         firstTokenMs: r?.firstTokenMs ?? null,
         totalMs: r?.totalMs ?? 0,
-        outcome: r?.outcome ?? "failed",
+        outcome: outcome ?? r?.outcome ?? "failed",
         sketchOk,
         extractPromptTokens: x?.promptTokens ?? null,
         extractCompletionTokens: x?.completionTokens ?? null,
@@ -261,4 +293,14 @@ async function finishUsage(id: string | null, r: ReplyResult | null, x: JsonResu
   } catch (err) {
     console.error("reply usage not recorded", errorText(err, "unknown error"));
   }
+}
+
+// What the chat says about a change asked for an agent with steps: exactly
+// what happened, never more.
+function changeReply(changed: Changed, change: string): string {
+  const what = change.replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "");
+  if (changed.kind === "started") return `Changing the plan: ${what}. The agent's card shows the new steps when it's done.`;
+  if (changed.kind === "busy") return "It's still being built, so nothing has changed yet. Ask again once its card says it's ready.";
+  if (changed.kind === "unplanned") return "There's no plan to change yet.";
+  return `${changed.error} Nothing has changed.`;
 }

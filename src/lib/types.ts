@@ -44,6 +44,9 @@ export interface AccountDTO {
   chat?: QuotaDTO | null;
   // The day's spend limit is reached: chat and helper uses wait for midnight UTC.
   paused?: boolean;
+  // The agent page opens with everything shown (step graph, code, test
+  // bench, versions), not the plain view.
+  agentDetails?: boolean;
 }
 
 // The agent sketch for one conversation, as the server stores and sends it.
@@ -93,6 +96,10 @@ export interface AgentSummaryDTO {
     // A code step's code: null for other kinds.
     code: "queued" | "writing" | "reviewing" | "approved" | "needs_attention" | null;
   }[];
+  // The last test, as its story; and what is wrong now, in one sentence,
+  // with how "Fix this" fixes it (agents/plainWords.ts).
+  test: { status: "passed" | "failed"; story: string; checkedAt: string } | null;
+  problem: { text: string; step: string | null; fix: "rewrite" | "replan" | "plan" } | null;
 }
 
 // Everything the agent's own builder shows its maker: the definition, each
@@ -626,8 +633,11 @@ export type ChatEvent =
   | { type: "delta"; text: string }
   // The reply is finished and saved, with the plan's answers to show under it
   // as buttons (none when the plan failed); done follows.
-  | { type: "reply_end"; messageId?: string; source: string; label: string; choices: string[] }
-  | { type: "done"; messageId?: string; source: string; label: string }
+  | { type: "reply_end"; messageId?: string; source: string | null; label: string | null; choices: string[] }
+  | { type: "done"; messageId?: string; source: string | null; label: string | null }
+  // A change asked in the chat for an agent with steps: the agent as its
+  // card shows it now, changing (or still being built).
+  | { type: "agent"; conversationId: string; agent: AgentSummaryDTO }
   // `limit` when a day's limit refused the turn before anything was stored.
   | { type: "error"; message: string; limit?: "site" | "chat" };
 

@@ -16,7 +16,7 @@ const definition = (() => {
 })();
 
 const data = (o: Partial<AgentBuilderDTO> = {}): AgentBuilderDTO => ({
-  agent: { id: "a1", version: 1, state: "draft", buildState: "idle", buildNote: null, steps: [] },
+  agent: { id: "a1", version: 1, state: "draft", buildState: "idle", buildNote: null, steps: [], test: null, problem: null },
   name: "Fabric restock",
   conversationId: null,
   definition,

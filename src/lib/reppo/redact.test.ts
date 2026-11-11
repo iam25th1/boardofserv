@@ -53,7 +53,9 @@ async function privateJob() {
   const tabs = restockBench().sheets;
   tabs.Stock = tabs.Stock!.map((r) => ({ ...r, fabric: `${r.fabric} for ${PRIVATE.name}`, contact: `${PRIVATE.email} ${PRIVATE.phone}`, ship_to: PRIVATE.address, note: PRIVATE.note }));
   tabs[PRIVATE.tab] = tabs.Stock;
-  tabs.Suppliers = tabs.Suppliers!.map((r) => ({ ...r, pay_to: PRIVATE.wallet, page: PRIVATE.link }));
+  // The suppliers' fabrics carry the same names, so there is a real order to
+  // write (an empty one is skipped, with nothing written).
+  tabs.Suppliers = tabs.Suppliers!.map((r) => ({ ...r, fabric: `${r.fabric} for ${PRIVATE.name}`, pay_to: PRIVATE.wallet, page: PRIVATE.link }));
   const sheet = ownSheet(rt, tabs);
   const p = await publishedAgent(db, maker);
   const inst = await install(rt, {

@@ -3,7 +3,7 @@ import { fixDashes } from "../../dashes";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { agentApprovals, agentFetchDays, agentInstallations, agentMessages, agentToolDays, users, type AgentInstallation, type AgentJob, type Payee, type SheetGrant, type User } from "../../db/schema";
 import { GoogleRevoked, GoogleUnavailable, REVOKED_REASON } from "../../google/oauth";
-import { readTab, SheetRefused, writeTab, type SheetRow } from "../../google/sheets";
+import { readTab, SheetRefused, updateRows, writeTab, type SheetRow } from "../../google/sheets";
 import { braveSearch, SearchRefused, SearchUnavailable } from "../../search/brave";
 import type { AgentDefinition, AgentStep, ToolName } from "../definition";
 import { Blocked, Declined, Halted, InfraError, Paused, type CallContext, type OpinionFacts, type ToolHost } from "../runner";
@@ -365,7 +365,7 @@ export class JobTools implements ToolHost {
   }
 
   private async use(step: AgentStep, tool: ToolName, args: unknown): Promise<unknown> {
-    if (tool === "sheets.read" || tool === "sheets.write") return this.sheet(tool, args);
+    if (tool === "sheets.read" || tool === "sheets.write" || tool === "sheets.update") return this.sheet(tool, args);
     if (tool === "memory.get" || tool === "memory.set") return this.memory(tool, args);
     if (tool === "web.fetch") return this.fetch(args);
     if (tool === "web.search") return this.search(args);
@@ -414,14 +414,21 @@ export class JobTools implements ToolHost {
     throw new ToolError("sheets", given.length ? `This agent wasn't given a sheet called "${name}". It was given ${given.join(", ")}.` : "This agent wasn't given any sheets.");
   }
 
-  private async sheet(tool: "sheets.read" | "sheets.write", args: unknown): Promise<unknown> {
+  private async sheet(tool: "sheets.read" | "sheets.write" | "sheets.update", args: unknown): Promise<unknown> {
     const parsed = TOOL_ARGS[tool].safeParse(args);
-    if (!parsed.success) throw new ToolError(tool, tool === "sheets.read" ? "sheets.read was called wrongly: it takes { sheet }." : "sheets.write was called wrongly: it takes { sheet, rows, mode? }.");
+    if (!parsed.success) {
+      const takes = tool === "sheets.read" ? "{ sheet }" : tool === "sheets.write" ? "{ sheet, rows, mode? }" : "{ sheet, updates: [{ row, values }] }";
+      throw new ToolError(tool, `${tool} was called wrongly: it takes ${takes}.`);
+    }
     const g = this.grant(parsed.data.sheet);
     const limit = this.rt.services.caps.sheetCalls;
     if (!(await this.take("sheets", limit))) throw new ToolError(tool, `It reached its limit of ${limit} sheet calls today.`);
     try {
       if (tool === "sheets.read") return { rows: await readTab(this.rt, this.installation.ownerUserId, g) };
+      if (tool === "sheets.update") {
+        const u = parsed.data as unknown as { updates: { row: number; values: SheetRow }[] };
+        return { updated: await updateRows(this.rt, this.installation.ownerUserId, g, u.updates) };
+      }
       const w = parsed.data as unknown as { rows: SheetRow[]; mode?: "append" | "replace" };
       return { written: await writeTab(this.rt, this.installation.ownerUserId, g, w.rows, w.mode ?? "append") };
     } catch (err) {

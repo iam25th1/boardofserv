@@ -78,6 +78,22 @@ const ETH = { name: "ETH floor watch", kind: "watcher", watches: "ETH price", wh
 const answers = () => screen.queryByRole("group", { name: "Suggested answers" });
 
 describe("ChatShell", () => {
+  it("always shows New agent with its shortcut, and it starts a new chat", async () => {
+    await renderShell();
+    const button = screen.getByRole("button", { name: /^New agent/ });
+    expect(button).toHaveAttribute("aria-keyshortcuts", "Meta+Shift+O Control+Shift+O");
+    fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "Check my sheet every morning" } });
+    fireEvent.click(screen.getByLabelText("Send message"));
+    await emit({ type: "meta", conversationId: "c1", ...SERV }, { type: "delta", text: "Which sheet?" }, { type: "reply_end", messageId: "m1", ...SERV, choices: [] });
+    expect(screen.getByRole("log")).toHaveTextContent("Which sheet?");
+    fireEvent.click(button);
+    expect(screen.queryByRole("log")).toBeNull();
+    // The shortcut does the same.
+    await emit();
+    fireEvent.keyDown(window, { key: "o", metaKey: true, shiftKey: true });
+    expect(screen.getByRole("button", { name: /^New agent/ })).toBeInTheDocument();
+  });
+
   it("sends with no OpenServ link, from the composer and the examples", async () => {
     await renderShell();
     const input = screen.getByLabelText("Message boardofserv");

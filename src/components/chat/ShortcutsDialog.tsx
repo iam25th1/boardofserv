@@ -5,7 +5,7 @@ import styles from "./ShortcutsDialog.module.css";
 const MOD = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform) ? "Cmd" : "Ctrl";
 
 const SHORTCUTS: [string, string][] = [
-  [`${MOD} Shift O`, "New conversation"],
+  [`${MOD} Shift O`, "New agent"],
   [`${MOD} K`, "Search conversations"],
   [`${MOD} J`, "Focus the message box"],
   ["Enter", "Send the message"],

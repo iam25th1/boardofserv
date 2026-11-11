@@ -47,7 +47,7 @@ test.describe("signed in", () => {
   async function openAgents(page: Page): Promise<Locator> {
     await page.goto("/app/chat");
     await signedIn(page);
-    const pill = page.getByRole("button", { name: "1 agent" });
+    const pill = page.getByRole("button", { name: "2 agents" });
     await press(page, pill);
     await expect(pill).toHaveAttribute("aria-expanded", "true");
     const pop = page.locator(`[id="${await pill.getAttribute("aria-controls")}"]`);
@@ -68,7 +68,7 @@ test.describe("signed in", () => {
     const pop = await openAgents(page);
     await press(page, pop.getByRole("button", { name: /^Daily Gmail summary/ }));
     await expect(pop).toBeHidden();
-    await expect(page.getByRole("button", { name: "1 agent" })).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("button", { name: "2 agents" })).toHaveAttribute("aria-expanded", "false");
   });
 
   for (const [action, title] of [
@@ -103,6 +103,7 @@ test.describe("signed in", () => {
 });
 
 test("a rental's cancel dialog: its buttons can be reached, Keep it and Escape close it", async ({ page }) => {
+  test.skip(process.env.E2E_PROD === "1", "The development harness (/demo) isn't in a production build.");
   await page.goto("/demo?market=rental");
   const open = page.getByRole("button", { name: "Cancel", exact: true });
   await press(page, open);

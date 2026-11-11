@@ -17,6 +17,11 @@ export function describeCall(tool: ToolName, args: unknown): string {
       const rows = Array.isArray(a.rows) ? a.rows.length : 0;
       return `${a.mode === "replace" ? "Replace every row of" : `Add ${rows} ${rows === 1 ? "row" : "rows"} to`} "${clip(text(a.sheet), 80)}"${a.mode === "replace" ? ` with ${rows} ${rows === 1 ? "row" : "rows"}` : ""}?`;
     }
+    case "sheets.update": {
+      const updates = Array.isArray(a.updates) ? (a.updates as { values?: Record<string, unknown> }[]) : [];
+      const columns = [...new Set(updates.flatMap((u) => Object.keys(u.values ?? {})))].filter((c) => !c.startsWith("_"));
+      return `Write ${columns.length ? columns.map((c) => `"${clip(c, 40)}"`).join(", ") : "cells"} into ${updates.length} ${updates.length === 1 ? "row" : "rows"} of "${clip(text(a.sheet), 80)}"?`;
+    }
     case "memory.set":
       return `Remember "${clip(text(a.key), 40)}" for next time?`;
     case "wallet.pay":

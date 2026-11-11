@@ -165,7 +165,7 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
     const call = await askServ(step, input, serv.config, { fetchImpl: rt.fetchImpl, untrusted });
     await rt.record(owner, call, serv.ownKey, "agent_decision");
     await meter(rt, scope, "decision", call, serv.ownKey);
-    return readDecision(step, call);
+    return readDecision(step, call, step.each && Array.isArray(input[step.each]) ? (input[step.each] as unknown[]).length : 0);
   };
   const scope: Scope = { installationId: installation.id, jobId: job.id, agentId: installation.agentId, ownerUserId: installation.ownerUserId };
 

@@ -150,6 +150,18 @@ function oneOf<T extends readonly [string, ...string[]]>(values: T) {
   }, z.enum(values).nullable());
 }
 
+// What a chip may never offer: an account, a link or ID to paste, a token,
+// key or password. Those are the guided setup's to collect, never the chat's.
+export const SECRET_CHOICE = /\b(?:tokens?|api\s*keys?|keys?|passwords?|passcodes?|secrets?|credentials?|ids?|logins?|sign[\s-]?ins?|accounts?|usernames?|links?|urls?|webhooks?)\b/i;
+
+// The chips under a question: short answers to it, a few words each, at
+// most four, none asking for anything secret.
+export function safeChoices(choices: string[]): string[] {
+  return [...new Set(choices.map((c) => c.replace(/\s+/g, " ").trim()))]
+    .filter((c) => c && c.length <= 60 && c.split(" ").length <= 8 && !SECRET_CHOICE.test(c))
+    .slice(0, 4);
+}
+
 const SketchBlock = z.object({
   name: words(60),
   kind: oneOf(SKETCH_KINDS),
@@ -168,13 +180,9 @@ const SketchBlock = z.object({
   setup: words(160),
   remembers: words(120),
   asking: oneOf(SKETCH_FIELDS),
-  choices: z.preprocess(
-    (v) =>
-      Array.isArray(v)
-        ? [...new Set(v.filter((c): c is string => typeof c === "string").map((c) => c.trim().slice(0, 60)))].filter(Boolean).slice(0, 4)
-        : [],
-    z.array(z.string()),
-  ),
+  choices: z.preprocess((v) => (Array.isArray(v) ? safeChoices(v.filter((c): c is string => typeof c === "string")) : []), z.array(z.string())),
+  // A change to an agent that has steps already, in the person's words.
+  change: words(400).optional(),
 });
 
 export type ParsedSketch = z.infer<typeof SketchBlock>;

@@ -22,6 +22,52 @@
   padding: var(--s-3) max(var(--gutter), env(safe-area-inset-right, 0px)) var(--s-1) max(var(--gutter), env(safe-area-inset-left, 0px));
 }
 
+/* New agent: a quiet chalk-ringed button at the row's end, with its
+   shortcut on a keyboard's screen. */
+.newAgent {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 34px;
+  padding: 0 var(--s-3) 0 10px;
+  border: var(--stroke) solid var(--line);
+  border-radius: var(--r-full);
+  color: var(--chalk);
+  font-size: var(--t-sm);
+  font-weight: var(--w-medium);
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.newAgent:hover {
+  background: var(--dust);
+  border-color: var(--chalk-3);
+}
+.newAgent:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+.keys {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 2px;
+}
+.keys kbd {
+  font-family: var(--font-body);
+  font-size: var(--t-2xs);
+  color: var(--chalk-3);
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+/* Phones have no shortcut to show. */
+@media (max-width: 640px), (hover: none) {
+  .keys {
+    display: none;
+  }
+}
+
 .confirmText {
   color: var(--chalk-2);
   font-size: var(--t-sm);
