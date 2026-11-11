@@ -21,7 +21,8 @@ vi.mock("@/lib/useOpenServLink", () => ({ useOpenServLink: () => async () => {} 
 vi.mock("@/lib/publicApi", () => ({ fetchPayments: async () => ({ enabled: false, currencies: [] }), fetchHelper: async () => ({ missing: true }) }));
 vi.mock("@/lib/useApi", () => {
   const client = {
-    listConversations: async () => [],
+    // A first visit has none; once a message is sent, that chat.
+    listConversations: async () => (api.sent.length ? [{ id: "c1", title: "First chat", sketchName: null, publishedSlug: null, createdAt: "2026-11-11T09:00:00.000Z", updatedAt: "2026-11-11T09:00:00.000Z" }] : []),
     getAccount: async () => api.account,
     getConversation: async () => api.conversation,
     makeIt: async (conversationId: string) => {
@@ -82,14 +83,16 @@ const ETH = { name: "ETH floor watch", kind: "watcher", watches: "ETH price", wh
 const answers = () => screen.queryByRole("group", { name: "Suggested answers" });
 
 describe("ChatShell", () => {
-  it("always shows New agent with its shortcut, and it starts a new chat", async () => {
+  it("shows New agent with its shortcut once there is a chat, and it starts a new chat", async () => {
     await renderShell();
-    const button = screen.getByRole("button", { name: /^New agent/ });
-    expect(button).toHaveAttribute("aria-keyshortcuts", "Meta+Shift+O Control+Shift+O");
+    // A first visit: nothing but the sentence, the examples and the way ahead.
+    expect(screen.queryByRole("button", { name: /^New agent/ })).toBeNull();
     fireEvent.change(screen.getByLabelText("Message boardofserv"), { target: { value: "Check my sheet every morning" } });
     fireEvent.click(screen.getByLabelText("Send message"));
-    await emit({ type: "meta", conversationId: "c1", ...SERV }, { type: "delta", text: "Which sheet?" }, { type: "reply_end", messageId: "m1", ...SERV, choices: [] });
+    await emit({ type: "meta", conversationId: "c1", ...SERV }, { type: "delta", text: "Which sheet?" }, { type: "reply_end", messageId: "m1", ...SERV, choices: [] }, { type: "done", messageId: "m1", ...SERV });
     expect(screen.getByRole("log")).toHaveTextContent("Which sheet?");
+    const button = screen.getByRole("button", { name: /^New agent/ });
+    expect(button).toHaveAttribute("aria-keyshortcuts", "Meta+Shift+O Control+Shift+O");
     fireEvent.click(button);
     expect(screen.queryByRole("log")).toBeNull();
     // The shortcut does the same.

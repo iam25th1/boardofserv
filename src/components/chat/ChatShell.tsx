@@ -665,7 +665,9 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
   return (
     <div className={styles.app}>
       {/* The app shell has the top bar; the chat's own row holds its
-          conversations. */}
+          conversations. A first visit, with none yet, shows only the
+          sentence, the examples and the way ahead. */}
+      {(conversations.length > 0 || activeId || messages.length > 0) && (
       <div className={styles.row}>
         <AgentsPill
           ref={agentsRef}
@@ -696,6 +698,7 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
           )}
         </button>
       </div>
+      )}
 
       {/* Making an agent, in six stages: faint until there is a job. */}
       {sketch?.kind !== "answer" && <StageTracker at={at} live={live} faint={messages.length === 0 && !streaming} />}

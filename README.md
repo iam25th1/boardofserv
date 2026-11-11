@@ -574,6 +574,13 @@ The agent's page stays for the step graph, the code, the test bench and the
 versions, reached from a small Details link on the latest card. Helpers
 keep their takes / does / gives dock.
 
+A first visit, with no chats yet, shows one plain sentence on what
+boardofserv does, three jobs it does well to tap (a morning line on
+Telegram, a price watcher, sorting enquiries in a sheet), the chat box,
+and the stage tracker faint above them so the way ahead is in view.
+Nothing else competes for attention: the conversations row comes with the
+first chat.
+
 The chat keeps its place. The open conversation is in the address
 (`/app/chat?c=...`), so Back from another page (or the way back from
 Google) returns to it, scrolled to where it was (kept for the tab), and the

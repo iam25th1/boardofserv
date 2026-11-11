@@ -30,7 +30,7 @@ describe("on a phone", () => {
     touch(second!, "pointerDown", 100, 400);
     touch(second!, "pointerMove", 103, 402);
     fireEvent.click(second!);
-    expect(picked).toEqual(["Send me the three biggest AI stories every morning"]);
+    expect(picked).toEqual(["Every day, check a product page I give you and read its price. If the price is below a target I set, ask me on Telegram whether I want a reminder to buy it, and only send the reminder if I say yes."]);
     // A mouse click always counts.
     fireEvent.pointerDown(first!, { pointerType: "mouse" });
     fireEvent.click(first!);
