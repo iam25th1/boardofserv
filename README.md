@@ -63,9 +63,9 @@ in the `boardofserv_boardofserv_pgdata` volume either way.
   first set.
 - `INVITE_ONLY` (optional, on unless `0`, `false`, `no` or `off`): accounts
   wait for an admin's approval before they can chat (see "Invite-only").
-- `AGENT_PLAN_MAX_TOKENS` (optional, default 3500), `AGENT_PLAN_TIMEOUT_MS`
-  (120000) and `DOLPHIN_CODE_TIMEOUT_MS` (240000): how long SERV's plan of an
-  agent may be and take, and how long Dolphin may take to write one code step.
+- `AGENT_PLAN_TIMEOUT_MS` (optional, default 120000) and
+  `DOLPHIN_CODE_TIMEOUT_MS` (240000): how long each of SERV's planning answers
+  for an agent may take, and how long Dolphin may take to write one code step.
 - `CHAT_DAILY_LIMIT` (optional, default 30): messages each person may send a
   day. `DAILY_SPEND_LIMIT_USD` (optional, default 5): the most the site
   spends a day on the operator's model keys (see "Spend limits" below).
@@ -529,15 +529,25 @@ Helpers keep their takes / does / gives dock.
 Plan on the agent's dock (`POST /api/agents` with the conversation) makes the
 agent and its first draft, or plans its draft afresh, once the interview is
 complete. SERV, and only SERV, turns the interview and the conversation
-behind it into a whole definition (`src/lib/agents/plan.ts`, max tokens
-`AGENT_PLAN_MAX_TOKENS`, default 3500). Its answer is the format flattened
-for SERV's strict json_schema (every field present, "" or [] where it doesn't
-apply, no unions, no numeric range keywords), turned back into the format
-and checked. A plan that doesn't check out goes back to SERV with the
-reasons, up to three tries in all. One mistake with only one meaning is
-repaired on the way in: a step that lists a setting, rule or memory key as
-an input (or names one in its words) reads the bag it lives in. A whole plan
-is one answer of a few thousand tokens, not streamed, so it waits up to
+behind it into a whole definition (`src/lib/agents/plan.ts`), in two
+stages (`src/lib/agents/planStages.ts`): an outline (the agent's setup, and
+its steps' names, kinds, order, loops and what each is for), then the
+details of up to six steps a call (what each reads and makes, its code's
+brief, a decision's question and outcomes), a loop always with the steps
+inside it. SERV refuses a strict json_schema whose compiled grammar is too
+large, and the single schema a plan used to be asked in sat right at that
+limit; measured live (`src/test/plan-schema-live.test.ts`), the outline's
+schema has room for 12 more string fields per step and the details' for 48.
+Each answer is the format flattened for SERV's strict json_schema (every
+field present, "" or [] where it doesn't apply, no unions, no numeric range
+keywords); the two are joined, turned back into the format and checked
+with the planner's rules. Each reason goes back only to its stage: the
+outline (what wakes it, its setup, which steps there are and of which kind)
+or the details of the steps it names, which go back to the outline when
+they fail twice. A plan takes four calls or so, and at most ten. Some
+mistakes with only one meaning are repaired on the way in: a step that
+lists a setting, rule or memory key as an input (or names one in its words)
+reads the bag it lives in. Each answer is not streamed, so it waits up to
 `AGENT_PLAN_TIMEOUT_MS` (default 120000) rather than a reply's 20 seconds;
 a review waits a minute and a decision half a minute. Decision steps carry a prompt and their
 outcomes, action steps one declared action, code steps a plain description

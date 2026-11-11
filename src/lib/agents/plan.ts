@@ -4,98 +4,32 @@ import { completeJson, contextFor, type ChatMessage, type JsonResult, type Model
 import { ANSWER_LIMITS } from "../modelLimits";
 import { INTERVIEW_FIELDS, INTERVIEW_LABELS } from "../sketchFields";
 import type { SketchDTO } from "../types";
-import { ACTION_TOOLS, AGENT_FORMAT, checkDefinition, SETTING_TYPES, RULE_TYPES, TOOL_NAMES, type AgentDefinition } from "./definition";
+import { AGENT_FORMAT, checkDefinition, TOOL_NAMES, type AgentDefinition } from "./definition";
 import { TOOLS } from "./toolbox";
 import { planProblems } from "./planRules";
+import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
 
 // Planning: SERV turns the maker's interview (and the conversation behind
-// it) into a whole agent definition, which is checked against the format.
-// A plan that doesn't check out goes back to SERV with the reasons, up to
-// three tries in all. The same call, given the current plan and what the
-// maker says went wrong, changes a plan (the test bench's "fix by chatting").
+// it) into a whole agent definition, which is checked against the format
+// and the planner's rules. It is asked in two stages (planStages.ts): an
+// outline, then the details of a few steps at a time, so each answer's
+// schema stays well under SERV's limit. A plan that doesn't check out goes
+// back only to the stage at fault, with the reasons: the outline, or the
+// details of the steps named. Given the current plan and what the maker
+// says went wrong, the same two stages change a plan ("Fix this").
 //
-// The schema is the format flattened for SERV's strict json_schema: every
-// field present, "" or [] where it doesn't apply, no unions and no numeric
-// range keywords. wireToDefinition turns the answer back into the format.
+// wireToDefinition turns the joined answer back into the format.
 
-export const MAX_PLAN_TRIES = 3;
-// A whole plan is one answer of a few thousand tokens, not streamed, so it
-// gets far longer than a reply's wait for its first token.
+// At most this many calls to SERV for one plan: the outline, the details
+// a few steps at a time, and a stage tried again when what it gave doesn't
+// check out. A plan typically takes four: the outline and three calls of
+// details.
+export const MAX_PLAN_CALLS = 10;
+// Steps detailed in one call (a loop and the steps inside it go together).
+export const STEPS_PER_CALL = 6;
+// Each answer is a few thousand tokens at most, not streamed, so it gets
+// far longer than a reply's wait for its first token.
 const DEFAULT_PLAN_TIMEOUT_MS = 120_000;
-
-const str = (description: string) => ({ type: "string", description });
-const strings = (description: string) => ({ type: "array", items: { type: "string" }, description });
-const obj = (properties: Record<string, unknown>, description?: string) => ({
-  type: "object",
-  additionalProperties: false,
-  required: Object.keys(properties),
-  properties,
-  ...(description ? { description } : {}),
-});
-const list = (item: ReturnType<typeof obj>, description: string) => ({ type: "array", items: item, description });
-
-export const AGENT_PLAN_SCHEMA = {
-  name: "agent_plan",
-  schema: obj({
-    name: str("short agent name"),
-    job: obj({ does: str("what the agent does, one or two sentences"), done: str("what counts as done for one job") }),
-    triggers: list(
-      obj({
-        kind: { type: "string", enum: ["schedule", "check", "message"] },
-        every: { type: "string", enum: ["minutes", "day", "week", "none"], description: "schedule only" },
-        at: str('schedule: a time like "08:00", or ""'),
-        everyMinutes: { type: "number", description: "check, or schedule every minutes: minutes between, else 0" },
-        watch: str("check: the value it watches, else empty"),
-        when: str('check: when it acts; schedule every week: the days it runs, like "monday, thursday"; else empty'),
-        step: str("check: the id of its own code step that reads the value and returns { holds }, else empty"),
-        description: str("in plain words"),
-      }),
-      "what wakes it up",
-    ),
-    settings: list(
-      obj({ key: str("snake_case"), label: str("the question"), type: { type: "string", enum: [...SETTING_TYPES] }, help: str("help text"), choices: strings("for a choice, else []") }),
-      "what each renter answers at setup",
-    ),
-    rules: list(
-      obj({ key: str("snake_case"), label: str("the limit"), type: { type: "string", enum: [...RULE_TYPES] }, value: str("the maker's default, as text"), help: str("help text") }),
-      "limits a renter may adjust",
-    ),
-    memory: list(obj({ key: str("snake_case"), description: str("what it keeps"), type: { type: "string", enum: ["text", "number", "list", "record"] } }), "what it keeps between jobs"),
-    actions: list(
-      obj({
-        id: str("snake_case"),
-        tool: { type: "string", enum: [...ACTION_TOOLS] },
-        description: str("what this action does"),
-        askOver: str("spending only: the usdc rule over which the job's running total of spending waits for the owner's yes, else empty"),
-        askOverDay: str("spending only: the usdc rule over which the day's total of spending waits for the owner's yes, else empty"),
-        amountColumn: str("sheets.write only: the column holding each row's amount in USDC, when writing those rows is spending (orders), else empty"),
-      }),
-      "the only actions it may ever take",
-    ),
-    steps: list(
-      obj({
-        id: str("snake_case"),
-        title: str("a few words"),
-        kind: { type: "string", enum: ["code", "decision", "action"] },
-        inputs: strings("values it reads"),
-        outputs: strings("values it adds"),
-        next: str('the next step id, "" when the run ends (not for decisions)'),
-        // A decision over a list names its list here: SERV refuses a schema
-        // whose compiled grammar is too large, and this one has no room for
-        // one more field on a step.
-        description: str("code: exactly what the code must do with its inputs and what it returns; a decision over a list: only the name of the input holding the list; else empty"),
-        tools: { type: "array", items: { type: "string", enum: [...TOOL_NAMES] }, description: "code: the tools it may call, else []" },
-        prompt: str("decision: what to judge, else empty"),
-        outcomes: list(obj({ id: str("snake_case"), label: str("a few words"), next: str('the step it leads to, or ""') }), "decision: 2 to 6 outcomes, else []"),
-        action: str("action: a declared action id, else empty"),
-        otherwise: str('action that waits for the owner (telegram.ask, or a payment over a limit): the step to go to when no answer comes in time, or "" to stop'),
-      }),
-      "the steps; a run starts at the first",
-    ),
-    limits: obj({ maxSteps: { type: "number" }, maxRunSeconds: { type: "number" }, maxSpendUsd: { type: "number" } }),
-    approvalHours: { type: "number", description: "hours the owner has to answer a question before it counts as no answer: 24 unless the maker said otherwise" },
-  }),
-};
 
 type Wire = Record<string, unknown>;
 const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -276,31 +210,6 @@ export function wireToDefinition(w: Wire): unknown {
   };
 }
 
-export const PLAN_AGENT_PROMPT = [
-  "You plan an agent for boardofserv from the maker's interview. Answer with the whole agent as JSON in the given schema.",
-  "Steps. code: reading and working things out, in a sandbox (read sheets, fetch pages, search, compare, compute); describe exactly what the code must do with its inputs and what it returns, and list only the tools it calls.",
-  "decision: a judgement made by a model, with 2 to 6 outcomes, each naming the step it leads to.",
-  "Judgement (is this submission's demo working? is this enquiry worth a reply?) goes to a decision. Counting, comparing numbers, thresholds (fewer than half), going through a list and whether any rows or items are left all go to code, never to a decision.",
-  "To judge many items (each row, or each requirement of each submission), use one decision over a list. Its description holds only the name of the input that is the list, made by a code step before it; when each item needs several judgements, that code step makes one item per pair (one per submission and requirement, with what is needed to judge it). Its outcomes are the verdicts one item can get (for example met and not_met), never whether there is anything to judge, and every outcome's next is the same code step, which counts and combines the verdicts. Its first output names the verdicts ({ item, outcome, label, reason }, in the list's order). An empty list is judged with no model call and gives no verdicts. Steps never loop back to an earlier step.",
-  'For example, after a code step make_checks that outputs checks (one item per submission and requirement), the decision is {"id":"judge","kind":"decision","inputs":["checks"],"outputs":["verdicts"],"description":"checks","prompt":"Does this submission meet this requirement?","outcomes":[{"id":"met","label":"Met","next":"count"},{"id":"not_met","label":"Not met","next":"count"}]}, and the code step count (inputs ["checks","verdicts"]) counts each submission\'s met verdicts. Never a step per item, never a "current" item, never a step that goes back.',
-  "When there is nothing to do (no new rows, nothing to report), the code step before an action leaves that action's input null (or its rows or updates empty), and the action is skipped: that is how a run with nothing new ends quietly, with no decision.",
-  "Whatever a step uses after going through many items (a summary, a count, a position to save) covers all of them, never just the last one. A saved position builds on the one saved before: the step that makes it reads memory and keeps the larger.",
-  "action: takes one declared action, which only changes things (sheets.write, sheets.update, telegram.send, telegram.ask, wallet.pay, memory.set); never use an action to read. For sheets.write, sheets.update, wallet.pay and memory.set its first input must already be that tool's arguments ({ sheet, rows }, { sheet, updates }, { to, amountUsdc, memo } or { key, value }), a value of its own made by a code step before it for that action alone; telegram.send and telegram.ask make their message from any inputs. The step's first output holds the tool's result (telegram.ask gives { answer }).",
-  'To write a result into the row it belongs to ("write Status and Reasons in that row"), use sheets.update: each update names the row by its number (_row, which every row from sheets.read has) and the columns to write. Add rows with sheets.write only for new records, never to record a result for a row that is already there: it would be read back as a new one.',
-  'A run starts at the first step. next is the next step\'s id, or "" when the run ends there.',
-  `A schedule runs every N minutes (every "minutes", everyMinutes N, at least ${minIntervalMinutes()}; every 2 hours is 120), every day at a time (every "day", at "HH:MM") or every week on some days at a time (every "week", the days in when, at "HH:MM"), in the renter's time zone. For anything that runs on a clock, use a schedule: "every 15 minutes" is every minutes with everyMinutes 15, "twice a week" is every week on two days.`,
-  'Use a check trigger only to run when a watched value changes, not to run on a clock. A check trigger names its own code step (step), listed with the steps but outside the run: it reads the watched value with tools that only read, from settings, rules and memory, and returns { holds } (true when the condition is met, and optionally value). The run starts when holds turns true. Its next is "" and no step leads to it.',
-  'Inputs name values a step reads: settings, rules, memory, trigger, or an output of an earlier step. Outputs name what it adds. A setting is read as settings.<key>: a step that uses one lists "settings" in its inputs, never the key itself; the same for rules and memory.',
-  "In code step descriptions, name the exact sheets, columns and fields the maker gave, and the shape of what the step returns. A code step lists in tools only the tools its own code calls: a step given rows by an earlier step doesn't read the sheet again.",
-  'Something that runs on a clock ("every 15 minutes, check for new rows") is a schedule, never a check trigger.',
-  `Tools: ${TOOL_NAMES.map((t) => `${t} (${TOOLS[t].summary})`).join("; ")}.`,
-  "Every side effect (sheets.write, sheets.update, telegram.send, telegram.ask, wallet.pay) must be a declared action. Anything the maker said it must never do without asking goes through telegram.ask first.",
-  "A question to the owner (telegram.ask) waits for their answer for approvalHours; an action step that asks can name otherwise, the step to go to when no answer comes, or leave it empty to stop. Spending is a payment (wallet.pay), or rows written to a sheet whose amountColumn holds each row's amount in USDC (orders). A spending action can name askOver, a usdc rule: the runtime asks the owner before any spending that takes the job's running total over it, and askOverDay, the same for the day's total. The runtime keeps those totals across every action and line, so never add a decision or question of your own for those limits.",
-  "Settings are what each renter answers at setup; rules are limits a renter may adjust, with the maker's default as text; memory is what it keeps between jobs.",
-  "Keys and ids are snake_case. Money is in USDC. Use as few steps as do the job. Limits: maxSteps at most 50, maxRunSeconds at most 300, maxSpendUsd at most 0.5.",
-  "Never use em dashes.",
-].join("\n");
-
 const PLAN_HISTORY_MESSAGES = 30;
 
 export interface PlanInput {
@@ -327,56 +236,147 @@ export function planRequest({ interview, history, current, feedback }: PlanInput
 
 export interface PlanResult {
   definition: AgentDefinition | null;
-  // SERV's answers, one per try, as it sent them.
+  // SERV's answers, one per call, as it sent them.
   answers: string[];
-  // The reasons the last try didn't check out, when none did.
+  // The reasons the last plan didn't check out, when none did.
   errors: string[];
   // Every call made, for the usage records.
   calls: JsonResult[];
 }
 
+type Stage = "outline" | "details";
+
 export async function planAgent(
   input: PlanInput,
-  opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch; maxTries?: number },
+  opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch; maxCalls?: number },
 ): Promise<PlanResult> {
-  const max = Number(process.env.AGENT_PLAN_MAX_TOKENS);
-  const maxTokens = Number.isInteger(max) && max > 0 ? max : ANSWER_LIMITS.agent_plan;
   const t = Number(process.env.AGENT_PLAN_TIMEOUT_MS);
   const config = { ...opts.config, firstTokenTimeoutMs: Number.isInteger(t) && t > 0 ? t : DEFAULT_PLAN_TIMEOUT_MS };
-  const messages: ChatMessage[] = [
-    { role: "system", content: PLAN_AGENT_PROMPT },
-    { role: "user", content: planRequest(input) },
-  ];
+  const maxCalls = opts.maxCalls ?? MAX_PLAN_CALLS;
   const calls: JsonResult[] = [];
   const answers: string[] = [];
+  const planText = planRequest(input);
   let errors: string[] = [];
-  for (let attempt = 0; attempt < (opts.maxTries ?? MAX_PLAN_TRIES); attempt++) {
-    const result = await completeJson(messages, { config, purpose: "agent_plan", schema: AGENT_PLAN_SCHEMA, maxTokens, signal: opts.signal, fetchImpl: opts.fetchImpl });
+
+  // One call for one stage: its answer as JSON, or null when no model
+  // answered (nothing more can be done) or the calls are used up.
+  let silent = false;
+  const ask = async (stage: Stage, messages: ChatMessage[]): Promise<Record<string, unknown> | null> => {
+    if (calls.length >= maxCalls) return null;
+    const outline = stage === "outline";
+    const result = await completeJson(messages, {
+      config,
+      purpose: outline ? "agent_outline" : "agent_steps",
+      schema: outline ? OUTLINE_SCHEMA : DETAIL_SCHEMA,
+      maxTokens: ANSWER_LIMITS[outline ? "agent_outline" : "agent_steps"],
+      signal: opts.signal,
+      fetchImpl: opts.fetchImpl,
+    });
     calls.push(result);
     if (!result.content) {
-      // No answer at all (every provider failed): another try won't help.
-      errors = ["No model answered."];
-      break;
+      silent = true;
+      return null;
     }
     answers.push(result.content);
-    let wire: unknown;
     try {
-      wire = JSON.parse(result.content);
+      const parsed = JSON.parse(result.content) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
     } catch {
-      errors = ["The answer was not JSON."];
-      messages.push({ role: "assistant", content: result.content.slice(0, 8000) }, { role: "user", content: "That was not valid JSON. Send the whole plan again as JSON." });
+      return null;
+    }
+  };
+  const done = (definition: AgentDefinition | null): PlanResult => ({ definition, answers, errors: definition ? [] : silent ? ["No model answered."] : errors, calls });
+
+  // Stage one: the outline.
+  const outlineMessages: ChatMessage[] = [
+    { role: "system", content: outlinePrompt(minIntervalMinutes(), TOOL_NAMES.map((tool) => `${tool} (${TOOLS[tool].summary})`).join("; ")) },
+    { role: "user", content: planText },
+  ];
+  let outline = await ask("outline", outlineMessages);
+  if (!outline) return done(null);
+
+  // Stage two: the details, a few steps at a time; then, for as long as the
+  // calls last, the plan is checked and each reason goes back to its stage.
+  const details = new Map<string, Record<string, unknown>>();
+  const detail = async (ids: string[], problems?: Map<string, string[]>): Promise<boolean> => {
+    const answer = await ask("details", [
+      { role: "system", content: DETAIL_PROMPT },
+      { role: "user", content: detailRequest(planText, outline!, details, ids, problems) },
+    ]);
+    if (!answer) return false;
+    for (const st of Array.isArray(answer.steps) ? (answer.steps as Record<string, unknown>[]) : []) {
+      const id = typeof st.id === "string" ? st.id.trim() : "";
+      if (ids.includes(id)) details.set(id, st);
+    }
+    return true;
+  };
+  const missing = () => outlineIds(outline!).filter((id) => !details.has(id));
+  const retried = new Set<string>();
+  while (calls.length < maxCalls) {
+    // Every step without details gets them, its loop's steps alongside.
+    const todo = missing();
+    if (todo.length) {
+      const chunk = detailChunks(outline, STEPS_PER_CALL).map((c) => c.filter((id) => todo.includes(id))).find((c) => c.length);
+      if (!chunk || !(await detail(chunk))) break;
       continue;
     }
-    const checked = checkDefinition(wireToDefinition(wire as Wire));
+    const joined = wireToDefinition(joinPlan(outline, details));
+    const checked = checkDefinition(joined);
     // A plan in the format still has to keep the planner's rules
     // (planRules.ts): judgement in decisions, counting in code, no loops.
-    const broken = checked.ok ? planProblems(checked.definition) : [];
-    if (checked.ok && !broken.length) return { definition: checked.definition, answers, errors: [], calls };
-    errors = checked.ok ? broken : checked.errors;
-    messages.push(
-      { role: "assistant", content: result.content.slice(0, 12000) },
-      { role: "user", content: `That plan has problems:\n${errors.map((e) => `- ${e}`).join("\n")}\nSend the whole corrected plan.` },
-    );
+    // They are read off a plan that doesn't check out yet too, as far as it
+    // goes, so a wrong kind of step goes back with everything else.
+    const broken = rulesOf(checked.ok ? checked.definition : (joined as AgentDefinition));
+    if (checked.ok && !broken.length) return done(checked.definition);
+    errors = [...new Set([...(checked.ok ? [] : checked.errors), ...broken])];
+    const at = blame(errors, outline);
+    // A step whose details went back once already and still don't check out
+    // can't be fixed by its details alone: the outline goes back.
+    for (const [id, reasons] of at.steps) {
+      if (!retried.has(id)) continue;
+      at.outline.push(...reasons);
+      at.steps.delete(id);
+      details.delete(id);
+    }
+    if (at.outline.length || !at.steps.size) {
+      // The outline goes back with its reasons; steps it keeps as they
+      // were keep their details.
+      const before = outline;
+      outlineMessages.push(
+        { role: "assistant", content: JSON.stringify(before).slice(0, 12000) },
+        { role: "user", content: `That outline has problems:\n${(at.outline.length ? at.outline : errors).map((e) => `- ${e}`).join("\n")}\nSend the whole corrected outline.` },
+      );
+      const next = await ask("outline", outlineMessages);
+      if (!next) break;
+      outline = next;
+      for (const id of [...details.keys()]) if (!sameOutlineStep(before, next, id)) details.delete(id);
+      retried.clear();
+      continue;
+    }
+    // Only the steps at fault are detailed again, with what was wrong.
+    for (const id of at.steps.keys()) retried.add(id);
+    if (!(await detail([...at.steps.keys()], at.steps))) break;
   }
-  return { definition: null, answers, errors, calls };
+  return done(null);
+}
+
+// The planner's rules, on a plan that may not check out yet: what can be
+// read off it, or nothing.
+function rulesOf(d: AgentDefinition): string[] {
+  try {
+    return planProblems(d);
+  } catch {
+    return [];
+  }
+}
+
+function outlineIds(outline: Record<string, unknown>): string[] {
+  return (Array.isArray(outline.steps) ? (outline.steps as Record<string, unknown>[]) : []).map((x) => (typeof x.id === "string" ? x.id.trim() : "")).filter(Boolean);
+}
+
+// A step the corrected outline left as it was: same kind, place and job.
+function sameOutlineStep(a: Record<string, unknown>, b: Record<string, unknown>, id: string): boolean {
+  const find = (o: Record<string, unknown>) => (Array.isArray(o.steps) ? (o.steps as Record<string, unknown>[]) : []).find((x) => x.id === id);
+  const [x, y] = [find(a), find(b)];
+  return Boolean(x && y) && ["kind", "purpose", "next", "body"].every((k) => x![k] === y![k]);
 }

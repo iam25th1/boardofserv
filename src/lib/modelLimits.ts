@@ -10,8 +10,7 @@
 // The measured answers are completion tokens from the live runs of phases 6
 // to 8 (docs: the PR bodies). The limits for the chat, the plan call before
 // a reply, a helper's instructions and an agent's plan can still be set by
-// the environment (CHAT_MAX_TOKENS, SKETCH_MAX_TOKENS, COMPILE_MAX_TOKENS,
-// AGENT_PLAN_MAX_TOKENS).
+// the environment (CHAT_MAX_TOKENS, SKETCH_MAX_TOKENS, COMPILE_MAX_TOKENS).
 
 export const ANSWER_LIMITS = {
   // A reply in the chat, and a published helper's answer: what a person reads.
@@ -21,8 +20,10 @@ export const ANSWER_LIMITS = {
   sketch: 320,
   // A published helper's instructions.
   compile: 600,
-  // An agent's whole plan: every step, rule and question.
-  agent_plan: 3500,
+  // An agent's plan, in two stages: its outline (setup, and every step's
+  // name, kind and place), then the details of a few steps at a time.
+  agent_outline: 2500,
+  agent_steps: 2500,
   // Sample data for an agent's test: settings, three items and their tabs.
   agent_sample: 1800,
   // Dolphin writing one step's code (not SERV).

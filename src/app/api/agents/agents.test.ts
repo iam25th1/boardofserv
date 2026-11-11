@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import { addUser, testDb } from "@/test/helperDb";
 import { COMPARE, FIND_LOW, RESTOCK_WIRE, restockBench } from "@/test/agentFixtures";
+import { planAnswer } from "@/test/planAnswers";
 import { jobFor } from "@/lib/agents/build";
 import { draftOf } from "@/lib/agents/store";
 import type { AgentBuilderDTO, AgentSummaryDTO } from "@/lib/types";
@@ -31,6 +32,7 @@ let db: PgliteDatabase<typeof schema>;
 let ana: schema.User;
 let ben: schema.User;
 let plans: object[] = [];
+let planning: Record<string, unknown> = RESTOCK_WIRE;
 // What SERV's version review finds ("down" for no answer).
 let review: { step: string; severity: string; finding: string }[] | "down" = [];
 const seen: { to: "serv" | "dolphin"; schema?: string; body: { messages: { role: string; content: string }[] } }[] = [];
@@ -75,7 +77,11 @@ beforeAll(async () => {
       };
       return Response.json({ choices: [{ message: { content: JSON.stringify(sample) } }], usage: { prompt_tokens: 900, completion_tokens: 400 } });
     }
-    if (name === "agent_plan") return Response.json({ choices: [{ message: { content: JSON.stringify(plans.shift() ?? RESTOCK_WIRE) } }], usage: { prompt_tokens: 1500, completion_tokens: 1100 } });
+    // A plan comes in two stages: each outline takes the next plan from
+    // the list, and its steps' details come from that plan.
+    if (name === "agent_outline") planning = (plans.shift() as Record<string, unknown> | undefined) ?? RESTOCK_WIRE;
+    const planned = planAnswer(planning, body);
+    if (planned) return Response.json({ choices: [{ message: { content: JSON.stringify(planned) } }], usage: { prompt_tokens: 1500, completion_tokens: 1100 } });
     if (name === "code_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "approve", reason: "Does what the step says." }) } }], usage: { prompt_tokens: 500, completion_tokens: 20 } });
     if (name === "version_review") {
       if (review === "down") return new Response("{}", { status: 503 });
@@ -170,13 +176,13 @@ describe("planning an agent from its conversation", () => {
     ]);
     // SERV planned and reviewed; Dolphin only wrote code. Then SERV made the
     // sample data for the plan's self test, which runs dry.
-    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_plan", "dolphin", "code_review", "dolphin", "code_review", "agent_sample"]);
+    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_outline", "agent_steps", "dolphin", "code_review", "dolphin", "code_review", "agent_sample"]);
     // The conversation shows the agent beside its sketch.
     const convo = await (await messagesRoute.GET(json(`/api/conversations/${conversationId}/messages`), { params: Promise.resolve({ id: conversationId }) })).json();
     expect(convo.agent).toMatchObject({ id: first.id, buildState: "idle" });
     // Every model call is in the usage records.
     const usage = await db.select({ kind: schema.replyUsage.kind, provider: schema.replyUsage.provider }).from(schema.replyUsage).where(eq(schema.replyUsage.userId, ana.id));
-    expect(usage.map((u) => `${u.kind}/${u.provider}`).sort()).toEqual(["agent_code/dolphin", "agent_code/dolphin", "agent_plan/serv", "agent_plan/serv", "agent_review/serv", "agent_review/serv"]);
+    expect(usage.map((u) => `${u.kind}/${u.provider}`).sort()).toEqual(["agent_code/dolphin", "agent_code/dolphin", "agent_plan/serv", "agent_plan/serv", "agent_plan/serv", "agent_review/serv", "agent_review/serv"]);
   });
 
   it("refuses an interview that isn't finished, someone else's conversation, and planning twice at once", async () => {
@@ -205,7 +211,7 @@ describe("planning an agent from its conversation", () => {
   });
 
   it("calls a failed plan failed, in plain words", async () => {
-    plans = [{ ...RESTOCK_WIRE, triggers: [] }, { ...RESTOCK_WIRE, triggers: [] }, { ...RESTOCK_WIRE, triggers: [] }];
+    plans = Array.from({ length: 12 }, () => ({ ...RESTOCK_WIRE, triggers: [] }));
     const conversationId = await interviewed(ana);
     const { agent: a } = (await (await agents.POST(json("/api/agents", "POST", { conversationId }))).json()) as { agent: AgentSummaryDTO };
     await jobFor((await draftOf(a.id))!.id);
@@ -265,9 +271,10 @@ describe("the builder", () => {
     await jobFor((await draftOf(id))!.id);
     // One plan, then only the changed step was written and reviewed, and the
     // changed plan got a new sample for its self test.
-    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_plan", "dolphin", "code_review", "agent_sample"]);
+    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_outline", "agent_steps", "dolphin", "code_review", "agent_sample"]);
     expect(seen[0]!.body.messages[1]!.content).toContain("The maker says: it ignored delivery time");
-    expect(seen[1]!.body.messages[1]!.content).toContain("Step: Compare suppliers");
+    expect(seen[1]!.body.messages[1]!.content).toContain("The maker says: it ignored delivery time");
+    expect(seen[2]!.body.messages[1]!.content).toContain("Step: Compare suppliers");
     const after = await builderOf(id);
     expect(after.code.find_low!.status).toBe("approved");
     expect(after.code.compare!.status).toBe("approved");
@@ -370,4 +377,3 @@ describe("the card's actions", () => {
     expect(seen.map((x) => x.schema)).not.toContain("agent_sample");
   });
 });
-

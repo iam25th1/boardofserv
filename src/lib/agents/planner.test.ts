@@ -1,9 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 import { BAD_HACKATHON_WIRE, FIND_NEW, HACKATHON_LABELS, HACKATHON_WIRE, TALLY, hackathonBench, hackathonCode, hackathonDefinition } from "@/test/hackathonFixture";
+import { planAnswer } from "@/test/planAnswers";
 import { modelConfig } from "../model";
 import { checkDefinition, type ActionStepDef, type CodeStepDef, type DecisionStepDef } from "./definition";
-import { planAgent, wireToDefinition } from "./plan";
+import { MAX_PLAN_CALLS, planAgent, wireToDefinition } from "./plan";
 import { planProblems } from "./planRules";
 import { planFailure, problemOf, storyOf } from "./plainWords";
 import { nothingToDo, readDecision, runAgent, type RunEvent } from "./runner";
@@ -74,18 +75,22 @@ describe("the test case", () => {
     expect(planProblems(saving)).toContain('step "tally" saves to memory without reading what was saved before: list "memory" in its inputs and build on it (a position keeps the larger of the old and the new).');
   });
 
-  it("sends a plan that breaks the rules back to SERV with the reasons, and takes the one that keeps them", async () => {
-    const answers = [BAD_HACKATHON_WIRE, HACKATHON_WIRE];
-    const asked: string[] = [];
+  it("sends an outline that breaks the rules back to SERV with the reasons, and takes the one that keeps them", async () => {
+    const outlines = [BAD_HACKATHON_WIRE, HACKATHON_WIRE];
+    let planning: Record<string, unknown> = BAD_HACKATHON_WIRE;
+    const asked: { schema: string; text: string }[] = [];
     const fetchImpl = (async (_: string, init: RequestInit) => {
-      const body = JSON.parse(String(init.body)) as { messages: { content: string }[] };
-      asked.push(body.messages.at(-1)!.content);
-      return Response.json({ choices: [{ message: { content: JSON.stringify(answers.shift()) } }], usage: { prompt_tokens: 10, completion_tokens: 10 } });
+      const body = JSON.parse(String(init.body)) as { messages: { role: string; content: string }[]; response_format: { json_schema: { name: string } } };
+      asked.push({ schema: body.response_format.json_schema.name, text: body.messages.at(-1)!.content });
+      if (body.response_format.json_schema.name === "agent_outline") planning = outlines.shift() ?? planning;
+      return Response.json({ choices: [{ message: { content: JSON.stringify(planAnswer(planning, body)) } }], usage: { prompt_tokens: 10, completion_tokens: 10 } });
     }) as unknown as typeof fetch;
     const plan = await planAgent({ interview: { name: "Hackathon Submission Checker", kind: "agent", watches: null, when: null, how: null, tells: null, takes: null, does: null, gives: null, asking: null, live: false }, history: [] }, { config: serv, signal: new AbortController().signal, fetchImpl });
     expect(plan.definition?.steps.map((s) => s.id)).toEqual(["find_new", "judge", "tally", "write_status", "send"]);
-    expect(asked[1]).toContain("That plan has problems");
-    expect(asked[1]).toContain('decision "any_new" decides whether items are left');
+    const back = asked.find((a) => a.text.startsWith("That outline has problems"))!;
+    expect(back.schema).toBe("agent_outline");
+    expect(back.text).toContain('decision "any_new" decides whether items are left');
+    expect(plan.calls.length).toBeLessThanOrEqual(MAX_PLAN_CALLS);
   });
 
   it("takes a decision whose description names one of its inputs as a decision over that list", () => {

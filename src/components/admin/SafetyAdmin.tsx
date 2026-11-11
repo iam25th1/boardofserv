@@ -421,6 +421,8 @@ const PURPOSE_WORDS: Record<string, string> = {
   sketch: "Planning a reply",
   compile: "Writing a helper's instructions",
   agent_plan: "Planning an agent",
+  agent_outline: "Outlining an agent",
+  agent_steps: "Detailing an agent's steps",
 };
 
 // A share as a whole percentage, "0%" for none.
