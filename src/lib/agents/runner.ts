@@ -274,12 +274,14 @@ export function actionArgs(step: ActionStepDef, tool: keyof typeof TOOL_ARGS, in
   return { ok: false, why: `This action needs its first input to be ${tool}'s arguments: ${TOOLS[tool].signature}` };
 }
 
-// An action whose first input a code step left empty: null, or a tool's
-// arguments with nothing in their list (no rows, no updates).
+// An action whose first input a code step left empty: null, a tool's
+// arguments with nothing in their list (no rows, no updates), or a payment
+// of nothing.
 export function nothingToDo(step: ActionStepDef, input: Record<string, unknown>): boolean {
   if (!step.inputs[0]) return false;
   const v = input[step.inputs[0]];
   if (v === null || v === undefined) return true;
+  if (v && typeof v === "object" && "amountUsdc" in v && Number((v as { amountUsdc: unknown }).amountUsdc) === 0) return true;
   const list = v && typeof v === "object" ? ((v as { rows?: unknown; updates?: unknown }).rows ?? (v as { updates?: unknown }).updates) : undefined;
   return Array.isArray(list) && list.length === 0;
 }

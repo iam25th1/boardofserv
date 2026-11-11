@@ -62,7 +62,7 @@ export function askLine(sketch: SketchDTO | null, plan: TurnPlan | null, planned
   // An agent whose job is clear has Make it under the reply: nothing more
   // is asked.
   if (sketch?.kind === "agent" && describedEnough(sketch)) {
-    return "The job is clear: say it back in one or two sentences in the person's own words, with their numbers and conditions exactly, then say you have what you need and Make it, just below, works out its steps. Ask nothing.";
+    return "The job is clear: say it back in one or two sentences in the person's own words, with their numbers and conditions exactly, adding nothing they didn't say and listing no steps. Then say you have what you need, and that Make it, just below, works out its steps. Ask nothing.";
   }
   if (plan?.asking) {
     const ask = `Ask about: ${plan.asking} (${ABOUT[plan.asking]}).`;

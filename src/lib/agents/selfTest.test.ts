@@ -45,12 +45,23 @@ describe("the self test", () => {
     expect(t.result.story).toBe('Passed. It read the page, asked you on Telegram "The price is now 42, at or below your target of 50. Send you a reminder to buy it? http..." (you answered "Yes") and sent you "Reminder: buy it now at 42. https://shop.example/kettle" on Telegram.');
   });
 
-  it("says plainly when the price is above the target and nothing more happens", async () => {
+  it("tells a run that found nothing to do plainly, and doesn't call it a pass: its sample is made for it to work on", async () => {
     const d = definitionOf(PRICE_WIRE);
     const bench = { ...priceBench(), settings: { ...priceBench().settings, target_price: 30 } };
     const t = await selfTest({ definition: d, code: codeOf(d, PRICE_SOURCES), testResult: kept(d, bench, { noun: "product", plural: "products", labels: ["Stone Kettle"] }) }, { serv: null });
-    expect(t.result.status).toBe("passed");
-    expect(t.result.story).toBe('Passed. It read the page and found "above the target", so there was nothing more to do.');
+    expect(t.result.story).toBe('It read the page and found "above the target", so there was nothing more to do.');
+    expect(t.result.status).toBe("failed");
+    expect(t.result.problems.map((p) => p.text)).toEqual(["On its sample it didn't send you the reminder to buy it: it found nothing to do in data made for it to work on."]);
+  });
+
+  it("doesn't pass a run that went on with nothing after a call went wrong", async () => {
+    const d = definitionOf(PRICE_WIRE);
+    // The page is asked for by an address too long to be one: the code
+    // passes over the error and finds no price.
+    const sources = { ...PRICE_SOURCES, read_price: "async function run(input, tools) { try { await tools.web.fetch({ url: 'x'.repeat(5000) }); } catch (e) {} return { price: null, price_way: 'not_low' }; }" };
+    const t = await selfTest({ definition: d, code: codeOf(d, sources), testResult: kept(d, priceBench(), { noun: "product", plural: "products", labels: ["Stone Kettle"] }) }, { serv: null });
+    expect(t.result.status).toBe("failed");
+    expect(t.result.problems[0]!.text).toBe('"Read the price" couldn\'t read the page on the sample product, so it went on with nothing.');
   });
 
   it("passes the morning line: one message is not a summary of anything", async () => {

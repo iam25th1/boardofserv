@@ -158,9 +158,11 @@ export function plainSample(d: AgentDefinition): Sample {
 
 export async function makeSample(d: AgentDefinition, serv: ModelConfig | null, opts: { signal?: AbortSignal; fetchImpl?: typeof fetch } = {}): Promise<{ sample: Sample; call: JsonResult | null }> {
   if (!serv) return { sample: plainSample(d), call: null };
+  // Today's date rides along (not in the fingerprint): an agent that works
+  // on today's rows needs rows dated today.
   const messages: ChatMessage[] = [
     { role: "system", content: samplePrompt(sampleCount(d)) },
-    { role: "user", content: sampleRequest(d) },
+    { role: "user", content: `${sampleRequest(d)}\n\nToday is ${new Date().toISOString().slice(0, 10)}: date the sample's rows from today where the job looks at dates.` },
   ];
   const config = { ...serv, firstTokenTimeoutMs: Math.max(serv.firstTokenTimeoutMs, 60_000) };
   const call = await completeJson(messages, { config, purpose: "agent_sample", schema: SAMPLE_SCHEMA, maxTokens: ANSWER_LIMITS.agent_sample, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });

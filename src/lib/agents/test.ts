@@ -2,6 +2,7 @@ import "server-only";
 import type { JsonResult, ModelConfig } from "../model";
 import { loopsOf, type AgentDefinition } from "./definition";
 import { storyOf, toldAs } from "./plainWords";
+import { plain } from "./plainView";
 import { runAgent } from "./runner";
 import { goesThroughList, makeSample, sampleRequest, type Sample } from "./sample";
 import type { BenchData, RunEvent, StepCode, TestResult } from "./types";
@@ -74,6 +75,12 @@ export async function testVersion(v: { definition: AgentDefinition; code: Record
     const failed = [...events].reverse().find((e): e is Extract<RunEvent, { type: "step_done" }> => e.type === "step_done" && e.status === "failed");
     const step = failed ? d.steps.find((s) => s.id === failed.stepId) : undefined;
     problems.push({ step: step?.id ?? null, text: step ? `"${step.title}" didn't work on the ${sampled}.` : `It didn't get through the ${sampled}.` });
+  } else {
+    // A call that went wrong and was passed over: the run went on with
+    // nothing, which only looks like it worked.
+    const wrong = events.find((e): e is ToolEvent => e.type === "tool" && Boolean(e.error));
+    const step = wrong ? d.steps.find((s) => s.id === wrong.stepId) : undefined;
+    if (wrong) problems.push({ step: step?.id ?? null, text: `"${step?.title ?? "A step"}" couldn't ${TOOL_VERBS[wrong.tool] ?? "do its part"} on the ${sampled}, so it went on with nothing.` });
   }
   const status = problems.length ? "failed" : "passed";
   const story = storyOf(d, events, end, sample.items);
@@ -92,6 +99,20 @@ export async function testVersion(v: { definition: AgentDefinition; code: Record
 }
 
 type ToolEvent = Extract<RunEvent, { type: "tool" }>;
+
+// What each tool does, in words that follow "couldn't".
+const TOOL_VERBS: Record<string, string> = {
+  "sheets.read": "read your sheet",
+  "sheets.write": "add to your sheet",
+  "sheets.update": "write into your sheet",
+  "web.fetch": "read the page",
+  "web.search": "search the web",
+  "telegram.send": "message you",
+  "telegram.ask": "ask you",
+  "memory.get": "look up where it got to",
+  "memory.set": "note where it got to",
+  "wallet.pay": "pay",
+};
 const toolEvents = (events: RunEvent[], tool: string) => events.filter((e): e is ToolEvent => e.type === "tool" && e.tool === tool && !e.error);
 
 // How many items a run judged: in its decisions over a list, and its
@@ -151,6 +172,18 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   const many = goesThroughList(d);
   const inLoop = loopsOf(d).inside;
 
+  // Its job, done at least once on a sample made for it to work on, where
+  // the owner says yes to whatever it asks: an agent that writes, sends or
+  // pays and did none of it found nothing to do where there was something.
+  // (Asking first is not the job; a question with no yes is not a pass.)
+  const did = (tool: string) => first.events.some((e) => e.type === "tool" && !e.error && e.tool === tool);
+  const jobs = d.actions.filter((a) => a.tool !== "memory.set" && a.tool !== "telegram.ask");
+  const asked = d.actions.filter((a) => a.tool === "telegram.ask");
+  const job = jobs.length ? (jobs.some((a) => did(a.tool)) ? null : jobs[0]!) : asked.length && !asked.some((a) => did(a.tool)) ? asked[0]! : null;
+  if (job) {
+    problems.push({ step: d.steps.find((s) => s.kind === "action" && s.action === job.id)?.id ?? null, text: `On its sample it didn't ${lowerFirst(plain(job.description)).replace(/\.$/, "")}: it found nothing to do in data made for it to work on.` });
+  }
+
   // The summary: the last message it sends, after going through the list.
   const sends = toolEvents(first.events, "telegram.send");
   const summary = sends.at(-1);
@@ -197,3 +230,5 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
 
   return told({ ...first, result: { ...first.result, status: problems.length ? "failed" : "passed", problems } });
 }
+
+const lowerFirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);

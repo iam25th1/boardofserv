@@ -498,7 +498,16 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
     }
   }, [api]);
   const cards = messages.filter((m) => m.card);
-  const at: Stage = stageOf(cards.map((m) => m.card));
+  // An agent made before the chat had its stages (no cards): its card comes
+  // at the end, where the journey picks up again: its steps, with Looks
+  // right, or Make it once the job is clear.
+  const shown = useMemo<MessageView[]>(() => {
+    if (!activeId || cards.length) return messages;
+    const virtual: JourneyCard | null = agent?.steps.length ? { stage: "steps", agentId: agent.id } : !agent && describedEnough(sketch) ? { stage: "describe" } : null;
+    return virtual ? [...messages, { id: `card-${virtual.stage}`, role: "assistant", content: "", card: virtual }] : messages;
+  }, [activeId, cards.length, messages, agent, sketch]);
+
+  const at: Stage = stageOf(shown.map((m) => m.card));
   const latestCard = cards.at(-1)?.card ?? null;
   const live = Boolean(latestCard?.live?.installationId || latestCard?.live?.listed);
   const journey = useMemo<JourneyApi>(
@@ -643,15 +652,6 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
     return () => window.removeEventListener("keydown", onKey);
   }, [startNew]);
 
-
-  // An agent made before the chat had its stages (no cards): its card comes
-  // at the end, where the journey picks up again: its steps, with Looks
-  // right, or Make it once the job is clear.
-  const shown = useMemo<MessageView[]>(() => {
-    if (!activeId || cards.length) return messages;
-    const virtual: JourneyCard | null = agent?.steps.length ? { stage: "steps", agentId: agent.id } : !agent && describedEnough(sketch) ? { stage: "describe" } : null;
-    return virtual ? [...messages, { id: `card-${virtual.stage}`, role: "assistant", content: "", card: virtual }] : messages;
-  }, [activeId, cards.length, messages, agent, sketch]);
 
   // Where this conversation is scrolled to, kept for coming back to it.
   const keepScroll = useCallback((top: number) => {

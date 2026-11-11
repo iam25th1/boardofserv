@@ -13,6 +13,8 @@ import { loopChain, loopsOf } from "./definition";
 // - Every step that sends, asks, writes, pays or saves is handed exactly
 //   what to send, ask, write, pay or save by a code step right before it:
 //   where none is, one is put in that makes it from what the step reads.
+// - The setup never asks for a Telegram chat id, a token, a key or a
+//   password, and a sheet asked for as a link is picked as a sheet.
 
 // A step as wireToDefinition shapes it, before it is checked.
 export interface RawStep {
@@ -59,6 +61,20 @@ function repoint(steps: RawStep[], from: string, to: string | null, except?: Raw
 // The steps that lead to this one.
 function into(steps: RawStep[], id: string): RawStep[] {
   return steps.filter((st) => st.next === id || st.otherwise === id || st.body === id || st.outcomes?.some((o) => o.next === id));
+}
+
+// What the steps before this one made, back along the one way in, as far
+// as a place two ways meet: what is there on every way to it.
+function madeOnTheWay(steps: RawStep[], id: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (let at = into(steps, id); at.length === 1 && !seen.has(at[0]!.id); at = into(steps, at[0]!.id)) {
+    const st = at[0]!;
+    seen.add(st.id);
+    if (st.kind === "loop") break;
+    out.push(...st.outputs.filter((o) => !out.includes(o)));
+  }
+  return out;
 }
 
 // A name no step or value has yet.
@@ -142,7 +158,18 @@ function waysOf(d: RawStep): string {
 export function decideByValue(steps: RawStep[], setup: Setup): void {
   const asks = new Set(setup.actions.filter((a) => a.tool === "telegram.ask").map((a) => a.id));
   for (const d of [...steps]) {
-    if (d.kind !== "decision" || d.each || d.from || (d.outcomes ?? []).length < 2) continue;
+    if (d.kind !== "decision" || d.each || (d.outcomes ?? []).length < 2) continue;
+    // A value to go by is the owner's answer, or a way a code step says it
+    // works out (naming the outcomes, or true and false). Any other value
+    // (the price itself) is no way to go: the decision is looked at again.
+    if (d.from) {
+      const maker = steps.find((st) => st.outputs.includes(d.from!));
+      const answer = maker?.kind === "action" && Boolean(maker.action && asks.has(maker.action));
+      const words = `${maker?.description ?? ""}`;
+      const says = maker?.kind === "code" && ((d.outcomes ?? []).every((o) => words.includes(o.id)) || /\btrue\b[\s\S]*\bfalse\b/i.test(words));
+      if (answer || says) continue;
+      d.from = undefined;
+    }
     const words = `${d.title} ${d.prompt ?? ""}`;
     // The owner's answer to a question asked just before.
     const answers = d.inputs.filter((i) => steps.some((st) => st.kind === "action" && st.action && asks.has(st.action) && st.outputs[0] === i));
@@ -203,8 +230,7 @@ export function buildArguments(steps: RawStep[], setup: Setup): void {
     // (the checker sends them back): nothing is built from it.
     const known = new Set([...BAGS, ...steps.flatMap((x) => x.outputs), ...steps.flatMap((x) => (x.kind === "loop" && x.item ? [x.item] : []))]);
     if (st.inputs.some((i) => !known.has(i))) continue;
-    const before = into(steps, st.id);
-    const reads = st.inputs.length ? st.inputs : before.length === 1 ? before[0]!.outputs : [];
+    const reads = st.inputs.length ? st.inputs : madeOnTheWay(steps, st.id);
     const out = fresh(steps, `${st.id}_content`);
     const what = action?.description ? `: ${action.description.replace(/\.$/, "")}` : "";
     // Saving builds on what was saved before.
@@ -223,6 +249,17 @@ export function buildArguments(steps: RawStep[], setup: Setup): void {
     steps.splice(steps.indexOf(st), 0, builder);
     st.inputs = [out];
   }
+}
+
+// Setup questions it never asks: a Telegram chat id, a token, a key or a
+// password (Telegram is the owner's own, linked at Connect); and a sheet
+// asked for as a link is a sheet, picked at Connect.
+const NEVER_ASKED = /\bchat[ _-]?id\b|chat_id|telegram|\btoken\b|api[ _-]?key|password|secret/i;
+const SHEETISH = /\bsheets?\b|spreadsheet|sheet_|_sheet/i;
+export function fixSetup(settings: { key: string; label?: string; type: unknown }[]): { key: string; label?: string; type: unknown }[] {
+  const kept = settings.filter((s) => !NEVER_ASKED.test(`${s.key} ${s.label ?? ""}`));
+  for (const s of kept) if (s.type === "url" && SHEETISH.test(`${s.key} ${s.label ?? ""}`)) s.type = "sheet";
+  return kept;
 }
 
 export function repairPlan(steps: RawStep[], setup: Setup): void {

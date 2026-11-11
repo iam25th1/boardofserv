@@ -7,7 +7,7 @@ import type { SketchDTO } from "../types";
 import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAMES, type AgentDefinition, type AgentStep } from "./definition";
 import { TOOLS } from "./toolbox";
 import { planProblems } from "./planRules";
-import { repairPlan, type RawStep } from "./planRepairs";
+import { fixSetup, repairPlan, type RawStep } from "./planRepairs";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
 
 // Planning: SERV turns the maker's interview (and the conversation behind
@@ -438,6 +438,7 @@ export function repaired(plan: unknown): unknown {
   const d = plan as { steps?: unknown; settings?: unknown; rules?: unknown; actions?: unknown };
   if (!Array.isArray(d?.steps)) return plan;
   const list = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
+  if (Array.isArray(d.settings)) (d as { settings: unknown }).settings = fixSetup(d.settings as { key: string; label?: string; type: unknown }[]);
   repairPlan(d.steps as RawStep[], {
     settings: list(d.settings).map((x) => ({ key: s(x.key), type: x.type })),
     rules: list(d.rules).map((x) => ({ key: s(x.key), type: x.type })),

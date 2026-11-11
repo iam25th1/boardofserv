@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { checkDefinition, type AgentDefinition } from "./definition";
 import { planAgent, repaired, wireToDefinition } from "./plan";
+import { fixSetup } from "./planRepairs";
+import { nothingToDo } from "./runner";
 import { servOnly } from "./build";
 import { modelConfig } from "@/lib/model";
 import { planAnswer } from "@/test/planAnswers";
@@ -72,6 +74,44 @@ describe("the repairs", () => {
     expect(d.steps.map((s) => s.id)).toEqual(["start", "maybe", "is_low_check", "is_low"]);
     expect(d.steps.find((s) => s.id === "maybe")).toMatchObject({ outcomes: [{ next: "is_low_check" }, { next: "is_low_check" }] });
     expect(d.steps.find((s) => s.id === "is_low")).toMatchObject({ from: "is_low_way", inputs: ["price", "settings", "is_low_way"] });
+  });
+
+  it("looks again at a decision told to go by a value that is no way to go, as SERV did with the price itself", () => {
+    const wire = {
+      ...SLIPPED,
+      steps: [
+        step({ id: "fetch_page", title: "Read the price", kind: "code", inputs: ["settings"], outputs: ["current_price"], next: "compare_price", description: "Fetch settings.product_url and return current_price as a number." }),
+        step({ id: "compare_price", title: "Below the target?", kind: "decision", inputs: ["current_price", "settings"], from: "current_price", prompt: "Is the current price below the target price?", outcomes: [{ id: "below", label: "Below", next: "ask" }, { id: "not_below", label: "Not below", next: "" }] }),
+        step({ id: "ask", title: "Ask you", kind: "action", action: "ask_owner", inputs: [], outputs: ["reply"], next: "" }),
+      ],
+    };
+    const d = fix(wire);
+    const by = (id: string) => d.steps.find((s) => s.id === id)!;
+    expect(by("compare_price")).toMatchObject({ from: "compare_price_way" });
+    expect(by("fetch_page").outputs).toEqual(["current_price", "compare_price_way"]);
+    // The question is written from what came before it: the price too.
+    expect(by("make_ask")).toMatchObject({ inputs: ["current_price", "compare_price_way", "settings"] });
+    const checked = checkDefinition(d);
+    expect(checked.ok ? [] : checked.errors).toEqual([]);
+  });
+
+  it("never asks at setup for a Telegram chat id, a token or a password, and picks a sheet asked for as a link as a sheet", () => {
+    const kept = fixSetup([
+      { key: "google_sheet_url", label: "Your submissions sheet link", type: "url" },
+      { key: "telegram_chat_id", label: "Your Telegram chat ID", type: "text" },
+      { key: "api_key", label: "An API key", type: "text" },
+      { key: "product_url", label: "The product page", type: "url" },
+    ]);
+    expect(kept).toEqual([
+      { key: "google_sheet_url", label: "Your submissions sheet link", type: "sheet" },
+      { key: "product_url", label: "The product page", type: "url" },
+    ]);
+  });
+
+  it("skips a payment of nothing, the way it skips an empty write", () => {
+    const pay = { id: "pay", title: "Pay", kind: "action" as const, action: "pay_supplier", inputs: ["payment"], outputs: [], next: null };
+    expect(nothingToDo(pay, { payment: { to: "Weftworks", amountUsdc: 0, memo: "x" } })).toBe(true);
+    expect(nothingToDo(pay, { payment: { to: "Weftworks", amountUsdc: 12.5, memo: "x" } })).toBe(false);
   });
 
   it("tells the code that makes a message what shape it makes", () => {
