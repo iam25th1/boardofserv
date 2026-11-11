@@ -377,3 +377,35 @@ describe("the card's actions", () => {
     expect(seen.map((x) => x.schema)).not.toContain("agent_sample");
   });
 });
+
+
+describe("a self test that fails", () => {
+  // A plan whose "Compare suppliers" must return a value its code never
+  // gives: the self test stops there.
+  const broken = { ...RESTOCK_WIRE, steps: RESTOCK_WIRE.steps.map((s) => (s.id === "compare" ? { ...s, outputs: [...s.outputs, "notes"] } : s)) };
+  const SENTENCE = '"Compare suppliers" didn\'t work on the sample fabrics.';
+
+  it("runs Fix this once on its own with the one sentence that says what went wrong, and keeps the plan that passes", async () => {
+    plans = [broken, RESTOCK_WIRE];
+    const { id } = await built();
+    const after = await builderOf(id);
+    expect(after.agent.buildState).toBe("idle");
+    expect(after.agent.problem).toBeNull();
+    expect(after.agent.test).toMatchObject({ status: "passed", fixed: SENTENCE });
+    // Two plans: the second asked for with the sentence as what the maker said.
+    const outlines = seen.filter((s) => s.schema === "agent_outline");
+    expect(outlines).toHaveLength(2);
+    expect(outlines[1]!.body.messages[1]!.content).toContain(`The maker says: ${SENTENCE}`);
+    expect(after.definition!.steps.find((s) => s.id === "compare")!.outputs).toEqual(["order", "order_rows"]);
+  });
+
+  it("shows the sentence with Fix this when the fix on its own fails too, and fixes only once", async () => {
+    plans = [broken, broken];
+    const { id } = await built();
+    const after = await builderOf(id);
+    expect(after.agent.buildState).toBe("idle");
+    expect(after.agent.problem).toEqual({ text: SENTENCE, step: "compare", fix: "replan" });
+    expect(after.agent.test).toMatchObject({ status: "failed", fixed: SENTENCE });
+    expect(seen.filter((s) => s.schema === "agent_outline")).toHaveLength(2);
+  });
+});

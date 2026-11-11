@@ -156,3 +156,90 @@ export function hackathonBench(): BenchData {
     },
   };
 }
+
+// The plan the two-stage planner aims for: for each new submission, for
+// each requirement, one decision; the code after the inner loop counts that
+// submission's verdicts, still inside the outer loop; after the outer loop
+// the rows and the summary are made from what it gathered from every pass.
+const loopStep = <T extends Record<string, unknown>>(o: T) => wireStep({ kind: "loop", over: "", item: "", body: "", gather: [] as string[], ...o });
+
+export const NESTED_HACKATHON_WIRE = {
+  ...HACKATHON_WIRE,
+  steps: [
+    wireStep({
+      id: "find_new",
+      title: "Find new submissions",
+      kind: "code",
+      inputs: ["settings"],
+      outputs: ["submissions", "requirements"],
+      next: "each_submission",
+      description:
+        "Read the tab settings.submissions_sheet. New submissions are rows whose Status is empty: return submissions, each { row: its _row, project: the Project column, demo: the Demo column, notes: the Notes column }, and requirements: settings.requirements.",
+      tools: ["sheets.read"],
+    }),
+    loopStep({ id: "each_submission", title: "For each submission", inputs: ["submissions"], outputs: ["results"], over: "submissions", item: "submission", body: "each_requirement", gather: ["result"], next: "make_updates" }),
+    loopStep({ id: "each_requirement", title: "For each requirement", inputs: ["requirements"], outputs: ["verdicts"], over: "requirements", item: "requirement", body: "judge", gather: ["verdict"], next: "count_met" }),
+    wireStep({
+      id: "judge",
+      title: "Judge the requirement",
+      kind: "decision",
+      inputs: ["submission", "requirement"],
+      outputs: ["verdict"],
+      prompt: "Does this submission meet this requirement, from its project, demo and notes?",
+      outcomes: [
+        { id: "met", label: "Met", next: "" },
+        { id: "not_met", label: "Not met", next: "" },
+      ],
+    }),
+    wireStep({
+      id: "count_met",
+      title: "Count what it met",
+      kind: "code",
+      inputs: ["submission", "requirements", "verdicts"],
+      outputs: ["result"],
+      next: "",
+      description:
+        "Count the verdicts that are met. Rejected when fewer than half of the requirements are met, else Passed. Return result { row: submission.row, project: submission.project, status, met, total, reasons } where reasons names each requirement as met or not met.",
+    }),
+    wireStep({
+      id: "make_updates",
+      title: "Prepare the rows and the summary",
+      kind: "code",
+      inputs: ["settings", "results"],
+      outputs: ["status_updates", "summary"],
+      next: "write_status",
+      description:
+        "From results, return status_updates as sheets.update's arguments { sheet: settings.submissions_sheet, updates: [{ row, values: { Status, Reasons } }] } and summary { text } naming every submission and its result. With no results, return both as null.",
+    }),
+    wireStep({ id: "write_status", title: "Write the results", kind: "action", inputs: ["status_updates"], outputs: ["written"], next: "send", action: "write_results" }),
+    wireStep({ id: "send", title: "Send the summary", kind: "action", inputs: ["summary"], outputs: ["sent"], next: "", action: "send_summary" }),
+  ],
+  limits: { maxSteps: 120, maxRunSeconds: 300, maxSpendUsd: 0.3 },
+};
+
+export const FIND_NEW_NESTED = `async function run(input, tools) {
+  const { rows } = await tools.sheets.read({ sheet: input.settings.submissions_sheet });
+  const submissions = rows.filter((r) => !r.Status).map((r) => ({ row: r._row, project: String(r.Project || ""), demo: String(r.Demo || ""), notes: String(r.Notes || "") }));
+  return { submissions, requirements: (input.settings.requirements || []).filter(Boolean) };
+}`;
+
+export const COUNT_MET = `async function run(input) {
+  const verdicts = input.verdicts || [];
+  const met = verdicts.filter((v) => v && v.outcome === "met").length;
+  const total = (input.requirements || []).length;
+  const status = met * 2 < total ? "Rejected" : "Passed";
+  const reasons = (input.requirements || []).map((r, i) => r + ": " + (verdicts[i] && verdicts[i].outcome === "met" ? "met" : "not met")).join("; ");
+  return { result: { row: input.submission.row, project: input.submission.project, status, met, total, reasons } };
+}`;
+
+export const MAKE_UPDATES = `async function run(input) {
+  const results = input.results || [];
+  if (!results.length) return { status_updates: null, summary: null };
+  const updates = results.map((r) => ({ row: r.row, values: { Status: r.status, Reasons: r.reasons } }));
+  const passed = results.filter((r) => r.status === "Passed").length;
+  const lines = results.map((r) => r.project + ": " + r.status + " (" + r.met + " of " + r.total + " met)");
+  const text = "Checked " + results.length + " submissions: " + passed + " passed, " + (results.length - passed) + " rejected.\\n" + lines.join("\\n");
+  return { status_updates: { sheet: input.settings.submissions_sheet, updates }, summary: { text } };
+}`;
+
+export const NESTED_SOURCES = { find_new: FIND_NEW_NESTED, count_met: COUNT_MET, make_updates: MAKE_UPDATES };

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
-import { BAD_HACKATHON_WIRE, FIND_NEW, HACKATHON_LABELS, HACKATHON_WIRE, TALLY, hackathonBench, hackathonCode, hackathonDefinition } from "@/test/hackathonFixture";
+import { BAD_HACKATHON_WIRE, FIND_NEW, HACKATHON_LABELS, HACKATHON_WIRE, NESTED_HACKATHON_WIRE, TALLY, hackathonBench, hackathonCode, hackathonDefinition } from "@/test/hackathonFixture";
 import { planAnswer } from "@/test/planAnswers";
 import { modelConfig } from "../model";
 import { checkDefinition, type ActionStepDef, type CodeStepDef, type DecisionStepDef } from "./definition";
@@ -76,7 +76,7 @@ describe("the test case", () => {
   });
 
   it("sends an outline that breaks the rules back to SERV with the reasons, and takes the one that keeps them", async () => {
-    const outlines = [BAD_HACKATHON_WIRE, HACKATHON_WIRE];
+    const outlines = [BAD_HACKATHON_WIRE, NESTED_HACKATHON_WIRE];
     let planning: Record<string, unknown> = BAD_HACKATHON_WIRE;
     const asked: { schema: string; text: string }[] = [];
     const fetchImpl = (async (_: string, init: RequestInit) => {
@@ -86,10 +86,11 @@ describe("the test case", () => {
       return Response.json({ choices: [{ message: { content: JSON.stringify(planAnswer(planning, body)) } }], usage: { prompt_tokens: 10, completion_tokens: 10 } });
     }) as unknown as typeof fetch;
     const plan = await planAgent({ interview: { name: "Hackathon Submission Checker", kind: "agent", watches: null, when: null, how: null, tells: null, takes: null, does: null, gives: null, asking: null, live: false }, history: [] }, { config: serv, signal: new AbortController().signal, fetchImpl });
-    expect(plan.definition?.steps.map((s) => s.id)).toEqual(["find_new", "judge", "tally", "write_status", "send"]);
+    expect(plan.definition?.steps.map((s) => s.id)).toEqual(["find_new", "each_submission", "each_requirement", "judge", "count_met", "make_updates", "write_status", "send"]);
     const back = asked.find((a) => a.text.startsWith("That outline has problems"))!;
     expect(back.schema).toBe("agent_outline");
     expect(back.text).toContain('decision "any_new" decides whether items are left');
+    expect(back.text).toContain("Go through the items with a loop step");
     expect(plan.calls.length).toBeLessThanOrEqual(MAX_PLAN_CALLS);
   });
 
