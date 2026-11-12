@@ -695,12 +695,14 @@ export async function completeJson(
           failure = { provider: p.id, kind: "status", status: res.status };
         } else {
           const body = (await res.json()) as {
-            choices?: { message?: { content?: string | null } }[];
+            choices?: { message?: { content?: string | null }; finish_reason?: string | null }[];
             usage?: { prompt_tokens?: number; completion_tokens?: number };
           };
           usage = body.usage;
           const content = body.choices?.[0]?.message?.content;
-          const answer = jsonAnswer(content);
+          // SERV's gateway cut the answer off with its content filter (its own
+          // "I can't share that."): not an answer, and said so in the log.
+          const answer = body.choices?.[0]?.finish_reason === "content_filter" ? "filtered" : jsonAnswer(content);
           if (answer === "ok") {
             const entry: Attempt = { purpose: opts.purpose, provider: p.id, status, outcome: "ok", ms: Date.now() - tried, promptTokens: usage?.prompt_tokens ?? null, completionTokens: usage?.completion_tokens ?? null, retry, empty: false };
             attempts.push(entry);

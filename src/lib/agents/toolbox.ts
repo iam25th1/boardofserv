@@ -150,9 +150,11 @@ export function memoryProblem(fields: readonly MemoryField[], key: string, value
   const field = fields.find((f) => f.key === key);
   if (!field) return `"${key}" isn't something this agent remembers${fields.length ? ` (it remembers ${fields.map((f) => f.key).join(", ")})` : ""}.`;
   if (value === null || value === undefined) return null;
+  // A text field takes a short flag or count too ("true", 3): what code
+  // writes there comes back as it was written.
   const ok =
     field.type === "text"
-      ? typeof value === "string"
+      ? typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))
       : field.type === "number"
         ? typeof value === "number" && Number.isFinite(value)
         : field.type === "list"

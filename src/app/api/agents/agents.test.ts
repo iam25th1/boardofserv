@@ -34,6 +34,8 @@ let ben: schema.User;
 let plans: object[] = [];
 // What the fixer answers, one a round ("{}" when none is left).
 let fixes: object[] = [];
+// SERV's code review not answering at all.
+let reviewDown = false;
 let planning: Record<string, unknown> = RESTOCK_WIRE;
 // What SERV's version review finds ("down" for no answer).
 let review: { step: string; severity: string; finding: string }[] | "down" = [];
@@ -84,6 +86,7 @@ beforeAll(async () => {
     if (name === "agent_outline") planning = (plans.shift() as Record<string, unknown> | undefined) ?? RESTOCK_WIRE;
     const planned = planAnswer(planning, body);
     if (planned) return Response.json({ choices: [{ message: { content: JSON.stringify(planned) } }], usage: { prompt_tokens: 1500, completion_tokens: 1100 } });
+    if (name === "code_review" && reviewDown) return new Response("{}", { status: 503 });
     if (name === "code_review") return Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "approve", reason: "Does what the step says." }) } }], usage: { prompt_tokens: 500, completion_tokens: 20 } });
     if (name === "version_review") {
       if (review === "down") return new Response("{}", { status: 503 });
@@ -103,6 +106,7 @@ beforeEach(() => {
   seen.length = 0;
   plans = [];
   fixes = [];
+  reviewDown = false;
   vi.stubEnv("INVITE_ONLY", "");
   vi.stubEnv("DAILY_SPEND_LIMIT_USD", "");
 });
@@ -449,7 +453,7 @@ describe("a self test that fails", () => {
       ["test", "plan", "failed"],
       ["test", null, "pending"],
     ]);
-    expect(heal.rounds[0]!.diagnosis).toMatchObject({ step: { id: "compare" }, failure: SENTENCE, evidence: { check: "ran" } });
+    expect(heal.rounds[0]!.diagnosis).toMatchObject({ step: { id: "compare" }, failure: `${SENTENCE} It didn't return notes.`, evidence: { check: "ran" } });
     expect(heal.rounds[0]!.diagnosis.evidence.trace.join("\n")).toContain("compare failed");
   });
 
@@ -465,7 +469,7 @@ describe("a self test that fails", () => {
     }
     const lessons = await db.select().from(schema.agentLessons);
     const lesson = lessons.find((l) => l.rule === "A step only returns what its job makes.")!;
-    expect(lesson).toMatchObject({ kind: "wrong_value", wrong: SENTENCE, fix: "Remove notes from the outputs of compare." });
+    expect(lesson).toMatchObject({ kind: "wrong_value", wrong: `${SENTENCE} It didn't return notes.`, fix: "Remove notes from the outputs of compare." });
     expect(lesson.count).toBeGreaterThanOrEqual(2);
     expect(lesson.makers.sort()).toEqual([ana.id, ben.id].sort());
     // The next build is planned and written with it as a rule.
@@ -476,6 +480,15 @@ describe("a self test that fails", () => {
     expect(seen.find((x) => x.schema === "agent_outline")!.body.messages[0]!.content).toContain(rule);
     expect(seen.find((x) => x.schema === "agent_steps")!.body.messages[0]!.content).toContain(rule);
     expect(seen.find((x) => x.to === "dolphin")!.body.messages[0]!.content).toContain(rule);
+  });
+
+  it("never sends a model that didn't answer to the fixer: it tries the step once more, then says so plainly", async () => {
+    reviewDown = true;
+    const { id } = await built();
+    const after = await builderOf(id);
+    expect(seen.some((s) => s.schema === "agent_fix")).toBe(false);
+    expect(after.agent.heal!.lines.map((l) => l.text)).toEqual(["Checking that step again.", "SERV isn't answering just now, so it stopped part way. Try again in a few minutes."]);
+    expect(after.agent.heal!.gaveUp).toBe("SERV isn't answering just now, so it stopped part way. Try again in a few minutes.");
   });
 
   it("stops at the build's model budget, whatever rounds are left", async () => {

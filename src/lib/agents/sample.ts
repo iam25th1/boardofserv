@@ -194,6 +194,16 @@ export function fitSample(d: AgentDefinition, sample: Sample): Sample {
     if (name) bench.payees = [name];
     bench.wallet.balanceUsdc = Math.max(bench.wallet.balanceUsdc, 1000);
   }
+  // Every page it reads has text: the page a url setting names, or an
+  // address its steps fetch, takes a page the sample gave when it has none.
+  const pages = Object.values(bench.pages);
+  if (pages.length) {
+    const urls = [
+      ...d.settings.filter((s) => s.type === "url").map((s) => String(bench.settings[s.key] ?? "")),
+      ...d.steps.flatMap((s) => (s.kind === "code" ? (s.description.match(/https?:\/\/[^\s"'<>)]+/g) ?? []) : [])).map((u) => u.replace(/[.,;:]+$/, "")),
+    ].filter((u) => /^https?:\/\//.test(u));
+    for (const u of urls) bench.pages[u] ??= pages[0]!;
+  }
   const columns = namedColumns(d);
   if (columns.length) {
     for (const [tab, rows] of Object.entries(bench.sheets)) {

@@ -337,6 +337,25 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
     if (!answer && (roundsUsed(log) >= limits.rounds || (log.costUsd ?? 0) >= limits.costUsd)) return giveUp(versionId, dx, v.definition, Boolean(planning));
     await updateDraft(versionId, { buildState: "fixing", buildNote: null });
 
+    // SERV or Dolphin not answering isn't something to fix: the step is
+    // written again as it was, once; then it stops, saying so.
+    if (!answer && dx.stage === "plan" && /No model answered/.test(dx.failure)) return giveUp(versionId, dx, v.definition, planning, NOT_ANSWERING);
+    if (!answer && dx.stage === "code" && INFRA.test(dx.failure)) {
+      if (log.rounds.slice(log.since ?? 0).some((r) => r.repair === RETRIED)) return giveUp(versionId, { ...dx, failure: dx.failure }, v.definition, planning, NOT_ANSWERING);
+      await healOf(versionId, (l) => withLine(withRound(l, { verdict: "code", why: "SERV or Dolphin didn't answer.", repair: RETRIED }), "Checking that step again.", "working"));
+      const again = await writeAndTest(versionId, v.definition!, c, settle);
+      if (again.kind === "passed") {
+        await healOf(versionId, (l) => withLine(markFixed(l), "Fixed.", "fixed"));
+        await updateDraft(versionId, { buildState: "idle", buildNote: null });
+        await settle.onTested?.(again.result);
+        return;
+      }
+      if (again.kind === "stopped") return void (await updateDraft(versionId, { buildState: "idle", buildNote: null }));
+      await healOf(versionId, (l) => markFailed(l));
+      diagnosis = again.diagnosis;
+      continue;
+    }
+
     let verdict: FixVerdict | null;
     const theirs = Boolean(answer);
     if (answer) {
@@ -483,10 +502,15 @@ function marked(log: HealLog, outcome: "failed" | "fixed"): HealLog {
 const markFailed = (log: HealLog) => marked(log, "failed");
 const markFixed = (log: HealLog) => marked(log, "fixed");
 
+// A step held because no model answered, not because of what it is.
+const INFRA = /couldn't review it just now|didn't answer|isn't set up here/i;
+const RETRIED = "Written again as it was: SERV or Dolphin didn't answer.";
+const NOT_ANSWERING = "SERV isn't answering just now, so it stopped part way. Try again in a few minutes.";
+
 // Out of rounds or budget: one plain sentence of what it couldn't do, for
 // the card to show with its two choices.
-async function giveUp(versionId: string, dx: Diagnosis, d: AgentDefinition | null, planning: boolean): Promise<void> {
-  const text = gaveUpLine(dx, d);
+async function giveUp(versionId: string, dx: Diagnosis, d: AgentDefinition | null, planning: boolean, said?: string): Promise<void> {
+  const text = said ?? gaveUpLine(dx, d);
   await healOf(versionId, (l) => withLine({ ...l, gaveUp: text }, text, "stopped"));
   await updateDraft(versionId, { buildState: planning ? "failed" : "idle", buildNote: planning ? text : null });
 }

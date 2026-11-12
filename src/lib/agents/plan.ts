@@ -7,7 +7,7 @@ import type { SketchDTO } from "../types";
 import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAMES, type AgentDefinition, type AgentStep } from "./definition";
 import { TOOLS } from "./toolbox";
 import { planProblems } from "./planRules";
-import { askedFirst, columnsByName, fixSetup, repairPlan, type RawStep } from "./planRepairs";
+import { askedFirst, askForMissing, columnsByName, fixSetup, repairPlan, type RawStep } from "./planRepairs";
 import { rulesText } from "./lessonRules";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
 
@@ -456,6 +456,9 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean } = {}): unkno
   const drop = columnsByName(d.steps as RawStep[], { settings: list(d.settings).map((x) => ({ key: s(x.key), label: s(x.label), given: s(x.given) })), rules: list(d.rules).map((x) => ({ key: s(x.key), label: s(x.label), value: s(x.value) })) });
   if (drop.settings.length) (d as { settings: unknown }).settings = list(d.settings).filter((x) => !drop.settings.includes(s(x.key)));
   if (drop.rules.length) (d as { rules: unknown }).rules = list(d.rules).filter((x) => !drop.rules.includes(s(x.key)));
+  // A value read that nothing makes or holds: a setting it forgot to ask.
+  const missing = askForMissing(d.steps as RawStep[], { settings: list(d.settings).map((x) => ({ key: s(x.key) })), rules: list(d.rules).map((x) => ({ key: s(x.key) })), memory: list((d as { memory?: unknown }).memory).map((x) => ({ key: s(x.key) })) });
+  if (missing.length) (d as { settings: unknown }).settings = [...list(d.settings), ...missing.map((m) => ({ ...m, choices: [] }))];
   repairPlan(
     d.steps as RawStep[],
     {

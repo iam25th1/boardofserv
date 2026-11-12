@@ -345,21 +345,79 @@ export function dropUnaskedQuestions(steps: RawStep[], setup: Setup, askedFirst:
     const own = ["telegram.send", "sheets.write", "sheets.update"].includes(then);
     if (then === "wallet.pay" || (own && !askedFirst)) cut(steps, q.ids, q.yes);
   }
+  // A question no way of the run waits on, right before a payment, asks
+  // twice with the payment's own: it goes, with the code that writes it.
+  for (const ask of [...steps]) {
+    if (toolOf(ask, setup) !== "telegram.ask" || firstDone(steps, ask.next, setup) !== "wallet.pay") continue;
+    const answer = ask.outputs[0];
+    if (answer && steps.some((x) => x.kind === "decision" && x.inputs.includes(answer))) continue;
+    const writer = steps.find((x) => x.kind === "code" && x.next === ask.id && x.outputs.length > 0 && x.outputs.every((o) => ask.inputs.includes(o) && !steps.some((y) => y !== ask && y.inputs.includes(o))));
+    cut(steps, [...(writer ? [writer.id] : []), ask.id], ask.next ?? null);
+    if (answer) for (const st of steps) st.inputs = st.inputs.filter((i) => i !== answer);
+  }
 }
 
-// An allowance or balance check of the plan's own in front of a payment
-// goes: the payment checks the allowance by itself. The check is a
-// decision on the allowance (and the code that only feeds it), whose way
-// on goes to the payment.
+// An allowance or balance check, or an approval, of the plan's own in front
+// of a payment goes: the payment checks the allowance and asks the owner by
+// itself. The check is a decision on the allowance or on the owner's
+// approval, judged with no question asked (and the code that only feeds
+// it), whose way on goes to the payment; or code that checks the
+// allowance with nothing to check it with.
 const ALLOWANCE = /\b(?:allowance|balance|enough (?:usdc|funds|money)|funds?)\b/i;
+const APPROVAL = /\bapprov|\bpermission|\bconsent|\bconfirm|\bowner (?:says|said|agrees?|allows?)\b/i;
 export function dropAllowanceChecks(steps: RawStep[], setup: Setup): void {
+  const gone = new Set<string>();
   for (const d of [...steps]) {
-    if (d.kind !== "decision" || !ALLOWANCE.test(`${d.title} ${d.prompt ?? ""}`)) continue;
+    if (d.kind !== "decision" || d.from || d.each) continue;
+    const words = `${d.title} ${d.prompt ?? ""}`;
+    if (!ALLOWANCE.test(words) && !APPROVAL.test(words)) continue;
     const on = (d.outcomes ?? []).find((o) => firstDone(steps, o.next, setup) === "wallet.pay");
-    if (!on) continue;
+    if (!on || (d.outcomes ?? []).some((o) => o !== on && o.next !== null)) continue;
     const feeders = steps.filter((x) => x.kind === "code" && x.next === d.id && ALLOWANCE.test(`${x.title} ${x.description ?? ""}`) && x.outputs.every((o) => !steps.some((y) => y !== d && y.inputs.includes(o))));
+    for (const x of [...feeders, d]) for (const o of x.outputs) gone.add(o);
     cut(steps, [...feeders.map((x) => x.id), d.id], on.next);
   }
+  // Code that checks the allowance on its own, right before a payment.
+  for (const c of [...steps]) {
+    if (c.kind !== "code" || !ALLOWANCE.test(c.title) || (c.tools ?? []).some((t) => t !== "memory.get") || firstDone(steps, c.next, setup) !== "wallet.pay") continue;
+    if (c.outputs.some((o) => steps.some((y) => y !== c && y.inputs.includes(o) && y.kind !== "code"))) continue;
+    for (const o of c.outputs) gone.add(o);
+    cut(steps, [c.id], c.next ?? null);
+  }
+  // What the steps taken out made is read by nothing now.
+  for (const st of steps) st.inputs = st.inputs.filter((i) => !gone.has(i));
+}
+
+// A value a step reads that no step makes and no setting, rule or memory
+// key holds, named like something the maker gives (a list of requirements),
+// is a setting the maker answers at Connect: SERV read it but forgot to ask
+// for it.
+export function askForMissing(steps: RawStep[], setup: { settings: { key: string }[]; rules: { key: string }[]; memory: { key: string }[] }): { key: string; label: string; type: "list" | "text"; help: string }[] {
+  const made = new Set([...BAGS, ...steps.flatMap((x) => x.outputs), ...steps.flatMap((x) => (x.kind === "loop" && x.item ? [x.item] : []))]);
+  const keys = new Set([...setup.settings, ...setup.rules, ...setup.memory].map((x) => x.key));
+  const added: { key: string; label: string; type: "list" | "text"; help: string }[] = [];
+  // A word any value made shares is a slip in naming that value, not
+  // something to ask for ("price" beside "current_price").
+  const madeWords = new Set([...made].flatMap((m) => m.split("_")).filter((w) => w.length > 2));
+  for (const st of steps) {
+    for (const input of st.inputs) {
+      if (made.has(input) || keys.has(input) || added.some((a) => a.key === input) || !/^[a-z][a-z0-9_]{2,39}$/.test(input)) continue;
+      if (input.split("_").some((w) => madeWords.has(w) || madeWords.has(w.replace(/s$/, "")))) continue;
+      const words = input.replace(/_/g, " ");
+      added.push({ key: input, label: `Your ${words}`, type: /s$/.test(input) ? "list" : "text", help: `The ${words} it works with.` });
+    }
+  }
+  for (const a of added) {
+    for (const st of steps) {
+      if (!st.inputs.includes(a.key)) continue;
+      st.inputs = [...new Set(st.inputs.map((i) => (i === a.key ? "settings" : i)))];
+      const word = new RegExp(`(?<![.\\w])${a.key}\\b`, "g");
+      if (st.description) st.description = st.description.replace(word, `settings.${a.key}`);
+      if (st.prompt) st.prompt = st.prompt.replace(word, `settings.${a.key}`);
+      if (st.kind === "loop" && st.over === a.key && !st.inputs.includes("settings")) st.inputs.push("settings");
+    }
+  }
+  return added;
 }
 
 // A column named by a setting or a rule ("Quantity column": B) is read by

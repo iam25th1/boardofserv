@@ -8,6 +8,7 @@ import { CODE_PROMPT } from "./code";
 import { DETAIL_PROMPT, outlinePrompt } from "./planStages";
 import { codeOf, definitionOf, MOTIVATION_WIRE, PAY_SOURCES, PAY_WIRE, PRICE_WIRE } from "@/test/suiteFixtures";
 import { emptyBench, type TestResult } from "./types";
+import { memoryProblem } from "./toolbox";
 
 // The causes of the failures seen in live testing, put right where they
 // start: in the plan's repairs, the prompts, and the sample a test runs on.
@@ -161,5 +162,83 @@ describe("the sample a payment is tried on", () => {
     expect(namedColumns(sales).sort()).toEqual(["Amount", "Date", "Item", "Minimum", "Quantity"]);
     const fitted = fitSample(sales, { bench: { ...emptyBench(), sheets: { Sales: [{ Date: "2026-11-11", Amount: "3" }] } }, items: { noun: "sale", plural: "sales", labels: ["x"] } });
     expect(Object.keys(fitted.bench.sheets.Sales![0]!).sort()).toEqual(["Amount", "Date", "Item", "Minimum", "Quantity"]);
+  });
+});
+
+describe("what the first full live run showed", () => {
+  it("takes out an approval decided with no question, and an allowance check with nothing to check it with, before a payment", () => {
+    // The weekly payment as SERV planned it live.
+    const wire = {
+      ...PAY_WIRE,
+      settings: [{ key: "designer_payee", label: "Designer payee name", type: "text", help: "The name of your saved payee.", choices: [], given: "Designer" }],
+      actions: [action("send_payment", "wallet.pay", "Send 0.5 USDC to Designer payee after approval")],
+      steps: [
+        step({ id: "check_allowance", title: "Check agent allowance", kind: "code", outputs: ["has_sufficient_allowance"], next: "ask_for_approval", description: "Check the allowance is at least 0.5 USDC." }),
+        step({ id: "ask_for_approval", title: "Ask Telegram approval", kind: "decision", inputs: ["has_sufficient_allowance"], outputs: ["approval_decision"], prompt: "Does the owner approve the payment?", outcomes: [{ id: "approved", label: "Owner approves payment", next: "make_send_payment_step" }, { id: "denied", label: "Owner denies payment", next: "" }] }),
+        step({ id: "make_send_payment_step", title: "Work out the payment", kind: "code", inputs: ["approval_decision", "settings"], outputs: ["send_payment_step_content"], next: "send_payment_step", description: "Return send_payment_step_content as wallet.pay's arguments { to, amountUsdc, memo }: to settings.designer_payee, 0.5 USDC." }),
+        step({ id: "send_payment_step", title: "Send USDC payment", kind: "action", action: "send_payment", inputs: ["send_payment_step_content"], next: "" }),
+      ],
+    };
+    const d = fix(wire, { askedFirst: true });
+    expect(ids(d)).toEqual(["make_send_payment_step", "send_payment_step"]);
+    expect(d.steps[0]!.inputs).toEqual(["settings"]);
+    const checked = checkDefinition(d);
+    expect(checked.ok ? [] : checked.errors).toEqual([]);
+  });
+
+  it("takes out a question no way of the run waits on, right before a payment", () => {
+    const wire = {
+      ...PAY_WIRE,
+      actions: [action("ask_owner", "telegram.ask", "Ask before paying"), action("pay_designer", "wallet.pay", "Pay the designer")],
+      steps: [
+        step({ id: "make_question", title: "Write the question", kind: "code", inputs: ["settings"], outputs: ["question"], next: "ask", description: "Return question as telegram.ask's arguments." }),
+        step({ id: "ask", title: "Ask you", kind: "action", action: "ask_owner", inputs: ["question"], outputs: ["reply"], next: "make_payment" }),
+        ...PAY_WIRE.steps,
+      ],
+    };
+    const d = fix(wire, { askedFirst: true });
+    expect(ids(d)).toEqual(["make_payment", "pay"]);
+    expect(checkDefinition(d).ok).toBe(true);
+  });
+
+  it("asks at Connect for a list the steps read that nothing makes", () => {
+    const wire = {
+      ...MOTIVATION_WIRE,
+      settings: [{ key: "submission_sheet", label: "Which sheet has the submissions?", type: "sheet", help: "x", choices: [] }],
+      actions: [action("send_line", "telegram.send", "Send the summary")],
+      steps: [
+        step({ id: "check", title: "Check each submission", kind: "code", inputs: ["settings", "requirements"], outputs: ["summary"], next: "send", description: "Read settings.submission_sheet and check each row against requirements.", tools: ["sheets.read"] }),
+        step({ id: "send", title: "Send", kind: "action", action: "send_line", inputs: ["summary"], next: "" }),
+      ],
+    };
+    const d = fix(wire);
+    expect(d.settings.map((s) => [s.key, s.type])).toEqual([["submission_sheet", "sheet"], ["requirements", "list"]]);
+    expect(d.steps[0]!.inputs).toEqual(["settings"]);
+    expect(describedAs(d, "check")).toContain("against settings.requirements");
+    expect(checkDefinition(d).ok).toBe(true);
+  });
+
+  it("never asks for a value a step only misnamed", () => {
+    const wire = { ...MOTIVATION_WIRE, actions: [action("send_line", "telegram.send", "Send it")], steps: [step({ id: "read", title: "Read", kind: "code", inputs: ["settings"], outputs: ["current_price"], next: "write", description: "x" }), step({ id: "write", title: "Write", kind: "code", inputs: ["price"], outputs: ["note"], next: "send", description: "x" }), step({ id: "send", title: "Send", kind: "action", action: "send_line", inputs: ["note"], next: "" })] };
+    expect(fix(wire).settings).toEqual([]);
+  });
+
+  it("gives a page to every address it reads, when the sample has one", () => {
+    const eth = definitionOf({
+      ...MOTIVATION_WIRE,
+      actions: [action("send_line", "telegram.send", "Send the price")],
+      steps: [step({ id: "fetch", title: "Fetch the price", kind: "code", inputs: [], outputs: ["note"], next: "send", description: "Call GET https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd and read ethereum.usd.", tools: ["web.fetch"] }), step({ id: "send", title: "Send", kind: "action", action: "send_line", inputs: ["note"], next: "" })],
+    });
+    const fitted = fitSample(eth, { bench: { ...emptyBench(), pages: { "https://example.com/eth": '{"ethereum":{"usd":2900}}' } }, items: { noun: "price", plural: "prices", labels: ["ETH"] } });
+    expect(fitted.bench.pages["https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"]).toBe('{"ethereum":{"usd":2900}}');
+  });
+});
+
+describe("what an agent remembers", () => {
+  it("takes a flag or a count in a text field, and gives it back as written", () => {
+    const fields = [{ key: "alerted", type: "text" as const }];
+    expect(memoryProblem(fields, "alerted", true)).toBeNull();
+    expect(memoryProblem(fields, "alerted", 3)).toBeNull();
+    expect(memoryProblem(fields, "alerted", { deep: true })).toBe('"alerted" holds text.');
   });
 });

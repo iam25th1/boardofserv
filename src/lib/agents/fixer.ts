@@ -111,6 +111,8 @@ export function fixerRequest(dx: Diagnosis, o: { lessons?: string[]; tried?: str
   ].join("\n");
 }
 
+const TECHNICAL = /\b(?:code|function|returns?|null|undefined|variable|json|array|object|boolean|string|input|output|memory\.\w+|settings\.\w+)\b|\b[a-z]+_[a-z_]+\b/;
+
 export type FixVerdict = {
   verdict: (typeof VERDICTS)[number];
   step: string | null;
@@ -152,6 +154,9 @@ export function readVerdict(content: string | null): FixVerdict | null {
   if (verdict === "code_wrong" && !out.spec) return null;
   if (verdict === "plan_wrong" && !out.change) return null;
   if (verdict === "unclear" && (!out.question || out.choices.length < 2)) return null;
+  // A question a first-time maker can answer: about the job, never about
+  // code (live, SERV once asked whether a step "returns last_position").
+  if (verdict === "unclear" && TECHNICAL.test(`${out.question} ${out.choices.join(" ")}`)) return null;
   return out;
 }
 

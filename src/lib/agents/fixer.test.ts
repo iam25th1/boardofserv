@@ -42,6 +42,9 @@ describe("the fixer", () => {
     expect(readVerdict(answer({ verdict: "unclear", question: "Which payee?", choices: ["Designer", "Someone else"] }))).toMatchObject({ question: "Which payee?", choices: ["Designer", "Someone else"] });
     expect(readVerdict(answer({ verdict: "test_wrong", sample: "A payee called Designer.", kind: "sample_payee" }))).toMatchObject({ verdict: "test_wrong", kind: "sample_payee" });
     expect(readVerdict(answer({ verdict: "skip_the_check", spec: "x" }))).toBeNull();
+    // Never a question about code: live, it once asked whether a step "returns last_position".
+    expect(readVerdict(answer({ verdict: "unclear", question: "Does this step correctly read the last_row_read value from memory and return it?", choices: ["Yes", "No"] }))).toBeNull();
+    expect(readVerdict(answer({ verdict: "unclear", question: "Which product page should it watch?", choices: ["The kettle", "Another page"] }))).toMatchObject({ verdict: "unclear" });
     expect(readVerdict("not json")).toBeNull();
     expect(readVerdict(answer({ spec: "x", kind: "made_up" }))!.kind).toBe("other");
   });
