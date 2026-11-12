@@ -16,7 +16,7 @@ import { errorText } from "@/lib/db/errors";
 import { recordAttempts } from "@/lib/modelAttempts";
 import { agentForConversation, currentVersion } from "@/lib/agents/store";
 import { answer, changeSteps, offerMakeIt } from "@/lib/agents/journey";
-import { honestReply, wholeSentences } from "@/lib/replyClaims";
+import { honestReply, MAKE_IT_NEXT, wholeSentences } from "@/lib/replyClaims";
 import { describedEnough } from "@/lib/sketchFields";
 
 export const runtime = "nodejs";
@@ -238,12 +238,15 @@ export async function POST(req: Request) {
       }
 
       if (held && (full.trim() || result?.cutOff)) {
-        const fallback = planned ? "The cards below show where it is and what you can do next." : describedEnough(sketch) ? "I have what I need: press Make it below to see its steps." : "Tell me a little more about the job.";
+        const fallback = planned ? "The cards below show where it is and what you can do next." : describedEnough(sketch) ? MAKE_IT_NEXT : "Tell me a little more about the job.";
         // Cut off part way (SERV's content filter, a broken stream): only
         // its whole sentences, then what is true now. Never half a sentence.
         const whole = result?.cutOff ? wholeSentences(full) : full;
         full = honestReply(whole, fallback);
-        if (result?.cutOff && full !== fallback) full = `${full} ${fallback}`;
+        // What comes next is said here, never by the model (echoing the
+        // prompt's own words is what SERV's gateway filter cuts off).
+        const next = !planned && describedEnough(sketch) ? MAKE_IT_NEXT : result?.cutOff ? fallback : null;
+        if (next && full !== fallback && !full.includes(next)) full = `${full} ${next}`;
         send("delta", { text: full });
       }
       if (!full.trim()) {

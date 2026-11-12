@@ -315,8 +315,11 @@ describe("an agent's interview", () => {
     nextReply = ["Every morning at eight it checks the Stock sheet and orders what is low. ", "Your restock agent is all set!"];
     nextSketch = extraction({ looks: "the Stock sheet", handles: "orders what is low", asks: "orders over 250 USDC" });
     const done = await turn("The Stock sheet: reorder what's low, and ask me before orders over 250 USDC", t.conversationId);
-    expect(calls.at(-1)!.messages[0]!.content).toContain("Make it, just below, works out its steps");
-    expect(done.shown).toBe("Every morning at eight it checks the Stock sheet and orders what is low.");
+    // What comes next is the chat's own sentence, never the model's (an
+    // echo of the prompt is what SERV's gateway filter cut off live).
+    expect(calls.at(-1)!.messages[0]!.content).toContain("Ask nothing, and say nothing about what comes next.");
+    expect(calls.at(-1)!.messages[0]!.content).not.toContain("Make it");
+    expect(done.shown).toBe("Every morning at eight it checks the Stock sheet and orders what is low. I have what I need: press Make it below to see its steps.");
     const card = done.events.find((e) => e.event === "card")?.data as { message: { card: { stage: string }; content: string } };
     expect(card.message).toMatchObject({ card: { stage: "describe" }, content: "I have what I need to make it." });
     // Asked again, the reply goes and Make it comes back under the new one:

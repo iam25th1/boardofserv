@@ -208,7 +208,7 @@ export function decideByValue(steps: RawStep[], setup: Setup): void {
 
 // What each tool that changes something is handed, as a code step makes it.
 const MADE: Record<string, string> = {
-  "telegram.send": "telegram.send's arguments { text }, the message in plain words",
+  "telegram.send": "the message in plain words: telegram.send's arguments { text }, or the text itself",
   "telegram.ask": 'telegram.ask\'s arguments { question, choices }, the question in plain words with the choices ["Yes", "No"]',
   "sheets.write": "sheets.write's arguments { sheet, rows }",
   "sheets.update": "sheets.update's arguments { sheet, updates: [{ row, values }] }",

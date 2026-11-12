@@ -32,3 +32,7 @@ export function honestReply(text: string, fallback = HONEST_REPLY): string {
 export function wholeSentences(text: string): string {
   return /^[\s\S]*[.!?](?=["')\]]?(?:\s|$))/.exec(text.trim())?.[0]?.trim() ?? "";
 }
+
+// What a reply about a job that is clear ends with: what to press next.
+// Said by the chat itself, never by the model.
+export const MAKE_IT_NEXT = "I have what I need: press Make it below to see its steps.";

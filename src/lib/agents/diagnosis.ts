@@ -96,10 +96,13 @@ export function testDiagnosis(d: AgentDefinition, result: TestResult, events: Ru
   const problem = result.problems[0];
   const step = stepOf(d, problem?.step);
   const check = problem?.check ?? null;
+  // Where the run stopped, in the run's own words ("It didn't return an
+  // object."), beside the plain sentence.
+  const stopped = [...events].reverse().find((e): e is Extract<RunEvent, { type: "step_done" }> => e.type === "step_done" && e.status === "failed" && (!step || e.stepId === step.id));
   return {
     stage: "test",
     step: named(step),
-    failure: problem?.text ?? result.story,
+    failure: `${problem?.text ?? result.story}${check === "ran" && stopped?.note ? ` ${stopped.note}` : ""}`,
     expected: check ? EXPECTED[check] : "It passes its test.",
     evidence: {
       ...empty(),

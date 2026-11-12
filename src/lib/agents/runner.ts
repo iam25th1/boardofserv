@@ -269,7 +269,8 @@ export function wayOf(step: DecisionStepDef, value: unknown): DecisionStepDef["o
 export function actionArgs(step: ActionStepDef, tool: keyof typeof TOOL_ARGS, input: Record<string, unknown>): { ok: true; args: unknown } | { ok: false; why: string } {
   const first = step.inputs[0] ? input[step.inputs[0]] : undefined;
   if (TOOL_ARGS[tool].safeParse(first).success) return { ok: true, args: first };
-  if (tool === "telegram.send") return { ok: true, args: { text: summary(input) || step.title } };
+  // A message made as text is sent as it is, whatever else the step reads.
+  if (tool === "telegram.send") return { ok: true, args: { text: (typeof first === "string" && first.trim() ? first.slice(0, 3000) : summary(input)) || step.title } };
   if (tool === "telegram.ask") return { ok: true, args: { question: `${step.title}\n${summary(input)}`.trim(), choices: ["Yes", "No"] } };
   return { ok: false, why: `This action needs its first input to be ${tool}'s arguments: ${TOOLS[tool].signature}` };
 }

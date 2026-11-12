@@ -44,7 +44,7 @@ export const CODE_PROMPT = [
 
 export const REVIEW_PROMPT = [
   "You review JavaScript written for one step of an agent, before it is saved and run in a sandbox.",
-  "Approve only if all of these hold: it does what the step says, reading only its inputs and returning exactly its outputs; it calls only the tools listed (the list is exactly what the code calls, so a tool the step's words mention but the code doesn't need is not listed); it does nothing risky (no reaching for the network, files, timers or globals, no endless loops or huge allocations, nothing sent anywhere except through the listed tools).",
+  "Approve only if all of these hold: it does what the step says, reading only its inputs and returning an object whose keys are exactly its outputs (never a bare value); a message the step makes for the owner may be the text itself or telegram.send's arguments { text }, either is right; it calls only the tools listed (the list is exactly what the code calls, so a tool the step's words mention but the code doesn't need is not listed); it does nothing risky (no reaching for the network, files, timers or globals, no endless loops or huge allocations, nothing sent anywhere except through the listed tools).",
   "If you reject it, say in one or two plain sentences what to change. Never use em dashes.",
 ].join(" ");
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { checkDefinition, type AgentDefinition } from "./definition";
 import { planAgent, repaired, wireToDefinition } from "./plan";
 import { fixSetup } from "./planRepairs";
-import { nothingToDo } from "./runner";
+import { actionArgs, nothingToDo } from "./runner";
 import { servOnly } from "./build";
 import { modelConfig } from "@/lib/model";
 import { planAnswer } from "@/test/planAnswers";
@@ -108,6 +108,12 @@ describe("the repairs", () => {
     ]);
   });
 
+  it("sends a message made as text as it is, never labelled with the other values the step reads", () => {
+    const send = { id: "send", title: "Send", kind: "action" as const, action: "send_line", inputs: ["line", "settings"], outputs: [], next: null };
+    expect(actionArgs(send, "telegram.send", { line: "Small steps add up.", settings: { tone: "warm" } })).toEqual({ ok: true, args: { text: "Small steps add up." } });
+    expect(actionArgs(send, "telegram.send", { line: { text: "Small steps add up." }, settings: {} })).toEqual({ ok: true, args: { text: "Small steps add up." } });
+  });
+
   it("skips a payment of nothing, the way it skips an empty write", () => {
     const pay = { id: "pay", title: "Pay", kind: "action" as const, action: "pay_supplier", inputs: ["payment"], outputs: [], next: null };
     expect(nothingToDo(pay, { payment: { to: "Weftworks", amountUsdc: 0, memo: "x" } })).toBe(true);
@@ -117,7 +123,7 @@ describe("the repairs", () => {
   it("tells the code that makes a message what shape it makes", () => {
     const d = fix({ ...SLIPPED, steps: [step({ id: "write", title: "Write it", kind: "code", inputs: ["settings"], outputs: ["note"], next: "send", description: "Write the note." }), step({ id: "send", title: "Send", kind: "action", action: "send_reminder", inputs: ["note"], next: "" })] });
     expect(d.steps.map((s) => s.id)).toEqual(["write", "send"]);
-    expect((d.steps[0] as { description: string }).description).toBe("Write the note. Return note as telegram.send's arguments { text }, the message in plain words.");
+    expect((d.steps[0] as { description: string }).description).toBe("Write the note. Return note as the message in plain words: telegram.send's arguments { text }, or the text itself.");
   });
 });
 
