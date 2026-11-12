@@ -14,7 +14,16 @@ import { loopChain, loopsOf } from "./definition";
 //   what to send, ask, write, pay or save by a code step right before it:
 //   where none is, one is put in that makes it from what the step reads.
 // - The setup never asks for a Telegram chat id, a token, a key or a
-//   password, and a sheet asked for as a link is picked as a sheet.
+//   password, and a sheet asked for as a link (or by its name) is picked
+//   as a sheet.
+// - A payment asks the owner and checks the allowance by itself (the
+//   platform's approval): a question or an allowance check of the plan's
+//   own in front of one is taken out. So is a question in front of a
+//   message or a write to the owner's own things that the maker never
+//   asked to be asked.
+// - Columns are read by their header names: a setting or rule that names
+//   a column (often by an invented letter) is taken out, and the steps
+//   read that column by its name.
 
 // A step as wireToDefinition shapes it, before it is checked.
 export interface RawStep {
@@ -199,7 +208,7 @@ export function decideByValue(steps: RawStep[], setup: Setup): void {
 
 // What each tool that changes something is handed, as a code step makes it.
 const MADE: Record<string, string> = {
-  "telegram.send": "telegram.send's arguments { text }, the message in plain words",
+  "telegram.send": "the message in plain words: telegram.send's arguments { text }, or the text itself",
   "telegram.ask": 'telegram.ask\'s arguments { question, choices }, the question in plain words with the choices ["Yes", "No"]',
   "sheets.write": "sheets.write's arguments { sheet, rows }",
   "sheets.update": "sheets.update's arguments { sheet, updates: [{ row, values }] }",
@@ -232,17 +241,21 @@ export function buildArguments(steps: RawStep[], setup: Setup): void {
     if (st.inputs.some((i) => !known.has(i))) continue;
     const reads = st.inputs.length ? st.inputs : madeOnTheWay(steps, st.id);
     const out = fresh(steps, `${st.id}_content`);
+    // Only what can come up empty (rows, results, a list) has nothing to
+    // do: a step that always acts (a weekly payment, a morning message)
+    // always makes what it hands on.
+    const empty = mayBeEmpty(steps, st.id);
     const what = action?.description ? `: ${action.description.replace(/\.$/, "")}` : "";
     // Saving builds on what was saved before.
     const saves = tool === "memory.set";
     const builder: RawStep = {
       id: fresh(steps, `make_${st.id}`),
-      title: (tool.startsWith("telegram") ? "Write the message" : tool === "wallet.pay" ? "Work out the payment" : "Prepare what it writes").slice(0, 80),
+      title: tool === "telegram.ask" ? "Write the question" : tool === "telegram.send" ? "Write the message" : tool === "wallet.pay" ? "Work out the payment" : "Prepare what it writes",
       kind: "code",
       inputs: [...new Set([...reads, ...(setup.settings.length ? ["settings"] : []), ...(saves ? ["memory"] : [])])],
       outputs: [out],
       next: st.id,
-      description: `Return ${out} as ${made}${what}. Make it from its inputs; return null when there is nothing to do.${saves ? " Build on what memory holds already: a saved position keeps the larger of the old one and the new one." : ""}`,
+      description: `Return ${out} as ${made}${what}. Make it from its inputs only${empty ? "; return null when there is nothing to do" : ", every run"}.${saves ? " Build on what memory holds already: a saved position keeps the larger of the old one and the new one." : ""}`,
       tools: [],
     };
     repoint(steps, st.id, builder.id);
@@ -251,19 +264,222 @@ export function buildArguments(steps: RawStep[], setup: Setup): void {
   }
 }
 
+// Whether what reaches this step can come up empty: on the way back to
+// the start, before any decision that already picked this way, a step reads
+// rows or results (a sheet, a search, its memory) or goes through a list.
+export function mayBeEmpty(steps: RawStep[], id: string): boolean {
+  const seen = new Set<string>();
+  for (let at = into(steps, id); at.length; at = at.flatMap((x) => into(steps, x.id))) {
+    for (const st of at) {
+      if (seen.has(st.id)) continue;
+      seen.add(st.id);
+      if (st.kind === "loop" || (st.kind === "decision" && st.each)) return true;
+      if (st.kind === "code" && (st.tools ?? []).some((t) => t === "sheets.read" || t === "web.search" || t === "memory.get")) return true;
+    }
+    at = at.filter((x) => x.kind !== "decision" || x.each);
+    if (seen.size > steps.length) break;
+  }
+  return false;
+}
+
+// Steps taken out, and whatever led to the first of them leading on to
+// where they would have gone.
+function cut(steps: RawStep[], ids: string[], to: string | null): void {
+  const gone = new Set(ids);
+  for (const id of ids) repoint(steps, id, to);
+  for (let i = steps.length - 1; i >= 0; i--) if (gone.has(steps[i]!.id)) steps.splice(i, 1);
+}
+
+// The tool of the action a step takes, if it takes one.
+const toolOf = (st: RawStep | undefined, setup: Setup): string => (st?.kind === "action" ? String(setup.actions.find((a) => a.id === st.action)?.tool ?? "") : "");
+
+// The first thing done from here on: the tool of the first action reached
+// by following the steps (code steps on the way), or "" when the run ends.
+function firstDone(steps: RawStep[], from: string | null | undefined, setup: Setup): string {
+  const byId = new Map(steps.map((x) => [x.id, x]));
+  const seen = new Set<string>();
+  for (let at = from ? byId.get(from) : undefined; at && !seen.has(at.id); at = at.next ? byId.get(at.next) : undefined) {
+    seen.add(at.id);
+    if (at.kind === "action") return toolOf(at, setup);
+    if (at.kind !== "code") return "";
+  }
+  return "";
+}
+
+const YES_WAY = /^(?:y|yes|ok|okay|approved?|confirm(?:ed)?|agreed?|accept(?:ed)?|go ahead)$/i;
+
+// A question to the owner and the step that goes by their answer, with the
+// code that writes it: what the yes leads to, and the steps to take out.
+function questions(steps: RawStep[], setup: Setup): { ids: string[]; yes: string | null; head: string }[] {
+  const out: { ids: string[]; yes: string | null; head: string }[] = [];
+  for (const ask of steps) {
+    if (toolOf(ask, setup) !== "telegram.ask" || !ask.outputs[0]) continue;
+    const answer = ask.outputs[0];
+    const decision = steps.find((x) => x.kind === "decision" && x.inputs.includes(answer) && (x.from === answer || ask.next === x.id));
+    if (!decision || ask.next !== decision.id) continue;
+    // Only a plain yes or no: a question whose answers lead different ways
+    // is the maker's job, not an approval.
+    const ways = decision.outcomes ?? [];
+    const yes = ways.find((o) => YES_WAY.test(o.id.replace(/_/g, " ")) || YES_WAY.test(o.label));
+    if (!yes || ways.some((o) => o !== yes && o.next !== null && o.next !== yes.next)) continue;
+    // The answer is read nowhere else.
+    if (steps.some((x) => x !== decision && x.inputs.includes(answer))) continue;
+    const ids = [ask.id, decision.id];
+    let head = ask.id;
+    const writer = steps.find((x) => x.kind === "code" && x.next === ask.id && x.outputs.length > 0 && x.outputs.every((o) => ask.inputs.includes(o) && !steps.some((y) => y !== ask && y.inputs.includes(o))));
+    if (writer) {
+      ids.unshift(writer.id);
+      head = writer.id;
+    }
+    out.push({ ids, yes: yes.next, head });
+  }
+  return out;
+}
+
+// A question of the plan's own in front of a payment goes: the payment asks
+// by itself. One in front of a message to the owner or a write to their
+// own sheet goes too when the maker never asked to be asked.
+export function dropUnaskedQuestions(steps: RawStep[], setup: Setup, askedFirst: boolean): void {
+  for (const q of questions(steps, setup)) {
+    const then = firstDone(steps, q.yes, setup);
+    const own = ["telegram.send", "sheets.write", "sheets.update"].includes(then);
+    if (then === "wallet.pay" || (own && !askedFirst)) cut(steps, q.ids, q.yes);
+  }
+  // A question no way of the run waits on, right before a payment, asks
+  // twice with the payment's own: it goes, with the code that writes it.
+  for (const ask of [...steps]) {
+    if (toolOf(ask, setup) !== "telegram.ask" || firstDone(steps, ask.next, setup) !== "wallet.pay") continue;
+    const answer = ask.outputs[0];
+    if (answer && steps.some((x) => x.kind === "decision" && x.inputs.includes(answer))) continue;
+    const writer = steps.find((x) => x.kind === "code" && x.next === ask.id && x.outputs.length > 0 && x.outputs.every((o) => ask.inputs.includes(o) && !steps.some((y) => y !== ask && y.inputs.includes(o))));
+    cut(steps, [...(writer ? [writer.id] : []), ask.id], ask.next ?? null);
+    if (answer) for (const st of steps) st.inputs = st.inputs.filter((i) => i !== answer);
+  }
+}
+
+// An allowance or balance check, or an approval, of the plan's own in front
+// of a payment goes: the payment checks the allowance and asks the owner by
+// itself. The check is a decision on the allowance or on the owner's
+// approval, judged with no question asked (and the code that only feeds
+// it), whose way on goes to the payment; or code that checks the
+// allowance with nothing to check it with.
+const ALLOWANCE = /\b(?:allowance|balance|enough (?:usdc|funds|money)|funds?)\b/i;
+const APPROVAL = /\bapprov|\bpermission|\bconsent|\bconfirm|\bowner (?:says|said|agrees?|allows?)\b/i;
+export function dropAllowanceChecks(steps: RawStep[], setup: Setup): void {
+  const gone = new Set<string>();
+  for (const d of [...steps]) {
+    if (d.kind !== "decision" || d.from || d.each) continue;
+    const words = `${d.title} ${d.prompt ?? ""}`;
+    if (!ALLOWANCE.test(words) && !APPROVAL.test(words)) continue;
+    const on = (d.outcomes ?? []).find((o) => firstDone(steps, o.next, setup) === "wallet.pay");
+    if (!on || (d.outcomes ?? []).some((o) => o !== on && o.next !== null)) continue;
+    const feeders = steps.filter((x) => x.kind === "code" && x.next === d.id && ALLOWANCE.test(`${x.title} ${x.description ?? ""}`) && x.outputs.every((o) => !steps.some((y) => y !== d && y.inputs.includes(o))));
+    for (const x of [...feeders, d]) for (const o of x.outputs) gone.add(o);
+    cut(steps, [...feeders.map((x) => x.id), d.id], on.next);
+  }
+  // Code that checks the allowance on its own, right before a payment.
+  for (const c of [...steps]) {
+    if (c.kind !== "code" || !ALLOWANCE.test(c.title) || (c.tools ?? []).some((t) => t !== "memory.get") || firstDone(steps, c.next, setup) !== "wallet.pay") continue;
+    if (c.outputs.some((o) => steps.some((y) => y !== c && y.inputs.includes(o) && y.kind !== "code"))) continue;
+    for (const o of c.outputs) gone.add(o);
+    cut(steps, [c.id], c.next ?? null);
+  }
+  // What the steps taken out made is read by nothing now.
+  for (const st of steps) st.inputs = st.inputs.filter((i) => !gone.has(i));
+}
+
+// A value a step reads that no step makes and no setting, rule or memory
+// key holds, named like something the maker gives (a list of requirements),
+// is a setting the maker answers at Connect: SERV read it but forgot to ask
+// for it.
+export function askForMissing(steps: RawStep[], setup: { settings: { key: string }[]; rules: { key: string }[]; memory: { key: string }[] }): { key: string; label: string; type: "list" | "text"; help: string }[] {
+  const made = new Set([...BAGS, ...steps.flatMap((x) => x.outputs), ...steps.flatMap((x) => (x.kind === "loop" && x.item ? [x.item] : []))]);
+  const keys = new Set([...setup.settings, ...setup.rules, ...setup.memory].map((x) => x.key));
+  const added: { key: string; label: string; type: "list" | "text"; help: string }[] = [];
+  // A word any value made shares is a slip in naming that value, not
+  // something to ask for ("price" beside "current_price").
+  const madeWords = new Set([...made].flatMap((m) => m.split("_")).filter((w) => w.length > 2));
+  for (const st of steps) {
+    for (const input of st.inputs) {
+      if (made.has(input) || keys.has(input) || added.some((a) => a.key === input) || !/^[a-z][a-z0-9_]{2,39}$/.test(input)) continue;
+      if (input.split("_").some((w) => madeWords.has(w) || madeWords.has(w.replace(/s$/, "")))) continue;
+      const words = input.replace(/_/g, " ");
+      added.push({ key: input, label: `Your ${words}`, type: /s$/.test(input) ? "list" : "text", help: `The ${words} it works with.` });
+    }
+  }
+  for (const a of added) {
+    for (const st of steps) {
+      if (!st.inputs.includes(a.key)) continue;
+      st.inputs = [...new Set(st.inputs.map((i) => (i === a.key ? "settings" : i)))];
+      const word = new RegExp(`(?<![.\\w])${a.key}\\b`, "g");
+      if (st.description) st.description = st.description.replace(word, `settings.${a.key}`);
+      if (st.prompt) st.prompt = st.prompt.replace(word, `settings.${a.key}`);
+      if (st.kind === "loop" && st.over === a.key && !st.inputs.includes("settings")) st.inputs.push("settings");
+    }
+  }
+  return added;
+}
+
+// A column named by a setting or a rule ("Quantity column": B) is read by
+// its header name instead: the setting or rule goes, and the steps that
+// read it name the column.
+const COLUMN = /\bcolumns?\b|_col(?:umn)?s?\b/i;
+const LETTER = /^(?:column\s+)?[A-Z]{1,2}$/i;
+export function columnsByName(steps: RawStep[], setup: { settings: { key: string; label?: string; given?: string }[]; rules: { key: string; label?: string; value?: string }[] }): { settings: string[]; rules: string[] } {
+  const named = (x: { key: string; label?: string }) => {
+    const words = (x.label ?? x.key.replace(/_/g, " ")).replace(/\b(?:which|what|the|column|columns|col|holds?|has|with|is|in|your|of)\b|[?:]/gi, " ").replace(/\s+/g, " ").trim();
+    return words ? words.charAt(0).toUpperCase() + words.slice(1) : "";
+  };
+  const drop = { settings: [] as string[], rules: [] as string[] };
+  for (const [bag, list] of [["settings", setup.settings], ["rules", setup.rules]] as const) {
+    for (const x of list) {
+      const value = "value" in x ? x.value : (x as { given?: string }).given;
+      if (!COLUMN.test(`${x.key} ${x.label ?? ""}`) && !(value && LETTER.test(value.trim()) && COLUMN.test(x.label ?? ""))) continue;
+      const name = named(x);
+      if (!name) continue;
+      drop[bag].push(x.key);
+      const ref = new RegExp(`\\b${bag}\\.${x.key}\\b`, "g");
+      for (const st of steps) {
+        if (st.description) st.description = st.description.replace(ref, `the "${name}" column`);
+        if (st.prompt) st.prompt = st.prompt.replace(ref, `the "${name}" column`);
+      }
+    }
+  }
+  return drop;
+}
+
 // Setup questions it never asks: a Telegram chat id, a token, a key or a
 // password (Telegram is the owner's own, linked at Connect); and a sheet
 // asked for as a link is a sheet, picked at Connect.
 const NEVER_ASKED = /\bchat[ _-]?id\b|chat_id|telegram|\btoken\b|api[ _-]?key|password|secret/i;
 const SHEETISH = /\bsheets?\b|spreadsheet|sheet_|_sheet/i;
+const TAB = /\btab\b|\bworksheet\b/i;
 export function fixSetup(settings: { key: string; label?: string; type: unknown }[]): { key: string; label?: string; type: unknown }[] {
   const kept = settings.filter((s) => !NEVER_ASKED.test(`${s.key} ${s.label ?? ""}`));
-  for (const s of kept) if (s.type === "url" && SHEETISH.test(`${s.key} ${s.label ?? ""}`)) s.type = "sheet";
+  // A sheet asked for by its link, its id or its name is picked.
+  for (const s of kept) if ((s.type === "url" || s.type === "text") && (SHEETISH.test(`${s.key} ${s.label ?? ""}`) || TAB.test(s.label ?? "")) && !COLUMN.test(`${s.key} ${s.label ?? ""}`)) s.type = "sheet";
   return kept;
 }
 
-export function repairPlan(steps: RawStep[], setup: Setup): void {
+// askedFirst: the maker asked to be asked before it acts (unknown counts as
+// asked: nothing they want is taken out).
+export function repairPlan(steps: RawStep[], setup: Setup, o: { askedFirst?: boolean } = {}): void {
   dropSingleLoops(steps, setup);
   decideByValue(steps, setup);
+  dropUnaskedQuestions(steps, setup, o.askedFirst ?? true);
+  dropAllowanceChecks(steps, setup);
   buildArguments(steps, setup);
+}
+
+// Whether the maker asked to be asked before it acts, in their own words
+// ("ask me first", "only if I say yes"; "it never needs to ask me" isn't),
+// or in what the interview kept they must be asked about. Without anything
+// they said, it counts as asked.
+const ASKS = /\bask(?:s|ing)? me\b|\bcheck with me\b|\bconfirm with me\b|\bmy (?:ok|okay|yes|approval|permission|go-?ahead)\b|\bif I say yes\b|\bwithout asking\b|\bbefore (?:it |you )?(?:sends?|pays?|writes?)\b/i;
+const NEVER = /\b(?:never|don't|do not|doesn't|does not|no need to|without needing to|won't)\b[^.]*\bask/i;
+const NOTHING = /^(?:nothing|none|no|never|n\/a|nothing at all)\b|\bnever (?:needs to )?asks?\b|\bno need\b/i;
+export function askedFirst(said: string[], asks?: string | null): boolean {
+  if (asks?.trim() && !NOTHING.test(asks.trim())) return true;
+  if (!said.length) return true;
+  return said.some((m) => m.split(/(?<=[.!?])\s+/).some((sentence) => ASKS.test(sentence) && !NEVER.test(sentence)));
 }

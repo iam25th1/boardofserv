@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, numeric, primaryKey, check, bigint, bigserial, json, jsonb, type AnyPgColumn } from "drizzle-orm/pg-core";
 import type { AgentDefinition } from "../agents/definition";
-import type { BenchData, RunState, StepCode, TestResult } from "../agents/types";
+import type { BenchData, HealLog, RunState, StepCode, TestResult } from "../agents/types";
 import type { JourneyCard } from "../journey";
 import { CURRENCIES } from "../money";
 import { DISPUTE_REASONS } from "../spending/disputeWords";
@@ -542,6 +542,9 @@ export const agentVersions = pgTable(
     buildNote: text("build_note"),
     // The last test of this version, in plain words (agents/test.ts).
     testResult: jsonb("test_result").$type<TestResult>(),
+    // How its build healed itself: what went wrong at each failure, and each
+    // repair (agents/diagnosis.ts, agents/fixer.ts).
+    heal: jsonb("heal").$type<HealLog>(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     publishedAt: timestamp("published_at", { withTimezone: true }),
@@ -1268,6 +1271,34 @@ export const modelAttempts = pgTable(
   (t) => ({
     byCreated: index("model_attempts_created_idx").on(t.createdAt),
     byCall: index("model_attempts_call_idx").on(t.callId),
+  }),
+);
+
+// What healing builds learned (agents/lessons.ts): each repair that fixed a
+// build, as a short rule, counted each time the same kind of mistake is put
+// right the same way. key is the kind and the rule's words, so the same
+// lesson counts up. makers holds the ids of the makers whose builds taught
+// it (up to 20): a lesson goes into the planner's and Dolphin's prompts
+// only once more than one maker's builds needed it. No foreign keys, like
+// the usage tables.
+export const agentLessons = pgTable(
+  "agent_lessons",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    key: text("key").notNull(),
+    kind: text("kind").notNull(),
+    rule: text("rule").notNull(),
+    // The last time it was learned: what went wrong, and what fixed it.
+    wrong: text("wrong").notNull(),
+    fix: text("fix").notNull(),
+    count: integer("count").notNull().default(1),
+    makers: jsonb("makers").$type<string[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byKey: uniqueIndex("agent_lessons_key_idx").on(t.key),
+    byCount: index("agent_lessons_count_idx").on(t.count),
   }),
 );
 

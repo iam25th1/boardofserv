@@ -24,7 +24,8 @@ export const FAILED = '"Write the reminder" didn\'t work on the sample product.'
 const AGENT = "a9";
 const CONVO = "c9";
 
-type Card = { stage: string; agentId?: string; snapshot?: Record<string, unknown>; answers?: unknown; live?: { installationId?: string; listed?: boolean } };
+type Card = { stage: string; agentId?: string; at?: string; snapshot?: Record<string, unknown>; answers?: unknown; live?: { installationId?: string; listed?: boolean } };
+type HealLine = { text: string; tone: "working" | "fixed" | "asked" | "stopped"; at: string };
 type Msg = { id: string; conversationId: string; role: "user" | "assistant"; content: string; source: string | null; sourceLabel: string | null; card: Card | null; createdAt: string };
 
 export interface Journey {
@@ -32,7 +33,14 @@ export interface Journey {
   asked: { url: string; method: string; body: unknown }[];
 }
 
-export async function withJourney(context: BrowserContext, o: { failFirstTest?: boolean } = {}): Promise<Journey> {
+// heal: how its first failed test goes. fix: the fixer writes the step
+// again and it passes; ask: the fixer asks the maker one question first;
+// giveUp: three rounds don't fix it, and it says so in one sentence.
+export const QUESTION = "Should the reminder include the link to the product?";
+export const CHOICES = ["Yes, include the link", "No, just the price"];
+export const GAVE_UP = 'I couldn\'t get step 6, "Write the reminder", to work on its sample.';
+
+export async function withJourney(context: BrowserContext, o: { failFirstTest?: boolean; heal?: "fix" | "ask" | "giveUp" } = {}): Promise<Journey> {
   const asked: Journey["asked"] = [];
   const messages: Msg[] = [];
   let sketch: Record<string, unknown> | null = null;
@@ -43,8 +51,13 @@ export async function withJourney(context: BrowserContext, o: { failFirstTest?: 
   let code: Record<string, string> = Object.fromEntries(codeSteps.map((id) => [id, "queued"]));
   let test: { status: "passed" | "failed"; story: string } | null = null;
   let testing = false;
-  let failing = Boolean(o.failFirstTest);
+  let failing = Boolean(o.failFirstTest || o.heal);
   let ticks = 0;
+  // The build healing itself: its lines, a question, where it gave up, and
+  // the rounds the details view shows.
+  let heal: { lines: HealLine[]; question: { text: string; choices: string[]; messageId: string | null } | null; gaveUp: string | null } | null = null;
+  let healing: string[] = [];
+  const rounds: unknown[] = [];
   let then: (() => void) | null = null;
   let n = 0;
   const stamp = () => new Date(Date.UTC(2026, 10, 11, 9, 0, n++)).toISOString();
@@ -54,11 +67,26 @@ export async function withJourney(context: BrowserContext, o: { failFirstTest?: 
   const addCard = (stage: string, content: string) => {
     const before = [...messages].reverse().find((m) => m.card);
     if (before?.card && !before.card.snapshot) {
+      // What it said while it healed itself on that card stays with it.
+      const healed = (heal?.lines ?? []).filter((l) => !before.card!.at || l.at >= before.card!.at).map(({ text, tone }) => ({ text, tone }));
       before.card.snapshot =
-        before.card.stage === "steps" ? { lines } : before.card.stage === "build" ? { note: "Built and checked" } : before.card.stage === "try" ? (test ? { status: test.status, story: test.story, problem: test.status === "failed" ? FAILED : null } : {}) : before.card.stage === "describe" ? { lines: describedLines() } : {};
+        before.card.stage === "steps" ? { lines } : before.card.stage === "build" ? { note: "Built and checked" } : before.card.stage === "try" ? (test ? { status: test.status, story: test.story, problem: test.status === "failed" ? FAILED : null, ...(healed.length ? { healed } : {}) } : {}) : before.card.stage === "describe" ? { lines: describedLines() } : {};
     }
-    say("assistant", content, { stage, agentId: stage === "describe" ? undefined : AGENT });
+    say("assistant", content, { stage, agentId: stage === "describe" ? undefined : AGENT, at: stamp() });
   };
+  const line = (text: string, tone: HealLine["tone"] = "working") => {
+    heal ??= { lines: [], question: null, gaveUp: null };
+    heal.lines.push({ text, tone, at: stamp() });
+  };
+  const round = (outcome: string, verdict: string | null, why: string, repair: string) =>
+    rounds.push({
+      diagnosis: { stage: "test", step: { id: "make_reminder", title: "Write the reminder" }, failure: FAILED, expected: "It runs through every step on its sample without stopping.", evidence: { plan: null, spec: 'Code step "Write the reminder" (make_reminder): Return reminder as telegram.send\'s arguments.', code: "async function run(input) { throw new Error('no price'); }", review: null, check: "ran", trace: ["step make_reminder reads {\"price\":42}", "  make_reminder failed (no price)", "end: failed, \"Write the reminder\" failed: no price"], sample: { settings: { product_url: "https://shop.example/kettle", target_price: 50 } }, errors: [] }, at: stamp() },
+      verdict,
+      why,
+      repair,
+      outcome,
+      at: stamp(),
+    });
   const describedLines = () => (sketch ? (["wakes", "looks", "handles"] as const).map((k) => ({ id: k, text: String(sketch![k]), depth: 0 })) : []);
 
   const summary = () => ({
@@ -72,6 +100,7 @@ export async function withJourney(context: BrowserContext, o: { failFirstTest?: 
       : [],
     test: test ? { ...test, checkedAt: "2026-11-11T09:05:00.000Z" } : null,
     problem: test?.status === "failed" ? { text: FAILED, step: "make_reminder", fix: "replan" } : null,
+    heal,
     plain: lines,
     setup: { name: price.definition.name, settings: price.definition.settings, rules: price.definition.rules, triggers: price.definition.triggers, needs: { telegram: true, google: false }, spends: false, given: { product_url: "https://shop.example/kettle", target_price: "50" } },
     does: price.definition.job.does,
@@ -79,6 +108,31 @@ export async function withJourney(context: BrowserContext, o: { failFirstTest?: 
 
   // The background build, one move a look.
   const tick = () => {
+    // Healing: one line a look, then on.
+    if (healing.length) {
+      const next = healing.shift()!;
+      if (next === "rewrite") {
+        code = { ...code, make_reminder: "queued" };
+        build = "writing";
+        return;
+      }
+      if (next === "ask") {
+        say("assistant", QUESTION);
+        heal!.question = { text: QUESTION, choices: CHOICES, messageId: messages.at(-1)!.id };
+        line("I need to ask you one thing.", "asked");
+        round("asked", "unclear", "Only you can say how you want to be reminded.", `Asked: ${QUESTION}`);
+        build = "idle";
+        return;
+      }
+      if (next === "gave up") {
+        heal!.gaveUp = GAVE_UP;
+        line(GAVE_UP, "stopped");
+        build = "idle";
+        return;
+      }
+      line(next);
+      return;
+    }
     if (build === "planning" || build === "fixing") {
       if (++ticks < 2) return;
       ticks = 0;
@@ -96,8 +150,22 @@ export async function withJourney(context: BrowserContext, o: { failFirstTest?: 
       if (failing) {
         failing = false;
         test = { status: "failed", story: 'It read the page and asked you on Telegram "The price is now 42, at or below your target of 50. Send you a reminder to buy it? http..." (you answered "Yes"), then it stopped at "Write the reminder".' };
+        // It heals itself: the fixer reads what failed and goes round.
+        if (o.heal) {
+          build = "fixing";
+          line("Found a problem in step 6 while trying it. Fixing it.");
+          if (o.heal === "fix") {
+            round("fixed", "code", "The reminder's code throws instead of using the price it was given.", 'Step "make_reminder" written again from: Return reminder as { text } with the price and the link.');
+            healing = ["Writing step 6 again.", "rewrite"];
+          } else if (o.heal === "ask") healing = ["ask"];
+          else {
+            for (let i = 0; i < 3; i++) round("failed", "test", "The sample has no price on its page.", "A new sample: a page with a price on it.");
+            healing = ["Making a better sample to try it on.", "Found a problem in step 6 while trying it. Fixing it.", "Writing step 6 again.", "Found a problem in step 6 while trying it. Fixing it.", "gave up"];
+          }
+        }
       } else {
         test = { status: "passed", story: price.story };
+        if (heal) line("Fixed.", "fixed");
         addCard("connect", "Connecting it to what it needs.");
       }
       return;
@@ -107,7 +175,8 @@ export async function withJourney(context: BrowserContext, o: { failFirstTest?: 
       code[next] = code[next] === "queued" ? "writing" : code[next] === "writing" ? "reviewing" : "approved";
       return;
     }
-    addCard("try", "Trying it on a sample.");
+    // A test again, after a repair, stays on its card.
+    if ([...messages].reverse().find((m) => m.card)?.card?.stage !== "try") addCard("try", "Trying it on a sample.");
     testing = true;
   };
   const startBuild = () => {
@@ -132,6 +201,25 @@ export async function withJourney(context: BrowserContext, o: { failFirstTest?: 
     note(route);
     const said = (route.request().postDataJSON() as { content: string }).content;
     say("user", said);
+    // The answer to the fixer's question: it carries on with it, and no
+    // model writes the reply.
+    if (heal?.question) {
+      heal.question = null;
+      line("Thanks. Carrying on with that.");
+      say("assistant", "Thanks. I'll carry on with that.");
+      const thanks = messages.at(-1)!;
+      code = { ...code, make_reminder: "queued" };
+      build = "writing";
+      return route.fulfill({
+        contentType: "text/event-stream",
+        body: sse([
+          ["agent", { conversationId: CONVO, agent: summary() }],
+          ["delta", { text: thanks.content }],
+          ["reply_end", { messageId: thanks.id, source: null, label: null, choices: [] }],
+          ["done", { messageId: thanks.id, source: null, label: null }],
+        ]),
+      });
+    }
     sketch = { name: "Price watcher", kind: "agent", watches: null, when: null, how: null, tells: null, takes: null, does: null, gives: null, wakes: "every day", looks: "a product page you give it", handles: "below your target, asks you on Telegram whether to send a reminder, and sends it only on a yes", finish: null, asks: "sending the reminder", setup: null, remembers: null, asking: null, live: false, kindChosen: false };
     say("assistant", REPLY);
     const reply = messages.at(-1)!;
@@ -225,10 +313,21 @@ export async function withJourney(context: BrowserContext, o: { failFirstTest?: 
           runnable: null,
           listing: null,
           review: null,
+          heal: heal ? { rounds, lines: heal.lines, question: heal.question, gaveUp: heal.gaveUp, since: 0, costUsd: 0.0412 } : null,
         },
       },
     }),
   );
+  // Try a simpler version, when it gave up: the steps are worked out again.
+  await context.route(`**/api/conversations/${CONVO}/journey`, (route) => {
+    if ((route.request().postDataJSON() as { action: string }).action !== "simpler") return route.fallback();
+    note(route);
+    say("assistant", "Making a simpler version of it.");
+    addCard("steps", "Changing the steps.");
+    heal = null;
+    build = "fixing";
+    return route.fulfill({ status: 202, json: { agent: summary() } });
+  });
   await context.route(`**/api/agents/${AGENT}/jobs`, (route) => route.fulfill({ json: { jobs: [] } }));
   await context.route("**/api/account/details", (route) => route.fulfill({ json: { agentDetails: (route.request().postDataJSON() as { on: boolean }).on } }));
   return { asked };

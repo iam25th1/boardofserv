@@ -1,0 +1,77 @@
+/* The admin's lessons: a numbered chalk list, the most common first. */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.back {
+  align-self: flex-start;
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.quiet {
+  font-size: var(--t-sm);
+  color: var(--chalk-3);
+}
+.list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lesson {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-4) 0;
+}
+.lesson + .lesson {
+  border-top: 1px dashed var(--line);
+}
+.head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+}
+.count {
+  min-width: 2ch;
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+}
+.kind {
+  font-weight: var(--w-semibold);
+}
+.meta {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+.lesson[data-fed="true"] .meta {
+  color: var(--chalk-2);
+}
+.rule {
+  margin: 0;
+  max-width: 70ch;
+}
+.facts {
+  display: grid;
+  grid-template-columns: minmax(7rem, 10rem) 1fr;
+  gap: var(--s-1) var(--s-3);
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+.facts dt {
+  color: var(--chalk-3);
+}
+.facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 560px) {
+  .facts {
+    grid-template-columns: 1fr;
+  }
+}

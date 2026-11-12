@@ -14,7 +14,15 @@ import styles from "./admin.module.css";
 
 export default function AdminPage() {
   return (
-    <Page title="Admin" width="wide" actions={<Link href="/app/admin/safety">Safety: reviews, costs, freezes and reports</Link>}>
+    <Page
+      title="Admin"
+      width="wide"
+      actions={
+        <>
+          <Link href="/app/admin/safety">Safety: reviews, costs, freezes and reports</Link> <Link href="/app/admin/lessons">Lessons from healing builds</Link>
+        </>
+      }
+    >
       {privyAppId() ? <SignedIn /> : <p className={styles.quiet}>Sign-in isn&apos;t set up here.</p>}
     </Page>
   );

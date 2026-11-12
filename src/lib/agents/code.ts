@@ -6,6 +6,7 @@ import { ARGS_TOOLS, loopsOf, type AgentDefinition, type CodeStepDef, type ToolN
 import { TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
 import type { StepCode } from "./types";
+import { rulesText } from "./lessonRules";
 
 // Code writing and review. Dolphin writes each code step as
 // `async function run(input, tools)` against the toolbox's declarations.
@@ -36,14 +37,21 @@ export const CODE_PROMPT = [
   "You write one JavaScript function for one step of an automated agent. Reply with only the code, in one ```js block, nothing else.",
   "Write `async function run(input, tools)`. input holds the step's inputs by name; return an object with exactly the step's outputs by name.",
   "Call only the tools listed, always with await. Plain JavaScript (ES2020): no TypeScript, no imports, no require, no fetch, no console, no timers, no globals.",
+  "Read only the inputs listed, as they are described: never invent input fields, flags or options the step doesn't name (no input.skip, input.nothingToDo or input.cancelled), and never skip what the step says to do.",
   "Keep it short, and handle missing or odd values without throwing where you can.",
   "Text it writes for people never uses em dashes: use a colon or a comma.",
 ].join("\n");
 
+// The review's rules go in the request, not the system message: live, a
+// review whose reason restated a system message's rules was cut off by
+// SERV's gateway ("I can't share that.") two times in five. An approval
+// gives no reason at all, so there is nothing to restate.
+export const REVIEW_SYSTEM = "You review JavaScript code for one step of an automated agent. Answer with JSON in the given schema.";
+
 export const REVIEW_PROMPT = [
-  "You review JavaScript written for one step of an agent, before it is saved and run in a sandbox.",
-  "Approve only if all of these hold: it does what the step says, reading only its inputs and returning exactly its outputs; it calls only the tools listed (the list is exactly what the code calls, so a tool the step's words mention but the code doesn't need is not listed); it does nothing risky (no reaching for the network, files, timers or globals, no endless loops or huge allocations, nothing sent anywhere except through the listed tools).",
-  "If you reject it, say in one or two plain sentences what to change. Never use em dashes.",
+  "Review this code before it is saved and run in a sandbox.",
+  "Approve only if all of these hold: it does what the step says, reading only its inputs and returning an object whose keys are exactly its outputs (never a bare value); a message the step makes for the owner may be the text itself or telegram.send's arguments { text }, either is right; an output an action takes as its tool's arguments has exactly that shape; it calls only the tools listed (the list is exactly what the code calls, so a tool the step's words mention but the code doesn't need is not listed); it does nothing risky (no reaching for the network, files, timers or globals, no endless loops or huge allocations, nothing sent anywhere except through the listed tools).",
+  "Approving, leave the reason empty. Rejecting, say in one or two plain sentences, in your own words, what to change in this code. Never use em dashes.",
 ].join(" ");
 
 export const REVIEW_SCHEMA = {
@@ -54,7 +62,7 @@ export const REVIEW_SCHEMA = {
     required: ["verdict", "reason"],
     properties: {
       verdict: { type: "string", enum: ["approve", "reject"] },
-      reason: { type: "string", description: "why, in one or two plain sentences" },
+      reason: { type: "string", description: "rejecting: what to change in this code, one or two plain sentences; approving: empty" },
     },
   },
 };
@@ -92,14 +100,7 @@ export function codeRequest(step: CodeStepDef, d: AgentDefinition): string {
     }
     return from ? `from the step "${from.title}"${from.kind === "code" ? `: ${from.description}` : ""}` : "a value from an earlier step";
   };
-  // An output an action takes as its tool's arguments must be exactly those.
-  const shapes = step.outputs.flatMap((o) => {
-    const user = d.steps.find((s) => s.kind === "action" && s.inputs[0] === o);
-    const action = user?.kind === "action" ? d.actions.find((a) => a.id === user.action) : undefined;
-    if (!action || !ARGS_TOOLS.includes(action.tool)) return [];
-    const sig = TOOLS[action.tool].signature;
-    return [`- ${o} must be exactly the arguments of ${sig.slice(0, sig.lastIndexOf("): Promise") + 1)}, which the step "${user!.title}" calls with it.`];
-  });
+  const shapes = argShapes(step, d);
   return [
     `This agent: ${d.job.does}`,
     `Step: ${step.title}`,
@@ -114,6 +115,18 @@ export function codeRequest(step: CodeStepDef, d: AgentDefinition): string {
     "Tools it may call:",
     toolTypes(step.tools),
   ].join("\n");
+}
+
+// An output an action takes as its tool's arguments must be exactly those:
+// what Dolphin is told, and what the review checks.
+export function argShapes(step: CodeStepDef, d: AgentDefinition): string[] {
+  return step.outputs.flatMap((o) => {
+    const user = d.steps.find((s) => s.kind === "action" && s.inputs[0] === o);
+    const action = user?.kind === "action" ? d.actions.find((a) => a.id === user.action) : undefined;
+    if (!action || !ARGS_TOOLS.includes(action.tool)) return [];
+    const sig = TOOLS[action.tool].signature;
+    return [`- ${o} must be exactly the arguments of ${sig.slice(0, sig.lastIndexOf("): Promise") + 1)}, which the step "${user!.title}" calls with it.`];
+  });
 }
 
 // The function in Dolphin's answer: the first fenced block, or the whole
@@ -288,16 +301,20 @@ export interface Review {
 
 // SERV's review of one function. A review that couldn't be made is not an
 // approval.
-export async function reviewCode(source: string, step: CodeStepDef, serv: ModelConfig, opts: { signal?: AbortSignal; fetchImpl?: typeof fetch } = {}): Promise<Review | null> {
+export async function reviewCode(source: string, step: CodeStepDef, serv: ModelConfig, opts: { signal?: AbortSignal; fetchImpl?: typeof fetch; definition?: AgentDefinition } = {}): Promise<Review | null> {
+  const shapes = opts.definition ? argShapes(step, opts.definition) : [];
   const messages: ChatMessage[] = [
-    { role: "system", content: REVIEW_PROMPT },
+    { role: "system", content: REVIEW_SYSTEM },
     {
       role: "user",
       content: [
+        REVIEW_PROMPT,
+        "",
         `Step: ${step.title}`,
         `What it must do: ${step.description}`,
         `Inputs: ${step.inputs.join(", ") || "none"}`,
         `Outputs: ${step.outputs.join(", ") || "none"}`,
+        ...shapes,
         "Tools listed:",
         toolTypes(step.tools),
         "",
@@ -339,12 +356,17 @@ export async function writeStep(
   spec: string,
   // writer: "serv" has SERV write it from the start ("Fix this" on a held
   // step); without Dolphin set up, SERV writes it too.
-  opts: { dolphin: Provider | null; serv: ModelConfig; hooks: WriteHooks; fetchImpl?: typeof fetch; signal?: AbortSignal; writer?: "dolphin" | "serv" },
+  // hint: why an earlier version of this step didn't pass (the fixer
+  // sends it with the step's corrected brief), so it isn't written that
+  // way again. rounds: how many tries before it is held.
+  // lessons: rules learned from earlier builds (lessons.ts).
+  opts: { dolphin: Provider | null; serv: ModelConfig; hooks: WriteHooks; fetchImpl?: typeof fetch; signal?: AbortSignal; writer?: "dolphin" | "serv"; hint?: string | null; rounds?: number; lessons?: string[] },
 ): Promise<StepCode> {
   const conversation: ChatMessage[] = [
-    { role: "system", content: CODE_PROMPT },
-    { role: "user", content: codeRequest(step, d) },
+    { role: "system", content: `${CODE_PROMPT}${rulesText(opts.lessons)}` },
+    { role: "user", content: opts.hint ? `${codeRequest(step, d)}\n\nAn earlier version of this step didn't pass: ${opts.hint}\nWrite it so that can't happen again.` : codeRequest(step, d) },
   ];
+  const maxRounds = opts.rounds ?? MAX_CODE_ROUNDS;
   let source: string | null = null;
   let note = "";
   let rounds = 0;
@@ -363,7 +385,7 @@ export async function writeStep(
       if (dolphinFailures >= DOLPHIN_TRIES) writer = "serv";
     }
   };
-  for (let round = 1; round <= MAX_CODE_ROUNDS; round++) {
+  for (let round = 1; round <= maxRounds; round++) {
     rounds = round;
     await opts.hooks.progress("writing", round);
     const written = await write(round);
@@ -387,7 +409,7 @@ export async function writeStep(
         note = "SERV couldn't review it just now.";
         break;
       }
-      const review = await reviewCode(code, fitted, opts.serv, { fetchImpl: opts.fetchImpl, signal: opts.signal });
+      const review = await reviewCode(code, fitted, opts.serv, { fetchImpl: opts.fetchImpl, signal: opts.signal, definition: d });
       if (review) await opts.hooks.record("agent_review", review.result);
       if (!review) {
         note = "SERV couldn't review it just now.";

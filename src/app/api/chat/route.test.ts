@@ -83,7 +83,7 @@ async function turn(content: string, conversationId?: string): Promise<Turn> {
     shown: events.filter((e) => e.event === "delta").map((e) => e.data.text).join(""),
     sketch: events.find((e) => e.event === "sketch")?.data as Turn["sketch"],
     choices: events.find((e) => e.event === "reply_end")?.data.choices as string[] | undefined,
-    conversationId: events.find((e) => e.event === "meta" || e.event === "sketch")!.data.conversationId as string,
+    conversationId: (events.find((e) => e.event === "meta" || e.event === "sketch") ?? events.find((e) => e.data.conversationId))!.data.conversationId as string,
   };
 }
 
@@ -315,8 +315,11 @@ describe("an agent's interview", () => {
     nextReply = ["Every morning at eight it checks the Stock sheet and orders what is low. ", "Your restock agent is all set!"];
     nextSketch = extraction({ looks: "the Stock sheet", handles: "orders what is low", asks: "orders over 250 USDC" });
     const done = await turn("The Stock sheet: reorder what's low, and ask me before orders over 250 USDC", t.conversationId);
-    expect(calls.at(-1)!.messages[0]!.content).toContain("Make it, just below, works out its steps");
-    expect(done.shown).toBe("Every morning at eight it checks the Stock sheet and orders what is low.");
+    // What comes next is the chat's own sentence, never the model's (an
+    // echo of the prompt is what SERV's gateway filter cut off live).
+    expect(calls.at(-1)!.messages[0]!.content).toContain("Ask nothing, and say nothing about what comes next.");
+    expect(calls.at(-1)!.messages[0]!.content).not.toContain("Make it");
+    expect(done.shown).toBe("Every morning at eight it checks the Stock sheet and orders what is low. I have what I need: press Make it below to see its steps.");
     const card = done.events.find((e) => e.event === "card")?.data as { message: { card: { stage: string }; content: string } };
     expect(card.message).toMatchObject({ card: { stage: "describe" }, content: "I have what I need to make it." });
     // Asked again, the reply goes and Make it comes back under the new one:
@@ -380,6 +383,69 @@ describe("an agent with steps", () => {
     // A plain answer about it goes through as it is.
     nextReply = ["It checks every 15 minutes."];
     expect((await turn("How often does it run?", cid)).shown).toBe("It checks every 15 minutes.");
+  });
+});
+
+describe("a reply SERV's content filter cuts off", () => {
+  // As recorded live: the reply streams, then the gateway's own chunk (an
+  // id of its own) says "I can't share that." and ends with content_filter.
+  function filtered(chunks: string[]): Response {
+    const enc = new TextEncoder();
+    const frame = (d: unknown) => enc.encode(`data: ${JSON.stringify(d)}\n\n`);
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(c) {
+          for (const content of chunks) c.enqueue(frame({ id: "msg_011", choices: [{ index: 0, delta: { content } }] }));
+          c.enqueue(frame({ id: "chatcmpl-933", choices: [{ index: 0, delta: { role: "assistant", content: "I can't share that." }, finish_reason: null }] }));
+          c.enqueue(frame({ id: "chatcmpl-933", choices: [{ index: 0, delta: {}, finish_reason: "content_filter" }] }));
+          c.enqueue(enc.encode("data: [DONE]\n\n"));
+          c.close();
+        },
+      }),
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
+  }
+
+  it("never breaks off mid-sentence or shows the filter's line: it ends on whole sentences and what is true now", async () => {
+    const real = globalThis.fetch;
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as Body;
+      return body.stream ? filtered(["Your job is clear. ", "You need an agent that runs every 15 ", "minutes,", " checks Google Sheets"]) : real(url, init);
+    });
+    nextSketch = extraction({ name: "Checker", kind: "agent", wakes: "every 15 minutes", looks: "my sheet", handles: "judges each submission" });
+    const t = await turn("Every 15 minutes, check my sheet and judge each new submission.");
+    vi.stubGlobal("fetch", real);
+    expect(t.shown).toBe("Your job is clear. I have what I need: press Make it below to see its steps.");
+    expect(t.shown).not.toContain("can't share");
+    const saved = await state.db.select().from(schema.messages).where(eq(schema.messages.conversationId, t.conversationId)).orderBy(schema.messages.createdAt);
+    expect(saved.find((m) => m.role === "assistant" && !m.card)!.content).toBe(t.shown);
+  });
+});
+
+describe("a question from the fixer", () => {
+  it("takes what the maker types as its answer, with no model writing the reply, and the build goes on with it", async () => {
+    const { hackathonDefinition } = await import("@/test/hackathonFixture");
+    const { jobFor } = await import("@/lib/agents/build");
+    const [convo] = await state.db.insert(schema.conversations).values({ userId: (state.user as schema.User).id, title: "Asked" }).returning();
+    await state.db.insert(schema.agentSketches).values({ conversationId: convo!.id, name: "Checker", kind: "agent", wakes: "every 15 minutes", looks: "the sheet", handles: "judges each requirement" });
+    const [agent] = await state.db.insert(schema.agents).values({ ownerUserId: (state.user as schema.User).id, sourceConversationId: convo!.id, name: "Checker" }).returning();
+    const question = { text: "Which requirements should it check?", choices: ["The ones in my sheet", "A list I give you"], messageId: null };
+    const [version] = await state.db.insert(schema.agentVersions).values({ agentId: agent!.id, number: 1, definition: hackathonDefinition(), heal: { rounds: [], lines: [], question } }).returning();
+    const before = calls.length;
+    const t = await turn("A list I give you", convo!.id);
+    expect(t.shown).toBe("Thanks. I'll carry on with that.");
+    // Neither the turn's plan nor a reply was asked of a model: the next
+    // call is the build going on with the answer.
+    expect(calls.slice(before).some((c) => c.stream)).toBe(false);
+    expect(t.events.find((e) => e.event === "agent")?.data).toMatchObject({ agent: { buildState: "fixing" } });
+    await jobFor(version!.id);
+    const replan = calls.slice(before).find((c) => JSON.stringify(c.messages).includes("They answered"));
+    expect(replan!.messages[1]!.content).toContain('The maker was asked "Which requirements should it check?" They answered "A list I give you".');
+    const rows = await state.db.select().from(schema.messages).where(eq(schema.messages.conversationId, convo!.id)).orderBy(schema.messages.createdAt);
+    expect(rows.map((m) => [m.role, m.content])).toEqual([
+      ["user", "A list I give you"],
+      ["assistant", "Thanks. I'll carry on with that."],
+    ]);
   });
 });
 

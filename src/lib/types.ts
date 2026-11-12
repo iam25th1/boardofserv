@@ -2,7 +2,7 @@ import type { MoneyKind } from "./moneyWords";
 import type { SketchFieldKey } from "./sketchFields";
 import type { AgentDefinition, SetupShape, StepKind } from "./agents/definition";
 import type { JourneyCard, PlainLine } from "./journey";
-import type { BenchData, CodeStatus } from "./agents/types";
+import type { BenchData, CodeStatus, HealLog } from "./agents/types";
 // Shapes the browser works with. Dates arrive as ISO strings over JSON.
 export interface ConversationDTO {
   id: string;
@@ -111,6 +111,10 @@ export interface AgentSummaryDTO {
   setup?: (SetupShape & { given: Record<string, string> }) | null;
   // What it does, in a sentence or two: its description on the board.
   does?: string | null;
+  // How this build is healing itself, in plain lines; a question for the
+  // maker (and the chat message that asks it); and the one sentence it
+  // ends with when it gives up.
+  heal?: { lines: { text: string; tone: "working" | "fixed" | "asked" | "stopped"; at: string }[]; question: { text: string; choices: string[]; messageId: string | null } | null; gaveUp: string | null } | null;
 }
 
 // Everything the agent's own builder shows its maker: the definition, each
@@ -133,6 +137,9 @@ export interface AgentBuilderDTO {
   listing: MakerListingDTO | null;
   // The code review of the version shown (none before its first).
   review: VersionReviewDTO | null;
+  // How its builds healed themselves: every failure's diagnosis and each
+  // repair (agents/diagnosis.ts, fixer.ts), for the details view.
+  heal?: HealLog | null;
 }
 
 // A version's code review, in plain words: never code.
@@ -932,4 +939,15 @@ export interface TrustDTO {
   factors: { key: string; words: string; points: number; counted: boolean }[];
   band: { label: string; perPayment: number; perDay: number };
   computedAt: string | null;
+}
+
+// A lesson healing builds learned, for the admin (agents/lessons.ts).
+export interface LessonDTO {
+  kind: string;
+  rule: string;
+  wrong: string;
+  fix: string;
+  count: number;
+  makers: number;
+  lastSeenAt: string;
 }

@@ -150,9 +150,11 @@ export function memoryProblem(fields: readonly MemoryField[], key: string, value
   const field = fields.find((f) => f.key === key);
   if (!field) return `"${key}" isn't something this agent remembers${fields.length ? ` (it remembers ${fields.map((f) => f.key).join(", ")})` : ""}.`;
   if (value === null || value === undefined) return null;
+  // A text field takes a short flag or count too ("true", 3): what code
+  // writes there comes back as it was written.
   const ok =
     field.type === "text"
-      ? typeof value === "string"
+      ? typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))
       : field.type === "number"
         ? typeof value === "number" && Number.isFinite(value)
         : field.type === "list"
@@ -274,6 +276,8 @@ export class MockTools {
       }
       case "wallet.pay": {
         const a = args as z.infer<(typeof TOOL_ARGS)["wallet.pay"]>;
+        // Only saved payees, by name or address, as for real.
+        if (d.payees && !d.payees.some((p) => p.trim().toLowerCase() === a.to.trim().toLowerCase())) throw new ToolError(tool, `"${a.to.slice(0, 60)}" isn't one of this renter's saved payees, so nothing was paid. It can only pay saved payees.`);
         if (a.amountUsdc > d.wallet.balanceUsdc) throw new ToolError(tool, `Not enough USDC: ${d.wallet.balanceUsdc} left, ${a.amountUsdc} asked.`);
         d.wallet.balanceUsdc = Math.round((d.wallet.balanceUsdc - a.amountUsdc) * 1e6) / 1e6;
         this.paid += 1;
@@ -306,4 +310,6 @@ export const BenchSchema = z.object({
   memory: z.record(z.string(), z.unknown()),
   wallet: z.object({ balanceUsdc: z.number().min(0).max(1_000_000) }),
   decisions: z.record(z.string(), z.string().max(40)),
+  payees: z.array(z.string().max(120)).max(20).optional(),
+  approve: z.enum(["yes", "no"]).optional(),
 }).refine((b) => json.safeParse(b).success, "The sample data is too large.");

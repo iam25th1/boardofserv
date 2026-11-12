@@ -63,12 +63,20 @@ export async function editableDraft(agentId: string): Promise<AgentVersion> {
   });
 }
 
-type DraftPatch = Partial<Pick<AgentVersion, "definition" | "code" | "bench" | "buildState" | "buildNote" | "testResult">>;
+type DraftPatch = Partial<Pick<AgentVersion, "definition" | "code" | "bench" | "buildState" | "buildNote" | "testResult" | "heal">>;
 
 // A version's last test (agents/test.ts). Not part of what a published
 // version keeps unchanged (its plan, code and bench), so any version takes it.
 export async function setTestResult(versionId: string, result: AgentVersion["testResult"]): Promise<void> {
   await db.update(agentVersions).set({ testResult: result }).where(eq(agentVersions.id, versionId));
+}
+
+// How a version's build healed itself (agents/diagnosis.ts, fixer.ts):
+// like its last test, not part of what a published version keeps
+// unchanged, so any version takes it (a setup that fails after it went
+// live is kept on it too).
+export async function setHeal(versionId: string, heal: AgentVersion["heal"]): Promise<void> {
+  await db.update(agentVersions).set({ heal }).where(eq(agentVersions.id, versionId));
 }
 
 // Change a draft. Null when the version is not a draft (published, or gone):

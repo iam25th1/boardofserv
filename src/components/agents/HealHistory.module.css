@@ -1,0 +1,118 @@
+/* How an agent's builds healed themselves, in the details view: one chalk
+   panel, each round a block with a dashed rule between. */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4) var(--s-5);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--slate-2);
+}
+.section h2 {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+}
+
+.quiet {
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+
+.rounds {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.round {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3) 0;
+}
+.round + .round {
+  border-top: 1px dashed var(--line);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+}
+
+.meta {
+  color: var(--chalk-2);
+  font-size: var(--t-sm);
+}
+
+.outcome {
+  margin-left: auto;
+  padding: 2px 10px;
+  border: 1px dashed var(--chalk-3);
+  border-radius: var(--r-full);
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+}
+.round[data-outcome="fixed"] .outcome {
+  border-style: solid;
+  color: var(--chalk);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: minmax(7rem, 10rem) 1fr;
+  gap: var(--s-1) var(--s-3);
+  margin: 0;
+  font-size: var(--t-sm);
+}
+.facts dt {
+  color: var(--chalk-3);
+}
+.facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .facts {
+    grid-template-columns: 1fr;
+  }
+  .facts dd {
+    margin-bottom: var(--s-1);
+  }
+}
+
+.evidence summary {
+  cursor: pointer;
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+}
+.evidence summary:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+
+.label {
+  margin: var(--s-2) 0 var(--s-1);
+  font-size: var(--t-xs);
+  color: var(--chalk-3);
+}
+
+.evidence pre {
+  margin: 0;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-md);
+  background: var(--slate);
+  font-family: var(--font-mono);
+  font-size: var(--t-2xs);
+  color: var(--chalk-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 22rem;
+  overflow: auto;
+}

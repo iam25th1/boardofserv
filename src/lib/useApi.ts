@@ -3,7 +3,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent, TestResult } from "./agents/types";
 import type { InstallAnswers } from "./agents/settingsForm";
-import type { AccountDTO, AdminDTO, AdminSafetyDTO, AuditPageDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, MakerListingDTO, QuotaDTO, RentalDetailDTO, RentalDTO, RequestDTO, RequestPageDTO, SketchDTO, SpendingDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, AdminSafetyDTO, AuditPageDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, LessonDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, MakerListingDTO, QuotaDTO, RentalDetailDTO, RentalDTO, RequestDTO, RequestPageDTO, SketchDTO, SpendingDTO, WalletDTO } from "./types";
 import type { SetupShape } from "./agents/definition";
 import type { ConnectAnswers } from "./journey";
 import type { DisputeList, PayeeBody } from "@/components/agents/SpendingPanel";
@@ -74,6 +74,9 @@ export function useApi() {
         if (!res.ok) throw Object.assign(new Error(body.error ?? SOMETHING_WRONG), { errors: body.errors ?? null });
         return { ok: true };
       },
+      // It gave up: a simpler version of the steps, for the maker to look at.
+      simpler: (conversationId: string) =>
+        json<{ agent: AgentSummaryDTO }>(`/api/conversations/${encodeURIComponent(conversationId)}/journey`, { method: "POST", body: JSON.stringify({ action: "simpler" }) }).then((d) => d.agent),
       goLive: (id: string, body: { how: "run" } | { how: "board"; weeklyPrice: string; description: string }) =>
         json<{ installation?: InstallationDTO; listing?: MakerListingDTO }>(`/api/agents/${encodeURIComponent(id)}/golive`, { method: "POST", body: JSON.stringify(body) }),
       getAgent: (id: string) => json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}`).then((d) => d.agent),
@@ -237,6 +240,7 @@ export function useApi() {
       checkDeposits: () => json<{ wallet: WalletDTO }>("/api/deposits/check", { method: "POST" }).then((d) => d.wallet),
       getAdmin: () => json<{ admin: AdminDTO }>("/api/admin").then((d) => d.admin),
       getAdminSafety: () => json<{ safety: AdminSafetyDTO }>("/api/admin/safety").then((d) => d.safety),
+      getAdminLessons: () => json<{ lessons: LessonDTO[] }>("/api/admin/lessons").then((d) => d.lessons),
       // The audit log of guarded actions: the renter's installation, the
       // maker's agent (renters' data hidden), or all of it for an admin.
       installationAudit: (id: string, before?: string | null) =>

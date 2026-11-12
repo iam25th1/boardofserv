@@ -133,3 +133,31 @@ export function codeOf(d: AgentDefinition, sources: Record<string, string>): Rec
       .map((s) => [s.id, { spec: codeSpec(s), status: "approved" as const, source: sources[s.id] ?? null, rounds: 1, note: null, updatedAt: "2026-11-11T00:00:00.000Z" }]),
   );
 }
+
+// The weekly payment (suite request 8): every Friday, 0.5 USDC from the
+// agent's allowance to the saved payee called Designer. The payment asks
+// the owner by itself, so the plan asks nothing of its own.
+export const PAY_WIRE = {
+  name: "Designer payment",
+  job: { does: "Every Friday it pays 0.5 USDC from its allowance to your saved payee called Designer, after you say yes on Telegram.", done: "The week's payment was made, or you said no." },
+  triggers: [{ kind: "schedule", every: "week", at: "09:00", everyMinutes: 0, watch: "", when: "friday", step: "", description: "Every Friday at 9:00" }],
+  settings: [
+    { key: "payee_name", label: "Who it pays", type: "text", help: "The name the payee is saved under.", choices: [], given: "Designer" },
+    { key: "amount_usdc", label: "How much it pays each week, in USDC", type: "number", help: "Paid from this agent's allowance.", choices: [], given: "0.5" },
+  ],
+  rules: [],
+  memory: [],
+  actions: [action("pay_designer", "wallet.pay", "Pay the designer this week's amount")],
+  steps: [
+    step({ id: "make_payment", title: "Work out the payment", kind: "code", inputs: ["settings"], outputs: ["payment"], next: "pay", description: "Return payment as wallet.pay's arguments: to settings.payee_name, amountUsdc settings.amount_usdc as a number, and a memo naming the week." }),
+    step({ id: "pay", title: "Pay the designer", kind: "action", action: "pay_designer", inputs: ["payment"], next: "" }),
+  ],
+  limits: { maxSteps: 5, maxRunSeconds: 30, maxSpendUsd: 0.01 },
+  approvalHours: 24,
+};
+
+export const PAY_SOURCES: Record<string, string> = {
+  make_payment: `async function run(input) {
+  return { payment: { to: input.settings.payee_name, amountUsdc: Number(input.settings.amount_usdc), memo: "Weekly design fee" } };
+}`,
+};

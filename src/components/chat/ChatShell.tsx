@@ -508,6 +508,7 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
   }, [activeId, cards.length, messages, agent, sketch]);
 
   const at: Stage = stageOf(shown.map((m) => m.card));
+  const asking = agent?.heal?.question ?? null;
   const latestCard = cards.at(-1)?.card ?? null;
   const live = Boolean(latestCard?.live?.installationId || latestCard?.live?.listed);
   const journey = useMemo<JourneyApi>(
@@ -555,13 +556,25 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
         await api.goLive(agent.id, body);
         await reload();
       },
+      simpler: async () => {
+        const id = activeRef.current;
+        if (!id) return;
+        setAgent(await api.simpler(id));
+        await reload();
+      },
+      // A new chat, its box holding what the maker first said, to word again.
+      describeAgain: () => {
+        const first = messages.find((m) => m.role === "user")?.content ?? "";
+        startNew();
+        setPutBack({ text: first, nonce: Date.now() });
+      },
       installation: api.getInstallation,
       connections: api.listConnections,
       telegramCode: api.telegramCode,
       googleStart: api.googleStart,
       inspectSheet: api.inspectSheet,
     }),
-    [api, agent, reload],
+    [api, agent, reload, messages, startNew],
   );
 
   // While something is under way (steps being worked out, built or tried),
@@ -722,7 +735,13 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
             ) : null
           }
           footer={
-            chips && messages.at(-1)?.id === chips.messageId && !busy ? <Chips options={chips.options} onPick={send} /> : undefined
+            // The fixer's question, under the message that asks it, with
+            // its answers to tap; else the latest reply's suggestions.
+            asking && messages.at(-1)?.id === asking.messageId && !busy ? (
+              <Chips options={asking.choices} onPick={send} />
+            ) : chips && messages.at(-1)?.id === chips.messageId && !busy ? (
+              <Chips options={chips.options} onPick={send} />
+            ) : undefined
           }
         />
       )}

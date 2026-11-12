@@ -8,7 +8,7 @@ import { TelegramLink, type LinkCode } from "@/components/connections/TelegramLi
 import { SheetField, type SheetInfo } from "@/components/agents/SheetField";
 import { isSheetAnswer } from "@/lib/google/sheetLink";
 import { animateEnter, dustIn, ease, prefersReducedMotion } from "@/lib/motion";
-import { STAGE_NAMES, STAGES, type ConnectAnswers, type JourneyCard, type PlainLine } from "@/lib/journey";
+import { STAGE_NAMES, STAGES, type ConnectAnswers, type HealTone, type JourneyCard, type PlainLine } from "@/lib/journey";
 import type { AgentSummaryDTO, ConnectionDTO, InstallationDTO, SketchDTO } from "@/lib/types";
 import styles from "./Journey.module.css";
 
@@ -28,6 +28,10 @@ export interface JourneyApi {
   // Throws a ConnectProblem when some answers need another look.
   connect: (answers: ConnectAnswers) => Promise<void>;
   goLive: (body: { how: "run" } | { how: "board"; weeklyPrice: string; description: string }) => Promise<void>;
+  // It gave up: a simpler version of the steps, or describing the job
+  // again from the start, in a new chat.
+  simpler: () => Promise<void>;
+  describeAgain: () => void;
   installation: (id: string) => Promise<InstallationDTO>;
   connections: () => Promise<{ connections: ConnectionDTO[]; available: Record<"telegram" | "google", boolean> }>;
   telegramCode: () => Promise<LinkCode>;
@@ -163,6 +167,79 @@ function Said({ text }: { text: string | null }) {
   ) : null;
 }
 
+// What the build says while it heals itself: calm plain lines, one after
+// another ("Found a problem in step 1. Fixing it.", "Fixed."), each dusting
+// in as it comes, a chalk tick drawn by the one that says it is fixed.
+// Never a reason, a review or code: those are in Details.
+export function Healing({ lines, live }: { lines: { text: string; tone: HealTone }[]; live: boolean }) {
+  const ref = useRef<HTMLOListElement>(null);
+  const seen = useRef(lines.length);
+  useLayoutEffect(() => {
+    const list = ref.current;
+    if (!list) return;
+    const items = [...list.querySelectorAll<HTMLLIElement>("li")];
+    const fresh = items.slice(Math.min(seen.current, items.length));
+    seen.current = items.length;
+    const ticks = items.map((li) => li.querySelector<SVGPathElement>("path")).filter((p): p is SVGPathElement => Boolean(p));
+    if (prefersReducedMotion() || !live) {
+      for (const t of ticks) utils.set(svg.createDrawable(t), { draw: "0 1" });
+      return;
+    }
+    if (fresh.length) animate(fresh, { ...dustIn, translateY: { from: 4, to: 0 }, duration: 380, delay: stagger(140), ease: ease.arrive });
+    for (const li of fresh) {
+      const t = li.querySelector<SVGPathElement>("path");
+      if (t) animate(svg.createDrawable(t), { draw: ["0 0", "0 1"], duration: 420, delay: 200, ease: ease.draw });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lines.length]);
+  // Giving up is said once, with its choices (GaveUp), not in the list.
+  const shown = live ? lines.filter((l) => l.tone !== "stopped") : lines;
+  if (!shown.length) return null;
+  return (
+    <ol ref={ref} className={styles.healing} aria-label="What it fixed" aria-live={live ? "polite" : undefined}>
+      {shown.map((l, i) => (
+        <li key={`${i}-${l.text}`} data-tone={l.tone}>
+          <span>{l.text}</span>
+          {l.tone === "fixed" && (
+            <svg className={styles.tick} viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+              <path d="M3 8.5 L6.5 12 L13 4.5" />
+            </svg>
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+// It gave up: one plain sentence of what it couldn't do, and two plain
+// choices. Never a box to describe a fix, never code.
+function GaveUp({ text, tries, api }: { text: string; tries: number; api: JourneyApi }) {
+  const act = useAct();
+  return (
+    <div className={styles.box}>
+      {tries > 0 && <p className={styles.quiet}>It tried {tries === 1 ? "once" : tries === 2 ? "twice" : `${tries} times`} to put it right on its own.</p>}
+      <p className={styles.problem}>{text}</p>
+      <div className={styles.actions}>
+        <Button onClick={() => act.run(api.simpler)} disabled={act.busy}>
+          {act.busy ? "Starting..." : "Try a simpler version"}
+        </Button>
+        <Button variant="ghost" onClick={api.describeAgain} disabled={act.busy}>
+          Describe the job differently
+        </Button>
+      </div>
+      <Said text={act.said} />
+    </div>
+  );
+}
+
+// How many times it set about fixing something on this card.
+const triesOf = (lines: { text: string }[]) => lines.filter((l) => l.text.startsWith("Found a problem")).length;
+
+// The lines of this card's healing: the ones said since it came in.
+function healedHere(card: JourneyCard, agent: AgentSummaryDTO | null): { text: string; tone: HealTone }[] {
+  return (agent?.heal?.lines ?? []).filter((l) => !card.at || l.at >= card.at).map(({ text, tone }) => ({ text, tone }));
+}
+
 function Steps({ lines, states }: { lines: PlainLine[]; states?: Record<string, RowState> }) {
   return (
     <ol className={styles.steps}>
@@ -190,7 +267,7 @@ function Row({ line, n, state }: { line: PlainLine; n: number; state?: RowState 
     }
     was.current = state;
     const d = dot.current;
-    if (!d || prefersReducedMotion() || (state !== "writing" && state !== "checking")) return;
+    if (!d || prefersReducedMotion() || (state !== "writing" && state !== "checking" && state !== "held")) return;
     const a = animate(d, { opacity: [{ from: 0.35, to: 1 }, { to: 0.35 }], duration: 1100, loop: true, ease: "inOut(2)" });
     return () => {
       a.revert();
@@ -204,7 +281,7 @@ function Row({ line, n, state }: { line: PlainLine; n: number; state?: RowState 
       <span className={styles.rowText}>{line.text}</span>
       {state && (
         <span className={styles.rowState}>
-          {state === "writing" || state === "checking" ? <span ref={dot} className={styles.pulse} aria-hidden="true" /> : null}
+          {state === "writing" || state === "checking" || state === "held" ? <span ref={dot} className={styles.pulse} aria-hidden="true" /> : null}
           <svg className={styles.tick} viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
             <path ref={tick} d="M3 8.5 L6.5 12 L13 4.5" />
           </svg>
@@ -215,7 +292,7 @@ function Row({ line, n, state }: { line: PlainLine; n: number; state?: RowState 
   );
 }
 
-const ROW_WORDS: Record<RowState, string> = { waiting: "waiting", writing: "being written", checking: "being checked", done: "built and checked", held: "on hold" };
+const ROW_WORDS: Record<RowState, string> = { waiting: "waiting", writing: "being written", checking: "being checked", done: "built and checked", held: "being fixed" };
 
 // 1 Describe: what the maker said, in their words, and Make it.
 const SAID_LABELS: Record<string, string> = { wakes: "When", looks: "Where it looks", handles: "What it does", finish: "Done when", asks: "Asks you first" };
@@ -256,14 +333,19 @@ function StepsCard({ card, latest, agent, api }: Props) {
   if (!latest) {
     return (
       <Frame card={card} latest={false} status={card.snapshot?.problem ? "Didn't come together" : "Looked at"}>
+        {card.snapshot?.healed && <Healing lines={card.snapshot.healed} live={false} />}
         {card.snapshot?.lines?.length ? <Steps lines={card.snapshot.lines} /> : <p className={styles.quiet}>{card.snapshot?.problem ?? "No steps came of it."}</p>}
       </Frame>
     );
   }
   const busy = building(agent);
   const lines = agent?.plain ?? [];
-  const failed = agent?.buildState === "failed" && !lines.length;
-  const status = busy ? (lines.length ? "Changing them" : "Working them out") : failed ? "Didn't come together" : lines.length ? `${lines.length} steps` : null;
+  const healed = healedHere(card, agent);
+  // Gave up, or waiting on the maker's answer, before any steps came of it.
+  const gaveUp = !lines.length ? (agent?.heal?.gaveUp ?? null) : null;
+  const asking = !lines.length && !busy ? (agent?.heal?.question ?? null) : null;
+  const failed = agent?.buildState === "failed" && !lines.length && !gaveUp && !asking;
+  const status = busy ? (healed.length ? "Fixing them" : lines.length ? "Changing them" : "Working them out") : asking ? "One question for you" : gaveUp || failed ? "Didn't come together" : lines.length ? `${lines.length} steps` : null;
   const submit = () =>
     act.run(async () => {
       await api.change(text.trim());
@@ -272,12 +354,25 @@ function StepsCard({ card, latest, agent, api }: Props) {
     });
   return (
     <Frame card={card} latest status={status} agentId={agent?.id}>
-      {busy && <Working text={lines.length ? "Changing the steps. This takes about a minute." : "Working out the steps. This takes about a minute."} />}
+      {busy && !healed.length && <Working text={lines.length ? "Changing the steps. This takes about a minute." : "Working out the steps. This takes about a minute."} />}
+      {!gaveUp && <Healing lines={healed} live />}
+      {busy && healed.length > 0 && <Working text="Fixing it. This takes about a minute." />}
       {lines.length > 0 && <Steps lines={lines} />}
-      {failed && <p className={styles.problem}>{agent?.problem?.text ?? agent?.buildNote ?? "I couldn't work out the steps."}</p>}
-      {!busy && (lines.length > 0 || failed) && (
+      {gaveUp && <GaveUp text={gaveUp} tries={triesOf(healed)} api={api} />}
+      {asking && <p className={styles.quiet}>Answer the question below, and it carries on.</p>}
+      {failed && (
         <>
-          {!failed && !changing && (
+          <p className={styles.problem}>{agent?.buildNote ?? "I couldn't work out the steps."}</p>
+          <div className={styles.actions}>
+            <Button onClick={() => act.run(api.makeIt)} disabled={act.busy}>
+              {act.busy ? "Starting..." : "Try again"}
+            </Button>
+          </div>
+        </>
+      )}
+      {!busy && lines.length > 0 && (
+        <>
+          {!changing && (
             <div className={styles.actions}>
               <Button onClick={() => act.run(api.looksRight)} disabled={act.busy}>
                 {act.busy ? "Starting..." : "Looks right"}
@@ -287,7 +382,7 @@ function StepsCard({ card, latest, agent, api }: Props) {
               </Button>
             </div>
           )}
-          {(changing || failed) && (
+          {changing && (
             <form
               className={styles.box}
               onSubmit={(e) => {
@@ -296,18 +391,16 @@ function StepsCard({ card, latest, agent, api }: Props) {
               }}
             >
               <label className={styles.boxLabel} htmlFor={`change-${agent?.id}`}>
-                {failed ? "Add a detail it needs" : "What should be different?"}
+                What should be different?
               </label>
-              <Textarea id={`change-${agent?.id}`} value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder={failed ? "For example: the price is in the page's title" : "For example: send the reminder at 9 in the morning"} />
+              <Textarea id={`change-${agent?.id}`} value={text} onChange={(e) => setText(e.target.value)} rows={3} placeholder="For example: send the reminder at 9 in the morning" />
               <div className={styles.actions}>
                 <Button type="submit" disabled={act.busy || !text.trim()}>
-                  {act.busy ? "Changing..." : failed ? "Try again" : "Change it"}
+                  {act.busy ? "Changing..." : "Change it"}
                 </Button>
-                {!failed && (
-                  <Button variant="ghost" type="button" onClick={() => setChanging(false)} disabled={act.busy}>
-                    Cancel
-                  </Button>
-                )}
+                <Button variant="ghost" type="button" onClick={() => setChanging(false)} disabled={act.busy}>
+                  Cancel
+                </Button>
               </div>
             </form>
           )}
@@ -338,38 +431,38 @@ function rowStates(agent: AgentSummaryDTO): Record<string, RowState> {
 function BuildCard({ card, latest, agent, api }: Props) {
   const act = useAct();
   if (!latest || !agent) {
+    const healed = card.snapshot?.healed ?? [];
     return (
-      <Frame card={card} latest={false} status={card.snapshot?.problem ? "Stopped" : "Built and checked"}>
-        <p className={styles.quiet}>{card.snapshot?.problem ?? "Every step was written and checked."}</p>
+      <Frame card={card} latest={false} status={card.snapshot?.problem && !healed.length ? "Stopped" : "Built and checked"}>
+        <Healing lines={healed} live={false} />
+        <p className={styles.quiet}>{card.snapshot?.problem && !healed.length ? card.snapshot.problem : "Every step was written and checked."}</p>
       </Frame>
     );
   }
   const lines = agent.plain ?? [];
   const states = rowStates(agent);
   const at = lines.findIndex((l) => states[l.id] === "writing" || states[l.id] === "checking");
-  const held = agent.problem?.fix === "rewrite" ? agent.problem : null;
+  const healed = healedHere(card, agent);
+  const busy = building(agent);
+  // While it heals, a step that didn't pass its check is being fixed; when
+  // it gave up here, one sentence and two choices.
+  const gaveUp = !busy && healed.length ? (agent.heal?.gaveUp ?? null) : null;
   const done = lines.every((l) => states[l.id] === "done");
-  const status = held ? "One step is on hold" : done ? "Built and checked" : at >= 0 ? (states[lines[at]!.id] === "checking" ? `Checking step ${at + 1}` : `Writing step ${at + 1} of ${lines.length}`) : agent.buildState === "failed" ? "Stopped" : "Getting ready";
+  const status = gaveUp ? "Stopped" : busy && healed.length ? "Fixing a step" : done ? "Built and checked" : at >= 0 ? (states[lines[at]!.id] === "checking" ? `Checking step ${at + 1}` : `Writing step ${at + 1} of ${lines.length}`) : agent.buildState === "failed" ? "Stopped" : "Getting ready";
   return (
     <Frame card={card} latest status={status} agentId={agent.id}>
       <Steps lines={lines} states={states} />
-      {agent.buildState === "failed" && !held && <p className={styles.problem}>{agent.problem?.text ?? agent.buildNote ?? "The build stopped part way."}</p>}
-      {held && (
-        <div className={styles.box}>
-          <p className={styles.problem}>{held.text}</p>
+      {!gaveUp && <Healing lines={healed} live />}
+      {gaveUp && <GaveUp text={gaveUp} tries={triesOf(healed)} api={api} />}
+      {agent.buildState === "failed" && !gaveUp && (
+        <>
+          <p className={styles.quiet}>The build stopped part way.</p>
           <div className={styles.actions}>
-            <Button onClick={() => act.run(() => api.fix({ step: held.step! }))} disabled={act.busy || building(agent)}>
-              {act.busy ? "Starting..." : "Write it again"}
+            <Button onClick={() => act.run(api.looksRight)} disabled={act.busy}>
+              Try again
             </Button>
           </div>
-        </div>
-      )}
-      {agent.buildState === "failed" && !held && (
-        <div className={styles.actions}>
-          <Button onClick={() => act.run(api.looksRight)} disabled={act.busy}>
-            Try again
-          </Button>
-        </div>
+        </>
       )}
       <Said text={act.said} />
     </Frame>
@@ -380,69 +473,59 @@ function BuildCard({ card, latest, agent, api }: Props) {
 // went wrong in one sentence, with a box to say what's wrong.
 function TryCard({ card, latest, agent, api }: Props) {
   const act = useAct();
-  const problem = agent?.test?.status === "failed" ? (agent.problem?.text ?? null) : null;
-  const [text, setText] = useState(problem ?? "");
-  const shown = useRef(problem);
-  useEffect(() => {
-    if (problem && shown.current !== problem) {
-      shown.current = problem;
-      setText(problem);
-    }
-  }, [problem]);
   if (!latest || !agent) {
-    const s = card.snapshot;
+    const snap = card.snapshot;
     return (
-      <Frame card={card} latest={false} status={s?.status === "passed" ? "Passed" : s?.status === "failed" ? "Didn't pass" : null}>
-        {s?.story ? <p className={styles.story}>{s.story}</p> : <p className={styles.quiet}>{s?.problem ?? "It was tried."}</p>}
-        {s?.status === "failed" && s.problem && <p className={styles.problem}>{s.problem}</p>}
+      <Frame card={card} latest={false} status={snap?.status === "passed" ? "Passed" : snap?.status === "failed" ? "Didn't pass" : null}>
+        {snap?.healed && <Healing lines={snap.healed} live={false} />}
+        {snap?.story ? <p className={styles.story}>{snap.story}</p> : <p className={styles.quiet}>{snap?.problem ?? "It was tried."}</p>}
+        {snap?.status === "failed" && snap.problem && !snap.healed && <p className={styles.problem}>{snap.problem}</p>}
       </Frame>
     );
   }
   const test = agent.test;
   const busy = building(agent);
-  if (!test) {
-    return (
-      <Frame card={card} latest status={busy ? "Trying it" : "Stopped"} agentId={agent.id}>
-        {busy ? (
-          <Working text="Trying it on a sample it makes up. Nothing real is read, written or sent." />
-        ) : (
-          <>
-            <p className={styles.quiet}>The test stopped part way.</p>
-            <div className={styles.actions}>
-              <Button onClick={() => act.run(api.retry)} disabled={act.busy}>
-                {act.busy ? "Trying..." : "Try it again"}
-              </Button>
-            </div>
-          </>
-        )}
-        <Said text={act.said} />
-      </Frame>
-    );
-  }
+  const healed = healedHere(card, agent);
+  const healing = busy && healed.length > 0;
+  const gaveUp = !busy && healed.length ? (agent.heal?.gaveUp ?? null) : null;
+  const asking = !busy ? (agent.heal?.question ?? null) : null;
+  // A test that failed with nothing healing it (an older agent): its one
+  // sentence, and Fix it, which puts it right from that sentence.
+  const problem = test?.status === "failed" && !busy && !gaveUp && !asking && !healed.length ? (agent.problem?.text ?? null) : null;
+  const status = healing ? "Fixing it" : asking ? "One question for you" : !test ? (busy ? "Trying it" : "Stopped") : test.status === "passed" ? "Passed" : "Didn't pass";
   return (
-    <Frame card={card} latest status={test.status === "passed" ? "Passed" : "Didn't pass"} agentId={agent.id}>
-      <p className={styles.story} data-status={test.status}>
-        {test.story}
-      </p>
-      {test.status === "failed" && (
-        <form
-          className={styles.box}
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (text.trim()) void act.run(() => api.fix({ message: text.trim() }));
-          }}
-        >
-          {problem && <p className={styles.problem}>{problem}</p>}
-          <label className={styles.boxLabel} htmlFor={`fix-${agent.id}`}>
-            Say what&apos;s wrong, in your own words
-          </label>
-          <Textarea id={`fix-${agent.id}`} value={text} onChange={(e) => setText(e.target.value)} rows={3} />
+    <Frame card={card} latest status={status} agentId={agent.id}>
+      {!gaveUp && <Healing lines={healed} live />}
+      {busy && !test && !healed.length && <Working text="Trying it on a sample it makes up. Nothing real is read, written or sent." />}
+      {healing && <Working text="Fixing it, then trying it again. Nothing real is read, written or sent." />}
+      {/* A failed run's story is for Details once it heals itself: the
+          card says what it is fixing, then the run that passed. */}
+      {test && (test.status === "passed" || (!busy && !healed.length)) && (
+        <p className={styles.story} data-status={test.status}>
+          {test.story}
+        </p>
+      )}
+      {!test && !busy && !gaveUp && (
+        <>
+          <p className={styles.quiet}>The test stopped part way.</p>
           <div className={styles.actions}>
-            <Button type="submit" disabled={act.busy || busy || !text.trim()}>
+            <Button onClick={() => act.run(api.retry)} disabled={act.busy}>
+              {act.busy ? "Trying..." : "Try it again"}
+            </Button>
+          </div>
+        </>
+      )}
+      {gaveUp && <GaveUp text={gaveUp} tries={triesOf(healed)} api={api} />}
+      {asking && <p className={styles.quiet}>Answer the question below, and it carries on.</p>}
+      {problem && (
+        <div className={styles.box}>
+          <p className={styles.problem}>{problem}</p>
+          <div className={styles.actions}>
+            <Button onClick={() => act.run(() => api.fix({ message: problem }))} disabled={act.busy}>
               {act.busy ? "Fixing..." : "Fix it"}
             </Button>
           </div>
-        </form>
+        </div>
       )}
       <Said text={act.said} />
     </Frame>
@@ -490,7 +573,8 @@ function ConnectCard({ card, latest, agent, conversationId, api }: Props) {
       rules: Object.fromEntries((setup?.rules ?? []).map((r) => [r.key, r.value])),
       timezone: browserZone(),
       schedule: null,
-      payee: setup?.spends ? { label: "", address: "" } : null,
+      // Who it pays: by the name the maker gave while describing it.
+      payee: setup?.spends ? { label: (setup.payee ? setup.given[setup.payee] : "") ?? "", address: "" } : null,
     }),
     [setup],
   );
@@ -540,7 +624,8 @@ function ConnectCard({ card, latest, agent, conversationId, api }: Props) {
       </Frame>
     );
   }
-  const plainSettings = setup!.settings.filter((s) => s.type !== "sheet");
+  // The payee's name is asked with who it pays, not on its own.
+  const plainSettings = setup!.settings.filter((s) => s.type !== "sheet" && s.key !== setup!.payee);
   const sheets = setup!.settings.filter((s) => s.type === "sheet");
   const linked = (p: "telegram" | "google") => Boolean(conn?.connections.some((c) => c.provider === p));
   const set = (k: string, v: unknown) => setAnswers((a) => ({ ...a, settings: { ...a.settings, [k]: v } }));
@@ -551,7 +636,7 @@ function ConnectCard({ card, latest, agent, conversationId, api }: Props) {
     act.run(async () => {
       setErrors({});
       try {
-        await api.connect(answers);
+        await api.connect(setup!.payee && answers.payee ? { ...answers, settings: { ...answers.settings, [setup!.payee]: answers.payee.label } } : answers);
         keepDraft(key, null);
       } catch (e) {
         if (e instanceof ConnectProblem) setErrors(e.errors);
@@ -642,7 +727,7 @@ function ConnectCard({ card, latest, agent, conversationId, api }: Props) {
             <TextInput value={answers.payee?.label ?? ""} onChange={(e) => setAnswers((a) => ({ ...a, payee: { label: e.target.value, address: a.payee?.address ?? "" } }))} />
           </label>
           <label className={styles.field}>
-            <span className={styles.fieldLabel}>Their Base address</span>
+            <span className={styles.fieldLabel}>Their wallet address</span>
             <TextInput value={answers.payee?.address ?? ""} placeholder="0x..." onChange={(e) => setAnswers((a) => ({ ...a, payee: { label: a.payee?.label ?? "", address: e.target.value.trim() } }))} aria-invalid={Boolean(errors.payee)} />
           </label>
           {err("payee")}
@@ -685,10 +770,16 @@ function LiveCard({ card, latest, agent, api }: Props) {
   useEffect(() => {
     if (installationId) void api.installation(installationId).then(setInstallation, () => undefined);
   }, [api, installationId]);
-  const status = installationId && listed ? "Running, and on the board" : installationId ? "Running for you" : listed ? "On the board" : "Ready";
+  const healed = healedHere(card, agent);
+  const healing = building(agent) && healed.length > 0;
+  const gaveUp = !building(agent) && healed.length ? (agent?.heal?.gaveUp ?? null) : null;
+  const status = healing ? "Fixing it first" : installationId && listed ? "Running, and on the board" : installationId ? "Running for you" : listed ? "On the board" : "Ready";
   const when2 = agent?.setup?.triggers[0]?.kind === "schedule" ? agent.setup.triggers[0].description : null;
   return (
     <Frame card={card} latest={latest} status={status} agentId={agent?.id}>
+      {latest && !gaveUp && <Healing lines={healed} live />}
+      {latest && healing && <Working text="Fixing what the check before going live found, then going live." />}
+      {latest && gaveUp && agent && <GaveUp text={gaveUp} tries={triesOf(healed)} api={api} />}
       {installationId && (
         <div className={styles.panel}>
           <h4>Running for you</h4>
@@ -716,7 +807,7 @@ function LiveCard({ card, latest, agent, api }: Props) {
           </Link>
         </div>
       )}
-      {latest && agent && (!installationId || !listed) && (
+      {latest && agent && !healing && (!installationId || !listed) && (
         <div className={styles.choices}>
           {!installationId && (
             <button type="button" className={styles.choice} onClick={() => act.run(() => api.goLive({ how: "run" }))} disabled={act.busy}>

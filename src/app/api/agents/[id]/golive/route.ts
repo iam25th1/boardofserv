@@ -4,6 +4,11 @@ import { NotLive, putOnBoard, runForMaker } from "@/lib/agents/goLive";
 import { cardsIn, updateCard } from "@/lib/agents/journey";
 import { ownedAgent } from "@/lib/agents/owned";
 import { serverRuntime } from "@/lib/agents/runtime/context";
+import { startHeal, summaryOf } from "@/lib/agents/build";
+import { buildContext } from "@/lib/agents/context";
+import { draftOf } from "@/lib/agents/store";
+import type { Agent, User } from "@/lib/db/schema";
+import type { ConnectAnswers } from "@/lib/journey";
 
 export const runtime = "nodejs";
 
@@ -26,20 +31,37 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const card = cards.filter((m) => m.card?.stage === "live").at(-1);
   const answers = cards.filter((m) => m.card?.stage === "connect" && m.card.answers).at(-1)?.card?.answers;
   if (!card?.card) return Response.json({ error: "Connect it first." }, { status: 409 });
-  const rt = serverRuntime();
-  try {
-    if (parsed.data.how === "run") {
-      if (!answers) return Response.json({ error: "Connect it first." }, { status: 409 });
-      if (card.card.live?.installationId) return Response.json({ error: "It's running for you already." }, { status: 409 });
-      const installation = await runForMaker(rt, who.user, who.agent, answers);
-      await updateCard(card.id, { ...card.card, live: { ...card.card.live, installationId: installation.id } }, `It's running for you. ${installation.runs.join(" ")}`.trim());
-      return Response.json({ installation });
-    }
-    const listing = await putOnBoard(rt, who.user, who.agent, { weeklyPrice: parsed.data.weeklyPrice, description: parsed.data.description });
-    await updateCard(card.id, { ...card.card, live: { ...card.card.live, listed: true } }, card.card.live?.installationId ? "It's running for you, and on the board for others to rent." : "It's on the board for others to rent.");
-    return Response.json({ listing });
-  } catch (err) {
-    if (err instanceof NotLive) return Response.json({ error: err.message }, { status: err.status });
-    throw err;
+  if (parsed.data.how === "run") {
+    if (!answers) return Response.json({ error: "Connect it first." }, { status: 409 });
+    if (card.card.live?.installationId) return Response.json({ error: "It's running for you already." }, { status: 409 });
   }
+  const go = () => goLive(who.user, who.agent, parsed.data, answers);
+  try {
+    return Response.json(await go());
+  } catch (err) {
+    if (!(err instanceof NotLive)) throw err;
+    // The review before going live held it: the build heals that like any
+    // other failure, and once it passes goes live as it was asked to.
+    const draft = err.diagnosis ? await draftOf(who.agent.id) : null;
+    const ctx = draft ? buildContext(who.user, conversationId) : null;
+    if (draft && ctx && err.diagnosis && startHeal(draft, err.diagnosis, ctx, { onTested: async (r) => void (r.status === "passed" && (await go().catch(() => null))) })) {
+      return Response.json({ healing: true, agent: summaryOf(who.agent, { ...draft, buildState: "fixing" }) }, { status: 202 });
+    }
+    return Response.json({ error: err.message }, { status: err.status });
+  }
+}
+
+// Go live as asked, and the card says so: running for the maker, or on the
+// board. Neither choice does the other.
+async function goLive(user: User, agent: Agent, how: z.infer<typeof Body>, answers: ConnectAnswers | undefined) {
+  const rt = serverRuntime();
+  const card = (await cardsIn(agent.sourceConversationId!)).filter((m) => m.card?.stage === "live").at(-1)!;
+  if (how.how === "run") {
+    const installation = await runForMaker(rt, user, agent, answers!);
+    await updateCard(card.id, { ...card.card!, live: { ...card.card!.live, installationId: installation.id } }, `It's running for you. ${installation.runs.join(" ")}`.trim());
+    return { installation };
+  }
+  const listing = await putOnBoard(rt, user, agent, { weeklyPrice: how.weeklyPrice, description: how.description });
+  await updateCard(card.id, { ...card.card!, live: { ...card.card!.live, listed: true } }, card.card!.live?.installationId ? "It's running for you, and on the board for others to rent." : "It's on the board for others to rent.");
+  return { listing };
 }

@@ -204,6 +204,30 @@
   line-height: var(--lh-snug);
 }
 
+/* What the build says while it heals itself: calm chalk lines, the latest
+   firmest, a tick drawn beside the one that says it is fixed. */
+.healing {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--t-sm);
+  color: var(--chalk-2);
+}
+
+.healing li {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.healing li:last-child,
+.healing li[data-tone="fixed"] {
+  color: var(--chalk);
+}
+
 .problem {
   padding: var(--s-2) var(--s-3);
   border: var(--stroke) dashed var(--chalk-3);

@@ -1,7 +1,7 @@
 import "server-only";
 import { completeJson, type ChatMessage, type JsonResult, type ModelConfig } from "../model";
 import { ANSWER_LIMITS } from "../modelLimits";
-import type { AgentDefinition } from "./definition";
+import { payeeSetting, type AgentDefinition } from "./definition";
 import { emptyBench, type BenchData, type TestResult } from "./types";
 
 // Sample data for "Test it", made from the plan: what a renter would answer
@@ -58,15 +58,30 @@ export function samplePrompt(count: 1 | 3): string {
       ? "It goes through a list: give exactly three items for it to work through (three rows of the tab it reads, three enquiries, three submissions), realistic and different from each other: where the agent judges or filters, make one that should clearly pass and one that should clearly fail."
       : "It handles one thing each run: give exactly one item (the one product, the one message), realistic, the kind the maker would watch for: where it compares against a target or threshold, make it one that meets it. A tab it reads still has the rows its job needs (the day's sales to add up).",
     `Answer every setting, with values that fit together (a target the item meets, a page address the pages below use). A sheet setting's answer is a tab name: give that tab with the columns the steps name${count === 3 ? " and the three items as rows" : ""}. Leave empty the columns the agent itself fills in (a status or result it writes).`,
-    'Give pages or search results only if a step fetches or searches. Answers only if it asks its owner something: then answer as the owner who says yes ("Yes").',
+    'Give pages or search results only if a step fetches or searches. Answers only if it asks its owner something: then answer as the owner who says yes ("Yes"), one answer for every question it asks.',
+    "Where it pays someone, the payee's name is exactly the one the plan pays.",
     "Also say what every step does in one plain sentence a first-time maker understands, with no names of values or tools.",
     "Never use em dashes.",
   ].join("\n");
 }
 
+// The columns its steps name, by their header names ("the Quantity and
+// Minimum columns", "an Amount column", "the \"Priority\" column").
+export function namedColumns(d: AgentDefinition): string[] {
+  const text = d.steps.map((s) => (s.kind === "code" ? s.description : s.kind === "decision" ? s.prompt : "")).join(" ");
+  const out = new Set<string>();
+  const word = "[A-Z][A-Za-z0-9_]*(?: [A-Z][A-Za-z0-9_]*)?";
+  for (const m of text.matchAll(new RegExp(`"(${word})" columns?`, "g"))) out.add(m[1]!);
+  for (const m of text.matchAll(new RegExp(`\\b(${word}) columns?\\b`, "g"))) out.add(m[1]!);
+  for (const m of text.matchAll(new RegExp(`\\bcolumns?:? ((?:"?${word}"?(?:, | and | or ))*"?${word}"?)`, "g"))) for (const c of m[1]!.split(/, | and | or /)) out.add(c.replace(/"/g, ""));
+  return [...out].filter((c) => !/^(?:The|A|An|Each|Every|Its|Their|This|That|Which|Column|Columns)$/.test(c)).slice(0, 12);
+}
+
 // The plan, as the sample's prompt needs it: what it does, what it asks at setup
 // and what each step does. No code.
 export function sampleRequest(d: AgentDefinition): string {
+  const columns = namedColumns(d);
+  const payee = payeeSetting(d);
   return [
     `Agent: ${d.name}`,
     `It does: ${d.job.does}`,
@@ -76,6 +91,8 @@ export function sampleRequest(d: AgentDefinition): string {
     "",
     "Steps:",
     ...d.steps.map((s) => `- ${s.id} (${s.title}): ${s.kind === "code" ? s.description : s.kind === "decision" ? s.prompt : s.kind === "loop" ? `for each item of ${s.over}` : (d.actions.find((a) => a.id === s.action)?.description ?? "")}`),
+    ...(columns.length ? ["", `The steps name these columns: ${columns.join(", ")}. A tab it reads has every one of them.`] : []),
+    ...(payee ? ["", `It pays the payee named in ${payee.key}${payee.given ? `: "${payee.given}", exactly` : ""}.`] : []),
   ].join("\n");
 }
 
@@ -156,15 +173,57 @@ export function plainSample(d: AgentDefinition): Sample {
   return { bench, items: { noun: "item", plural: "items", labels } };
 }
 
-export async function makeSample(d: AgentDefinition, serv: ModelConfig | null, opts: { signal?: AbortSignal; fetchImpl?: typeof fetch } = {}): Promise<{ sample: Sample; call: JsonResult | null }> {
-  if (!serv) return { sample: plainSample(d), call: null };
+// note: what an earlier sample lacked, from the fixer (fixer.ts), for the
+// new one to have.
+// The sample made to fit the platform's rules for the agent it tries,
+// whatever SERV gave: a question of its own gets a yes (the self test's
+// second run is where the owner says no); an agent that pays has its payee
+// saved by the name it pays and enough allowance; and every tab it reads
+// has the columns its steps name.
+export function fitSample(d: AgentDefinition, sample: Sample): Sample {
+  const bench = structuredClone(sample.bench);
+  const tools = new Set([...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))]);
+  if (tools.has("telegram.ask")) {
+    const yes = bench.telegram.answers.map((a) => (/^\s*(?:no|n|nope|decline|cancel|stop)\b/i.test(a) || !a.trim() ? "Yes" : a));
+    bench.telegram.answers = [...yes, ...Array.from({ length: Math.max(0, 5 - yes.length) }, () => "Yes")];
+  }
+  if (tools.has("wallet.pay")) {
+    const payee = payeeSetting(d);
+    const name = payee ? (payee.given?.trim() || String(bench.settings[payee.key] ?? "").trim() || "Supplier") : "";
+    if (payee) bench.settings[payee.key] = name;
+    if (name) bench.payees = [name];
+    bench.wallet.balanceUsdc = Math.max(bench.wallet.balanceUsdc, 1000);
+  }
+  // Every page it reads has text: the page a url setting names, or an
+  // address its steps fetch, takes a page the sample gave when it has none.
+  const pages = Object.values(bench.pages);
+  if (pages.length) {
+    const urls = [
+      ...d.settings.filter((s) => s.type === "url").map((s) => String(bench.settings[s.key] ?? "")),
+      ...d.steps.flatMap((s) => (s.kind === "code" ? (s.description.match(/https?:\/\/[^\s"'<>)]+/g) ?? []) : [])).map((u) => u.replace(/[.,;:]+$/, "")),
+    ].filter((u) => /^https?:\/\//.test(u));
+    for (const u of urls) bench.pages[u] ??= pages[0]!;
+  }
+  const columns = namedColumns(d);
+  if (columns.length) {
+    for (const [tab, rows] of Object.entries(bench.sheets)) {
+      const have = new Set(rows.flatMap((r) => Object.keys(r)).map((c) => c.toLowerCase()));
+      const missing = columns.filter((c) => !have.has(c.toLowerCase()));
+      if (missing.length && rows.length) bench.sheets[tab] = rows.map((r) => ({ ...r, ...Object.fromEntries(missing.map((c) => [c, ""])) }));
+    }
+  }
+  return { ...sample, bench };
+}
+
+export async function makeSample(d: AgentDefinition, serv: ModelConfig | null, opts: { signal?: AbortSignal; fetchImpl?: typeof fetch; note?: string | null } = {}): Promise<{ sample: Sample; call: JsonResult | null }> {
+  if (!serv) return { sample: fitSample(d, plainSample(d)), call: null };
   // Today's date rides along (not in the fingerprint): an agent that works
   // on today's rows needs rows dated today.
   const messages: ChatMessage[] = [
     { role: "system", content: samplePrompt(sampleCount(d)) },
-    { role: "user", content: `${sampleRequest(d)}\n\nToday is ${new Date().toISOString().slice(0, 10)}: date the sample's rows from today where the job looks at dates.` },
+    { role: "user", content: `${sampleRequest(d)}\n\nToday is ${new Date().toISOString().slice(0, 10)}: date the sample's rows from today where the job looks at dates.${opts.note ? `\n\nAn earlier sample didn't fit this agent: ${opts.note} Make this one fit it.` : ""}` },
   ];
   const config = { ...serv, firstTokenTimeoutMs: Math.max(serv.firstTokenTimeoutMs, 60_000) };
   const call = await completeJson(messages, { config, purpose: "agent_sample", schema: SAMPLE_SCHEMA, maxTokens: ANSWER_LIMITS.agent_sample, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
-  return { sample: readSample(d, call.content) ?? plainSample(d), call };
+  return { sample: fitSample(d, readSample(d, call.content) ?? plainSample(d)), call };
 }

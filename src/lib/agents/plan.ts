@@ -7,7 +7,8 @@ import type { SketchDTO } from "../types";
 import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAMES, type AgentDefinition, type AgentStep } from "./definition";
 import { TOOLS } from "./toolbox";
 import { planProblems } from "./planRules";
-import { fixSetup, repairPlan, type RawStep } from "./planRepairs";
+import { askedFirst, askForMissing, columnsByName, fixSetup, repairPlan, type RawStep } from "./planRepairs";
+import { rulesText } from "./lessonRules";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
 
 // Planning: SERV turns the maker's interview (and the conversation behind
@@ -26,6 +27,12 @@ import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinP
 // check out (at most MAX_REPAIRS times). A plan typically takes two to
 // four: the outline and a call or more of details.
 export const MAX_PLAN_CALLS = 10;
+// The calls one plan may take: MAX_PLAN_CALLS for any agent, more for a
+// bigger one (its steps detailed in more calls, and room to repair them).
+export function planCallCap(d: { steps?: unknown } | null): number {
+  const n = Array.isArray(d?.steps) ? d.steps.length : 0;
+  return Math.max(MAX_PLAN_CALLS, 4 + 2 * Math.ceil(n / STEPS_PER_CALL) + 2 * MAX_REPAIRS);
+}
 // When a plan doesn't check out, SERV is asked to put right only the parts
 // at fault this many times, then planning gives up.
 export const MAX_REPAIRS = 2;
@@ -298,7 +305,7 @@ export function planRequest({ interview, history, current, feedback }: PlanInput
   if (current) {
     lines.push("", "The plan as it is:", JSON.stringify(current));
     if (feedback) lines.push("", `The maker says: ${feedback}`, "Change only what this needs. Keep the ids of steps that stay the same.");
-  }
+  } else if (feedback) lines.push("", `Also: ${feedback}`);
   return lines.join("\n");
 }
 
@@ -316,11 +323,14 @@ type Stage = "outline" | "details";
 
 export async function planAgent(
   input: PlanInput,
-  opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch; maxCalls?: number },
+  // lessons: rules learned from earlier builds (lessons.ts).
+  opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch; maxCalls?: number; lessons?: string[] },
 ): Promise<PlanResult> {
   const t = Number(process.env.AGENT_PLAN_TIMEOUT_MS);
   const config = { ...opts.config, firstTokenTimeoutMs: Number.isInteger(t) && t > 0 ? t : DEFAULT_PLAN_TIMEOUT_MS };
-  const maxCalls = opts.maxCalls ?? MAX_PLAN_CALLS;
+  let maxCalls = opts.maxCalls ?? MAX_PLAN_CALLS;
+  // Whether the maker asked to be asked first, in their own words.
+  const asked = askedFirst(input.history.filter((m) => m.role === "user").map((m) => m.content), input.interview.asks);
   const calls: JsonResult[] = [];
   const answers: string[] = [];
   const planText = planRequest(input);
@@ -357,18 +367,21 @@ export async function planAgent(
 
   // Stage one: the outline.
   const outlineMessages: ChatMessage[] = [
-    { role: "system", content: outlinePrompt(minIntervalMinutes(), TOOL_NAMES.map((tool) => `${tool} (${TOOLS[tool].summary})`).join("; ")) },
+    { role: "system", content: `${outlinePrompt(minIntervalMinutes(), TOOL_NAMES.map((tool) => `${tool} (${TOOLS[tool].summary})`).join("; "))}${rulesText(opts.lessons)}` },
     { role: "user", content: planText },
   ];
   let outline = await ask("outline", outlineMessages);
   if (!outline) return done(null);
+  // A bigger agent takes more calls to detail and repair: its cap grows
+  // with its steps, unless the caller set one.
+  if (opts.maxCalls === undefined) maxCalls = planCallCap(outline);
 
   // Stage two: the details, a few steps at a time; then, for as long as the
   // calls last, the plan is checked and each reason goes back to its stage.
   const details = new Map<string, Record<string, unknown>>();
   const detail = async (ids: string[], problems?: Map<string, string[]>): Promise<boolean> => {
     const answer = await ask("details", [
-      { role: "system", content: DETAIL_PROMPT },
+      { role: "system", content: `${DETAIL_PROMPT}${rulesText(opts.lessons)}` },
       { role: "user", content: detailRequest(planText, outline!, details, ids, problems) },
     ]);
     if (!answer) return false;
@@ -389,7 +402,7 @@ export async function planAgent(
       if (!chunk || !(await detail(chunk))) break;
       continue;
     }
-    const joined = repaired(wireToDefinition(joinPlan(outline, details)));
+    const joined = repaired(wireToDefinition(joinPlan(outline, details)), { askedFirst: asked });
     const checked = checkDefinition(joined);
     // A plan in the format still has to keep the planner's rules
     // (planRules.ts): judgement in decisions, counting in code, no loops.
@@ -434,16 +447,31 @@ export async function planAgent(
 // SERV's plan with the repairs that have one meaning made (planRepairs.ts):
 // a loop over one value goes once, a plain comparison or the owner's yes
 // goes by a value, and every send, write or pay is handed what it sends.
-export function repaired(plan: unknown): unknown {
+export function repaired(plan: unknown, o: { askedFirst?: boolean } = {}): unknown {
   const d = plan as { steps?: unknown; settings?: unknown; rules?: unknown; actions?: unknown };
   if (!Array.isArray(d?.steps)) return plan;
   const list = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
   if (Array.isArray(d.settings)) (d as { settings: unknown }).settings = fixSetup(d.settings as { key: string; label?: string; type: unknown }[]);
-  repairPlan(d.steps as RawStep[], {
-    settings: list(d.settings).map((x) => ({ key: s(x.key), type: x.type })),
-    rules: list(d.rules).map((x) => ({ key: s(x.key), type: x.type })),
-    actions: list(d.actions).map((x) => ({ id: s(x.id), tool: x.tool, description: s(x.description) })),
-  });
+  // Columns by their names, never by a setting or rule that names them.
+  const drop = columnsByName(d.steps as RawStep[], { settings: list(d.settings).map((x) => ({ key: s(x.key), label: s(x.label), given: s(x.given) })), rules: list(d.rules).map((x) => ({ key: s(x.key), label: s(x.label), value: s(x.value) })) });
+  if (drop.settings.length) (d as { settings: unknown }).settings = list(d.settings).filter((x) => !drop.settings.includes(s(x.key)));
+  if (drop.rules.length) (d as { rules: unknown }).rules = list(d.rules).filter((x) => !drop.rules.includes(s(x.key)));
+  // A value read that nothing makes or holds: a setting it forgot to ask.
+  const missing = askForMissing(d.steps as RawStep[], { settings: list(d.settings).map((x) => ({ key: s(x.key) })), rules: list(d.rules).map((x) => ({ key: s(x.key) })), memory: list((d as { memory?: unknown }).memory).map((x) => ({ key: s(x.key) })) });
+  if (missing.length) (d as { settings: unknown }).settings = [...list(d.settings), ...missing.map((m) => ({ ...m, choices: [] }))];
+  repairPlan(
+    d.steps as RawStep[],
+    {
+      settings: list(d.settings).map((x) => ({ key: s(x.key), type: x.type })),
+      rules: list(d.rules).map((x) => ({ key: s(x.key), type: x.type })),
+      actions: list(d.actions).map((x) => ({ id: s(x.id), tool: x.tool, description: s(x.description) })),
+    },
+    o,
+  );
+  // An action no step takes any more (a question taken out) goes too.
+  const taken = new Set(list(d.steps).flatMap((x) => (s(x.kind) === "action" ? [s(x.action)] : [])));
+  const used = new Set(list(d.steps).flatMap((x) => (Array.isArray(x.tools) ? (x.tools as string[]) : [])));
+  if (Array.isArray(d.actions)) (d as { actions: unknown }).actions = list(d.actions).filter((a) => taken.has(s(a.id)) || used.has(String(a.tool)));
   return plan;
 }
 

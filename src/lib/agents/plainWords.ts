@@ -218,7 +218,7 @@ export function problemOf(v: {
   if (v.buildState === "failed") return { text: v.buildNote ?? "I couldn't work out the steps.", step: null, fix: v.definition ? "replan" : "plan" };
   if (["planning", "writing", "fixing"].includes(v.buildState) || !v.definition) return null;
   const held = v.definition.steps.find((s) => s.kind === "code" && v.code[s.id]?.status === "needs_attention");
-  if (held) return { text: `"${held.title}" didn't pass its check, so it's on hold.`, step: held.id, fix: "rewrite" };
+  if (held) return { text: `"${held.title}" didn't pass its check yet.`, step: held.id, fix: "rewrite" };
   const blocking = v.review?.status === "blocked" ? v.review.findings.find((f) => f.severity === "blocking") : undefined;
   if (blocking) return { text: blocking.finding, step: null, fix: "replan" };
   const failed = v.testResult?.status === "failed" ? v.testResult.problems[0] : undefined;

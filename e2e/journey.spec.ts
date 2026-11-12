@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { signIn, signedIn } from "./session";
-import { ASK, FAILED, withJourney } from "./journey";
+import { ASK, CHOICES, GAVE_UP, QUESTION, withJourney } from "./journey";
 import { FIRST_VISIT } from "./warm";
 
 // The whole journey in the chat, in Chromium and WebKit at desktop and
@@ -92,26 +92,96 @@ test("each stage comes in order, Change something changes the steps in place, an
   expect(regions).toEqual(["1. Describe", "2. Steps", "3. Build", "4. Try it", "5. Connect", "6. Go live"]);
 });
 
-test("a failed test shows its one sentence and a box prefilled with it, and Fix it runs it again", async ({ context, page }) => {
-  await signIn(context);
-  const { asked } = await withJourney(context, { failFirstTest: true });
-  await page.goto("/app/chat");
-  await signedIn(page);
+// Where screenshots go, when they are asked for (SHOTS=dir).
+async function shot(page: Page, name: string, at?: Locator): Promise<void> {
+  const dir = process.env.SHOTS;
+  if (!dir) return;
+  await at?.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: `${dir}/${test.info().project.name}-${name}.png`, fullPage: false });
+}
+
+async function toTheTest(page: Page): Promise<void> {
   await send(page, ASK);
   await press(page, card(page, 1, "Describe").getByRole("button", { name: "Make it" }));
   await press(page, card(page, 2, "Steps").getByRole("button", { name: "Looks right" }));
+}
+
+test("a failed test heals itself: calm plain lines on its card, then on to Connect, with nothing typed", async ({ context, page }) => {
+  await signIn(context);
+  const { asked } = await withJourney(context, { heal: "fix" });
+  await page.goto("/app/chat");
+  await signedIn(page);
+  await toTheTest(page);
   const tried = card(page, 4, "Try it");
-  await expect(tried.getByText("Didn't pass")).toBeVisible(BUILDING);
-  await expect(tried.getByText(FAILED, { exact: true }).first()).toBeVisible();
-  const box = tried.getByLabel("Say what's wrong, in your own words");
-  await expect(box).toHaveValue(FAILED);
-  await box.fill("The reminder should use the price it read");
-  await press(page, tried.getByRole("button", { name: "Fix it" }));
-  // Only what it needs runs again: the steps, the changed step, the test.
+  const lines = tried.getByRole("list", { name: "What it fixed" });
+  await expect(lines).toContainText("Found a problem in step 6 while trying it. Fixing it.", BUILDING);
+  await expect(lines).toContainText("Writing step 6 again.", BUILDING);
+  await expect(tried.getByRole("status").first()).toHaveText("Fixing it");
+  await shot(page, "build-fixing", tried);
+  // Never a reason, a review, code, a hold or a box to describe a fix.
+  await expect(tried).not.toContainText(/on hold|review|code|didn't pass/i);
+  await expect(tried.getByRole("textbox")).toHaveCount(0);
+  await expect(lines.getByText("Fixed.", { exact: true })).toBeVisible(BUILDING);
   await expect(card(page, 5, "Connect")).toBeVisible(BUILDING);
-  expect(asked.find((a) => a.url === "/api/agents/a9/fix")?.body).toEqual({ message: "The reminder should use the price it read", journey: "fix" });
-  // The failed test stays in the story above, as it was.
-  await expect(page.getByRole("region", { name: "4. Try it" }).first()).toContainText("Didn't pass");
+  // One Try it card: the test after the repair stays on it.
+  await expect(page.getByRole("region", { name: "4. Try it" })).toHaveCount(1);
+  // The maker typed one thing: the job.
+  expect(asked.filter((a) => a.url === "/api/chat")).toHaveLength(1);
+  expect(asked.some((a) => a.url.endsWith("/fix"))).toBe(false);
+});
+
+test("asks one plain question in the chat with answers to tap, and carries on with the answer", async ({ context, page }) => {
+  await signIn(context);
+  const { asked } = await withJourney(context, { heal: "ask" });
+  await page.goto("/app/chat");
+  await signedIn(page);
+  await toTheTest(page);
+  await expect(page.getByRole("log").getByText(QUESTION, { exact: true })).toBeVisible(BUILDING);
+  await expect(card(page, 4, "Try it").getByRole("status").first()).toHaveText("One question for you");
+  const chips = page.getByRole("button", { name: CHOICES[0] });
+  await expect(chips).toBeVisible();
+  await expect(page.getByRole("button", { name: CHOICES[1] })).toBeVisible();
+  await expect(card(page, 4, "Try it")).not.toContainText("stopped at");
+  await shot(page, "question", page.getByRole("button", { name: CHOICES[1] }));
+  await press(page, chips);
+  await expect(page.getByText("Thanks. I'll carry on with that.")).toBeVisible();
+  await expect(card(page, 5, "Connect")).toBeVisible(BUILDING);
+  expect(asked.filter((a) => a.url === "/api/chat").map((a) => (a.body as { content: string }).content)).toEqual([ASK, CHOICES[0]]);
+});
+
+test("gives up in one plain sentence with two choices, never a fix box, and a simpler version works its steps out again", async ({ context, page }) => {
+  await signIn(context);
+  const { asked } = await withJourney(context, { heal: "giveUp" });
+  await page.goto("/app/chat");
+  await signedIn(page);
+  await toTheTest(page);
+  const tried = card(page, 4, "Try it");
+  await expect(tried.getByText(GAVE_UP, { exact: true })).toBeVisible({ timeout: 60_000 });
+  await expect(tried.getByRole("textbox")).toHaveCount(0);
+  await expect(tried.getByRole("button", { name: "Describe the job differently" })).toBeVisible();
+  await expect(tried).toContainText("It tried 3 times to put it right on its own.");
+  await expect(tried).not.toContainText(/stopped at|review|code/i);
+  await shot(page, "gave-up", tried.getByRole("button", { name: "Describe the job differently" }));
+  await press(page, tried.getByRole("button", { name: "Try a simpler version" }));
+  await expect(page.getByText("Making a simpler version of it.")).toBeVisible(BUILDING);
+  expect(asked.some((a) => a.url === "/api/conversations/c9/journey" && (a.body as { action: string }).action === "simpler")).toBe(true);
+});
+
+test("the details view keeps every diagnosis and repair", async ({ context, page }) => {
+  await signIn(context);
+  await withJourney(context, { heal: "fix" });
+  await page.goto("/app/chat");
+  await signedIn(page);
+  await toTheTest(page);
+  await expect(card(page, 5, "Connect")).toBeVisible(BUILDING);
+  await page.goto("/app/agents/a9?details=1");
+  const history = page.getByRole("region", { name: "How it healed itself" });
+  await expect(history).toContainText("Trying it", FIRST_VISIT);
+  await expect(history).toContainText('"Write the reminder" didn\'t work on the sample product.');
+  await expect(history).toContainText("The step's code was wrong");
+  await expect(history).toContainText("Fixed");
+  await shot(page, "details-history", history);
 });
 
 test("Back from the agent's page returns to the same chat, where it was", async ({ context, page }) => {

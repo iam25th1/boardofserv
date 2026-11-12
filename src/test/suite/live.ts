@@ -84,6 +84,9 @@ export class Ledger {
     replayFile?: string,
     // Only these purposes are answered from the replay; the rest go live.
     private replayOnly?: Set<string>,
+    // When a replayed purpose has no answer left, go live (within the
+    // budget) rather than refuse.
+    private thenLive = false,
   ) {
     if (replayFile) {
       const all = JSON.parse(readFileSync(replayFile, "utf8")) as Record<string, Recorded[]>;
@@ -109,17 +112,27 @@ export class Ledger {
     if (!to) throw new Error(`suite: refused a call to ${url.host}`);
     const body = JSON.parse(String(init?.body ?? "{}")) as Parameters<typeof purposeOf>[0];
     const what = purposeOf(body);
-    const key = keyOf(what, String(body.messages?.at(-1)?.content ?? ""));
+    // The step a code call is for is named in its first request, not in a
+    // rewrite's last message.
+    const asked = what === "code" ? (body.messages ?? []).map((m) => String(m.content ?? "")).find((c) => /^Step: /m.test(c)) ?? "" : String(body.messages?.at(-1)?.content ?? "");
+    const key = keyOf(what, asked);
     const agent = this.agent;
     const note = (c: Omit<LiveCall, "agent" | "to" | "what">) => this.calls.push({ agent, to, what, ...c });
     if (this.replays.size && (!this.replayOnly || this.replayOnly.has(what))) {
       const r = this.replayed(what, key);
-      if (!r) {
+      if (r) {
+        note({ status: "replayed", ms: 0, promptTokens: null, completionTokens: null });
+        // Kept with the run's own answers, so a run partly replayed records
+        // every answer it was given, in order.
+        const list = this.recorded.get(agent) ?? [];
+        this.recorded.set(agent, list);
+        list.push({ ...r, key });
+        return new Response(r.body, { status: r.status, headers: { "content-type": r.contentType } });
+      }
+      if (!this.thenLive) {
         note({ status: "refused", ms: 0, promptTokens: null, completionTokens: null });
         throw new Error(`suite: no recorded answer for ${agent} ${what} ${key}`);
       }
-      note({ status: "replayed", ms: 0, promptTokens: null, completionTokens: null });
-      return new Response(r.body, { status: r.status, headers: { "content-type": r.contentType } });
     }
     const over = this.spent(to) >= this.budget[to] || (this.cap !== null && this.spent(to, agent) >= this.cap[to]);
     // Without Dolphin's room, SERV writes the code instead, as it does when

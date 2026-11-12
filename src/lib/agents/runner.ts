@@ -269,7 +269,8 @@ export function wayOf(step: DecisionStepDef, value: unknown): DecisionStepDef["o
 export function actionArgs(step: ActionStepDef, tool: keyof typeof TOOL_ARGS, input: Record<string, unknown>): { ok: true; args: unknown } | { ok: false; why: string } {
   const first = step.inputs[0] ? input[step.inputs[0]] : undefined;
   if (TOOL_ARGS[tool].safeParse(first).success) return { ok: true, args: first };
-  if (tool === "telegram.send") return { ok: true, args: { text: summary(input) || step.title } };
+  // A message made as text is sent as it is, whatever else the step reads.
+  if (tool === "telegram.send") return { ok: true, args: { text: (typeof first === "string" && first.trim() ? first.slice(0, 3000) : summary(input)) || step.title } };
   if (tool === "telegram.ask") return { ok: true, args: { question: `${step.title}\n${summary(input)}`.trim(), choices: ["Yes", "No"] } };
   return { ok: false, why: `This action needs its first input to be ${tool}'s arguments: ${TOOLS[tool].signature}` };
 }
@@ -921,7 +922,13 @@ export async function runAgent(o: RunOptions): Promise<Extract<RunEvent, { type:
     await o.record?.(call);
     return readDecision(step, call, step.each && Array.isArray(input[step.each]) ? (input[step.each] as unknown[]).length : 0);
   };
-  const r = await runSteps({ definition: d, code: o.code, state, tools: { call: (_step, tool, args) => mock.call(tool, args) }, decide, onEvent: o.onEvent, signal: o.signal, dryRun: o.dryRun });
+  // A payment waits for the owner's approval: on the bench, a yes, unless
+  // the bench says the owner says no.
+  const call = async (tool: ToolName, args: unknown) => {
+    if (tool === "wallet.pay" && o.bench.approve === "no") throw new Declined("No");
+    return mock.call(tool, args);
+  };
+  const r = await runSteps({ definition: d, code: o.code, state, tools: { call: (_step, tool, args) => call(tool, args) }, decide, onEvent: o.onEvent, signal: o.signal, dryRun: o.dryRun });
   // The bench's mocks never wait and nothing is retried: every run ends.
   const ended = r.kind === "end" ? r : { status: "failed" as const, reason: r.kind === "retry" ? r.reason : "It stopped to wait, which the bench can't do." };
   const e = { type: "end" as const, status: ended.status, reason: ended.reason, steps: state.steps, ms: state.ms, costUsd: state.costUsd, memory: mock.memory, sheets: mock.sheets };

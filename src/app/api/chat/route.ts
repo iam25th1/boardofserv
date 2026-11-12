@@ -15,8 +15,8 @@ import { replySystemPrompt, type TurnPlan } from "@/lib/systemPrompt";
 import { errorText } from "@/lib/db/errors";
 import { recordAttempts } from "@/lib/modelAttempts";
 import { agentForConversation, currentVersion } from "@/lib/agents/store";
-import { changeSteps, offerMakeIt } from "@/lib/agents/journey";
-import { honestReply } from "@/lib/replyClaims";
+import { answer, changeSteps, offerMakeIt } from "@/lib/agents/journey";
+import { honestReply, MAKE_IT_NEXT, wholeSentences } from "@/lib/replyClaims";
 import { describedEnough } from "@/lib/sketchFields";
 
 export const runtime = "nodejs";
@@ -112,7 +112,11 @@ export async function POST(req: Request) {
   // The agent planned from this conversation, if there is one: once it has
   // steps, what the person says may be a change to them.
   const built = await agentForConversation(cid);
-  const planned = built ? Boolean((await currentVersion(built.id))?.definition) : false;
+  const current = built ? await currentVersion(built.id) : null;
+  const planned = Boolean(current?.definition);
+  // Waiting on the maker's answer to the fixer's question: what they say
+  // is the answer, and the build goes on with it. No model writes the reply.
+  const question = built && content && !regenerate && !editMessageId ? (current?.heal?.question ?? null) : null;
   const at = context.map((m) => m.role).lastIndexOf("user");
   const said = context[at]?.content ?? "";
   const previous = context.slice(0, Math.max(at, 0)).reverse().find((m) => m.role === "assistant")?.content ?? null;
@@ -142,6 +146,19 @@ export async function POST(req: Request) {
           open = false; // the browser went away; keep going so the reply is saved
         }
       };
+      if (question && built) {
+        const moved = await answer(user, built, said, { said: true });
+        if (!("refused" in moved)) send("agent", { conversationId: cid, agent: moved.agent });
+        const text = "refused" in moved ? `${moved.refused.error}` : "Thanks. I'll carry on with that.";
+        send("delta", { text });
+        const [saved] = await db.insert(messages).values({ conversationId: cid, role: "assistant", content: text }).returning();
+        await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
+        send("reply_end", { messageId: saved?.id, source: null, label: null, choices: [] });
+        await finishUsage(usageId, null, null, null, ownKey, "ok");
+        send("done", { messageId: saved?.id, source: null, label: null });
+        if (open) ctrl.close();
+        return;
+      }
       // First the plan: the sketch from what the person just said, and what the
       // reply asks next with the answers shown as buttons. If it fails or does
       // not validate, the reply runs on the stored sketch with no buttons.
@@ -213,14 +230,23 @@ export async function POST(req: Request) {
       const { rest } = split.finish();
       if (result?.cutOff) {
         show(dashes.finish());
-        // Cut off inside the block means the reply itself was complete.
-        if (!split.inBlock) show(CUT_OFF_SUFFIX);
+        // Cut off inside the block means the reply itself was complete. A
+        // held reply never shows a cut: it ends on its whole sentences.
+        if (!split.inBlock && !held) show(CUT_OFF_SUFFIX);
       } else {
         show(dashes.push(rest) + dashes.finish());
       }
 
-      if (held && full.trim()) {
-        full = honestReply(full, planned ? "The cards below show where it is and what you can do next." : describedEnough(sketch) ? "I have what I need: press Make it below to see its steps." : "Tell me a little more about the job.");
+      if (held && (full.trim() || result?.cutOff)) {
+        const fallback = planned ? "The cards below show where it is and what you can do next." : describedEnough(sketch) ? MAKE_IT_NEXT : "Tell me a little more about the job.";
+        // Cut off part way (SERV's content filter, a broken stream): only
+        // its whole sentences, then what is true now. Never half a sentence.
+        const whole = result?.cutOff ? wholeSentences(full) : full;
+        full = honestReply(whole, fallback);
+        // What comes next is said here, never by the model (echoing the
+        // prompt's own words is what SERV's gateway filter cuts off).
+        const next = !planned && describedEnough(sketch) ? MAKE_IT_NEXT : result?.cutOff ? fallback : null;
+        if (next && full !== fallback && !full.includes(next)) full = `${full} ${next}`;
         send("delta", { text: full });
       }
       if (!full.trim()) {

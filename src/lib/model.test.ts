@@ -169,6 +169,29 @@ describe("streamReply", () => {
     expect(result).toMatchObject({ outcome: "failed", provider: "serv", cutOff: true, error: null });
   });
 
+  it("never passes on the content filter's own line: a chunk of another reply cuts it off there", async () => {
+    // As SERV's gateway sent it live: its own chunk, then content_filter.
+    const id = (i: string, d: unknown) => frame({ id: i, choices: [d] });
+    const { fetchImpl } = mockFetch(
+      () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(c) {
+              c.enqueue(id("msg_1", { index: 0, delta: { content: "Your job is clear. You need" } }));
+              c.enqueue(id("chatcmpl-9", { index: 0, delta: { role: "assistant", content: "I can't share that." }, finish_reason: null }));
+              c.enqueue(id("chatcmpl-9", { index: 0, delta: {}, finish_reason: "content_filter" }));
+              c.enqueue(frame("[DONE]"));
+              c.close();
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    const { text, result } = await run(config([SERV, BACKUP]), fetchImpl);
+    expect(text).toBe("Your job is clear. You need");
+    expect(result).toMatchObject({ cutOff: true, failures: [{ provider: "serv", kind: "filtered" }] });
+  });
+
   it("stops quietly when the person presses stop: no note, no backup", async () => {
     const stop = new AbortController();
     const { fetchImpl, calls } = mockFetch(

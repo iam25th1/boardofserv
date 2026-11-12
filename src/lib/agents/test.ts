@@ -5,7 +5,7 @@ import { storyOf, toldAs } from "./plainWords";
 import { plain } from "./plainView";
 import { runAgent } from "./runner";
 import { goesThroughList, makeSample, sampleRequest, type Sample } from "./sample";
-import type { BenchData, RunEvent, StepCode, TestResult } from "./types";
+import type { BenchData, CheckId, RunEvent, StepCode, TestResult } from "./types";
 
 // "Test it": the agent runs on sample data made from its own plan (one
 // item, or three for an agent that goes through a list: sample.ts), every
@@ -31,6 +31,8 @@ export interface TestOptions {
   record?: (call: JsonResult, kind: "sample" | "decision") => Promise<void>;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
+  // What the last sample lacked (the fixer): a new one is made with it.
+  sampleNote?: string | null;
 }
 
 export interface Tested {
@@ -41,6 +43,8 @@ export interface Tested {
   plain?: Record<string, string>;
   events: RunEvent[];
   end: Extract<RunEvent, { type: "end" }>;
+  // The run where the owner said no to everything it asked, when it asks.
+  noRun?: RunEvent[];
 }
 
 // The sample a version's last test was made on, when it still fits.
@@ -51,9 +55,9 @@ function keptSample(d: AgentDefinition, last: TestResult | null | undefined): Sa
 
 export async function testVersion(v: { definition: AgentDefinition; code: Record<string, StepCode>; testResult?: TestResult | null }, o: TestOptions): Promise<Tested> {
   const d = v.definition;
-  let sample = keptSample(d, v.testResult);
+  let sample = o.sampleNote ? null : keptSample(d, v.testResult);
   if (!sample) {
-    const made = await makeSample(d, o.serv, { signal: o.signal, fetchImpl: o.fetchImpl });
+    const made = await makeSample(d, o.serv, { signal: o.signal, fetchImpl: o.fetchImpl, note: o.sampleNote });
     if (made.call) await o.record?.(made.call, "sample");
     sample = made.sample;
   }
@@ -74,13 +78,13 @@ export async function testVersion(v: { definition: AgentDefinition; code: Record
   if (end.status !== "done") {
     const failed = [...events].reverse().find((e): e is Extract<RunEvent, { type: "step_done" }> => e.type === "step_done" && e.status === "failed");
     const step = failed ? d.steps.find((s) => s.id === failed.stepId) : undefined;
-    problems.push({ step: step?.id ?? null, text: step ? `"${step.title}" didn't work on the ${sampled}.` : `It didn't get through the ${sampled}.` });
+    problems.push({ step: step?.id ?? null, text: step ? `"${step.title}" didn't work on the ${sampled}.` : `It didn't get through the ${sampled}.`, check: "ran" });
   } else {
     // A call that went wrong and was passed over: the run went on with
     // nothing, which only looks like it worked.
     const wrong = events.find((e): e is ToolEvent => e.type === "tool" && Boolean(e.error));
     const step = wrong ? d.steps.find((s) => s.id === wrong.stepId) : undefined;
-    if (wrong) problems.push({ step: step?.id ?? null, text: `"${step?.title ?? "A step"}" couldn't ${TOOL_VERBS[wrong.tool] ?? "do its part"} on the ${sampled}, so it went on with nothing.` });
+    if (wrong) problems.push({ step: step?.id ?? null, text: `"${step?.title ?? "A step"}" couldn't ${TOOL_VERBS[wrong.tool] ?? "do its part"} on the ${sampled}, so it went on with nothing.`, check: "tool_error" });
   }
   const status = problems.length ? "failed" : "passed";
   const story = storyOf(d, events, end, sample.items);
@@ -146,6 +150,28 @@ export function keepsPlace(d: AgentDefinition): boolean {
   return tools.has("memory.set") || tools.has("sheets.update");
 }
 
+// The checks a self test gives an agent, by the platform's rules and the
+// agent's plan alone, never by what anyone asks for one agent (a repair
+// can't make a failing check stop applying: guarded.ts). Every agent: it
+// runs through, and no tool error is passed over. One that sends, writes
+// or pays: it does so on a sample made for it. One that goes through a list
+// and sends after it: the summary covers every item. One that goes through
+// a tab's rows and writes rows: not back into that tab. One that keeps its
+// place: run again, it skips what it did.
+export function checksFor(d: AgentDefinition): CheckId[] {
+  const out: CheckId[] = ["ran", "tool_error"];
+  const tools = new Set([...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))]);
+  if (d.actions.some((a) => a.tool !== "memory.set")) out.push("did_job");
+  const many = goesThroughList(d);
+  const inLoop = loopsOf(d).inside;
+  const sendsAfter = d.steps.some((s) => s.kind === "action" && !inLoop.get(s.id) && d.actions.find((a) => a.id === s.action)?.tool === "telegram.send");
+  if (many && sendsAfter) out.push("summary");
+  if (many && tools.has("sheets.read") && tools.has("sheets.write")) out.push("write_back");
+  if (keepsPlace(d)) out.push("second_run");
+  if (tools.has("telegram.ask") || tools.has("wallet.pay")) out.push("said_no");
+  return out;
+}
+
 // The check every new plan gets once its code is written: it runs on its
 // sample (sample.ts), dry (its decisions take turns over the outcomes, and
 // no model is asked). It fails when that run doesn't get through. Then
@@ -169,7 +195,7 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   const d = v.definition;
   const items = first.result.items;
   const problems = [...first.result.problems];
-  const many = goesThroughList(d);
+  const checks = new Set(checksFor(d));
   const inLoop = loopsOf(d).inside;
 
   // Its job, done at least once on a sample made for it to work on, where
@@ -180,34 +206,35 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   const jobs = d.actions.filter((a) => a.tool !== "memory.set" && a.tool !== "telegram.ask");
   const asked = d.actions.filter((a) => a.tool === "telegram.ask");
   const job = jobs.length ? (jobs.some((a) => did(a.tool)) ? null : jobs[0]!) : asked.length && !asked.some((a) => did(a.tool)) ? asked[0]! : null;
-  if (job) {
-    problems.push({ step: d.steps.find((s) => s.kind === "action" && s.action === job.id)?.id ?? null, text: `On its sample it didn't ${lowerFirst(plain(job.description)).replace(/\.$/, "")}: it found nothing to do in data made for it to work on.` });
+  if (job && checks.has("did_job")) {
+    problems.push({ step: d.steps.find((s) => s.kind === "action" && s.action === job.id)?.id ?? null, text: `On its sample it didn't ${lowerFirst(plain(job.description)).replace(/\.$/, "")}: it found nothing to do in data made for it to work on.`, check: "did_job" });
   }
 
   // The summary: the last message it sends, after going through the list.
   const sends = toolEvents(first.events, "telegram.send");
   const summary = sends.at(-1);
-  if (many && summary && !inLoop.get(summary.stepId)) {
+  if (checks.has("summary") && summary && !inLoop.get(summary.stepId)) {
     const text = String((summary.args as { text?: unknown }).text ?? "").toLowerCase();
     const named = items.labels.filter((l) => text.includes(l.toLowerCase())).length;
     // "3 submissions" counts all three; "2 of 3 met" doesn't.
     const words = [items.plural, items.noun].map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
     const counted = new RegExp(`\\b(?:${items.labels.length}|three)\\s+(?:new\\s+)?(?:${words})\\b`).test(text);
     if (named < items.labels.length && !counted) {
-      problems.push({ step: summary.stepId, text: `Its summary covers ${named === 0 ? "none" : "only some"} of the ${items.plural}, not all ${items.labels.length}.` });
+      problems.push({ step: summary.stepId, text: `Its summary covers ${named === 0 ? "none" : "only some"} of the ${items.plural}, not all ${items.labels.length}.`, check: "summary" });
     }
   }
 
   const reads = new Set(toolEvents(first.events, "sheets.read").map((e) => String((e.args as { sheet?: unknown }).sheet)));
-  const added = many
+  const added = checks.has("write_back")
     ? toolEvents(first.events, "sheets.write").find((e) => {
         const a = e.args as { sheet?: unknown; mode?: unknown };
         return reads.has(String(a.sheet)) && a.mode !== "replace";
       })
     : undefined;
-  if (added) problems.push({ step: added.stepId, text: `It adds its results as new rows of the sheet it reads ${items.plural} from, so they would come back as new ${items.plural}.` });
+  if (added) problems.push({ step: added.stepId, text: `It adds its results as new rows of the sheet it reads ${items.plural} from, so they would come back as new ${items.plural}.`, check: "write_back" });
 
-  if (keepsPlace(d)) {
+  if (checks.has("second_run")) {
+    const many = goesThroughList(d);
     const again: RunEvent[] = [];
     await runAgent({
       definition: d,
@@ -225,10 +252,26 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
       const a = e.args as { sheet?: unknown; rows?: unknown };
       return reads.has(String(a.sheet)) && labels.test(JSON.stringify(a.rows ?? []));
     });
-    if ((many && judged(d, again) > 0) || twice || rewritten) problems.push({ step: null, text: `Run again, it would go through the same ${items.plural} a second time: it should only take new ones.` });
+    if ((many && judged(d, again) > 0) || twice || rewritten) problems.push({ step: null, text: `Run again, it would go through the same ${items.plural} a second time: it should only take new ones.`, check: "second_run" });
   }
 
-  return told({ ...first, result: { ...first.result, status: problems.length ? "failed" : "passed", problems } });
+  // Asked, or paying: run again where the owner says no to every question
+  // and every payment. After the first no, it pays nothing and sends or
+  // writes nothing more.
+  let noRun: RunEvent[] | undefined;
+  if (checks.has("said_no")) {
+    noRun = [];
+    const no = { ...first.bench, telegram: { answers: first.bench.telegram.answers.map(() => "No").concat(["No", "No", "No"]) }, approve: "no" as const };
+    await runAgent({ definition: d, code: v.code, bench: no, dryRun: true, signal: o.signal, onEvent: (e) => noRun!.push(e) });
+    const said = noRun.findIndex((e) => e.type === "tool" && ((e.tool === "telegram.ask" && /^\s*no\b/i.test(String((e.result as { answer?: unknown } | null)?.answer ?? ""))) || (e.tool === "wallet.pay" && Boolean(e.error))));
+    const after = said < 0 ? undefined : noRun.slice(said + 1).find((e): e is ToolEvent => e.type === "tool" && !e.error && ["wallet.pay", "telegram.send", "sheets.write", "sheets.update"].includes(e.tool));
+    if (after) problems.push({ step: after.stepId, text: `When you say no, it still ${TOOL_DID[after.tool] ?? "goes on"}.`, check: "said_no" });
+  }
+
+  return told({ ...first, noRun, result: { ...first.result, status: problems.length ? "failed" : "passed", problems } });
 }
+
+// What a tool did, in words that follow "it still".
+const TOOL_DID: Record<string, string> = { "wallet.pay": "pays", "telegram.send": "messages you", "sheets.write": "adds to your sheet", "sheets.update": "writes into your sheet" };
 
 const lowerFirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);

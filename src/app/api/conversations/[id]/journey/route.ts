@@ -2,12 +2,14 @@ import { z } from "zod";
 import { notLetIn } from "@/lib/access";
 import { getUserFromRequest } from "@/lib/auth-route";
 import { setupShapeOf } from "@/lib/agents/definition";
-import { addCard, cardsIn, conversationOf, updateCard } from "@/lib/agents/journey";
+import { addCard, answer, cardsIn, conversationOf, simpler, updateCard } from "@/lib/agents/journey";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { checkAnswers } from "@/lib/agents/settingsForm";
 import { agentForConversation, currentVersion } from "@/lib/agents/store";
 import { hasConnection } from "@/lib/connections/vault";
 import { connectionsNeeded, spends } from "@/lib/agents/definition";
+import { diagnosed } from "@/lib/agents/build";
+import { connectDiagnosis } from "@/lib/agents/diagnosis";
 
 export const runtime = "nodejs";
 
@@ -18,7 +20,13 @@ const Answers = z.object({
   schedule: z.object({ at: z.string().max(5).nullable(), day: z.number().int().nullable(), days: z.array(z.number().int()).max(7).nullable().optional(), interval: z.number().int().nullable().optional() }).nullable().optional(),
   payee: z.object({ label: z.string().trim().min(1).max(40), address: z.string().trim().max(80) }).nullable().optional(),
 });
-const Body = z.object({ action: z.literal("connect"), answers: Answers });
+const Body = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("connect"), answers: Answers }),
+  // The maker's answer to the fixer's question, tapped.
+  z.object({ action: z.literal("answer"), answer: z.string().trim().min(1).max(500) }),
+  // It gave up: try a simpler version.
+  z.object({ action: z.literal("simpler") }),
+]);
 
 // Connect, in the chat: the answers the agent needs (which sheet, the page
 // link, the target) and who it pays, checked as its setup checks them, with
@@ -35,23 +43,34 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Send the answers it needs." }, { status: 400 });
   const agent = await agentForConversation(convo.id);
+  if (agent && parsed.data.action !== "connect") {
+    const moved = parsed.data.action === "answer" ? await answer(user, agent, parsed.data.answer) : await simpler(user, agent);
+    if ("refused" in moved) return Response.json({ error: moved.refused.error }, { status: moved.refused.status });
+    return Response.json({ agent: moved.agent }, { status: 202 });
+  }
   const version = agent ? await currentVersion(agent.id) : null;
   const d = version?.definition;
-  if (!agent || !d) return Response.json({ error: "There's nothing to connect yet." }, { status: 409 });
+  if (!agent || !d || parsed.data.action !== "connect") return Response.json({ error: "There's nothing to connect yet." }, { status: 409 });
   const card = (await cardsIn(convo.id)).filter((m) => m.card?.stage === "connect").at(-1);
   if (!card?.card) return Response.json({ error: "Try it first: you connect it once its test passes." }, { status: 409 });
 
-  const a = parsed.data.answers;
+  const given = parsed.data.answers;
+  // The payee's name is the answer to the setting that names who it pays.
+  const payee = setupShapeOf(d).payee;
+  const a = payee && given.payee ? { ...given, settings: { ...given.settings, [payee]: given.payee.label } } : given;
   const checked = checkAnswers(setupShapeOf(d), { settings: a.settings, rules: a.rules, timezone: a.timezone, schedule: a.schedule ?? null });
   const errors: Record<string, string> = checked.ok ? {} : { ...checked.errors };
   const pays = d.actions.some(spends);
-  if (pays && !a.payee) errors.payee = "Say who it pays: a name and their Base address.";
-  if (a.payee && !/^0x[0-9a-fA-F]{40}$/.test(a.payee.address)) errors.payee = "That isn't a Base address: it starts 0x and has 40 more letters and digits.";
+  if (pays && !a.payee) errors.payee = "Say who it pays: a name and their wallet address.";
+  if (a.payee && !/^0x[0-9a-fA-F]{40}$/.test(a.payee.address)) errors.payee = "That isn't a wallet address: it starts 0x and has 40 more letters and digits.";
   const rt = serverRuntime();
   const needs = connectionsNeeded(d);
   if (needs.telegram && rt.services.telegramToken && !(await hasConnection(rt, user.id, "telegram"))) errors.telegram = "Link your Telegram first.";
   if (needs.google && rt.services.google && !(await hasConnection(rt, user.id, "google"))) errors.google = "Connect Google first.";
-  if (Object.keys(errors).length) return Response.json({ error: "Some answers need another look.", errors }, { status: 400 });
+  if (Object.keys(errors).length) {
+    await diagnosed(version.id, connectDiagnosis(d, errors));
+    return Response.json({ error: "Some answers need another look.", errors }, { status: 400 });
+  }
 
   await updateCard(card.id, { ...card.card, answers: { ...a, payee: a.payee ?? null } }, "Connected: it has what it needs.");
   const latest = (await cardsIn(convo.id)).at(-1);

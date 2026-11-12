@@ -121,3 +121,13 @@ describe("in a job", () => {
     expect((await loadInstallation(rt, inst.id))!.installation.policy).toEqual({ askFor: ["telegram.send"], autoSpendUsdc: 100 });
   });
 });
+
+describe("asking first, by default", () => {
+  it("is on only for payments and messages to other people, never for messages to the owner's own Telegram or their own sheets", () => {
+    const p = readPolicy({});
+    expect(policyAsks(p, { tool: "telegram.send", risk: "outbound", toOwner: true })).toEqual([]);
+    expect(policyAsks(p, { tool: "sheets.write", risk: "write", toOwner: false })).toEqual([]);
+    expect(policyAsks(p, { tool: "wallet.pay", risk: "money", amount: 0.5, toOwner: false })).toEqual(["It spends money, and you approve every spend."]);
+    expect(policyAsks(p, { tool: "telegram.send", risk: "outbound", toOwner: false })).toEqual(["It sends to someone other than you."]);
+  });
+});

@@ -42,7 +42,13 @@ export interface CardSnapshot {
   problem?: string | null;
   // What it said at the end, in one line ("Built and checked").
   note?: string;
+  // The lines it said while it healed itself on this card.
+  healed?: { text: string; tone: HealTone }[];
 }
+
+// How a line of a build healing itself reads: working on it, fixed, asking
+// the maker, or stopped.
+export type HealTone = "working" | "fixed" | "asked" | "stopped";
 
 // The answers saved at Connect, as the guided setup holds them, and who it
 // pays when it pays someone.
@@ -57,6 +63,9 @@ export interface ConnectAnswers {
 export interface JourneyCard {
   stage: Stage;
   agentId?: string;
+  // When it came in: the lines a build says while it heals belong to the
+  // card that was latest when they were said.
+  at?: string;
   snapshot?: CardSnapshot;
   // Connect: the answers, once saved.
   answers?: ConnectAnswers;
