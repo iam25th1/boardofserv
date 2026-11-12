@@ -6,6 +6,7 @@ import { ARGS_TOOLS, loopsOf, type AgentDefinition, type CodeStepDef, type ToolN
 import { TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
 import type { StepCode } from "./types";
+import { rulesText } from "./lessonRules";
 
 // Code writing and review. Dolphin writes each code step as
 // `async function run(input, tools)` against the toolbox's declarations.
@@ -343,10 +344,11 @@ export async function writeStep(
   // hint: why an earlier version of this step didn't pass (the fixer
   // sends it with the step's corrected brief), so it isn't written that
   // way again. rounds: how many tries before it is held.
-  opts: { dolphin: Provider | null; serv: ModelConfig; hooks: WriteHooks; fetchImpl?: typeof fetch; signal?: AbortSignal; writer?: "dolphin" | "serv"; hint?: string | null; rounds?: number },
+  // lessons: rules learned from earlier builds (lessons.ts).
+  opts: { dolphin: Provider | null; serv: ModelConfig; hooks: WriteHooks; fetchImpl?: typeof fetch; signal?: AbortSignal; writer?: "dolphin" | "serv"; hint?: string | null; rounds?: number; lessons?: string[] },
 ): Promise<StepCode> {
   const conversation: ChatMessage[] = [
-    { role: "system", content: CODE_PROMPT },
+    { role: "system", content: `${CODE_PROMPT}${rulesText(opts.lessons)}` },
     { role: "user", content: opts.hint ? `${codeRequest(step, d)}\n\nAn earlier version of this step didn't pass: ${opts.hint}\nWrite it so that can't happen again.` : codeRequest(step, d) },
   ];
   const maxRounds = opts.rounds ?? MAX_CODE_ROUNDS;

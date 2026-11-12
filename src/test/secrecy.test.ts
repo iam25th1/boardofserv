@@ -90,6 +90,7 @@ import * as requestRoute from "@/app/api/requests/[id]/route";
 import * as requestOffersRoute from "@/app/api/requests/[id]/offers/route";
 import * as offerRoute from "@/app/api/offers/[id]/route";
 import * as adminSafetyRoute from "@/app/api/admin/safety/route";
+import * as adminLessonsRoute from "@/app/api/admin/lessons/route";
 import * as agentKill from "@/app/api/agents/[id]/kill/route";
 import * as adminFreezes from "@/app/api/admin/freezes/route";
 import * as adminFreeze from "@/app/api/admin/freezes/[id]/route";
@@ -204,6 +205,7 @@ const ROUTES: Record<string, object> = {
   "requests/[id]/offers": requestOffersRoute,
   "offers/[id]": offerRoute,
   "admin/safety": adminSafetyRoute,
+  "admin/lessons": adminLessonsRoute,
   "agents/[id]/kill": agentKill,
   "admin/freezes": adminFreezes,
   "admin/freezes/[id]": adminFreeze,

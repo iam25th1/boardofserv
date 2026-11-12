@@ -20,6 +20,7 @@ import { codeDiagnosis, planDiagnosis, testDiagnosis, withDiagnosis } from "./di
 import { askFixer, type FixVerdict } from "./fixer";
 import { foundLine, freshBuild, gaveUpLine, healLimits, repairLine, roundsUsed, withLine, withRound } from "./heal";
 import { weakens } from "./guarded";
+import { learn, recurringRules } from "./lessons";
 
 // The build: planning, then the code, then its self test, runs in the
 // background, because it can take longer than a request may. One job per
@@ -67,6 +68,14 @@ export interface BuildContext {
   serv: ModelConfig;
   // The build's draft, when its model calls count towards its budget.
   versionId?: string;
+  // Rules learned from earlier builds, for the planner, Dolphin and the
+  // fixer (lessons.ts).
+  lessons?: string[];
+}
+
+// The context a job runs in: its draft, and the rules learned so far.
+async function jobContext(ctx: BuildContext, versionId: string): Promise<BuildContext> {
+  return { ...ctx, versionId, lessons: ctx.lessons ?? (await recurringRules().catch(() => [])) };
 }
 
 // Only SERV, whatever else is set up.
@@ -222,7 +231,7 @@ async function writeCode(versionId: string, definition: AgentDefinition, ctx: Bu
       held ??= codeDiagnosis(current, step.id, entry);
       continue;
     }
-    const written = await writeStep(step, current, spec, { dolphin, serv: ctx.serv, fetchImpl: o.fetchImpl, hooks: writeHooks(version, step, spec, ctx), hint: o.hints?.[step.id], rounds: o.rounds, writer: o.writer });
+    const written = await writeStep(step, current, spec, { dolphin, serv: ctx.serv, fetchImpl: o.fetchImpl, hooks: writeHooks(version, step, spec, ctx), hint: o.hints?.[step.id], rounds: o.rounds, writer: o.writer, lessons: ctx.lessons });
     const fit = await fitPlan(versionId, current, step, written);
     current = fit.definition;
     // A draft published or replanned meanwhile stops the writing.
@@ -312,7 +321,7 @@ type Start = { diagnosis: Diagnosis } | { answer: string };
 // couldn't do. A plan that never came together (input, with no steps yet)
 // heals the same way, and once it does, goes on as planning would.
 async function heal(versionId: string, ctx: BuildContext, settle: Settle, start: Start, input?: PlanInput, after?: PlanOptions): Promise<void> {
-  const c: BuildContext = { ...ctx, versionId };
+  const c = await jobContext(ctx, versionId);
   let diagnosis = "diagnosis" in start ? start.diagnosis : null;
   let answer = "answer" in start ? start.answer : null;
   // What the maker said, for the fixer to read beside the diagnosis.
@@ -340,7 +349,7 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
       answer = null;
     } else {
       await healOf(versionId, (l) => withLine(l, foundLine(dx, v.definition), "working"));
-      const asked = await askFixer(dx, ctx.serv, { tried: triedOf(log), interview: said });
+      const asked = await askFixer(dx, ctx.serv, { tried: triedOf(log), interview: said, lessons: c.lessons });
       await recordAgentCall(c, "agent_plan", asked.call);
       verdict = asked.verdict;
     }
@@ -388,7 +397,7 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
     } else {
       await healOf(versionId, (l) => withLine(withRound(l, { ...round, verdict: "plan", repair: change }), repairLine("plan", v.definition, null), "working"));
       const base = input ?? (await planInputFor(ctx.conversationId, v.definition, ""));
-      const plan = await planAgent({ ...base, current: v.definition, feedback: change }, { config: ctx.serv, signal: new AbortController().signal, maxCalls: planCallCap(v.definition) });
+      const plan = await planAgent({ ...base, current: v.definition, feedback: change }, { config: ctx.serv, signal: new AbortController().signal, maxCalls: planCallCap(v.definition), lessons: c.lessons });
       for (const call of plan.calls) await recordAgentCall(c, "agent_plan", call);
       if (!plan.definition) {
         const failed = planDiagnosis(plan.errors, v.definition);
@@ -400,7 +409,8 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
       if (planning) {
         // The plan came together: on as planning goes.
         await updateDraft(versionId, { definition: plan.definition, code: carryCode(plan.definition, v.code), testResult: null });
-        await healOf(versionId, (l) => withLine(withRound(l, { outcome: "fixed" }), "Fixed.", "fixed"));
+        const fixed = await healOf(versionId, (l) => withLine(withRound(l, { outcome: "fixed" }), "Fixed.", "fixed"));
+        await learned(fixed, ctx.userId);
         await after?.planned?.(null, plan.definition, null);
         const stop = typeof after?.stop === "function" ? after.stop(null, plan.definition) : Boolean(after?.stop);
         if (stop) return void (await updateDraft(versionId, { buildState: "idle", buildNote: null }));
@@ -428,7 +438,8 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
     }
 
     if (outcome.kind === "passed") {
-      await healOf(versionId, (l) => withLine(markFixed(l), "Fixed.", "fixed"));
+      const fixed = await healOf(versionId, (l) => withLine(markFixed(l), "Fixed.", "fixed"));
+      await learned(fixed, ctx.userId);
       await updateDraft(versionId, { buildState: "idle", buildNote: null });
       await settle.onTested?.(outcome.result);
       return;
@@ -442,6 +453,14 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
     await healOf(versionId, (l) => markFailed(l));
     diagnosis = outcome.diagnosis;
   }
+}
+
+// The round that fixed it, as a lesson (lessons.ts): its rule, what went
+// wrong and what fixed it. A lesson that can't be kept never stops a build.
+async function learned(log: HealLog | null, makerId: string): Promise<void> {
+  const round = [...(log?.rounds ?? [])].reverse().find((r) => r.outcome === "fixed");
+  if (!round?.lesson?.text) return;
+  await learn({ kind: round.lesson.kind, rule: round.lesson.text, wrong: round.diagnosis.failure, fix: round.repair || round.why, makerId }).catch((err) => console.error(`agents: a lesson wasn't kept: ${errorText(err, "unknown error")}`));
 }
 
 // A repair that would weaken what keeps the agent safe is turned down:
@@ -511,7 +530,7 @@ export function startHeal(version: AgentVersion, diagnosis: Diagnosis, ctx: Buil
 // one at a time, Dolphin writing and SERV reviewing (code.ts), then test
 // it, healing what fails. The dock sees each step's progress as it goes.
 export async function writeAllCode(version: AgentVersion, definition: AgentDefinition, ctx: BuildContext, fetchImpl?: typeof fetch, settle: Settle = {}): Promise<void> {
-  const c = { ...ctx, versionId: version.id };
+  const c = await jobContext(ctx, version.id);
   const outcome = await writeAndTest(version.id, definition, c, settle, { fetchImpl });
   await settleBuild(version.id, c, settle, outcome);
 }
@@ -528,7 +547,7 @@ export function startRewrite(version: AgentVersion, stepId: string, ctx: BuildCo
     await updateDraft(version.id, { buildState: "writing", buildNote: null, code: { ...version.code, [step.id]: { ...(version.code[step.id] ?? { spec: codeSpec(step), source: null, rounds: 0, note: null, updatedAt: new Date().toISOString() }), status: "queued" } } });
     await setHeal(version.id, freshBuild(version.heal));
     try {
-      const c = { ...ctx, versionId: version.id };
+      const c = await jobContext(ctx, version.id);
       const outcome = await writeAndTest(version.id, definition, c, settle, { fetchImpl, writer: "serv" });
       await settleBuild(version.id, c, settle, outcome);
     } catch (err) {
@@ -557,13 +576,13 @@ export interface PlanOptions {
 // is already running on it.
 export function startPlan(version: AgentVersion, input: PlanInput, ctx: BuildContext, mode: "plan" | "fix" = "plan", o: PlanOptions = {}): boolean {
   if (jobs.has(version.id)) return false;
-  const c = { ...ctx, versionId: version.id };
   const settle = o.settle ?? {};
   const job = (async () => {
     await updateDraft(version.id, { buildState: mode === "fix" ? "fixing" : "planning", buildNote: null });
     await setHeal(version.id, freshBuild(version.heal));
+    const c = await jobContext(ctx, version.id);
     try {
-      const plan = await planAgent(input, { config: ctx.serv, signal: new AbortController().signal, maxCalls: planCallCap(version.definition) });
+      const plan = await planAgent(input, { config: ctx.serv, signal: new AbortController().signal, lessons: c.lessons, ...(version.definition ? { maxCalls: planCallCap(version.definition) } : {}) });
       for (const call of plan.calls) await recordAgentCall(c, "agent_plan", call);
       if (!plan.definition) {
         const failures = plan.calls.flatMap((x) => x.failures);
@@ -589,7 +608,7 @@ export function startPlan(version: AgentVersion, input: PlanInput, ctx: BuildCon
       const stop = typeof o.stop === "function" ? o.stop(version.definition, plan.definition) : Boolean(o.stop);
       const saved = await updateDraft(version.id, { definition: plan.definition, code: carryCode(plan.definition, version.code), buildState: stop ? "idle" : "writing", testResult: null });
       await o.planned?.(version.definition, plan.definition, null);
-      if (saved && !stop) await writeAllCode(saved, plan.definition, ctx, undefined, settle);
+      if (saved && !stop) await writeAllCode(saved, plan.definition, c, undefined, settle);
     } catch (err) {
       console.error(`agents: the build stopped: ${errorText(err, "unknown error")}`);
       await updateDraft(version.id, { buildState: "failed", buildNote: "Something went wrong while building. Try again." }).catch(() => null);

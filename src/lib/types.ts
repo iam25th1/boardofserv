@@ -940,3 +940,14 @@ export interface TrustDTO {
   band: { label: string; perPayment: number; perDay: number };
   computedAt: string | null;
 }
+
+// A lesson healing builds learned, for the admin (agents/lessons.ts).
+export interface LessonDTO {
+  kind: string;
+  rule: string;
+  wrong: string;
+  fix: string;
+  count: number;
+  makers: number;
+  lastSeenAt: string;
+}

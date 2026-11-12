@@ -3,7 +3,7 @@ import { usePrivy } from "@privy-io/react-auth";
 import { useCallback, useMemo } from "react";
 import type { BenchData, RunEvent, TestResult } from "./agents/types";
 import type { InstallAnswers } from "./agents/settingsForm";
-import type { AccountDTO, AdminDTO, AdminSafetyDTO, AuditPageDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, MakerListingDTO, QuotaDTO, RentalDetailDTO, RentalDTO, RequestDTO, RequestPageDTO, SketchDTO, SpendingDTO, WalletDTO } from "./types";
+import type { AccountDTO, AdminDTO, AdminSafetyDTO, AuditPageDTO, ConnectionDTO, AgentMessageDTO, AgentPageDTO, ApprovalDTO, AgentBuilderDTO, AgentListItemDTO, AgentSummaryDTO, BalanceDTO, PriceDTO, ChatEvent, ConversationDTO, HelperEvent, InstallationDTO, JobDTO, JobSummaryDTO, LessonDTO, MessageDTO, PublicHelperDTO, MakerDashboardDTO, MakerListingDTO, QuotaDTO, RentalDetailDTO, RentalDTO, RequestDTO, RequestPageDTO, SketchDTO, SpendingDTO, WalletDTO } from "./types";
 import type { SetupShape } from "./agents/definition";
 import type { ConnectAnswers } from "./journey";
 import type { DisputeList, PayeeBody } from "@/components/agents/SpendingPanel";
@@ -240,6 +240,7 @@ export function useApi() {
       checkDeposits: () => json<{ wallet: WalletDTO }>("/api/deposits/check", { method: "POST" }).then((d) => d.wallet),
       getAdmin: () => json<{ admin: AdminDTO }>("/api/admin").then((d) => d.admin),
       getAdminSafety: () => json<{ safety: AdminSafetyDTO }>("/api/admin/safety").then((d) => d.safety),
+      getAdminLessons: () => json<{ lessons: LessonDTO[] }>("/api/admin/lessons").then((d) => d.lessons),
       // The audit log of guarded actions: the renter's installation, the
       // maker's agent (renters' data hidden), or all of it for an admin.
       installationAudit: (id: string, before?: string | null) =>

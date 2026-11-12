@@ -453,6 +453,31 @@ describe("a self test that fails", () => {
     expect(heal.rounds[0]!.diagnosis.evidence.trace.join("\n")).toContain("compare failed");
   });
 
+  it("keeps each fix as a lesson, and gives a lesson more than one maker's builds needed to the planner and Dolphin", async () => {
+    // Ana's build and Ben's are each fixed the same way.
+    for (const who of [ana, ben]) {
+      state.user = who;
+      plans = [broken, RESTOCK_WIRE];
+      fixes = [CHANGE];
+      const conversationId = await interviewed(who);
+      const { agent: a } = (await (await agents.POST(json("/api/agents", "POST", { conversationId }))).json()) as { agent: AgentSummaryDTO };
+      await jobFor((await draftOf(a.id))!.id);
+    }
+    const lessons = await db.select().from(schema.agentLessons);
+    const lesson = lessons.find((l) => l.rule === "A step only returns what its job makes.")!;
+    expect(lesson).toMatchObject({ kind: "wrong_value", wrong: SENTENCE, fix: "Remove notes from the outputs of compare." });
+    expect(lesson.count).toBeGreaterThanOrEqual(2);
+    expect(lesson.makers.sort()).toEqual([ana.id, ben.id].sort());
+    // The next build is planned and written with it as a rule.
+    state.user = ana;
+    seen.length = 0;
+    await built();
+    const rule = "Rules learned from earlier builds, keep to them:\n- A step only returns what its job makes.";
+    expect(seen.find((x) => x.schema === "agent_outline")!.body.messages[0]!.content).toContain(rule);
+    expect(seen.find((x) => x.schema === "agent_steps")!.body.messages[0]!.content).toContain(rule);
+    expect(seen.find((x) => x.to === "dolphin")!.body.messages[0]!.content).toContain(rule);
+  });
+
   it("stops at the build's model budget, whatever rounds are left", async () => {
     vi.stubEnv("AGENT_BUILD_COST_USD", "0.0001");
     plans = [broken];

@@ -1274,6 +1274,34 @@ export const modelAttempts = pgTable(
   }),
 );
 
+// What healing builds learned (agents/lessons.ts): each repair that fixed a
+// build, as a short rule, counted each time the same kind of mistake is put
+// right the same way. key is the kind and the rule's words, so the same
+// lesson counts up. makers holds the ids of the makers whose builds taught
+// it (up to 20): a lesson goes into the planner's and Dolphin's prompts
+// only once more than one maker's builds needed it. No foreign keys, like
+// the usage tables.
+export const agentLessons = pgTable(
+  "agent_lessons",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    key: text("key").notNull(),
+    kind: text("kind").notNull(),
+    rule: text("rule").notNull(),
+    // The last time it was learned: what went wrong, and what fixed it.
+    wrong: text("wrong").notNull(),
+    fix: text("fix").notNull(),
+    count: integer("count").notNull().default(1),
+    makers: jsonb("makers").$type<string[]>().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => ({
+    byKey: uniqueIndex("agent_lessons_key_idx").on(t.key),
+    byCount: index("agent_lessons_count_idx").on(t.count),
+  }),
+);
+
 // Listings, requests and offers held because screening got no answer from
 // SERV (empty, or none at all, after the call's own tries): the worker
 // screens each again a few times, a while apart (safety/screenRetries.ts),

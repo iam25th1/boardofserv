@@ -8,6 +8,7 @@ import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAM
 import { TOOLS } from "./toolbox";
 import { planProblems } from "./planRules";
 import { askedFirst, columnsByName, fixSetup, repairPlan, type RawStep } from "./planRepairs";
+import { rulesText } from "./lessonRules";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
 
 // Planning: SERV turns the maker's interview (and the conversation behind
@@ -322,7 +323,8 @@ type Stage = "outline" | "details";
 
 export async function planAgent(
   input: PlanInput,
-  opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch; maxCalls?: number },
+  // lessons: rules learned from earlier builds (lessons.ts).
+  opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch; maxCalls?: number; lessons?: string[] },
 ): Promise<PlanResult> {
   const t = Number(process.env.AGENT_PLAN_TIMEOUT_MS);
   const config = { ...opts.config, firstTokenTimeoutMs: Number.isInteger(t) && t > 0 ? t : DEFAULT_PLAN_TIMEOUT_MS };
@@ -365,7 +367,7 @@ export async function planAgent(
 
   // Stage one: the outline.
   const outlineMessages: ChatMessage[] = [
-    { role: "system", content: outlinePrompt(minIntervalMinutes(), TOOL_NAMES.map((tool) => `${tool} (${TOOLS[tool].summary})`).join("; ")) },
+    { role: "system", content: `${outlinePrompt(minIntervalMinutes(), TOOL_NAMES.map((tool) => `${tool} (${TOOLS[tool].summary})`).join("; "))}${rulesText(opts.lessons)}` },
     { role: "user", content: planText },
   ];
   let outline = await ask("outline", outlineMessages);
@@ -379,7 +381,7 @@ export async function planAgent(
   const details = new Map<string, Record<string, unknown>>();
   const detail = async (ids: string[], problems?: Map<string, string[]>): Promise<boolean> => {
     const answer = await ask("details", [
-      { role: "system", content: DETAIL_PROMPT },
+      { role: "system", content: `${DETAIL_PROMPT}${rulesText(opts.lessons)}` },
       { role: "user", content: detailRequest(planText, outline!, details, ids, problems) },
     ]);
     if (!answer) return false;

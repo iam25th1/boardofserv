@@ -18,6 +18,8 @@ import { POST as pause } from "./pause/route";
 import { POST as agentPay } from "./agent-payments/route";
 import { POST as decide } from "./withdrawals/[id]/route";
 import { GET as account } from "../account/route";
+import { GET as lessonsRoute } from "./lessons/route";
+import { learn } from "@/lib/agents/lessons";
 
 // The admin routes: only for ADMIN_USER_IDS, against a fake chain.
 
@@ -183,5 +185,23 @@ describe("the admin routes", () => {
     expect(logged).toContain("an admin fail failed");
     expect(logged).not.toContain("secret-api-key");
     expect(await res.text()).not.toContain("secret-api-key");
+  });
+});
+
+describe("the lessons page", () => {
+  it("lists what healing builds learned, the most often learned first, for an admin only", async () => {
+    await learn({ kind: "extra_question", rule: "Never ask before a payment: it asks by itself.", wrong: "It asked twice.", fix: "Took the question out.", makerId: "m1" });
+    await learn({ kind: "extra_question", rule: "Never ask before a payment: it asks by itself.", wrong: "It asked twice.", fix: "Took the question out.", makerId: "m2" });
+    await learn({ kind: "sample_payee", rule: "The sample saves the payee it pays.", wrong: "No payee.", fix: "A new sample.", makerId: "m1" });
+    state.user = maya;
+    expect((await lessonsRoute(req("/api/admin/lessons"))).status).toBe(404);
+    state.user = boss;
+    const res = await lessonsRoute(req("/api/admin/lessons"));
+    expect(res.status).toBe(200);
+    const { lessons } = (await res.json()) as { lessons: { kind: string; count: number; makers: number }[] };
+    expect(lessons.map((l) => [l.kind, l.count, l.makers])).toEqual([
+      ["extra_question", 2, 2],
+      ["sample_payee", 1, 1],
+    ]);
   });
 });
