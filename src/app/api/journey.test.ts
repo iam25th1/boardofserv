@@ -298,7 +298,7 @@ describe("a build that heals itself, in the chat", () => {
     // One Try it card: the test after the repair stays on it.
     expect(stages(c)).toEqual(["steps", "build", "try", "connect"]);
     expect(c.agent!.test).toMatchObject({ status: "passed" });
-    expect(c.agent!.heal!.lines).toEqual([
+    expect(c.agent!.heal!.lines.map(({ text, tone }) => ({ text, tone }))).toEqual([
       { text: "Found a problem in step 6 while trying it. Fixing it.", tone: "working" },
       { text: "Writing step 6 again.", tone: "working" },
       { text: "Fixed.", tone: "fixed" },
@@ -322,7 +322,7 @@ describe("a build that heals itself, in the chat", () => {
     let c = await conversation(cid);
     expect(c.messages.at(-1)).toMatchObject({ role: "assistant", content: "Should the reminder include the link to the product?" });
     expect(c.agent!.heal!.question).toMatchObject({ text: "Should the reminder include the link to the product?", choices: ["Yes, include the link", "No, just the price"], messageId: expect.any(String) });
-    expect(c.agent!.heal!.lines.at(-1)).toEqual({ text: "I need to ask you one thing.", tone: "asked" });
+    expect(c.agent!.heal!.lines.at(-1)).toMatchObject({ text: "I need to ask you one thing.", tone: "asked" });
     expect(c.agent!.buildState).toBe("idle");
 
     // The maker taps an answer: the steps change with it, and the build goes on.

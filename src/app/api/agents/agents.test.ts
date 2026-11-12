@@ -440,7 +440,7 @@ describe("a self test that fails", () => {
     expect(after.agent.test).toMatchObject({ status: "failed" });
     expect(seen.filter((s) => s.schema === "agent_fix")).toHaveLength(3);
     expect(after.agent.heal!.gaveUp).toMatch(/^I couldn't get step \d, "[^"]+", to work on its sample\.$/);
-    expect(after.agent.heal!.lines.at(-1)).toEqual({ text: after.agent.heal!.gaveUp, tone: "stopped" });
+    expect(after.agent.heal!.lines.at(-1)).toMatchObject({ text: after.agent.heal!.gaveUp, tone: "stopped" });
     // Every round is kept, with what failed in each.
     const heal = (await draftOf(id))!.heal!;
     expect(heal.rounds.map((r) => [r.diagnosis.stage, r.verdict, r.outcome])).toEqual([

@@ -11,6 +11,7 @@ import { ListingPanel, type ListingBody } from "@/components/market/ListingPanel
 import { ReviewPanel } from "./ReviewPanel";
 import { SetupFlow, type SetupApi } from "./SetupFlow";
 import { StepDiagram, type NodeState } from "./StepDiagram";
+import { HealHistory } from "./HealHistory";
 import styles from "./AgentBuilder.module.css";
 
 // An agent's builder, for its maker: the steps as a diagram and a list (a
@@ -390,6 +391,8 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
               </div>
             </div>
           </section>
+
+          {data.heal && data.heal.rounds.length > 0 && <HealHistory heal={data.heal} />}
 
           <section className={styles.section} aria-labelledby="versions-h">
             <h2 id="versions-h">Versions</h2>

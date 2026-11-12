@@ -74,6 +74,9 @@ export function useApi() {
         if (!res.ok) throw Object.assign(new Error(body.error ?? SOMETHING_WRONG), { errors: body.errors ?? null });
         return { ok: true };
       },
+      // It gave up: a simpler version of the steps, for the maker to look at.
+      simpler: (conversationId: string) =>
+        json<{ agent: AgentSummaryDTO }>(`/api/conversations/${encodeURIComponent(conversationId)}/journey`, { method: "POST", body: JSON.stringify({ action: "simpler" }) }).then((d) => d.agent),
       goLive: (id: string, body: { how: "run" } | { how: "board"; weeklyPrice: string; description: string }) =>
         json<{ installation?: InstallationDTO; listing?: MakerListingDTO }>(`/api/agents/${encodeURIComponent(id)}/golive`, { method: "POST", body: JSON.stringify(body) }),
       getAgent: (id: string) => json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}`).then((d) => d.agent),

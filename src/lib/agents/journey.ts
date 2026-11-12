@@ -37,14 +37,20 @@ function snapshotOf(card: JourneyCard, v: AgentVersion | null, sketchLines: Plai
     case "describe":
       return { lines: sketchLines };
     case "steps":
-      return { lines: plainLines(v?.definition ?? null), problem: v?.definition ? null : (v?.buildNote ?? null) };
+      return { lines: plainLines(v?.definition ?? null), problem: v?.definition ? null : (v?.buildNote ?? null), ...healedOn(card, v) };
     case "build":
-      return { note: problem ? undefined : "Built and checked", problem };
+      return { note: problem ? undefined : "Built and checked", problem, ...healedOn(card, v) };
     case "try":
-      return v?.testResult ? { status: v.testResult.status, story: v.testResult.story, problem: v.testResult.problems[0]?.text ?? null } : { problem };
+      return { ...(v?.testResult ? { status: v.testResult.status, story: v.testResult.story, problem: v.testResult.problems[0]?.text ?? null } : { problem }), ...healedOn(card, v) };
     default:
       return {};
   }
+}
+
+// The lines the build said while it healed itself on this card.
+function healedOn(card: JourneyCard, v: AgentVersion | null): Pick<CardSnapshot, "healed"> {
+  const lines = (v?.heal?.lines ?? []).filter((l) => !card.at || l.at >= card.at).map(({ text, tone }) => ({ text, tone }));
+  return lines.length ? { healed: lines } : {};
 }
 
 // What the maker said about the job, as the Describe card lists it.
@@ -74,7 +80,7 @@ export async function addCard(conversationId: string, card: JourneyCard, content
     const snapshot = snapshotOf(before.card, v, before.card.stage === "describe" ? await describedLines(conversationId) : []);
     await db.update(messages).set({ card: { ...before.card, snapshot }, content: contentOf(before.card, snapshot) ?? before.content }).where(eq(messages.id, before.id));
   }
-  const [row] = await db.insert(messages).values({ conversationId, role: "assistant", content, card }).returning();
+  const [row] = await db.insert(messages).values({ conversationId, role: "assistant", content, card: { ...card, at: new Date().toISOString() } }).returning();
   await touch(conversationId);
   return row!;
 }

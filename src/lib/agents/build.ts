@@ -645,7 +645,7 @@ export function summaryOf(agent: Agent, version: AgentVersion): AgentSummaryDTO 
     plain: plainSteps(version.definition),
     setup: version.definition ? { ...setupShapeOf(version.definition), given: givenAnswers(version.definition) } : null,
     does: version.definition?.job.does ?? null,
-    heal: heal ? { lines: heal.lines.map(({ text, tone }) => ({ text, tone })), question: heal.question ? { text: heal.question.text, choices: heal.question.choices, messageId: heal.question.messageId ?? null } : null, gaveUp: heal.gaveUp ?? null } : null,
+    heal: heal ? { lines: heal.lines.map(({ text, tone, at }) => ({ text, tone, at })), question: heal.question ? { text: heal.question.text, choices: heal.question.choices, messageId: heal.question.messageId ?? null } : null, gaveUp: heal.gaveUp ?? null } : null,
   };
 }
 
