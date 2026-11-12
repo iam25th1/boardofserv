@@ -12,5 +12,5 @@
     "npm run build",
     "npm run db:push:deploy"
   ],
-  "notes": "boardofserv.25th.dev. Runs from its own clone at ~/.boardofserv/app, never the dev checkout. Env is in Pier's store, copied from .env.local. Shares the dev database and treasury; the payments worker lock keeps one worker. Its tunnel is the separate boardofserv-tunnel service. Runbook: docs/DEPLOY-PIER.md."
+  "notes": "Production build at boardofserv.25th.dev. Runs from its own clone of the repository, never the development checkout. Its environment is in Pier's store. Shares the development database and treasury; the payments worker lock keeps one worker. Its tunnel is a separate service. Runbook: docs/DEPLOY-PIER.md."
 }
