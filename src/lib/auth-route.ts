@@ -6,6 +6,16 @@ import { verifyPrivyToken } from "./privy";
 import { createUser } from "./users";
 import { syncWallets } from "./payments/wallets";
 
+// A browser sends the cookie on requests other sites start too. So a change
+// (anything but a read) it marks as from another site, or a sibling
+// subdomain (same-site), signs in no one from the cookie. The app's own
+// calls carry the bearer header, which another site can't send.
+function cookieAllowed(req: Request): boolean {
+  if (req.method === "GET" || req.method === "HEAD") return true;
+  const site = req.headers.get("sec-fetch-site");
+  return site !== "cross-site" && site !== "same-site";
+}
+
 // Resolve the signed-in user for an API route. Accepts the Privy access token
 // from an Authorization bearer header (the client sends it) or the privy-token
 // cookie. Returns null when there is no valid token. With `wallets`, the
@@ -13,12 +23,14 @@ import { syncWallets } from "./payments/wallets";
 export async function getUserFromRequest(req: Request, opts: { wallets?: boolean } = {}): Promise<User | null> {
   const header = req.headers.get("authorization");
   const bearer = header?.toLowerCase().startsWith("bearer ") ? header.slice(7) : null;
-  const cookieToken = req.headers
-    .get("cookie")
-    ?.split(";")
-    .map((c) => c.trim())
-    .find((c) => c.startsWith("privy-token="))
-    ?.slice("privy-token=".length);
+  const cookieToken = cookieAllowed(req)
+    ? req.headers
+        .get("cookie")
+        ?.split(";")
+        .map((c) => c.trim())
+        .find((c) => c.startsWith("privy-token="))
+        ?.slice("privy-token=".length)
+    : undefined;
   const token = bearer ?? cookieToken ?? null;
   if (!token) return null;
 
