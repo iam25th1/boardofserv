@@ -31,7 +31,7 @@ let pay: ReturnType<typeof withPayments>;
 let renter: schema.User;
 let n = 0;
 
-const SUPPLIER = "0x0000000000000000000000000000000000000000";
+const SUPPLIER = "0xF3fA00a093b023929b8C0C3Af790E0dCaAcFE84b";
 const usdc = (whole: number) => BigInt(Math.round(whole * 1e6));
 const exec = () => db as never;
 
@@ -147,7 +147,7 @@ describe("an agent's payment within its limits", () => {
 
   it("says why it asks, with the band, in its Telegram message too", () => {
     const reason = "It's over the 5.00 USDC a payment that its trust score of 600 (new) allows without asking (your own auto limit is 1000.00 USDC).";
-    const text = approvalText({ question: "Pay 6.00 USDC to Weftworks (0x0000...0000) from its allowance?", options: [{ label: "Yes", effect: "It pays." }], noAnswer: "No answer by tomorrow stops the job.", stepId: "pay", reason }, paying());
+    const text = approvalText({ question: "Pay 6.00 USDC to Weftworks (0xF3fA...E84b) from its allowance?", options: [{ label: "Yes", effect: "It pays." }], noAnswer: "No answer by tomorrow stops the job.", stepId: "pay", reason }, paying());
     expect(text).toContain(`Why it asks: ${reason}`);
     expect(text.indexOf("Why it asks")).toBeGreaterThan(text.indexOf("Pay 6.00 USDC"));
   });

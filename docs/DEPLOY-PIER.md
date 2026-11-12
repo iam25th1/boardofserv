@@ -3,19 +3,21 @@
 boardofserv runs on this Mac under [Pier](https://github.com/iam25th1/pier) and
 is public at **https://boardofserv.25th.dev**, through a Cloudflare tunnel of
 its own. This is the runbook: what runs where, the environment, and how to
-deploy, read logs, roll back and back up.
+deploy, read logs, roll back and back up. This host's ids are placeholders
+here (`<service-id>`, `<tunnel-id>` and the like); the Pier dashboard and
+`cloudflared tunnel info` show the real ones.
 
 ## What runs
 
 | | |
 |---|---|
-| Pier service | `boardofserv` (`<redacted>`), runtime `node`, autostart on |
+| Pier service | `boardofserv` (`<service-id>`), runtime `node`, autostart on |
 | Port | `127.0.0.1:7560`, never published on the LAN |
 | Directory | `~/.boardofserv/app`, a clone of `iam25th1/boardofserv` used only for this. Never the development checkout: a build there would overwrite the `.next` a running `npm run dev` uses. |
 | Start | `npm run start:prod` (`next start --hostname 127.0.0.1 --port 7560`) |
 | Health | `GET /api/health`, which Pier checks; `{"ok":true,"database":"up","network":"Base Sepolia","payments":"on"}`, or a 503 while the database is down |
 | Manifest | `pier.json` in the repository |
-| Tunnel service | `boardofserv-tunnel` (`<redacted>`), runtime `worker`, autostart on, in `~/.boardofserv/tunnel` |
+| Tunnel service | `boardofserv-tunnel` (`<tunnel-service-id>`), runtime `worker`, autostart on, in `~/.boardofserv/tunnel` |
 
 `/demo` and the `?sketch=` fixtures don't exist in this build (they are
 development only), and every response carries the security headers from
@@ -29,12 +31,12 @@ its config.
 
 | | |
 |---|---|
-| Cloudflare tunnel | `boardofserv`, id `<redacted>` |
-| Account | the one that holds 25th.dev (account `<redacted>...`) |
-| DNS | `boardofserv.25th.dev` CNAME `<redacted>.cfargotunnel.com`, proxied |
-| Config | `~/.boardofserv/tunnel/config.yml` (reference copy: `deploy/cloudflared.yml`) |
+| Cloudflare tunnel | `boardofserv`, id `<tunnel-id>` |
+| Account | the one that holds 25th.dev (account `<account-id>`) |
+| DNS | `boardofserv.25th.dev` CNAME `<tunnel-id>.cfargotunnel.com`, proxied |
+| Config | `~/.boardofserv/tunnel/config.yml` (template, with placeholders: `deploy/cloudflared.yml`) |
 | Credentials | `~/.boardofserv/tunnel/boardofserv-credentials.json`, mode 0400. Secret: never print or commit it. |
-| Cert for management calls | `~/.cloudflared/cert.pem` (zone 25th.dev, `<redacted>...`) |
+| Cert for management calls | `~/.cloudflared/<zone-cert>.pem` (zone 25th.dev, `<zone-id>`) |
 | Process | `/opt/homebrew/bin/cloudflared tunnel --config ~/.boardofserv/tunnel/config.yml --no-autoupdate run`, supervised by Pier |
 
 The tunnel runs by id with its credentials file, so it never reads a cert.
@@ -42,13 +44,13 @@ Only management calls (`tunnel create`, `route dns`, `tunnel info`) need the
 cert, and they always name it:
 
 ```sh
-cloudflared tunnel --origincert ~/.cloudflared/cert.pem info boardofserv
+cloudflared tunnel --origincert ~/.cloudflared/<zone-cert>.pem info boardofserv
 ```
 
-Never run a bare `cloudflared tunnel login`: it writes `~/.cloudflared/cert.pem`,
-which belongs to another account. The ingress sends `boardofserv.25th.dev`
-straight to `127.0.0.1:7560`, not through Pier's proxy, and everything else to
-a 404. To change it, edit both copies of the config, check it with
+Never run a bare `cloudflared tunnel login`: it overwrites the default
+`~/.cloudflared/cert.pem`, which may belong to another account. The ingress
+sends `boardofserv.25th.dev` straight to `127.0.0.1:7560`, not through Pier's
+proxy, and everything else to a 404. To change it, edit both copies of the config, check it with
 `cloudflared tunnel --config ~/.boardofserv/tunnel/config.yml ingress validate`,
 and restart `boardofserv-tunnel` from the Pier dashboard.
 
@@ -87,7 +89,7 @@ start at login: `brew services start colima` (see
 ## Environment
 
 The service's environment lives in Pier's encrypted store
-(`~/.pier/env/<redacted>.enc`), copied from the development
+(`~/.pier/env/<service-id>.enc`), copied from the development
 `.env.local` without printing any value. Pier injects it when the service
 starts and during deploys, so `next build` sees `NEXT_PUBLIC_PRIVY_APP_ID`.
 The deploy checkout has no `.env.local`. Pier has no command to set a value:
@@ -389,11 +391,11 @@ free again.
 ```sh
 pier logs boardofserv 200
 pier logs boardofserv-tunnel 100
-grep "worker lock" ~/.pier/logs/<redacted>.log
+grep "worker lock" ~/.pier/logs/<service-id>.log
 ```
 
-The files are `~/.pier/logs/<redacted>.log` (service) and
-`~/.pier/logs/<redacted>.log` (tunnel), rotated at 5 MB with three
+The files are `~/.pier/logs/<service-id>.log` (service) and
+`~/.pier/logs/<tunnel-service-id>.log` (tunnel), rotated at 5 MB with three
 kept. Pier scrubs secret values out of them. The dashboard tails both live.
 Every `pier` command signs in a fresh session and Pier keeps the last ten, so
 a long run of them signs the dashboard out.

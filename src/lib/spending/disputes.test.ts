@@ -63,7 +63,7 @@ async function rented(u: schema.User) {
 async function paid(u: schema.User, status: schema.AgentPayment["status"] = "confirmed", daysAgo = 1) {
   const p = await publishedAgent(db, maker);
   const inst = await installed(rt, u, p);
-  const payee = await savePayee(rt, u, inst.id, { label: "Weftworks", address: "0x0000000000000000000000000000000000000000" });
+  const payee = await savePayee(rt, u, inst.id, { label: "Weftworks", address: "0xF3fA00a093b023929b8C0C3Af790E0dCaAcFE84b" });
   const at = new Date(rt.now().getTime() - daysAgo * 86_400_000);
   const [row] = await db
     .insert(schema.agentPayments)

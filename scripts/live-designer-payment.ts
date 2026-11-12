@@ -2,8 +2,9 @@
 // and code as the live suite built them (AGENT_FILE, a SUITE_REPORT), on an
 // in-memory database, through the real runtime: the job, the payment's own
 // approval, the SERV guard, the allowance, and the treasury's USDC transfer
-// on Base Sepolia to the payee saved as Designer, the owner's linked
-// wallet. The approval is answered "Yes" here, as the in-app approval is
+// on Base Sepolia to the payee saved as Designer, the wallet named in
+// LIVE_PAYEE_ADDRESS (required: nothing is paid to an address in the code).
+// The approval is answered "Yes" here, as the in-app approval is
 // (Telegram's buttons answer the same approval; this run has no chat).
 //
 // By default nothing is sent: the transfer is signed and stops there. With
@@ -14,12 +15,12 @@
 // admin resumes them (Admin, Agent payments). Prints statuses, timings, the
 // SERV calls and the transaction, never a key.
 //
-//   AGENT_FILE=report.json [SEND=1] npx vite-node --config vitest.config.ts scripts/live-designer-payment.ts
+//   AGENT_FILE=report.json LIVE_PAYEE_ADDRESS=0x... [SEND=1] npx vite-node --config vitest.config.ts scripts/live-designer-payment.ts
 
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { asc, eq } from "drizzle-orm";
-import { getAddress, type Hex } from "viem";
+import { getAddress, isAddress, type Hex } from "viem";
 import * as schema from "@/lib/db/schema";
 import { addUser, testDb } from "@/test/helperDb";
 import { linkConnections, publishedAgent, testRuntime } from "@/test/runtimeFixtures";
@@ -39,7 +40,6 @@ import { topUp } from "@/lib/spending/allowance";
 import { savePayee } from "@/lib/spending/payees";
 import { receiptsOf } from "@/lib/spending/receipts";
 
-const OWNER_WALLET = getAddress("0x0000000000000000000000000000000000000000");
 const SEPOLIA_USDC = getAddress("0x036CbD53842c5426634e7929541eC2318f3dCF7e");
 const SEND = process.env.SEND === "1";
 const BUDGET = Number(process.env.LIVE_SERV_BUDGET ?? 4);
@@ -56,6 +56,9 @@ async function main() {
   const config = readPaymentsConfig(process.env);
   if (config.chainId !== 84532 || config.network !== "base-sepolia" || getAddress(config.currencies.USDC.token!) !== SEPOLIA_USDC) throw new Error("Base Sepolia only: refusing.");
   if (process.env.AGENT_PAYMENTS_MAINNET) throw new Error("AGENT_PAYMENTS_MAINNET is set: refusing.");
+  const payee = process.env.LIVE_PAYEE_ADDRESS?.trim();
+  if (!payee || !isAddress(payee)) throw new Error("LIVE_PAYEE_ADDRESS: the wallet to pay, a 0x address");
+  const wallet = getAddress(payee);
   const signer = treasurySigner(config);
   if ("problem" in signer) throw new Error(signer.problem);
   const real = viemChainClient(config);
@@ -92,8 +95,8 @@ async function main() {
   // Its allowance: 1 test USDC, from the maker's balance.
   await post(db as never, { userId: maker.id, currency: "USDC", kind: "deposit", amount: 1_000_000n, key: `live:designer:${randomBytes(4).toString("hex")}` });
   await topUp(rt, maker, inst.id, 1_000_000n, `live-designer-${randomBytes(4).toString("hex")}`);
-  await savePayee(rt, maker, inst.id, { label: "Designer", address: OWNER_WALLET });
-  console.log(`${at()} allowance 1 USDC; payee Designer saved at ${OWNER_WALLET}`);
+  await savePayee(rt, maker, inst.id, { label: "Designer", address: wallet });
+  console.log(`${at()} allowance 1 USDC; payee Designer saved at ${wallet}`);
 
   const worker = jobWorker(rt);
   const settle = async () => {

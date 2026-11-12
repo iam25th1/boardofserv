@@ -43,7 +43,7 @@ const APPROVALS: ApprovalDTO[] = [
   approval({
     id: "a-0",
     stepTitle: "Pay the supplier",
-    question: "Pay 12.00 USDC to Weftworks (0x0000...0000) from its allowance? Payments on Base can't be pulled back once they're sent.",
+    question: "Pay 12.00 USDC to Weftworks (0xF3fA...E84b) from its allowance? Payments on Base can't be pulled back once they're sent.",
     reason: `It's over the 5.00 USDC a payment that its trust score of ${TRUST_FAIR.score} (${TRUST_FAIR.label}) allows without asking (your own auto limit is 50.00 USDC). With its trust score of ${TRUST_FAIR.score} (${TRUST_FAIR.label}) it may pay up to 5.00 USDC a payment and 20.00 USDC a day without asking.`,
     opinion: { state: "ready", score: 81, route: "review", reason: "The action fits the agent's purpose, but it spends well over the person's own limit and acts on data from outside, so it is worth a closer look." },
   }),

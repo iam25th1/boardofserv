@@ -35,7 +35,7 @@ let pay: ReturnType<typeof withPayments>;
 let renter: schema.User;
 let n = 0;
 
-const SUPPLIER = "0x0000000000000000000000000000000000000000";
+const SUPPLIER = "0xF3fA00a093b023929b8C0C3Af790E0dCaAcFE84b";
 const usdc = (whole: number) => BigInt(Math.round(whole * 1e6));
 const exec = () => db as never;
 
@@ -109,7 +109,7 @@ describe("an agent's payment", () => {
     const { inst, job } = await ready({ paidBefore: false });
     const asked = (await err(callPay(tools(inst, job), { to: "Weftworks", amountUsdc: 1 }, { key: "first" }))) as Paused;
     expect(asked).toBeInstanceOf(Paused);
-    expect(asked.ask.question).toBe("Pay 1.00 USDC to Weftworks (0x0000...0000) from its allowance? Payments on Base can't be pulled back once they're sent.");
+    expect(asked.ask.question).toBe("Pay 1.00 USDC to Weftworks (0xF3fA...E84b) from its allowance? Payments on Base can't be pulled back once they're sent.");
     expect(asked.ask.reason).toContain("It's the first payment to this address (Weftworks): the first one to an address always asks.");
     expect(asked.ask.opinion).toMatchObject({ risk: "money" });
     expect(pay.chain.sent).toEqual([]);

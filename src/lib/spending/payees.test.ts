@@ -19,7 +19,7 @@ let rt: TestRuntime;
 let renter: schema.User;
 let other: schema.User;
 
-const SUPPLIER = "0x0000000000000000000000000000000000000000";
+const SUPPLIER = "0xF3fA00a093b023929b8C0C3Af790E0dCaAcFE84b";
 const TREASURY = "0x7Ea5C0fFee2B6f4E3c9A1d0B8e7F6a5C4d3B2a19";
 const addr = (n: number) => `0x${n.toString(16).padStart(40, "0")}`;
 
@@ -46,7 +46,7 @@ describe("payee addresses and names", () => {
   it("take a Base address, checksummed, and refuse typos, zero, the treasury and the USDC contract", () => {
     expect(readAddress(SUPPLIER.toLowerCase())).toBe(SUPPLIER);
     expect(readAddress(` ${SUPPLIER} `)).toBe(SUPPLIER);
-    const typo = SUPPLIER.replace("dEe", "dee");
+    const typo = SUPPLIER.replace("fA0", "fa0");
     for (const bad of [typo, "0x0000000000000000000000000000000000000000", TREASURY, TREASURY.toLowerCase(), "0x036CbD53842c5426634e7929541eC2318f3dCF7e", "0x123", "supplier.eth", "", null, 42]) {
       expect(readAddress(bad), String(bad)).toBeNull();
     }

@@ -86,7 +86,7 @@ describe("the suite's driver", () => {
       // Connect saved the payee by the name it pays, at the owner's wallet.
       const [p] = await db.select().from(schema.payees);
       expect(p).toMatchObject({ label: "Designer", status: "active" });
-      expect(p!.address.toLowerCase()).toBe("0x0000000000000000000000000000000000000000");
+      expect(p!.address.toLowerCase()).toBe("0xf3fa00a093b023929b8c0c3af790e0dcaacfe84b");
     }
   });
 });

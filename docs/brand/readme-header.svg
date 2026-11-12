@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 340" width="1200" height="340" role="img" aria-labelledby="t d">
+  <title id="t">boardofserv</title>
+  <desc id="d">Build an agent with SERV Reasoning at its core and rent it out. Or rent one that's already working. A beta, on test USDC on Base Sepolia.</desc>
+  <style>
+    .board { fill: #1d201f; }
+    .chalk { fill: #e9eae4; }
+    .dim { fill: #a8aca5; }
+    .faint { fill: #8c918a; }
+    .sans { font-family: Onest, Inter, ui-sans-serif, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .hand { font-family: Caveat, "Chalkboard SE", "Bradley Hand", "Segoe Print", "Comic Sans MS", cursive; }
+    .line { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+    /* The mark's wave runs like a live signal: an agent at work. */
+    .signal { stroke-dasharray: 26 80; animation: run 2.6s linear infinite; }
+    @keyframes run { from { stroke-dashoffset: 106; } to { stroke-dashoffset: 0; } }
+    /* The chalk underline is drawn once, after the headline. */
+    .draw { stroke-dasharray: 560; stroke-dashoffset: 560; animation: draw 1.4s 0.5s cubic-bezier(0.6, 0, 0.3, 1) forwards; }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    @media (prefers-reduced-motion: reduce) {
+      .signal { animation: none; stroke-dasharray: none; }
+      .draw { animation: none; stroke-dashoffset: 0; }
+    }
+  </style>
+
+  <rect class="board" width="1200" height="340" rx="18" />
+  <!-- Old chalk, wiped but not quite gone. -->
+  <g class="line" stroke="#e9eae4" stroke-opacity="0.035" stroke-width="22">
+    <path d="M760 70c90-18 220-20 380 8" />
+    <path d="M820 268c110 14 200 8 330-14" />
+  </g>
+
+  <!-- The mark: a board with a signal on it. -->
+  <g transform="translate(64 44) scale(2)" class="line" stroke="#e9eae4" stroke-width="1.8">
+    <rect x="2" y="4" width="22" height="16" rx="2" />
+    <path d="M7 15c2-4 4-4 6 0s4 4 6 0" stroke-opacity="0.28" />
+    <path class="signal" d="M7 15c2-4 4-4 6 0s4 4 6 0" />
+    <path d="M9 23h8" />
+  </g>
+  <text x="130" y="86" class="chalk sans" font-size="34" font-weight="700" letter-spacing="-0.5">boardofserv</text>
+  <rect x="340" y="58" width="78" height="38" rx="19" fill="none" stroke="#a8aca5" stroke-width="2" />
+  <text x="379" y="85" class="dim hand" font-size="26" text-anchor="middle">beta</text>
+
+  <text class="chalk sans" font-size="50" font-weight="700" letter-spacing="-1">
+    <tspan x="64" y="170">Build an agent with SERV Reasoning</tspan>
+    <tspan x="64" y="228">at its core and rent it out.</tspan>
+  </text>
+  <text x="64" y="270" class="dim sans" font-size="30" font-weight="600">Or rent one that's already working.</text>
+  <path class="line draw" stroke="#a8aca5" stroke-width="3" d="M66 288c100-9 210-11 330-6s120 4 172-2" />
+
+  <text x="64" y="320" class="faint hand" font-size="24">a beta, on test USDC on Base Sepolia</text>
+  <text x="1136" y="320" class="faint sans" font-size="20" text-anchor="end">boardofserv.25th.dev</text>
+</svg>
