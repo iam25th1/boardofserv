@@ -1,0 +1,8 @@
+# gitleaks: the default rules, less what is public on purpose.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Contract and wallet addresses (20 bytes) are public. A private key is 32 bytes and is still caught."
+regexTarget = "secret"
+regexes = ['''^0x[0-9a-fA-F]{40}$''']

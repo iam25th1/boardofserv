@@ -234,7 +234,7 @@ const VAULT_ACCESS = "bosVaultAccessMarker6";
 // no log line either.
 const BOT_TOKEN = "123:bosBotTokenMarker42";
 const GOOGLE_SECRET = "bosGoogleSecretMarker43";
-const BRAVE_KEY = "bosBraveKeyMarker44";
+const BRAVE_KEY = "bosBraveKeyMarker44"; // gitleaks:allow (a made-up key the test plants)
 const DEV_HOOK_SECRET = "bosDevHookMarker45";
 
 // What one owner gave their copy of an agent: never shown to its maker.

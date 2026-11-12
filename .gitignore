@@ -6,6 +6,16 @@ out/
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa*
+id_ed25519*
+*-credentials.json
+credentials.json
+auth.json
 # Local tooling
 .DS_Store
 *.log
@@ -14,6 +24,25 @@ coverage/
 playwright-report/
 test-results/
 screenshots/
+*.trace.zip
+
+# Database dumps and backups
+*.dump
+*.sql.gz
+*.backup
+*.bak
+/backups/
+/pgdata/
+
+# Local agent and editor state, scratch notes
+.claude/
+CLAUDE.md
+AGENTS.md
+.vscode/
+.idea/
+/scratch/
+/notes/
+*.local.md
 
 *.tsbuildinfo
 
