@@ -21,7 +21,7 @@ let db: PgliteDatabase<typeof schema>;
 let renter: schema.User;
 let other: schema.User;
 let id: string;
-const ADDR = "0x0000000000000000000000000000000000000000";
+const ADDR = "0xF3fA00a093b023929b8C0C3Af790E0dCaAcFE84b";
 
 beforeAll(async () => {
   ({ client, db } = await testDb());
@@ -48,7 +48,7 @@ describe("the payees route", () => {
       expect((await call(bad)).status, JSON.stringify(bad)).toBe(400);
     }
     expect((await call({ action: "save", label: "<b>Mill</b>", address: ADDR })).status).toBe(400);
-    expect((await call({ action: "save", label: "Mill", address: ADDR.replace("dEe", "dee") })).status).toBe(400);
+    expect((await call({ action: "save", label: "Mill", address: ADDR.replace("fA0", "fa0") })).status).toBe(400);
     const saved = (await (await call({ action: "save", label: "Mill", address: ADDR.toLowerCase() })).json()) as { spending: SpendingDTO };
     expect(saved.spending.payees).toEqual([expect.objectContaining({ label: "Mill", address: ADDR, status: "active", paidBefore: false })]);
     const s = (await suggestPayee(testRuntime(db), id, renter.id, `0x${"7".repeat(40)}`, "Fabric restock"))!;

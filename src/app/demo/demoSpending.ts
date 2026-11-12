@@ -11,7 +11,7 @@ import { BETA_MONEY } from "@/lib/moneyWords";
 
 const at = (hoursAgo: number) => new Date(Date.UTC(2026, 10, 9, 12) - hoursAgo * 3_600_000).toISOString();
 const tx = (n: number) => `0x${n.toString(16).padStart(2, "0").repeat(32)}`;
-const WEFT = "0x0000000000000000000000000000000000000000";
+const WEFT = "0xF3fA00a093b023929b8C0C3Af790E0dCaAcFE84b";
 const LOOM = "0x8Ba1f109551bD432803012645Ac136ddd64DBA72";
 
 const receipt = (r: Partial<ReceiptDTO> & Pick<ReceiptDTO, "id" | "amount" | "status">): ReceiptDTO => ({
@@ -41,7 +41,7 @@ const RECEIPTS: ReceiptDTO[] = [
     txHash: tx(13),
     explorer: `https://sepolia.basescan.org/tx/${tx(13)}`,
     guard: { verdict: "ask", reason: "Twice its usual order." },
-    approval: { by: "renter", question: "Pay 12.00 USDC to Weftworks (0x0000...0000) from its allowance?", answer: "Yes", at: at(5.1) },
+    approval: { by: "renter", question: "Pay 12.00 USDC to Weftworks (0xF3fA...E84b) from its allowance?", answer: "Yes", at: at(5.1) },
     createdAt: at(5.2),
     settledAt: at(5),
   }),

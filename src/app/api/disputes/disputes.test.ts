@@ -30,7 +30,7 @@ beforeAll(async () => {
   const rt = testRuntime(db);
   const p = await publishedAgent(db, renter);
   const inst = await installed(rt, renter, p);
-  const payee = await savePayee(rt, renter, inst.id, { label: "Weftworks", address: "0x0000000000000000000000000000000000000000" });
+  const payee = await savePayee(rt, renter, inst.id, { label: "Weftworks", address: "0xF3fA00a093b023929b8C0C3Af790E0dCaAcFE84b" });
   const now = new Date();
   const [row] = await db
     .insert(schema.agentPayments)

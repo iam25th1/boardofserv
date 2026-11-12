@@ -5,8 +5,9 @@
 // Looks right, Connect with the answers it asks for, and Run it for me. The
 // recorded run (suite.test.ts) checks the same journeys offline.
 
-// The owner's own linked wallet: the payee the paying agents pay.
-export const OWNER_WALLET = "0x0000000000000000000000000000000000000000";
+// A made-up wallet nobody holds the key to: the payee the paying agents pay
+// (the suite's chain is a fake one, so nothing is ever sent to it).
+export const TEST_PAYEE = "0xF3fA00a093b023929b8C0C3Af790E0dCaAcFE84b";
 
 export interface SuiteRequest {
   id: string;
@@ -72,7 +73,7 @@ export const SUITE: SuiteRequest[] = [
     otherwise: "That's everything.",
     setup: [[/supplier|payee|pay/i, "Weftworks"]],
     tabs: ["Supplies"],
-    payee: { label: "Weftworks", address: OWNER_WALLET },
+    payee: { label: "Weftworks", address: TEST_PAYEE },
   },
   {
     id: "hackathon",
@@ -98,7 +99,7 @@ export const SUITE: SuiteRequest[] = [
     knows: [[/payee|designer|who|name/i, "Designer is already saved as my payee."], [/amount|how much/i, "0.5 USDC each time."], [/when|time|friday/i, "Every Friday morning at 9."]],
     otherwise: "That's everything.",
     setup: [[/payee|who|pay to|recipient/i, "Designer"], [/amount|how much|usdc/i, "0.5"]],
-    payee: { label: "Designer", address: OWNER_WALLET },
+    payee: { label: "Designer", address: TEST_PAYEE },
   },
 ];
 

@@ -835,7 +835,7 @@ describe("a helper's instructions stay on the server", () => {
       await hit("agent: installations", installationsRoute.GET(req("/api/installations")));
       await hit("agent: installation", installationRoute.GET(req(`/api/installations/${ipId}`), ip));
       await hit("spending: maya's allowance", installationAllowance.GET(req(`/api/installations/${ipId}/allowance`), ip));
-      await hit("spending: maya saves a payee", installationPayees.POST(req(`/api/installations/${ipId}/payees`, "POST", { action: "save", label: "Mill", address: "0x0000000000000000000000000000000000000000" }), ip));
+      await hit("spending: maya saves a payee", installationPayees.POST(req(`/api/installations/${ipId}/payees`, "POST", { action: "save", label: "Mill", address: "0xF3fA00a093b023929b8C0C3Af790E0dCaAcFE84b" }), ip));
       await hit("spending: maya tops up with nothing", installationAllowance.POST(req(`/api/installations/${ipId}/allowance`, "POST", { action: "topup", amount: "1", key: "secrecy-topup-1" }), ip));
       // A payment its agent made: its receipt (with what the safety check
       // said) and a dispute of it carry nothing secret.
