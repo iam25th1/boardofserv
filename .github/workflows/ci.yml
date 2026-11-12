@@ -3,11 +3,20 @@ name: gate
 on:
   push:
     branches: [main]
+  # pull_request, never pull_request_target: a fork's pull request runs
+  # with a read-only token and no secrets (this workflow uses none).
   pull_request:
+
+# The token can read the code and nothing else.
+permissions:
+  contents: read
 
 jobs:
   gate:
     runs-on: ubuntu-latest
+    # A hung step (an apt mirror that never answers) fails instead of
+    # holding the runner for six hours.
+    timeout-minutes: 45
     # A real Postgres for the payments worker lock test: an advisory lock
     # belongs to a database session, and PGlite has only one.
     services:
@@ -23,8 +32,11 @@ jobs:
           --health-timeout 5s
           --health-retries 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # Actions pinned to full commit SHAs (the tag they were, in the comment).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -48,7 +60,7 @@ jobs:
       - run: npm run test:e2e
         env:
           E2E_PROD: "1"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:
           name: e2e-results
