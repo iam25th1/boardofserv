@@ -26,3 +26,9 @@ export function honestReply(text: string, fallback = HONEST_REPLY): string {
     .trim();
   return kept && /[a-z]/i.test(kept) ? kept : fallback;
 }
+
+// A reply's whole sentences, for one that was cut off part way: everything
+// up to the last sentence that ends, never half of one.
+export function wholeSentences(text: string): string {
+  return /^[\s\S]*[.!?](?=["')\]]?(?:\s|$))/.exec(text.trim())?.[0]?.trim() ?? "";
+}

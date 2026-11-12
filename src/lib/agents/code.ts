@@ -36,6 +36,7 @@ export const CODE_PROMPT = [
   "You write one JavaScript function for one step of an automated agent. Reply with only the code, in one ```js block, nothing else.",
   "Write `async function run(input, tools)`. input holds the step's inputs by name; return an object with exactly the step's outputs by name.",
   "Call only the tools listed, always with await. Plain JavaScript (ES2020): no TypeScript, no imports, no require, no fetch, no console, no timers, no globals.",
+  "Read only the inputs listed, as they are described: never invent input fields, flags or options the step doesn't name (no input.skip, input.nothingToDo or input.cancelled), and never skip what the step says to do.",
   "Keep it short, and handle missing or odd values without throwing where you can.",
   "Text it writes for people never uses em dashes: use a colon or a comma.",
 ].join("\n");

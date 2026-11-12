@@ -1,11 +1,12 @@
 "use client";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui";
 import { ListingPanel, type ListingBody } from "@/components/market/ListingPanel";
 import { animatePop } from "@/lib/motion";
 import { useStaggerIn } from "@/lib/useStaggerIn";
 import { setupShapeOf } from "@/lib/agents/definition";
+import { describeTriggers } from "@/lib/agents/schedule";
 import { asksBefore, connectsTo, plain, stepDepths, stepLine, stepsInOrder } from "@/lib/agents/plainView";
 import type { AgentBuilderDTO, AgentSummaryDTO } from "@/lib/types";
 import { SetupFlow, type SetupApi } from "./SetupFlow";
@@ -44,6 +45,10 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
   const [busy, setBusy] = useState<"test" | "fix" | "publish" | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  // The maker's time zone, from their browser once it is open: what their
+  // own runs go by (Connect sends it).
+  const [zone, setZone] = useState<string | null>(null);
+  useEffect(() => setZone(browserZone()), []);
   const stepsRef = useStaggerIn<HTMLOListElement>(Boolean(d));
   const storyRef = useRef<HTMLParagraphElement>(null);
   const story = agent.test?.story ?? null;
@@ -106,6 +111,13 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
       <section className={styles.section} aria-labelledby="does-h">
         <h2 id="does-h">What it does</h2>
         <p className={styles.does}>{plain(d.job.does)}</p>
+      </section>
+
+      <section className={styles.section} aria-labelledby="when-h">
+        <h2 id="when-h">When it runs</h2>
+        <p>
+          {describeTriggers(d).join(". ")}, in your time zone{zone ? ` (${zone})` : ""}.
+        </p>
       </section>
 
       <section className={styles.section} aria-labelledby="steps-h">
@@ -205,6 +217,15 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
 }
 
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
+
+// The maker's own time zone, from their browser: what their agents run by.
+function browserZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
 
 // What is wrong, in one sentence, and the one button that fixes it.
 function Problem({ text, busy, onFix }: { text: string; busy: boolean; onFix: () => void }) {

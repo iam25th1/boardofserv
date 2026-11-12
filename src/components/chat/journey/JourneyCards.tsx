@@ -490,7 +490,8 @@ function ConnectCard({ card, latest, agent, conversationId, api }: Props) {
       rules: Object.fromEntries((setup?.rules ?? []).map((r) => [r.key, r.value])),
       timezone: browserZone(),
       schedule: null,
-      payee: setup?.spends ? { label: "", address: "" } : null,
+      // Who it pays: by the name the maker gave while describing it.
+      payee: setup?.spends ? { label: (setup.payee ? setup.given[setup.payee] : "") ?? "", address: "" } : null,
     }),
     [setup],
   );
@@ -540,7 +541,8 @@ function ConnectCard({ card, latest, agent, conversationId, api }: Props) {
       </Frame>
     );
   }
-  const plainSettings = setup!.settings.filter((s) => s.type !== "sheet");
+  // The payee's name is asked with who it pays, not on its own.
+  const plainSettings = setup!.settings.filter((s) => s.type !== "sheet" && s.key !== setup!.payee);
   const sheets = setup!.settings.filter((s) => s.type === "sheet");
   const linked = (p: "telegram" | "google") => Boolean(conn?.connections.some((c) => c.provider === p));
   const set = (k: string, v: unknown) => setAnswers((a) => ({ ...a, settings: { ...a.settings, [k]: v } }));
@@ -551,7 +553,7 @@ function ConnectCard({ card, latest, agent, conversationId, api }: Props) {
     act.run(async () => {
       setErrors({});
       try {
-        await api.connect(answers);
+        await api.connect(setup!.payee && answers.payee ? { ...answers, settings: { ...answers.settings, [setup!.payee]: answers.payee.label } } : answers);
         keepDraft(key, null);
       } catch (e) {
         if (e instanceof ConnectProblem) setErrors(e.errors);
@@ -642,7 +644,7 @@ function ConnectCard({ card, latest, agent, conversationId, api }: Props) {
             <TextInput value={answers.payee?.label ?? ""} onChange={(e) => setAnswers((a) => ({ ...a, payee: { label: e.target.value, address: a.payee?.address ?? "" } }))} />
           </label>
           <label className={styles.field}>
-            <span className={styles.fieldLabel}>Their Base address</span>
+            <span className={styles.fieldLabel}>Their wallet address</span>
             <TextInput value={answers.payee?.address ?? ""} placeholder="0x..." onChange={(e) => setAnswers((a) => ({ ...a, payee: { label: a.payee?.label ?? "", address: e.target.value.trim() } }))} aria-invalid={Boolean(errors.payee)} />
           </label>
           {err("payee")}

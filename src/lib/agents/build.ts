@@ -255,7 +255,7 @@ async function testDraft(versionId: string, ctx: BuildContext, settle: Settle, o
     const result = tested.result;
     await updateDraft(versionId, { testResult: result, bench: tested.bench, ...(definition ? { definition } : {}) });
     if (result.status === "passed") return { kind: "passed", result };
-    const dx = testDiagnosis(definition ?? now.definition, result, tested.events, now.code);
+    const dx = testDiagnosis(definition ?? now.definition, result, result.problems[0]?.check === "said_no" && tested.noRun ? tested.noRun : tested.events, now.code);
     await diagnosed(versionId, dx);
     return { kind: "failed", diagnosis: dx };
   } catch (err) {

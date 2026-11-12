@@ -233,8 +233,9 @@ export function contextFor(history: ChatMessage[], limit: number): ChatMessage[]
 // empty: no content at all. unusable: something, but not what was asked
 // for (a JSON call's answer that isn't JSON: words, a refusal, or JSON cut
 // off). Both are tried again; both count as an empty answer in the log.
+// filtered: the provider's own content filter cut the reply off part way.
 export type Failure =
-  | { provider: Provider["id"]; kind: "network" | "timeout" | "stream" | "empty" | "unusable" }
+  | { provider: Provider["id"]; kind: "network" | "timeout" | "stream" | "empty" | "unusable" | "filtered" }
   | { provider: Provider["id"]; kind: "status"; status: number };
 
 // One try at one provider, for the log (modelAttempts.ts).
@@ -332,7 +333,8 @@ export function requestBody(p: Provider, messages: ChatMessage[], maxTokens: num
 }
 
 interface StreamChunk {
-  choices?: { delta?: { content?: string | null } }[];
+  id?: string;
+  choices?: { delta?: { content?: string | null }; finish_reason?: string | null }[];
   usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
   error?: unknown;
 }
@@ -377,6 +379,11 @@ async function* attempt(
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buf = "";
+    // SERV's gateway can cut a reply off with its content filter: it sends
+    // a chunk of its own (another id) with a canned line ("I can't share
+    // that.") and finish_reason "content_filter". None of it is the reply.
+    let replyId: string | null = null;
+    let filtered = false;
     for (;;) {
       let chunk: ReadableStreamReadResult<Uint8Array>;
       try {
@@ -384,7 +391,10 @@ async function* attempt(
       } catch {
         throw new ProviderFailure(timedOut ? "timeout" : "network");
       }
-      if (chunk.done) return usage;
+      if (chunk.done) {
+        if (filtered) throw new ProviderFailure("filtered");
+        return usage;
+      }
       arm();
       buf += decoder.decode(chunk.value, { stream: true });
       const lines = buf.split("\n");
@@ -393,7 +403,10 @@ async function* attempt(
         const t = line.trim();
         if (!t.startsWith("data:")) continue;
         const payload = t.slice(5).trim();
-        if (payload === "[DONE]") return usage;
+        if (payload === "[DONE]") {
+          if (filtered) throw new ProviderFailure("filtered");
+          return usage;
+        }
         let json: StreamChunk;
         try {
           json = JSON.parse(payload) as StreamChunk;
@@ -401,6 +414,10 @@ async function* attempt(
           continue;
         }
         if (json.error) throw new ProviderFailure("stream");
+        if (json.choices?.some((c) => c.finish_reason === "content_filter")) filtered = true;
+        if (json.id && replyId === null) replyId = json.id;
+        else if (json.id && json.id !== replyId) filtered = true;
+        if (filtered) continue;
         if (json.usage) {
           usage.promptTokens = json.usage.prompt_tokens ?? usage.promptTokens;
           usage.completionTokens = json.usage.completion_tokens ?? usage.completionTokens;
@@ -423,7 +440,7 @@ function providerName(id: Provider["id"], first: boolean): string {
   return first ? "The backup model" : "the backup model";
 }
 
-const KIND_TEXT = { network: "could not be reached", stream: "sent a broken reply", empty: "sent an empty reply", unusable: "sent an answer that couldn't be used" };
+const KIND_TEXT = { network: "could not be reached", stream: "sent a broken reply", empty: "sent an empty reply", unusable: "sent an answer that couldn't be used", filtered: "held part of its reply back" };
 
 function failureText(f: Failure, timeoutMs: number): string {
   if (f.kind === "timeout") return `did not answer within ${Math.round(timeoutMs / 1000)} seconds`;

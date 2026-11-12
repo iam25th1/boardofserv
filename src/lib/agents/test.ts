@@ -43,6 +43,8 @@ export interface Tested {
   plain?: Record<string, string>;
   events: RunEvent[];
   end: Extract<RunEvent, { type: "end" }>;
+  // The run where the owner said no to everything it asked, when it asks.
+  noRun?: RunEvent[];
 }
 
 // The sample a version's last test was made on, when it still fits.
@@ -166,6 +168,7 @@ export function checksFor(d: AgentDefinition): CheckId[] {
   if (many && sendsAfter) out.push("summary");
   if (many && tools.has("sheets.read") && tools.has("sheets.write")) out.push("write_back");
   if (keepsPlace(d)) out.push("second_run");
+  if (tools.has("telegram.ask") || tools.has("wallet.pay")) out.push("said_no");
   return out;
 }
 
@@ -252,7 +255,23 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
     if ((many && judged(d, again) > 0) || twice || rewritten) problems.push({ step: null, text: `Run again, it would go through the same ${items.plural} a second time: it should only take new ones.`, check: "second_run" });
   }
 
-  return told({ ...first, result: { ...first.result, status: problems.length ? "failed" : "passed", problems } });
+  // Asked, or paying: run again where the owner says no to every question
+  // and every payment. After the first no, it pays nothing and sends or
+  // writes nothing more.
+  let noRun: RunEvent[] | undefined;
+  if (checks.has("said_no")) {
+    noRun = [];
+    const no = { ...first.bench, telegram: { answers: first.bench.telegram.answers.map(() => "No").concat(["No", "No", "No"]) }, approve: "no" as const };
+    await runAgent({ definition: d, code: v.code, bench: no, dryRun: true, signal: o.signal, onEvent: (e) => noRun!.push(e) });
+    const said = noRun.findIndex((e) => e.type === "tool" && ((e.tool === "telegram.ask" && /^\s*no\b/i.test(String((e.result as { answer?: unknown } | null)?.answer ?? ""))) || (e.tool === "wallet.pay" && Boolean(e.error))));
+    const after = said < 0 ? undefined : noRun.slice(said + 1).find((e): e is ToolEvent => e.type === "tool" && !e.error && ["wallet.pay", "telegram.send", "sheets.write", "sheets.update"].includes(e.tool));
+    if (after) problems.push({ step: after.stepId, text: `When you say no, it still ${TOOL_DID[after.tool] ?? "goes on"}.`, check: "said_no" });
+  }
+
+  return told({ ...first, noRun, result: { ...first.result, status: problems.length ? "failed" : "passed", problems } });
 }
+
+// What a tool did, in words that follow "it still".
+const TOOL_DID: Record<string, string> = { "wallet.pay": "pays", "telegram.send": "messages you", "sheets.write": "adds to your sheet", "sheets.update": "writes into your sheet" };
 
 const lowerFirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);

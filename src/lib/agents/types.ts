@@ -159,6 +159,12 @@ export interface BenchData {
   wallet: { balanceUsdc: number };
   // Decision step id to the outcome a dry run takes.
   decisions: Record<string, string>;
+  // The payees it may pay, by name or address, as a renter saves them;
+  // unset, it may pay anyone (an older sample).
+  payees?: string[];
+  // How the owner answers a payment's own approval: yes unless "no" (the
+  // self test's run where the owner says no).
+  approve?: "yes" | "no";
 }
 
 export function emptyBench(): BenchData {

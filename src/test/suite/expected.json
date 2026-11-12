@@ -60,12 +60,10 @@
       "1. Fetch all rows from the supply sheet and identify items where the current quantity is below the minimum quantity threshold.",
       "2. For each low-stock item, calculate how many units need to be ordered to reach the minimum and multiply by the unit price to get the cost.",
       "3. Compose a message listing each item to restock with its quantity and cost, then sum the total amount due.",
-      "4. Send the summary message to the owner via messaging and ask for yes or no.",
-      "5. Check approval response: owner approved restock or owner rejected restock",
-      "6. Structure a payment record with the supplier name, total amount in currency, and a description of what is being purchased.",
-      "7. Execute the payment to the supplier for the approved restock order."
+      "4. Structure a payment record with the supplier name, total amount in currency, and a description of what is being purchased.",
+      "5. Execute the payment to the supplier for the approved restock order."
     ],
-    "story": "It read 3 rows of your sheet, noted where it got to, for next time, asked you on Telegram \"Supplies are below minimum, but no items were found to restock. Total cost: 0.00 Approv...\" (you answered \"Yes\") and found \"owner approved restock\", so there was nothing more to do."
+    "story": "It read 3 rows of your sheet and noted where it got to, for next time."
   },
   {
     "id": "hackathon",

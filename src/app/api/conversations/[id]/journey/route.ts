@@ -54,12 +54,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const card = (await cardsIn(convo.id)).filter((m) => m.card?.stage === "connect").at(-1);
   if (!card?.card) return Response.json({ error: "Try it first: you connect it once its test passes." }, { status: 409 });
 
-  const a = parsed.data.answers;
+  const given = parsed.data.answers;
+  // The payee's name is the answer to the setting that names who it pays.
+  const payee = setupShapeOf(d).payee;
+  const a = payee && given.payee ? { ...given, settings: { ...given.settings, [payee]: given.payee.label } } : given;
   const checked = checkAnswers(setupShapeOf(d), { settings: a.settings, rules: a.rules, timezone: a.timezone, schedule: a.schedule ?? null });
   const errors: Record<string, string> = checked.ok ? {} : { ...checked.errors };
   const pays = d.actions.some(spends);
-  if (pays && !a.payee) errors.payee = "Say who it pays: a name and their Base address.";
-  if (a.payee && !/^0x[0-9a-fA-F]{40}$/.test(a.payee.address)) errors.payee = "That isn't a Base address: it starts 0x and has 40 more letters and digits.";
+  if (pays && !a.payee) errors.payee = "Say who it pays: a name and their wallet address.";
+  if (a.payee && !/^0x[0-9a-fA-F]{40}$/.test(a.payee.address)) errors.payee = "That isn't a wallet address: it starts 0x and has 40 more letters and digits.";
   const rt = serverRuntime();
   const needs = connectionsNeeded(d);
   if (needs.telegram && rt.services.telegramToken && !(await hasConnection(rt, user.id, "telegram"))) errors.telegram = "Link your Telegram first.";

@@ -246,6 +246,31 @@ describe("the journey in the chat", () => {
     expect(c.messages.at(-1)!.content).toContain("That changes something you set: if it's right, press Looks right; if not, say what it should be.");
   });
 
+  it("keeps Run it for me and Put it on the board apart: neither does the other", async () => {
+    const cid = await described();
+    const id = await madeIt(cid);
+    await build.POST(json(`/api/agents/${id}/build`, "POST"), at(id));
+    await jobFor((await draftOf(id))!.id);
+    await keep(serverRuntime(), maker.id, "telegram", "@maker", { chatId: 42, userId: 42 }).catch(() => undefined);
+    const ok = await journeyRoute.POST(json(`/api/conversations/${cid}/journey`, "POST", { action: "connect", answers: { settings: { product_url: "https://shop.example/kettle", target_price: "50" }, rules: {}, timezone: "Europe/London" } }), at(cid));
+    expect(ok.status).toBe(200);
+    const installs = async () => (await db.select().from(schema.agentInstallations).where(eq(schema.agentInstallations.agentId, id))).length;
+    const listed = async () => (await db.select().from(schema.agentListings).where(eq(schema.agentListings.agentId, id))).filter((l) => l.listed).length;
+    // On the board: listed, and not running for the maker.
+    const board = await golive.POST(json(`/api/agents/${id}/golive`, "POST", { how: "board", weeklyPrice: "0", description: "Watches a price for you." }), at(id));
+    expect(board.status, await board.clone().text()).toBe(200);
+    expect(await listed()).toBe(1);
+    expect(await installs()).toBe(0);
+    // Running for the maker: an installation in their time zone, and the
+    // listing as it was.
+    const ran = await golive.POST(json(`/api/agents/${id}/golive`, "POST", { how: "run" }), at(id));
+    expect(ran.status).toBe(200);
+    expect(await installs()).toBe(1);
+    expect(await listed()).toBe(1);
+    const [inst] = await db.select().from(schema.agentInstallations).where(eq(schema.agentInstallations.agentId, id));
+    expect(inst!.timezone).toBe("Europe/London");
+  });
+
   it("never makes it before the job is clear, or for anyone else", async () => {
     const [convo] = await db.insert(schema.conversations).values({ userId: maker.id, title: "Half" }).returning();
     await db.insert(schema.agentSketches).values({ conversationId: convo!.id, name: "Half", kind: "agent", wakes: "every day" });

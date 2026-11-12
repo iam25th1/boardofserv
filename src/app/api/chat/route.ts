@@ -16,7 +16,7 @@ import { errorText } from "@/lib/db/errors";
 import { recordAttempts } from "@/lib/modelAttempts";
 import { agentForConversation, currentVersion } from "@/lib/agents/store";
 import { answer, changeSteps, offerMakeIt } from "@/lib/agents/journey";
-import { honestReply } from "@/lib/replyClaims";
+import { honestReply, wholeSentences } from "@/lib/replyClaims";
 import { describedEnough } from "@/lib/sketchFields";
 
 export const runtime = "nodejs";
@@ -230,14 +230,20 @@ export async function POST(req: Request) {
       const { rest } = split.finish();
       if (result?.cutOff) {
         show(dashes.finish());
-        // Cut off inside the block means the reply itself was complete.
-        if (!split.inBlock) show(CUT_OFF_SUFFIX);
+        // Cut off inside the block means the reply itself was complete. A
+        // held reply never shows a cut: it ends on its whole sentences.
+        if (!split.inBlock && !held) show(CUT_OFF_SUFFIX);
       } else {
         show(dashes.push(rest) + dashes.finish());
       }
 
-      if (held && full.trim()) {
-        full = honestReply(full, planned ? "The cards below show where it is and what you can do next." : describedEnough(sketch) ? "I have what I need: press Make it below to see its steps." : "Tell me a little more about the job.");
+      if (held && (full.trim() || result?.cutOff)) {
+        const fallback = planned ? "The cards below show where it is and what you can do next." : describedEnough(sketch) ? "I have what I need: press Make it below to see its steps." : "Tell me a little more about the job.";
+        // Cut off part way (SERV's content filter, a broken stream): only
+        // its whole sentences, then what is true now. Never half a sentence.
+        const whole = result?.cutOff ? wholeSentences(full) : full;
+        full = honestReply(whole, fallback);
+        if (result?.cutOff && full !== fallback) full = `${full} ${fallback}`;
         send("delta", { text: full });
       }
       if (!full.trim()) {

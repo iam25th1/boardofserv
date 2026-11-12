@@ -274,6 +274,8 @@ export class MockTools {
       }
       case "wallet.pay": {
         const a = args as z.infer<(typeof TOOL_ARGS)["wallet.pay"]>;
+        // Only saved payees, by name or address, as for real.
+        if (d.payees && !d.payees.some((p) => p.trim().toLowerCase() === a.to.trim().toLowerCase())) throw new ToolError(tool, `"${a.to.slice(0, 60)}" isn't one of this renter's saved payees, so nothing was paid. It can only pay saved payees.`);
         if (a.amountUsdc > d.wallet.balanceUsdc) throw new ToolError(tool, `Not enough USDC: ${d.wallet.balanceUsdc} left, ${a.amountUsdc} asked.`);
         d.wallet.balanceUsdc = Math.round((d.wallet.balanceUsdc - a.amountUsdc) * 1e6) / 1e6;
         this.paid += 1;
@@ -306,4 +308,6 @@ export const BenchSchema = z.object({
   memory: z.record(z.string(), z.unknown()),
   wallet: z.object({ balanceUsdc: z.number().min(0).max(1_000_000) }),
   decisions: z.record(z.string(), z.string().max(40)),
+  payees: z.array(z.string().max(120)).max(20).optional(),
+  approve: z.enum(["yes", "no"]).optional(),
 }).refine((b) => json.safeParse(b).success, "The sample data is too large.");

@@ -255,15 +255,25 @@ export function connectionsNeeded(d: AgentDefinition): { telegram: boolean; goog
   };
 }
 
+// The setting that names who it pays, for an agent that pays a saved payee
+// by name: its answer is the payee's name, and the payee is saved under it.
+const PAYEE = /\bpayees?\b|\bpay(?:s|ing)? (?:to|whom)\b|\brecipient\b|\bwho (?:it |to )?pays?\b/i;
+export function payeeSetting(d: Pick<AgentDefinition, "settings" | "actions">): AgentDefinition["settings"][number] | null {
+  if (!d.actions.some((a) => a.tool === "wallet.pay")) return null;
+  return d.settings.find((s) => (s.type === "text" || s.type === "choice") && PAYEE.test(`${s.key.replace(/_/g, " ")} ${s.label}`)) ?? null;
+}
+
 // What the guided setup needs of an agent, and no more: its name, the
 // questions it asks, its rules, its schedule and the connections it needs.
 // A renter's setup gets this, never the definition (its steps hold the
 // code steps' descriptions and the decisions' prompts).
-export type SetupShape = Pick<AgentDefinition, "name" | "settings" | "rules" | "triggers"> & { needs: { telegram: boolean; google: boolean }; spends?: boolean };
+// payee: the setting whose answer is the name of the payee it pays, when
+// it pays one by name (asked with who it pays, not on its own).
+export type SetupShape = Pick<AgentDefinition, "name" | "settings" | "rules" | "triggers"> & { needs: { telegram: boolean; google: boolean }; spends?: boolean; payee?: string | null };
 
 export function setupShapeOf(d: AgentDefinition): SetupShape {
   const settings = d.settings.map(({ given: _given, ...rest }) => rest);
-  return { name: d.name, settings, rules: d.rules, triggers: d.triggers.filter((t) => t.kind === "schedule"), needs: connectionsNeeded(d), spends: d.actions.some(spends) };
+  return { name: d.name, settings, rules: d.rules, triggers: d.triggers.filter((t) => t.kind === "schedule"), needs: connectionsNeeded(d), spends: d.actions.some(spends), payee: payeeSetting(d)?.key ?? null };
 }
 
 // The answers the maker gave while describing the job, by setting: where

@@ -50,6 +50,9 @@ describe("the plain agent page", () => {
     const { container } = render(<AgentSimple data={data()} api={noApi} onData={() => {}} />);
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Hackathon Submission Checker");
     expect(screen.getByText("Not tried yet")).toBeInTheDocument();
+    // When it runs, in the maker's own time zone from their browser.
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    expect(screen.getByRole("heading", { name: "When it runs" }).parentElement).toHaveTextContent(`Runs every 15 minutes, in your time zone (${zone}).`);
     const steps = screen.getByRole("heading", { name: "Its steps" }).parentElement!.querySelectorAll("li");
     expect([...steps].map((li) => li.textContent)).toEqual([
       "1Read the submissions sheet and pick out the ones not checked yet",

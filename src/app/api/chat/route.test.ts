@@ -383,6 +383,42 @@ describe("an agent with steps", () => {
   });
 });
 
+describe("a reply SERV's content filter cuts off", () => {
+  // As recorded live: the reply streams, then the gateway's own chunk (an
+  // id of its own) says "I can't share that." and ends with content_filter.
+  function filtered(chunks: string[]): Response {
+    const enc = new TextEncoder();
+    const frame = (d: unknown) => enc.encode(`data: ${JSON.stringify(d)}\n\n`);
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(c) {
+          for (const content of chunks) c.enqueue(frame({ id: "msg_011", choices: [{ index: 0, delta: { content } }] }));
+          c.enqueue(frame({ id: "chatcmpl-933", choices: [{ index: 0, delta: { role: "assistant", content: "I can't share that." }, finish_reason: null }] }));
+          c.enqueue(frame({ id: "chatcmpl-933", choices: [{ index: 0, delta: {}, finish_reason: "content_filter" }] }));
+          c.enqueue(enc.encode("data: [DONE]\n\n"));
+          c.close();
+        },
+      }),
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
+  }
+
+  it("never breaks off mid-sentence or shows the filter's line: it ends on whole sentences and what is true now", async () => {
+    const real = globalThis.fetch;
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as Body;
+      return body.stream ? filtered(["Your job is clear. ", "You need an agent that runs every 15 ", "minutes,", " checks Google Sheets"]) : real(url, init);
+    });
+    nextSketch = extraction({ name: "Checker", kind: "agent", wakes: "every 15 minutes", looks: "my sheet", handles: "judges each submission" });
+    const t = await turn("Every 15 minutes, check my sheet and judge each new submission.");
+    vi.stubGlobal("fetch", real);
+    expect(t.shown).toBe("Your job is clear. I have what I need: press Make it below to see its steps.");
+    expect(t.shown).not.toContain("can't share");
+    const saved = await state.db.select().from(schema.messages).where(eq(schema.messages.conversationId, t.conversationId)).orderBy(schema.messages.createdAt);
+    expect(saved.find((m) => m.role === "assistant" && !m.card)!.content).toBe(t.shown);
+  });
+});
+
 describe("a question from the fixer", () => {
   it("takes what the maker types as its answer, with no model writing the reply, and the build goes on with it", async () => {
     const { hackathonDefinition } = await import("@/test/hackathonFixture");
