@@ -556,11 +556,12 @@ earlier one keeps what it showed when the journey moved on.
    "Checking step 3") with a chalk tick drawn once it is done, and "Built
    and checked" at the end.
 4. Try it: the self test runs by itself and tells its story. A failure
-   shows its one plain sentence and a box prefilled with it; Fix it
-   (`journey: "fix"`) runs again only what it needs: a step on hold is
-   written again; anything else changes the steps and builds and tries
-   them again on its own, unless the change touches what the maker set,
-   which waits for them to look. Nothing is fixed without the maker.
+   heals itself (see Healing a build below): the card says what it is
+   doing in calm plain lines ("Found a problem in step 6 while trying it.
+   Fixing it.", then "Fixed."), and the maker reads no error, no code and
+   types no fix. When only the maker can say, one plain question comes in
+   the chat with answers to tap; when it gives up, one sentence and two
+   choices: Try a simpler version, or Describe the job differently.
 5. Connect: Telegram, the sheets it works on, the answers it asks for
    (prefilled from what the maker said while describing it) and who it
    pays, as small cards using the guided setup's pieces; never a token, key
@@ -614,7 +615,8 @@ outline (what wakes it, its setup, which steps there are and of which kind)
 or the details of the steps it names, which go back to the outline when
 they fail twice; SERV is asked to put a plan right at most twice
 (`MAX_REPAIRS`), then planning gives up with the reasons in plain words. A
-plan takes two to four calls, and at most ten. Mistakes with only one
+plan takes two to four calls, and at most ten for a small agent; a bigger
+one gets more, two for every six steps (`planCallCap`). Mistakes with only one
 meaning are repaired on the way in (`src/lib/agents/planRepairs.ts`) rather
 than sent back: a step that lists a setting, rule or memory key as an input
 (or names one in its words) reads the bag it lives in; a loop over one value
@@ -645,38 +647,102 @@ that apply to it run: "its summary covers every item" for an agent that
 goes through a list and sends a message after it, "it doesn't add its
 results as new rows of the tab it reads" for one that goes through a tab's
 rows, and "a second run leaves what it did alone" for one that keeps its
-place. Its story says what it did, in order, and a pass says so first. Built
-from the agent's page, a failed self test runs Fix this once on its own with
-its sentence; in the chat it goes to the maker instead. Every model
+place, and "told no, it pays and sends nothing more" for one that asks or
+pays, run a second time where the owner says no to everything. The sample
+fits the plan: a yes to every question, the payee saved by the name the
+plan pays and allowance enough, rows dated today, the columns its steps
+name. Its story says what it did, in order, and a pass says so first. A
+failed self test heals itself (Healing a build, below). Every model
 call writes a `reply_usage` row (`agent_plan`, `agent_code`, `agent_review`,
 `agent_decision`), so building counts towards the day's spend, and planning
 is refused like a chat turn when the day's limit is reached or the account
 isn't let in yet.
 
+### Healing a build
+
+A build heals itself (`src/lib/agents/build.ts`). Every failure (a plan
+that doesn't check out, a step's code that doesn't pass its check, a self
+test that fails, the review before going live holding it, a setup that
+didn't take) is a diagnosis (`src/lib/agents/diagnosis.ts`): the stage, the
+step, what happened in the system's own words, what was expected, and the
+evidence (the plan, the step's brief, its code, the review's reason, the
+check that failed, the test run line by line and its sample), kept on the
+version (`agent_versions.heal`, migration 0056).
+
+SERV Reasoning reads it (`src/lib/agents/fixer.ts`, a strict schema with no
+nullable or range keywords) and says what was wrong, as one of four:
+
+- code: it writes the step's brief again; Dolphin writes the code from it
+  with the review's reason beside it, and it is reviewed again;
+- plan: it names the steps to remove, merge or add; only those are planned
+  again, and only changed steps rebuilt;
+- test: the sample is made again with what it lacked, by the platform's
+  rules (`fitSample`), and the checks stay the platform's (`checksFor`);
+- unclear: one plain question goes into the chat with two to four answers
+  to tap, and the build goes on with the answer, tapped or typed.
+
+It goes round until the build passes, or its rounds (3,
+`AGENT_HEAL_ROUNDS`) or its model budget (grows with the agent's size,
+`AGENT_BUILD_COST_USD`) run out; then one plain sentence says what it
+couldn't do. Before any repair to a plan is kept, its safety-relevant parts
+are compared before and after (`src/lib/agents/guarded.ts`), and a repair
+that weakens them is turned down: a send or write that waited for the
+owner's yes still waits, what spends still counts against the limits it
+asks over (no higher), the maker's rules, schedule and given answers stay
+(only their own answer to a question changes them), the run's limits are
+never raised, and the check a test failed must still apply. Code is only
+ever approved through the review, and only approved code is tried.
+
+Each repair that fixed a build is kept as a lesson
+(`src/lib/agents/lessons.ts`, `agent_lessons`, migration 0057): its rule,
+what went wrong and what fixed it, counted. A kind of mistake put right at
+least twice, in more than one maker's builds, goes to the planner, Dolphin
+and the fixer as a rule. The admin's Lessons page (`/app/admin/lessons`)
+lists them by how often. The Details view of an agent keeps every
+diagnosis and repair (How it healed itself).
+
 ### The regression suite
 
-Six real requests in a maker's own words (`src/test/suite/requests.ts`): a
-morning line on Telegram, the day's sales totals from a sheet, sorting
+Eight real requests in a maker's own words (`src/test/suite/requests.ts`):
+a morning line on Telegram, the day's sales totals from a sheet, sorting
 enquiries in a sheet, the price watcher, restocking supplies with a
-payment, and the hackathon submission checker. The live suite
-(`src/test/suite-live.test.ts`, off unless `RUN_SUITE_LIVE=1` with
-`SERV_API_KEY` and `DOLPHIN_API_KEY`) takes each one through the journey in
-the chat, through the real routes (the chat turns, Make it, Looks right,
-the build and its self test), on an in-memory database, and prints a pass
-or fail table with the SERV and Dolphin calls each used; every call is
-counted against `LIVE_SERV_BUDGET` and `LIVE_DOLPHIN_BUDGET` (and
-`AGENT_SERV_CAP` and `AGENT_DOLPHIN_CAP` per request), `SUITE_REPORT` keeps
-the full report and `SUITE_RECORD` every answer. `SUITE_REPLAY` answers
-from a recording instead (`SUITE_REPLAY_ONLY` for some purposes only, the
-rest live). The recorded answers of the last live run
-(`src/test/suite/recorded.json`) let CI check the same plans offline
-(`src/test/suite.test.ts`), each request ending where it ends on them
-(`src/test/suite/expected.json`, rewritten with `SUITE_UPDATE=1`).
+payment, the hackathon submission checker, an ETH price alert from a
+public price API, and a weekly 0.5 USDC payment to a saved payee. The live
+suite (`src/test/suite-live.test.ts`, off unless `RUN_SUITE_LIVE=1` with
+`SERV_API_KEY` and `DOLPHIN_API_KEY`) takes each one through the whole
+journey in the chat as a maker would, through the real routes: the first
+message, then only answers to what the chat asks (picked from what the
+maker knows), Make it, Looks right, any question the fixer asks (tapped),
+Connect with the answers it asks for, and Run it for me. Nothing is ever
+typed to fix it. It records, for each, whether it went live, the stage it
+reached, the repair rounds and what each was, the questions asked, and the
+SERV and Dolphin calls, counted against `LIVE_SERV_BUDGET` and
+`LIVE_DOLPHIN_BUDGET`; each request's own cap grows with the size of its
+plan. `SUITE_REPORT` keeps the full report and `SUITE_RECORD` every answer;
+`SUITE_REPLAY` answers from a recording instead (`SUITE_REPLAY_ONLY` for
+some purposes only, `SUITE_REPLAY_THEN_LIVE=1` to go live where a recording
+runs out); a run partly replayed records every answer it was given. The
+last live runs' answers
+(`src/test/suite/recorded.json`) let CI replay the same journeys offline
+(`src/test/suite.test.ts`), each ending where it ends on them
+(`src/test/suite/expected.json`, rewritten with `SUITE_UPDATE=1`), and
+`src/test/suiteDriver.test.ts` checks the driver on stand-in models.
 
 The browser tests (`e2e/journey.spec.ts`) take the price watcher through
 the whole journey with every call answered by `e2e/journey.ts`: the stages
-in order, Change something, a failed test with its fix box, Run it for
-me, and Back from the agent's page to the same chat, where it was.
+in order, Change something, a failed test that heals itself, a question
+from the fixer answered with a tap, giving up with its two choices, the
+Details history, Run it for me, and Back from the agent's page to the same
+chat. `SHOTS=dir` saves their screens.
+
+`scripts/live-designer-payment.ts` runs the weekly payment agent the live
+suite built (`AGENT_FILE`, its report) as a real job on an in-memory
+database: the payment's own approval (answered yes), SERV's guard, the
+allowance and the treasury's transfer of 0.5 test USDC on Base Sepolia to
+the payee saved as Designer. By default it signs the transfer and stops;
+`SEND=1` sends it. A transfer this database makes isn't in the site's own,
+so the site's reconciliation raises an alert and pauses agent payments
+until an admin resumes them.
 
 ### Code writing and review
 
@@ -703,8 +769,11 @@ Once a plan is saved, each code step without approved code is written
    it touch only the declared tools, does it do anything risky.
 
 A failed check or a rejection goes back to Dolphin with the reason, up to
-three rounds. After that the step "needs attention" in the builder, with the
-last reason and the last code. When Dolphin fails or times out twice on the
+three rounds. After that the build heals it (Healing a build, above): the
+fixer writes the step's brief again and Dolphin writes it from that, told
+what went wrong. Dolphin is told to read only the inputs the step names,
+never invented flags, and a step that always acts is never told to return
+nothing. When Dolphin fails or times out twice on the
 same step (no answer at all), SERV writes that step from the same request
 instead, for the rest of its rounds; the plain checks and SERV's review run
 as before, the review in a separate call. The step is marked "written by

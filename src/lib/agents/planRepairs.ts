@@ -250,7 +250,7 @@ export function buildArguments(steps: RawStep[], setup: Setup): void {
     const saves = tool === "memory.set";
     const builder: RawStep = {
       id: fresh(steps, `make_${st.id}`),
-      title: (tool.startsWith("telegram") ? "Write the message" : tool === "wallet.pay" ? "Work out the payment" : "Prepare what it writes").slice(0, 80),
+      title: tool === "telegram.ask" ? "Write the question" : tool === "telegram.send" ? "Write the message" : tool === "wallet.pay" ? "Work out the payment" : "Prepare what it writes",
       kind: "code",
       inputs: [...new Set([...reads, ...(setup.settings.length ? ["settings"] : []), ...(saves ? ["memory"] : [])])],
       outputs: [out],
