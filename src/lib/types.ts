@@ -178,6 +178,9 @@ export interface InstallationDTO {
   // The connections it needs, and which of those the owner hasn't made.
   needs: { telegram: boolean; google: boolean };
   missing: ("telegram" | "google")[];
+  // For an agent that pays, when its allowance is empty: why it can't pay
+  // until its owner tops it up, in one sentence. Null otherwise.
+  allowanceWarning: string | null;
   timezone: string;
   // A sheet setting also says which spreadsheet and tab it was given.
   settings: { key: string; label: string; value: unknown; sheet?: { title: string; tab: string; link: string } }[];

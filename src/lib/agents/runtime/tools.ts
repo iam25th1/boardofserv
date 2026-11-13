@@ -22,7 +22,7 @@ import { policyAsks, readPolicy, riskOf, TO_OWNER_ONLY } from "../risk";
 import { describeCall } from "../calls";
 import { resolvePayee, suggestPayee } from "../../spending/payees";
 import { payeeWords, payFromAllowance, PaymentPending, PaymentRefused } from "../../spending/pay";
-import { usdcWords } from "../../spending/allowance";
+import { allowanceOf, usdcWords } from "../../spending/allowance";
 import { bandLine, judgePayment, paymentLimits } from "../../spending/limits";
 import { addressFacts, highRisk, warningOf, type AddressFacts } from "../../spending/addresses";
 import { paymentsNetworkProblem } from "../../spending/treasury";
@@ -224,6 +224,15 @@ export class JobTools implements ToolHost {
     }
   }
 
+  // Why its allowance can't cover a payment, or null when it can.
+  private async allowanceShort(amount: bigint): Promise<string | null> {
+    const { available } = await allowanceOf(this.rt.db, this.installation.id);
+    if (available >= amount) return null;
+    return available === 0n
+      ? `Its allowance is empty, not the ${usdcWords(amount)} this payment needs, so nothing was paid and you weren't asked. Top up its allowance on its page first.`
+      : `Its allowance has ${usdcWords(available)}, not the ${usdcWords(amount)} this payment needs, so nothing was paid and you weren't asked. Top up its allowance on its page first.`;
+  }
+
   // After a yes: what SERV's check said when the call waited for it.
   private async askedGuard(step: AgentStep): Promise<{ verdict: string; reason: string } | null> {
     if (!this.job) return null;
@@ -297,6 +306,16 @@ export class JobTools implements ToolHost {
     if (refuse) {
       await this.logged(step, tool, risk, what, { outcome: "failed", reason: refuse });
       throw new ToolError("wallet.pay", refuse);
+    }
+    // An agent that can't pay never asks: with too little in its allowance
+    // the payment fails here, before any question, and its owner is told.
+    if (payment) {
+      const short = await this.allowanceShort(payment.amount);
+      if (short) {
+        await this.logged(step, tool, risk, what, { outcome: "failed", reason: short });
+        await this.rt.db.insert(agentMessages).values({ installationId: this.installation.id, from: "agent", text: `${this.definition.name} couldn't pay: ${lowerFirst(short)}`, jobId: this.job?.id ?? null, tgState: "pending", createdAt: this.rt.now() });
+        throw new ToolError("wallet.pay", short);
+      }
     }
     let g: GuardResult | null = null;
     if (!approval) {
@@ -513,3 +532,5 @@ export function settingsByLabel(d: AgentDefinition, i: Pick<AgentInstallation, "
   for (const r of d.rules) out[r.label] = i.rules[r.key] ?? r.value;
   return out;
 }
+
+const lowerFirst = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);

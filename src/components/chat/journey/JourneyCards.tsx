@@ -792,6 +792,7 @@ function LiveCard({ card, latest, agent, api }: Props) {
                 {installation.runs.join(" ")}
                 {installation.nextRunAt ? ` Next run: ${when(installation.nextRunAt)}.` : ""}
               </p>
+              {installation.allowanceWarning && <p className={styles.problem}>{installation.allowanceWarning}</p>}
               {lastRun && (
                 <p className={styles.quiet}>
                   Last run: {jobWord(lastRun)}.{lastRun.why ? ` ${lastRun.why}` : ""}

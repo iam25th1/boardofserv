@@ -62,6 +62,7 @@ const INSTALLATION: InstallationDTO = {
   pausedReason: null,
   needs: { telegram: true, google: true },
   missing: [],
+  allowanceWarning: null,
   timezone: "UTC",
   settings: [{ key: "enquiries", label: "Enquiries sheet", value: "Enquiries", sheet: { title: "Studio bookings", tab: "Enquiries", link: "https://docs.google.com/spreadsheets/d/demo" } }],
   rules: [{ key: "tone", label: "Tone of replies", type: "text", value: "warm and short" }],

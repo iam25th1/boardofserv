@@ -9,6 +9,7 @@ import { addUser, testDb } from "@/test/helperDb";
 import { allowanceUsdc, installed, publishedAgent, readyToPay, RESTOCK_CODE, restockDefinition, testRuntime, trusted, withPayments, type TestRuntime } from "@/test/runtimeFixtures";
 import { answer, AnswerRefused, approvalsOf, expireDue } from "./approvals";
 import { claimJob, enqueue, runJob } from "./jobs";
+import { installationDTO, loadInstallation } from "./installations";
 import { messagesOf } from "./messages";
 
 // Approvals that wait: the job pauses, the owner answers (or doesn't), and
@@ -191,13 +192,33 @@ describe("a payment over a rule's limit", () => {
     expect(await allowanceUsdc(rt, inst.id)).toBe(400);
   });
 
+  it("never asks when its allowance can't pay: it fails at once, tells its owner, and the agent's page warns", async () => {
+    withPayments(rt);
+    await client.exec("delete from agent_payments;");
+    const inst = await installed(rt, owner, await publishedAgent(db, owner, { definition: paying(), code }));
+    await readyToPay(rt, inst, { payees: ["Weftworks"], allowanceUsdc: 1 });
+    // Spent down to nothing.
+    await db.update(schema.allowances).set({ available: "0" }).where(eq(schema.allowances.installationId, inst.id));
+    await trusted(rt, inst.versionId);
+    const loaded = async () => installationDTO(rt, (await loadInstallation(rt, inst.id))!);
+    expect((await loaded()).allowanceWarning).toBe("Its allowance is empty, so it can't pay anyone until you top it up.");
+    const job = await enqueue(rt, inst, { kind: "manual", amount: 300 });
+    await runOnce(rt);
+    expect(await approvalsOf(rt, owner.id, { installationId: inst.id })).toEqual([]);
+    const row = await jobOf(job.id);
+    expect(row.status).toBe("failed");
+    expect(row.reason).toContain("Its allowance is empty, not the 300.00 USDC this payment needs, so nothing was paid and you weren't asked.");
+    const said = (await messagesOf(rt, inst.id)).map((m) => m.text);
+    expect(said.at(-1)).toMatch(/couldn't pay: its allowance is empty/);
+  });
+
   it("refuses an answer to an approval that isn't waiting any more", async () => {
     withPayments(rt);
     await client.exec("delete from agent_payments;");
     const inst = await installed(rt, owner, await publishedAgent(db, owner, { definition: paying(), code }));
     await readyToPay(rt, inst, { payees: ["Weftworks"], allowanceUsdc: 500 });
     await trusted(rt, inst.versionId);
-    await enqueue(rt, inst, { kind: "manual", amount: 999 });
+    await enqueue(rt, inst, { kind: "manual", amount: 450 });
     await runOnce(rt);
     const [a] = await approvalsOf(rt, owner.id, { pendingOnly: true });
     rt.clock.move(25 * 3_600_000);

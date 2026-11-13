@@ -58,7 +58,8 @@ async function goLive(user: User, agent: Agent, how: z.infer<typeof Body>, answe
   const card = (await cardsIn(agent.sourceConversationId!)).filter((m) => m.card?.stage === "live").at(-1)!;
   if (how.how === "run") {
     const installation = await runForMaker(rt, user, agent, answers!);
-    await updateCard(card.id, { ...card.card!, live: { ...card.card!.live, installationId: installation.id } }, `It's running for you. ${installation.runs.join(" ")}`.trim());
+    // An agent that pays with nothing in its allowance says so in the chat.
+    await updateCard(card.id, { ...card.card!, live: { ...card.card!.live, installationId: installation.id } }, `It's running for you. ${installation.runs.join(" ")}${installation.allowanceWarning ? ` ${installation.allowanceWarning}` : ""}`.trim());
     return { installation };
   }
   const listing = await putOnBoard(rt, user, agent, { weeklyPrice: how.weeklyPrice, description: how.description });
