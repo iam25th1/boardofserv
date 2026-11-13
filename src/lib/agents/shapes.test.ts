@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkDefinition, type AgentDefinition } from "./definition";
-import { wireToDefinition } from "./plan";
+import { repaired, wireToDefinition } from "./plan";
 import { planProblems } from "./planRules";
 import { selfTest } from "./test";
 import { misfit, parseShape, shapeProblems, showShape } from "./shapes";
@@ -85,3 +85,22 @@ describe("the self test", () => {
     expect(t.result.problems).toContainEqual({ step: "find", check: "shape", text: '"Find them" made results in a different shape from the one its plan says ({ name, score: number }[]): results[0].score is text, not a number, so the step after it can\'t read it.' });
   });
 });
+
+describe("rows written back", () => {
+  it("keep their numbers from the step that reads them on", () => {
+    const w = {
+      steps: [
+        { id: "read", title: "Read the sheet", kind: "code", inputs: ["settings"], outputs: ["submissions"], shapes: ["{ name, description }[]"], description: "Read the sheet and return the rows whose Score is empty.", tools: ["sheets.read"], next: "send" },
+        { id: "send", title: "Write", kind: "action", inputs: [], outputs: [], action: "write", next: "" },
+      ],
+      actions: [{ id: "write", tool: "sheets.update", description: "Write the scores" }],
+      settings: [],
+      rules: [],
+    };
+    const d = repaired(wireToDefinition(w)) as AgentDefinition;
+    const read = d.steps.find((x) => x.id === "read")!;
+    expect(read.shapes).toEqual({ submissions: "{ _row: number, name, description }[]" });
+    expect(read.kind === "code" && read.description).toContain("Keep each row's _row");
+  });
+});
+

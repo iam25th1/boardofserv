@@ -1,5 +1,6 @@
 import { loopChain, loopsOf, REASON_TOOL, type CodeStepDef } from "./definition";
 import { needsReasoning } from "./planRules";
+import { parseShape, showShape } from "./shapes";
 
 // Repairs to a plan as SERV answers it, each with only one meaning, made
 // before the plan is checked (plan.ts, wireToDefinition), so a slip SERV
@@ -510,5 +511,28 @@ export function askServToReason(steps: RawStep[], plan: { limits?: unknown }): v
   }
   const limits = plan.limits && typeof plan.limits === "object" ? (plan.limits as { maxSpendUsd?: unknown }) : null;
   if (reasons && limits && !(Number(limits.maxSpendUsd) >= REASONING_SPEND_FLOOR_USD)) limits.maxSpendUsd = REASONING_SPEND_FLOOR_USD;
+}
+
+// An agent that writes results back into the rows it read (sheets.update)
+// needs each row's number on what it reads: the step that reads the sheet
+// keeps _row on every item, in its brief and its shape. Without it nothing
+// after can say which row to write to.
+const ROW_FIELD = /^(?:_?row|row_?(?:number|id|index))$/i;
+const KEEPS_ROW = " Keep each row's _row (its number in the sheet) on every item, so its results can be written back into that row.";
+export function keepRowNumbers(steps: RawStep[], setup: Pick<Setup, "actions">): void {
+  if (!setup.actions.some((a) => a.tool === "sheets.update")) return;
+  for (const st of steps) {
+    if (st.kind !== "code" || !(st.tools ?? []).includes("sheets.read")) continue;
+    const shapes = (st as RawStep & { shapes?: Record<string, string> }).shapes;
+    let changed = false;
+    for (const [out, text] of Object.entries(shapes ?? {})) {
+      const shape = parseShape(text);
+      if (shape.t !== "list" || shape.of.t !== "object" || shape.of.open || Object.keys(shape.of.fields).some((f) => ROW_FIELD.test(f))) continue;
+      shapes![out] = showShape({ t: "list", of: { ...shape.of, fields: { _row: { t: "number" }, ...shape.of.fields } } });
+      changed = true;
+    }
+    const description = st.description ?? "";
+    if ((changed || !/\b_?row\b/i.test(description)) && !description.includes(KEEPS_ROW.trim())) st.description = `${description.trim().slice(0, 800 - KEEPS_ROW.length)}${KEEPS_ROW}`;
+  }
 }
 

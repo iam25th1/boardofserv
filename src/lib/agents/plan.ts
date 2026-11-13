@@ -7,7 +7,7 @@ import type { SketchDTO } from "../types";
 import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAMES, type AgentDefinition, type AgentStep } from "./definition";
 import { TOOLS } from "./toolbox";
 import { planProblems } from "./planRules";
-import { askedFirst, askForMissing, askServToReason, columnsByName, fixSetup, repairPlan, type RawStep } from "./planRepairs";
+import { askedFirst, askForMissing, askServToReason, columnsByName, fixSetup, keepRowNumbers, repairPlan, type RawStep } from "./planRepairs";
 import { actingSteps, askPurpose, leaveOut, readPurpose } from "./purpose";
 import { rulesText } from "./lessonRules";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
@@ -495,6 +495,8 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean } = {}): unkno
   );
   // Judgement or words only a model can give: SERV, at run time.
   askServToReason(d.steps as RawStep[], d as { limits?: unknown });
+  // Rows written back keep their numbers from the read on.
+  keepRowNumbers(d.steps as RawStep[], { actions: list(d.actions).map((x) => ({ id: s(x.id), tool: x.tool, description: s(x.description) })) });
   // An action no step takes any more (a question taken out) goes too.
   const taken = new Set(list(d.steps).flatMap((x) => (s(x.kind) === "action" ? [s(x.action)] : [])));
   const used = new Set(list(d.steps).flatMap((x) => (Array.isArray(x.tools) ? (x.tools as string[]) : [])));
