@@ -230,7 +230,17 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
       if (s.kind !== "code" || !s.tools.some((t) => READS.includes(t))) continue;
       const reads = first.events.filter((e): e is ToolEvent => e.type === "tool" && e.stepId === s.id && READS.includes(e.tool as ToolName) && !e.error);
       const ran = first.events.find((e): e is Extract<RunEvent, { type: "step_done" }> => e.type === "step_done" && e.stepId === s.id && e.status === "ok");
-      if (!reads.length || !ran || !reads.every(emptyRead)) continue;
+      if (!reads.length || !ran) continue;
+      // Rows read, and nothing of them passed on: it reads the columns by
+      // names the sheet doesn't have (name for Name).
+      const rows = reads.flatMap((e) => (e.tool === "sheets.read" ? (((e.result ?? {}) as { rows?: Record<string, unknown>[] }).rows ?? []) : []));
+      const lists = Object.values((ran.output ?? {}) as Record<string, unknown>).filter((v): v is unknown[] => Array.isArray(v) && v.length > 0);
+      if (rows.some((r) => !hollow(r)) && lists.some((l) => l.every((x) => hollow(x)))) {
+        const columns = [...new Set(rows.flatMap((r) => Object.keys(r)).filter((c) => c !== "_row"))];
+        problems.push({ step: s.id, text: `"${s.title}" read ${rows.length} rows of your sheet but passed on nothing from them: the sheet's columns are ${columns.join(", ")}, and it reads columns by other names.`, check: "read_nothing" });
+        break;
+      }
+      if (!reads.every(emptyRead)) continue;
       problems.push({
         step: s.id,
         text: hollow(ran.output) ? `"${s.title}" read nothing on the ${sampled}, so it would go on with nothing.` : `"${s.title}" read nothing on the ${sampled}, yet passed something on: it would make up what it read.`,

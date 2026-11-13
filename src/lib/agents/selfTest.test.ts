@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { definitionOf, codeOf, CANNED_MOTIVATION_SOURCE, MOTIVATION_SOURCES, MOTIVATION_WIRE, PRICE_SOURCES, PRICE_WIRE, priceBench, SALES_SOURCES, SALES_WIRE, salesBench } from "@/test/suiteFixtures";
-import { NESTED_HACKATHON_WIRE } from "@/test/hackathonFixture";
+import { FIND_NEW_NESTED, hackathonBench, hackathonCode, NESTED_HACKATHON_WIRE, NESTED_SOURCES } from "@/test/hackathonFixture";
 import type { BenchData, TestResult } from "./types";
 import { fitSample, readSample, sampleCount, samplePrompt } from "./sample";
 import { keepsPlace, sampleKey, selfTest } from "./test";
@@ -74,6 +74,15 @@ describe("the self test", () => {
     const t = await selfTest({ definition: d, code: codeOf(d, PRICE_SOURCES), testResult: kept(d, { ...priceBench(), pages: {} }, { noun: "product", plural: "products", labels: ["Stone Kettle"] }) }, { serv: null });
     expect(t.result.status).toBe("failed");
     expect(t.result.problems).toContainEqual(expect.objectContaining({ step: "read_price", check: "read_nothing" }));
+  });
+
+  it("says so when a step reads rows and passes on nothing of them, naming the sheet's columns", async () => {
+    const d = definitionOf(NESTED_HACKATHON_WIRE);
+    // The rows' columns read by lower-case names the sheet doesn't have.
+    const lowerCase = FIND_NEW_NESTED.replace("r.Project", "r.project").replace("r.Demo", "r.demo").replace("r.Notes", "r.notes");
+    const t = await selfTest({ definition: d, code: hackathonCode(d, { ...NESTED_SOURCES, find_new: lowerCase }), testResult: kept(d, hackathonBench(), { noun: "submission", plural: "submissions", labels: ["Tide Tracker", "Lunch Vote", "Plant Pal"] }) }, { serv: null });
+    expect(t.result.status).toBe("failed");
+    expect(t.result.problems).toContainEqual(expect.objectContaining({ step: "find_new", check: "read_nothing", text: expect.stringMatching(/read \d+ rows of your sheet but passed on nothing from them: the sheet's columns are .+, and it reads columns by other names\./) }));
   });
 
   it("doesn't pass a run that went on with nothing after a call went wrong", async () => {
