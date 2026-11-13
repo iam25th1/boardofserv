@@ -44,6 +44,7 @@ export const TOOL_NAMES = [
   "memory.set",
   "wallet.pay",
   "serv.reason",
+  "typeform.read",
 ] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
@@ -263,12 +264,13 @@ export function spends(a: { tool: ToolName; amountColumn?: string }): boolean {
 
 // The connections an agent needs its owner to have: Telegram for an agent
 // that messages or asks its owner or takes their messages, Google for one
-// that reads or writes sheets.
-export function connectionsNeeded(d: AgentDefinition): { telegram: boolean; google: boolean } {
+// that reads or writes sheets, Typeform for one that reads a form's answers.
+export function connectionsNeeded(d: AgentDefinition): { telegram: boolean; google: boolean; typeform: boolean } {
   const tools = new Set<ToolName>([...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))]);
   return {
     telegram: tools.has("telegram.send") || tools.has("telegram.ask") || d.triggers.some((t) => t.kind === "message"),
     google: tools.has("sheets.read") || tools.has("sheets.write") || tools.has("sheets.update") || d.settings.some((s) => s.type === "sheet"),
+    typeform: tools.has("typeform.read"),
   };
 }
 
@@ -286,7 +288,7 @@ export function payeeSetting(d: Pick<AgentDefinition, "settings" | "actions">): 
 // code steps' descriptions and the decisions' prompts).
 // payee: the setting whose answer is the name of the payee it pays, when
 // it pays one by name (asked with who it pays, not on its own).
-export type SetupShape = Pick<AgentDefinition, "name" | "settings" | "rules" | "triggers"> & { needs: { telegram: boolean; google: boolean }; spends?: boolean; payee?: string | null };
+export type SetupShape = Pick<AgentDefinition, "name" | "settings" | "rules" | "triggers"> & { needs: { telegram: boolean; google: boolean; typeform?: boolean }; spends?: boolean; payee?: string | null };
 
 export function setupShapeOf(d: AgentDefinition): SetupShape {
   const settings = d.settings.map(({ given: _given, ...rest }) => rest);
@@ -315,6 +317,7 @@ export function breakingChange(from: AgentDefinition, to: AgentDefinition): stri
   const now = connectionsNeeded(to);
   if (now.telegram && !was.telegram) return "It needs your Telegram now.";
   if (now.google && !was.google) return "It needs your Google Sheets now.";
+  if (now.typeform && !was.typeform) return "It needs your Typeform now.";
   return null;
 }
 

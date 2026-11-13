@@ -5,6 +5,7 @@ import { animate, stagger, svg, utils } from "animejs";
 import { Button, Textarea, TextInput } from "@/components/ui";
 import { GoogleConnect } from "@/components/connections/GoogleConnect";
 import { TelegramLink, type LinkCode } from "@/components/connections/TelegramLink";
+import { TypeformConnect } from "@/components/connections/TypeformConnect";
 import { SheetField, type SheetInfo } from "@/components/agents/SheetField";
 import { isSheetAnswer } from "@/lib/google/sheetLink";
 import { animateEnter, dustIn, ease, prefersReducedMotion } from "@/lib/motion";
@@ -34,9 +35,11 @@ export interface JourneyApi {
   simpler: () => Promise<void>;
   describeAgain: () => void;
   installation: (id: string) => Promise<InstallationDTO>;
-  connections: () => Promise<{ connections: ConnectionDTO[]; available: Record<"telegram" | "google", boolean> }>;
+  connections: () => Promise<{ connections: ConnectionDTO[]; available: Record<"telegram" | "google", boolean> & { typeform?: boolean } }>;
   telegramCode: () => Promise<LinkCode>;
   googleStart: (returnTo: string) => Promise<{ url: string }>;
+  // Connect Typeform with a pasted personal token (absent: not offered here).
+  connectTypeform?: (token: string) => Promise<{ label: string }>;
   inspectSheet: (url: string) => Promise<SheetInfo>;
 }
 
@@ -628,11 +631,11 @@ function ConnectCard({ card, latest, agent, conversationId, api }: Props) {
   // The payee's name is asked with who it pays, not on its own.
   const plainSettings = setup!.settings.filter((s) => s.type !== "sheet" && s.key !== setup!.payee);
   const sheets = setup!.settings.filter((s) => s.type === "sheet");
-  const linked = (p: "telegram" | "google") => Boolean(conn?.connections.some((c) => c.provider === p));
+  const linked = (p: "telegram" | "google" | "typeform") => Boolean(conn?.connections.some((c) => c.provider === p));
   const set = (k: string, v: unknown) => setAnswers((a) => ({ ...a, settings: { ...a.settings, [k]: v } }));
   const err = (k: string) => (errors[k] ? <span className={styles.fieldError}>{errors[k]}</span> : null);
   const when = setup!.triggers[0]?.kind === "schedule" ? setup!.triggers[0].description : null;
-  const nothing = !plainSettings.length && !sheets.length && !setup!.needs.telegram && !setup!.needs.google && !setup!.spends;
+  const nothing = !plainSettings.length && !sheets.length && !setup!.needs.telegram && !setup!.needs.google && !setup!.needs.typeform && !setup!.spends;
   const save = () =>
     act.run(async () => {
       setErrors({});
@@ -683,6 +686,18 @@ function ConnectCard({ card, latest, agent, conversationId, api }: Props) {
                 {err(s.key)}
               </div>
             ))}
+        </div>
+      )}
+      {setup!.needs.typeform && (
+        <div className={styles.panel}>
+          <h4>Your Typeform</h4>
+          <p className={styles.quiet}>It reads the answers to your form with your own Typeform token, each answer once.</p>
+          {linked("typeform") ? (
+            <p className={styles.done}>Connected: {conn!.connections.find((c) => c.provider === "typeform")!.label}.</p>
+          ) : api.connectTypeform ? (
+            <TypeformConnect connect={api.connectTypeform} onConnected={refresh} />
+          ) : null}
+          {err("typeform")}
         </div>
       )}
       {plainSettings.length > 0 && (

@@ -590,6 +590,7 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
       connections: api.listConnections,
       telegramCode: api.telegramCode,
       googleStart: api.googleStart,
+      connectTypeform: api.connectTypeform,
       inspectSheet: api.inspectSheet,
     }),
     [api, agent, reload, messages, startNew],

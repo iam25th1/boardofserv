@@ -169,6 +169,8 @@ export interface BenchData {
   // How the owner answers a payment's own approval: yes unless "no" (the
   // self test's run where the owner says no).
   approve?: "yes" | "no";
+  // A Typeform form's responses, by the form's link (typeform.read).
+  forms?: Record<string, { id: string; submittedAt: string; answers: Record<string, unknown> }[]>;
 }
 
 export function emptyBench(): BenchData {

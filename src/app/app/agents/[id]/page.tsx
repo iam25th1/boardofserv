@@ -55,6 +55,7 @@ function Builder({ id }: { id: string }) {
         connections: api.listConnections,
         telegramCode: api.telegramCode,
         googleStart: api.googleStart,
+        connectTypeform: api.connectTypeform,
         inspectSheet: api.inspectSheet,
         install: (answers) => api.installAgent(id, answers, { live: false }),
         control: (installationId, action) => api.controlInstallation(installationId, action),

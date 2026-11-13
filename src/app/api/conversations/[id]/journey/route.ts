@@ -67,6 +67,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const needs = connectionsNeeded(d);
   if (needs.telegram && rt.services.telegramToken && !(await hasConnection(rt, user.id, "telegram"))) errors.telegram = "Link your Telegram first.";
   if (needs.google && rt.services.google && !(await hasConnection(rt, user.id, "google"))) errors.google = "Connect Google first.";
+  if (needs.typeform && !(await hasConnection(rt, user.id, "typeform"))) errors.typeform = "Connect Typeform first.";
   if (Object.keys(errors).length) {
     await diagnosed(version.id, connectDiagnosis(d, errors));
     return Response.json({ error: "Some answers need another look.", errors }, { status: 400 });

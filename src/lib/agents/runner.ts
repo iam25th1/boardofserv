@@ -551,7 +551,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
 
     // A step that judges or writes, at the top of the run, with nothing to
     // work on: the run is skipped there, and nothing is sent.
-    const hollowInput = judgesOrWrites(step) && !loops.inside.get(step.id) ? dataInputs(d, step).find((k) => hollow(input[k])) : undefined;
+    const hollowInput = judgesOrWrites(step) && !loops.inside.get(step.id) ? dataInputs(d, step).find((k) => thin(input[k])) : undefined;
     if (hollowInput) {
       done("ok", null, null, "Skipped: empty input.");
       return end("done", "skipped", `Skipped, empty input: "${step.title}" had nothing to work on (${hollowInput.replace(/_/g, " ")} was empty), so nothing was sent.`);
@@ -778,7 +778,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       // Empty items (a blank row, an empty submission) are passed by, and
       // a run whose every item is empty is skipped there, sending nothing.
       const first = filledFrom(items, 0);
-      const empty = items.filter((x) => hollow(x)).length;
+      const empty = items.filter((x) => thin(x)).length;
       if (items.length && first >= items.length && !loops.inside.get(step.id)) {
         done("ok", { items: items.length, empty }, null, "Skipped: every item was empty.");
         return end("done", "skipped", `Skipped, empty input: every one of the ${items.length} items "${step.title}" was given was empty, so nothing was sent.`);
@@ -901,7 +901,7 @@ function dataInputs(d: AgentDefinition, step: AgentStep): string[] {
 
 // Keys that say where a value came from or which one it is, not what it
 // holds: a submission that is only its id and row number has nothing in it.
-const ABOUT = /^(?:kind|_?row|row_?(?:number|id|index)|id|index|sample|at)$/i;
+const ABOUT = /^(?:kind|_?row|row_?(?:number|id|index)|id|index|sample|at|submitted_?at|landed_?at|created_?at|updated_?at|timestamp)$/i;
 
 // Nothing to work on: no value, or only empty texts, lists and objects all
 // the way down (a row with its cells empty, a trigger with no message).
@@ -911,6 +911,19 @@ export function hollow(v: unknown): boolean {
   return Object.entries(v as Record<string, unknown>)
     .filter(([k]) => !ABOUT.test(k))
     .every(([, x]) => hollow(x));
+}
+
+// Nearly empty: three or more fields and at most one short text filled in
+// (a submission that is only its project's name), or one that only wraps
+// such a thing. There is nothing in it to judge.
+export function thin(v: unknown): boolean {
+  if (hollow(v)) return true;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  const entries = Object.entries(v as Record<string, unknown>).filter(([k]) => !ABOUT.test(k));
+  if (entries.length === 1) return thin(entries[0]![1]);
+  if (entries.length < 3) return false;
+  const filled = entries.map(([, x]) => x).filter((x) => !hollow(x));
+  return filled.length === 0 || (filled.length === 1 && typeof filled[0] === "string" && filled[0].trim().length <= 80);
 }
 
 // A side step: one that only notes something for the agent itself (saving
@@ -925,7 +938,7 @@ export function isSideStep(d: AgentDefinition, step: AgentStep): boolean {
 // The place of the first item from here that has something in it.
 function filledFrom(items: unknown[], from: number): number {
   let i = from;
-  while (i < items.length && hollow(items[i])) i++;
+  while (i < items.length && thin(items[i])) i++;
   return i;
 }
 

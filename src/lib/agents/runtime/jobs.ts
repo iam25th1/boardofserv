@@ -1,6 +1,6 @@
 import "server-only";
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { agentApprovals, agentInstallations, agentJobs, agentJobSteps, agents, agentVersions, messages, users, type AgentInstallation, type AgentJob } from "../../db/schema";
+import { agentApprovals, agentInstallations, agentJobs, agentJobSteps, agents, agentSeenItems, agentVersions, messages, users, type AgentInstallation, type AgentJob } from "../../db/schema";
 import type { AgentDefinition, AgentStep, DecisionStepDef } from "../definition";
 import type { BenchData } from "../types";
 import { askReason, readReason, type ReasonArgs, type Reasoned } from "../reason";
@@ -63,6 +63,7 @@ export async function cancelJob(rt: Runtime, userId: string, jobId: string): Pro
       await tx.update(agentJobs).set({ status: "cancelled", reason: "Cancelled by its owner.", claimedBy: null, finishedAt: now, updatedAt: now }).where(and(eq(agentJobs.id, job.id), inArray(agentJobs.status, ["queued", "waiting_for_owner"])));
       await tx.update(agentApprovals).set({ status: "cancelled", answeredAt: now }).where(and(eq(agentApprovals.jobId, job.id), eq(agentApprovals.status, "pending")));
     });
+    await settleSeen(rt, job.id, Boolean(job.state?.acted));
     return;
   }
   if (job.status !== "running") throw new CancelRefused("It has finished already.");
@@ -128,6 +129,16 @@ function pgCode(err: unknown): string | undefined {
     if (typeof e.code === "string") return e.code;
   }
   return undefined;
+}
+
+// What a job took from a source it reads new items from (a Typeform form's
+// responses) is settled when it ends: kept as done once the job is done or
+// sent, wrote or paid anything, so the same item never goes through twice;
+// let go when it did nothing, to be read again by the next job.
+export async function settleSeen(rt: Runtime, jobId: string, keep: boolean): Promise<void> {
+  const mine = and(eq(agentSeenItems.jobId, jobId), eq(agentSeenItems.state, "read"));
+  if (keep) await rt.db.update(agentSeenItems).set({ state: "done" }).where(mine);
+  else await rt.db.delete(agentSeenItems).where(mine);
 }
 
 // Jobs left running by a worker that stopped beating: back to the queue,
@@ -343,6 +354,7 @@ async function finish(rt: Runtime, job: AgentJob, worker: string, state: RunStat
         .update(agentJobs)
         .set({ status: "failed", reason: `${how.retry} It was tried ${MAX_ATTEMPTS} times.`, attempts, state, claimedBy: null, finishedAt: now, updatedAt: now })
         .where(mine);
+      await settleSeen(rt, job.id, Boolean(state?.acted));
       await pauseOnRepeatedFailure(rt, job.installationId);
       return;
     }
@@ -362,6 +374,7 @@ async function finish(rt: Runtime, job: AgentJob, worker: string, state: RunStat
     .set({ status: how.status, reason: how.reason, outcome: how.outcome ?? null, state, claimedBy: null, finishedAt: now, updatedAt: now, ...(state ? { costUsd: state.costUsd.toFixed(6) } : {}) })
     .where(mine)
     .returning({ id: agentJobs.id });
+  if (ended.length) await settleSeen(rt, job.id, how.status === "done" || Boolean(state?.acted));
   // Failing the same way again and again pauses the installation.
   if (ended.length && how.status === "failed") await pauseOnRepeatedFailure(rt, job.installationId);
 }
