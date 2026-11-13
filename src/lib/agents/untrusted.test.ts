@@ -56,6 +56,8 @@ describe("links and contact details", () => {
     );
     expect(contactsIn("visit quick-cash.top/claim now")).toEqual(["quick-cash.top/claim"]);
     expect(contactsIn({ text: "Stock is fine: linen 55 metres, wool 30." })).toEqual([]);
+    // Each one ends where its line does, not at the next line's first word.
+    expect(contactsIn({ text: "Demo: https://example.com/a/demo\nRepo: https://example.com/a/repo" })).toEqual(["https://example.com/a/demo", "https://example.com/a/repo"]);
   });
 
   it("count only when the renter never gave them", () => {

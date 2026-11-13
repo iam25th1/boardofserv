@@ -29,8 +29,13 @@ const EMAIL = /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi;
 const WALLET = /\b0x[a-f0-9]{40}\b/gi;
 const PHONE = /(?<![\w.])\+?\d[\d ().-]{7,}\d(?!\w)/g;
 
+// Every text in a value (its keys too), a line each: read as written, so a
+// link ends where its line does (in JSON a new line is "\n", no space).
+const textsIn = (v: unknown): string[] =>
+  typeof v === "string" ? [v] : Array.isArray(v) ? v.flatMap(textsIn) : v && typeof v === "object" ? Object.entries(v).flatMap(([k, x]) => [k, ...textsIn(x)]) : v === null || v === undefined ? [] : [String(v)];
+
 export function contactsIn(value: unknown): string[] {
-  const text = typeof value === "string" ? value : JSON.stringify(value ?? "");
+  const text = textsIn(value).join("\n");
   const emails = text.match(EMAIL) ?? [];
   const found = [...emails, ...(text.match(LINK) ?? []), ...(text.match(WALLET) ?? [])];
   // A bare domain counts unless it is only an email's.
