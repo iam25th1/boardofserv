@@ -63,7 +63,8 @@ export async function runCheck(rt: Runtime, i: AgentInstallation, d: AgentDefini
   const bag: Record<string, unknown> = { settings: i.settings, rules: typedRules(d, i.rules), memory: i.memory };
   const input = Object.fromEntries(step.inputs.map((n) => [n, bag[n] ?? null]));
   const tools = new JobTools(rt, i, d, null);
-  const r = await runInSandbox(entry.source, input, { allowed: step.tools, call: (tool, args) => tools.call(step, tool, args), timeZone: i.timezone });
+  // Its reads may take a while (a page loading): waiting is not its code's time.
+  const r = await runInSandbox(entry.source, input, { allowed: step.tools, call: (tool, args) => tools.call(step, tool, args), timeZone: i.timezone, wallMs: 60_000 });
   if (!r.ok) return { holds: false, value: null, error: `The check failed: ${r.error}` };
   const out = r.output as { holds?: unknown; value?: unknown } | null;
   if (!out || typeof out.holds !== "boolean") return { holds: false, value: null, error: "The check didn't say whether it holds (true or false)." };

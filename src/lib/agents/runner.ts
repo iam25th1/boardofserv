@@ -590,6 +590,9 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       const result = await runInSandbox(entry.source, input, {
         allowed: step.tools,
         timeMs: Math.min(DEFAULT_TIME_MS, left),
+        // Waiting for its tools (SERV thinking, a page loading) takes from
+        // the run's time, not the code's.
+        wallMs: left,
         signal: halt.signal,
         timeZone: o.timeZone,
         call: async (tool, args) => {
