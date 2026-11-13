@@ -122,6 +122,7 @@
 }
 .risky {
   margin-left: var(--s-1);
+  white-space: nowrap;
   font-family: var(--font-hand);
   font-size: var(--t-hand-sm);
   font-weight: normal;
