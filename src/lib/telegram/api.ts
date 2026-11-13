@@ -1,5 +1,6 @@
 import "server-only";
 import type { Services } from "../agents/runtime/context";
+import { plainText, telegramHtml } from "./format";
 
 // Telegram's Bot API (core.telegram.org/bots/api): one HTTPS call per
 // method, the bot's token in the path. The token never leaves this module:
@@ -83,3 +84,21 @@ export type InlineKeyboard = { text: string; callback_data: string }[][];
 // Telegram's limit on a message's text.
 export const MAX_TEXT = 4096;
 export const clip = (text: string) => (text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT - 3)}...` : text);
+
+// A message's text as Telegram shows it best: its HTML, with plain text
+// to fall back on when Telegram can't read the HTML.
+export function textFields(text: string): { text: string; parse_mode: "HTML" } {
+  return { text: telegramHtml(clip(text)), parse_mode: "HTML" };
+}
+
+// Sends (or edits) a message with its text as HTML; when Telegram can't
+// parse it, the same message goes again as plain text with no marks.
+export async function sendText<T = unknown>(services: Services, method: "sendMessage" | "editMessageText", body: Record<string, unknown> & { text: string }): Promise<T> {
+  try {
+    return await tg<T>(services, method, { ...body, ...textFields(body.text) });
+  } catch (err) {
+    if (!(err instanceof TelegramError) || err.status !== 400 || !/parse entities|can't find end|unsupported start tag/i.test(err.message)) throw err;
+    return tg<T>(services, method, { ...body, text: clip(plainText(body.text)) });
+  }
+}
+
