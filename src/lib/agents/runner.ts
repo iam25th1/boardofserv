@@ -784,6 +784,13 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         return end("done", "skipped", `Skipped, empty input: every one of the ${items.length} items "${step.title}" was given was empty, so nothing was sent.`);
       }
       done("ok", { items: items.length, ...(empty ? { empty } : {}) }, null, items.length ? (empty ? `${empty} empty, passed by.` : null) : "Nothing to go through.");
+      // Nothing new to go through, and what comes next is made from what it
+      // would have gathered: the run ends quietly, with nothing sent.
+      const after = step.next ? byId.get(step.next) : undefined;
+      if (first >= items.length && !loops.inside.get(step.id) && after && step.outputs.some((g) => after.inputs.includes(g))) {
+        for (const g of step.gather) state.bag[g.into] = [];
+        return end("done", "end", "Nothing new to go through, so nothing was sent.");
+      }
       if (first >= items.length) {
         for (const g of step.gather) state.bag[g.into] = [];
         next = step.next;
@@ -1080,7 +1087,7 @@ export interface RunOptions {
 
 export async function runAgent(o: RunOptions): Promise<Extract<RunEvent, { type: "end" }>> {
   const { definition: d } = o;
-  const mock = new MockTools(o.bench, d.memory);
+  const mock = new MockTools(o.bench, d.memory, d.settings.filter((x) => x.type === "sheet").map((x) => x.key));
   const state = startState(d, { settings: { ...o.bench.settings }, rules: typedRules(d, o.bench.rules), memory: mock.memory, trigger: o.bench.trigger });
   o.onEvent({ type: "start", dryRun: o.dryRun });
   // Inside a loop with no recorded answer, a dry run's decisions take turns

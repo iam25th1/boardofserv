@@ -104,3 +104,30 @@ describe("rows written back", () => {
   });
 });
 
+describe("a sheet it works on", () => {
+  it("is always one the renter gives at setup: one is asked for when the plan has none", () => {
+    const w = {
+      steps: [
+        { id: "read", title: "Read the sheet", kind: "code", inputs: [], outputs: ["rows"], description: 'Read the "submissions_sheet" tab and return its rows.', tools: ["sheets.read"], next: "" },
+      ],
+      actions: [],
+      settings: [],
+      rules: [],
+    };
+    const d = repaired(wireToDefinition(w)) as AgentDefinition;
+    expect(d.settings).toEqual([{ key: "sheet", label: "Your sheet", type: "sheet", help: "The sheet and tab it works on.", choices: [] }]);
+    const read = d.steps[0]!;
+    expect(read.inputs).toEqual(["settings"]);
+    expect(read.kind === "code" && read.description).toContain("settings.sheet");
+  });
+
+  it("is refused on the bench, as for real, when no setting names it", async () => {
+    const { MockTools } = await import("./toolbox");
+    const bench = { ...emptyBench(), settings: { sheet: "Submissions" }, sheets: { Submissions: [{ Name: "Tide" }], submissions_sheet: [{ Name: "Tide" }] } };
+    const mock = new MockTools(bench, [], ["sheet"]);
+    await expect(mock.call("sheets.read", { sheet: "Submissions" })).resolves.toMatchObject({ rows: [{ Name: "Tide" }] });
+    await expect(mock.call("sheets.read", { sheet: "sheet" })).resolves.toMatchObject({ rows: [{ Name: "Tide" }] });
+    await expect(mock.call("sheets.read", { sheet: "submissions_sheet" })).rejects.toThrow('This agent wasn\'t given a sheet called "submissions_sheet". It was given "Submissions".');
+  });
+});
+

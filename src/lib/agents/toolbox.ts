@@ -204,9 +204,12 @@ export class MockTools {
   private paid = 0;
 
   // With memory fields, memory.get and memory.set keep to them, as for real.
+  // With the agent's sheet settings, the sheet tools reach only the tabs
+  // those name, as for real (a tab written into the code reaches nothing).
   constructor(
     bench: BenchData,
     private memoryFields?: readonly MemoryField[],
+    private sheetSettings?: readonly string[],
   ) {
     this.data = structuredClone(bench);
   }
@@ -246,9 +249,13 @@ export class MockTools {
   // tools take it.
   private tab(name: string): string {
     const d = this.data;
-    if (d.sheets[name]) return name;
     const set = d.settings[name];
-    return typeof set === "string" && d.sheets[set] ? set : name;
+    const tab = d.sheets[name] ? name : typeof set === "string" && d.sheets[set] ? set : name;
+    if (this.sheetSettings) {
+      const given = this.sheetSettings.flatMap((k) => (typeof d.settings[k] === "string" ? [d.settings[k] as string] : []));
+      if (!given.includes(tab)) throw new ToolError("sheets", given.length ? `This agent wasn't given a sheet called "${name}". It was given ${given.map((g) => `"${g}"`).join(", ")}.` : "This agent wasn't given any sheets.");
+    }
+    return tab;
   }
 
   private answer<T extends ToolName>(tool: T, args: z.infer<(typeof TOOL_ARGS)[T]>): unknown {

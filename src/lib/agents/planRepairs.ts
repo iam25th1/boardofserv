@@ -536,3 +536,22 @@ export function keepRowNumbers(steps: RawStep[], setup: Pick<Setup, "actions">):
   }
 }
 
+// Sheets it works on with no sheet the renter gives: a sheet setting of
+// its own, and the steps that use sheets told to pass it. A tab's name
+// written into the code reaches nothing when it runs for real (only the
+// tabs a renter picks at setup are its own).
+const SHEET_TOOLS = ["sheets.read", "sheets.write", "sheets.update"];
+export function askForSheet(steps: RawStep[], settings: { key: string; type: unknown }[], actions: { id: string; tool: unknown }[]): { key: string; label: string; type: "sheet"; help: string; choices: string[] } | null {
+  const sheetActions = new Set(actions.filter((a) => SHEET_TOOLS.includes(String(a.tool))).map((a) => a.id));
+  const users = steps.filter((st) => (st.kind === "code" && (st.tools ?? []).some((t) => SHEET_TOOLS.includes(t))) || (st.kind === "action" && sheetActions.has(st.action ?? "")));
+  if (!users.length || settings.some((x) => x.type === "sheet")) return null;
+  const key = settings.some((x) => x.key === "sheet") ? "your_sheet" : "sheet";
+  for (const st of users) {
+    if (st.kind !== "code") continue;
+    if (!st.inputs.includes("settings")) st.inputs = [...st.inputs, "settings"];
+    const note = ` The sheet is settings.${key}: pass it as sheet to every sheet tool.`;
+    if (!(st.description ?? "").includes(`settings.${key}`)) st.description = `${(st.description ?? "").trim().slice(0, 800 - note.length)}${note}`;
+  }
+  return { key, label: "Your sheet", type: "sheet", help: "The sheet and tab it works on.", choices: [] };
+}
+

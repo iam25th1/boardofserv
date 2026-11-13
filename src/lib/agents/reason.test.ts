@@ -168,6 +168,13 @@ describe("a run", () => {
     expect(sent.some((e) => e.type === "tool" && e.tool === "telegram.send")).toBe(false);
   });
 
+  it("ends quietly when there is nothing new: no empty summary is sent", async () => {
+    const events: RunEvent[] = [];
+    const end = await runAgent({ definition: scorer(), code: { read: ok(READ), score: ok(SCORE), summary: ok(SUMMARY) }, bench: { ...bench(), sheets: { Submissions: [] } }, dryRun: true, onEvent: (e) => events.push(e) });
+    expect(end).toMatchObject({ status: "done", reason: "Nothing new to go through, so nothing was sent." });
+    expect(events.some((e) => e.type === "tool" && e.tool === "telegram.send")).toBe(false);
+  });
+
   it("fails a step that answers without asking SERV, and sends nothing", async () => {
     const events: RunEvent[] = [];
     const end = await runAgent({ definition: scorer(), code: { read: ok(READ), score: ok(HEURISTIC), summary: ok(SUMMARY) }, bench: bench(), dryRun: true, onEvent: (e) => events.push(e) });
