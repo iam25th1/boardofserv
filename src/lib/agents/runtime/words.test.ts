@@ -28,6 +28,8 @@ describe("words to the owner", () => {
     const step = { id: "tell", kind: "action", title: "Tell the owner", inputs: ["summary_text"], outputs: [], action: "a", next: null } as never;
     expect(actionArgs(step, "telegram.send", { summary_text: "Rows: 4" })).toEqual({ ok: true, args: { text: "Rows: 4" } });
     expect(actionArgs(step, "telegram.send", { rows: 4, total: 9 })).toEqual({ ok: true, args: { text: "rows: 4\ntotal: 9" } });
+    // A record's empty fields are left out, not shown as nothing.
+    expect(actionArgs(step, "telegram.send", { result: { project_name: "Recipe Remix", team_name: "", track: null, score: 4 } })).toEqual({ ok: true, args: { text: "result: project name Recipe Remix, score 4" } });
   });
 
   it("carry no em dashes, in a message or a question", async () => {

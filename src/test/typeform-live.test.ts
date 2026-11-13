@@ -256,7 +256,7 @@ describe.skipIf(!enabled)("a scorer on a real Typeform form, live", () => {
 
     // Again: nothing new on the form, so nothing judged and nothing sent.
     const two = await runOnce();
-    report.second = { status: two.job.status, outcome: two.job.outcome, reason: two.job.reason, scored: two.asked.length, asks: two.asks.length, telegram: telegram().length - one.asks.length - sentFirst.length };
+    report.second = { status: two.job.status, outcome: two.job.outcome, reason: two.job.reason, scored: two.asked.length, asks: two.asks.length, telegram: own().length - sentFirst.length };
     save();
     expect(two.job.status).toBe("done");
     expect(two.asked).toEqual([]);

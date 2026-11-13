@@ -243,12 +243,17 @@ function pick(bag: Record<string, unknown>, names: readonly string[]): Record<st
   return Object.fromEntries(names.map((n) => [n, bag[n] ?? null]));
 }
 
-// A value in words: a list of records one per line, a record as its fields.
+// A value in words: a list of records one per line, a record as its
+// fields (those with something in them).
 function words(v: unknown): string {
   if (typeof v === "string") return v;
   const record = (x: unknown): x is Record<string, unknown> => Boolean(x) && typeof x === "object" && !Array.isArray(x);
   if (Array.isArray(v)) return v.length && v.every(record) ? v.map((x) => `\n- ${words(x)}`).join("") : v.map(words).join(", ");
-  if (record(v)) return Object.entries(v).map(([k, x]) => `${k.replace(/_/g, " ")} ${x !== null && typeof x === "object" ? JSON.stringify(x) : String(x)}`).join(", ");
+  if (record(v))
+    return Object.entries(v)
+      .filter(([, x]) => x !== null && x !== undefined && String(x).trim() !== "")
+      .map(([k, x]) => `${k.replace(/_/g, " ")} ${typeof x === "object" ? JSON.stringify(x) : String(x)}`)
+      .join(", ");
   return String(v);
 }
 
