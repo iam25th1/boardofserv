@@ -13,6 +13,9 @@ import type { AgentDefinition } from "./definition";
 import { plain } from "./plainView";
 import { problemOf } from "./plainWords";
 import { sourceAsk, unreadableIn } from "./sources";
+import { hasConnection, secretOf } from "../connections/vault";
+import { serverRuntime, type Runtime } from "./runtime/context";
+import { formIdOf, formQuestions, typeformLinkIn } from "../typeform/api";
 import { agentForConversation, agentsOf, createAgent, currentVersion, editableDraft } from "./store";
 
 // The journey in the chat, on the server (src/lib/journey.ts has the
@@ -223,13 +226,18 @@ export async function makeIt(user: User, conversationId: string, feedback: strin
   // a page behind a sign-in) is never planned as a step that pretends to
   // read it: the maker is told what it would take, or what works instead.
   const lastSaid = history.filter((m) => m.role === "user").at(-1)?.content ?? "";
-  const unreadable = unreadableIn([...Object.values(sketch!).filter((v): v is string => typeof v === "string"), lastSaid, feedback ?? ""].join("\n"));
-  if (unreadable) return { refused: { status: 400, error: sourceAsk(unreadable.problem) } };
+  const rt = serverRuntime();
+  const connected = new Set((await hasConnection(rt, user.id, "typeform")) ? ["typeform"] : []);
+  const unreadable = unreadableIn([...Object.values(sketch!).filter((v): v is string => typeof v === "string"), lastSaid, feedback ?? ""].join("\n"), connected);
+  if (unreadable) return { refused: { status: 400, error: sourceAsk(unreadable.problem, `/app/chat?c=${conversationId}`) } };
+  // A Typeform form it will read, with Typeform connected: its questions
+  // as the form words them, for the plan to read the answers by.
+  const notes = connected.has("typeform") ? await formNotes(rt, user.id, [...history.filter((m) => m.role === "user").map((m) => m.content), ...Object.values(sketch!).filter((v): v is string => typeof v === "string")].join("\n")) : [];
   const existing = await agentForConversation(conversationId);
   const { agent, draft } = existing ? { agent: existing, draft: await editableDraft(existing.id) } : await createAgent({ ownerUserId: user.id, conversationId, name: await nameOfNew(user.id, sketch!.name ?? "Unnamed agent") });
   if (jobFor(draft.id)) return { refused: { status: 409, error: BUSY } };
   if ((await cardsIn(conversationId)).at(-1)?.card?.stage !== "steps") await addCard(conversationId, { stage: "steps", agentId: agent.id }, "Working out the steps.");
-  startPlan(draft, { interview: sketch!, history, feedback }, ctx, "plan", {
+  startPlan(draft, { interview: sketch!, history, feedback, notes }, ctx, "plan", {
     stop: true,
     planned: async (_before, after) => {
       if (after) await setStepsWords(conversationId, after);
@@ -237,6 +245,22 @@ export async function makeIt(user: User, conversationId: string, feedback: strin
     settle: settleIn(conversationId, agent.id),
   });
   return { agent: summaryOf(agent, { ...draft, buildState: "planning", buildNote: null }) };
+}
+
+// What the plan should know of a Typeform form the maker named: its
+// questions, by title. Nothing when it can't be read just now: the plan
+// goes on without.
+async function formNotes(rt: Runtime, ownerUserId: string, said: string): Promise<string[]> {
+  const link = typeformLinkIn(said);
+  const id = link ? formIdOf(link) : null;
+  const secret = id ? await secretOf(rt, ownerUserId, "typeform") : null;
+  if (!id || !secret) return [];
+  try {
+    const form = await formQuestions(rt.services.fetch, secret.token, id);
+    return [`The maker's Typeform form ${link} has these questions, and typeform.read gives each response as a record of id, submittedAt and these fields, exactly: ${form.questions.map((q) => `${q.key} ("${q.title}")`).join(", ")}. A step reads the form with typeform.read({ form: settings.<its link setting> }), the link being a url setting the maker gave, and names each answer by its field.`];
+  } catch {
+    return [];
+  }
 }
 
 // A name none of the maker's other agents has: "Price watcher 2" beside

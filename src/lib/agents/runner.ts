@@ -236,31 +236,41 @@ const OUTSIDE: Partial<Record<ToolName, string>> = {
   "web.search": "a web search",
   "sheets.read": "a sheet",
   "memory.get": "its memory",
+  "typeform.read": "a form's responses",
 };
 
 function pick(bag: Record<string, unknown>, names: readonly string[]): Record<string, unknown> {
   return Object.fromEntries(names.map((n) => [n, bag[n] ?? null]));
 }
 
-// A value in words: a list of records one per line, a record as its fields.
+// A value in words: a list of records one per line, a record as its
+// fields (those with something in them).
 function words(v: unknown): string {
   if (typeof v === "string") return v;
   const record = (x: unknown): x is Record<string, unknown> => Boolean(x) && typeof x === "object" && !Array.isArray(x);
   if (Array.isArray(v)) return v.length && v.every(record) ? v.map((x) => `\n- ${words(x)}`).join("") : v.map(words).join(", ");
-  if (record(v)) return Object.entries(v).map(([k, x]) => `${k.replace(/_/g, " ")} ${x !== null && typeof x === "object" ? JSON.stringify(x) : String(x)}`).join(", ");
+  if (record(v))
+    return Object.entries(v)
+      .filter(([, x]) => x !== null && x !== undefined && String(x).trim() !== "")
+      .map(([k, x]) => `${k.replace(/_/g, " ")} ${typeof x === "object" ? JSON.stringify(x) : String(x)}`)
+      .join(", ");
   return String(v);
 }
 
 // Words for a message to the owner, from whatever the step reads: a lone
 // piece of text as it is, anything else labelled.
-function summary(input: Record<string, unknown>): string {
+function summary(input: Record<string, unknown>, max = 3000): string {
   const values = Object.values(input);
-  if (values.length === 1 && typeof values[0] === "string") return values[0].slice(0, 3000);
+  if (values.length === 1 && typeof values[0] === "string") return values[0].slice(0, max);
   return Object.entries(input)
     .map(([k, v]) => `${k.replace(/_/g, " ")}: ${words(v)}`)
     .join("\n")
-    .slice(0, 3000);
+    .slice(0, max);
 }
+
+// A message to the owner goes whole, up to what a few Telegram messages
+// hold: delivery sends a long one in parts. A question stays one message.
+const MAX_MESSAGE = 12_000;
 
 // The tool arguments an action step is taken with.
 const YES = /^(?:y|yes|yeah|yep|sure|ok|okay|please|true|approve[ds]?|confirm(?:ed)?|go ahead)\b/i;
@@ -287,7 +297,7 @@ export function actionArgs(step: ActionStepDef, tool: keyof typeof TOOL_ARGS, in
   const first = step.inputs[0] ? input[step.inputs[0]] : undefined;
   if (TOOL_ARGS[tool].safeParse(first).success) return { ok: true, args: first };
   // A message made as text is sent as it is, whatever else the step reads.
-  if (tool === "telegram.send") return { ok: true, args: { text: (typeof first === "string" && first.trim() ? first.slice(0, 3000) : summary(input)) || step.title } };
+  if (tool === "telegram.send") return { ok: true, args: { text: (typeof first === "string" && first.trim() ? first.slice(0, MAX_MESSAGE) : summary(input, MAX_MESSAGE)) || step.title } };
   if (tool === "telegram.ask") return { ok: true, args: { question: `${step.title}\n${summary(input)}`.trim(), choices: ["Yes", "No"] } };
   return { ok: false, why: `This action needs its first input to be ${tool}'s arguments: ${TOOLS[tool].signature}` };
 }
@@ -551,7 +561,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
 
     // A step that judges or writes, at the top of the run, with nothing to
     // work on: the run is skipped there, and nothing is sent.
-    const hollowInput = judgesOrWrites(step) && !loops.inside.get(step.id) ? dataInputs(d, step).find((k) => hollow(input[k])) : undefined;
+    const hollowInput = judgesOrWrites(step) && !loops.inside.get(step.id) ? dataInputs(d, step).find((k) => thin(input[k])) : undefined;
     if (hollowInput) {
       done("ok", null, null, "Skipped: empty input.");
       return end("done", "skipped", `Skipped, empty input: "${step.title}" had nothing to work on (${hollowInput.replace(/_/g, " ")} was empty), so nothing was sent.`);
@@ -778,7 +788,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       // Empty items (a blank row, an empty submission) are passed by, and
       // a run whose every item is empty is skipped there, sending nothing.
       const first = filledFrom(items, 0);
-      const empty = items.filter((x) => hollow(x)).length;
+      const empty = items.filter((x) => thin(x)).length;
       if (items.length && first >= items.length && !loops.inside.get(step.id)) {
         done("ok", { items: items.length, empty }, null, "Skipped: every item was empty.");
         return end("done", "skipped", `Skipped, empty input: every one of the ${items.length} items "${step.title}" was given was empty, so nothing was sent.`);
@@ -901,7 +911,7 @@ function dataInputs(d: AgentDefinition, step: AgentStep): string[] {
 
 // Keys that say where a value came from or which one it is, not what it
 // holds: a submission that is only its id and row number has nothing in it.
-const ABOUT = /^(?:kind|_?row|row_?(?:number|id|index)|id|index|sample|at)$/i;
+const ABOUT = /^(?:kind|_?row|row_?(?:number|id|index)|id|index|sample|at|submitted_?at|landed_?at|created_?at|updated_?at|timestamp)$/i;
 
 // Nothing to work on: no value, or only empty texts, lists and objects all
 // the way down (a row with its cells empty, a trigger with no message).
@@ -911,6 +921,19 @@ export function hollow(v: unknown): boolean {
   return Object.entries(v as Record<string, unknown>)
     .filter(([k]) => !ABOUT.test(k))
     .every(([, x]) => hollow(x));
+}
+
+// Nearly empty: three or more fields and at most one short text filled in
+// (a submission that is only its project's name), or one that only wraps
+// such a thing. There is nothing in it to judge.
+export function thin(v: unknown): boolean {
+  if (hollow(v)) return true;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  const entries = Object.entries(v as Record<string, unknown>).filter(([k]) => !ABOUT.test(k));
+  if (entries.length === 1) return thin(entries[0]![1]);
+  if (entries.length < 3) return false;
+  const filled = entries.map(([, x]) => x).filter((x) => !hollow(x));
+  return filled.length === 0 || (filled.length === 1 && typeof filled[0] === "string" && filled[0].trim().length <= 80);
 }
 
 // A side step: one that only notes something for the agent itself (saving
@@ -925,7 +948,7 @@ export function isSideStep(d: AgentDefinition, step: AgentStep): boolean {
 // The place of the first item from here that has something in it.
 function filledFrom(items: unknown[], from: number): number {
   let i = from;
-  while (i < items.length && hollow(items[i])) i++;
+  while (i < items.length && thin(items[i])) i++;
   return i;
 }
 

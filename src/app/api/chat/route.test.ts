@@ -9,6 +9,7 @@ import * as schema from "@/lib/db/schema";
 import { nodesOf, sketchFromDTO, statusLine } from "@/lib/agentSketch";
 import type { SketchDTO } from "@/lib/types";
 import { POST } from "./route";
+import { sourceAsk, sourceProblem } from "@/lib/agents/sources";
 
 // Whole chat turns through the real /api/chat route: the real migrations run
 // on an in-memory Postgres, sign-in is stubbed, and SERV is a mocked fetch
@@ -337,9 +338,9 @@ describe("a source an agent can't read", () => {
     nextReply = ["Great, I'll read your Typeform responses!"];
     const before = calls.length;
     const t = await turn("Score each new hackathon submission from https://form.typeform.com/to/AbC123xy and send me the scores on Telegram.");
-    expect(t.shown).toBe(
-      "That's a Typeform form link. A Typeform link opens the form, not the answers people send, so an agent can't read submissions from it. Reading the answers needs your Typeform personal access token, or a webhook from Typeform that sends each answer as it comes in. Simplest: in your form's Connect tab, turn on Google Sheets so each answer lands in a sheet, then give me that sheet when you set it up, and it reads each new answer as a row.",
-    );
+    // The plain-words ask, and one tap to connect Typeform that comes back here.
+    expect(t.shown).toBe(sourceAsk(sourceProblem("https://form.typeform.com/to/AbC123xy")!, `/app/chat?c=${t.conversationId}`));
+    expect(t.shown).toContain("[Connect Typeform](/app/connections?connect=typeform&back=");
     // The plan call ran (the sketch is kept); the reply's never did.
     expect(calls.slice(before).filter((c) => c.stream)).toEqual([]);
     expect(t.sketch?.sketch).toMatchObject({ name: "Hackathon Submission Scorer" });

@@ -6,8 +6,9 @@ import { INTERVIEW_FIELDS, INTERVIEW_LABELS } from "../sketchFields";
 import type { SketchDTO } from "../types";
 import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAMES, type AgentDefinition, type AgentStep } from "./definition";
 import { TOOLS } from "./toolbox";
+import { typeformLinkIn } from "../typeform/api";
 import { planProblems } from "./planRules";
-import { askedFirst, askForMissing, askForSheet, askServToReason, columnsByName, fixSetup, keepRowNumbers, repairPlan, type RawStep } from "./planRepairs";
+import { askedFirst, askForForm, askForMissing, askForSheet, askServToReason, columnsByName, fixSetup, keepRowNumbers, repairPlan, type RawStep } from "./planRepairs";
 import { actingSteps, askPurpose, leaveOut, readPurpose } from "./purpose";
 import { rulesText } from "./lessonRules";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
@@ -302,9 +303,12 @@ export interface PlanInput {
   // Changing a plan: the plan as it is, and what the maker says is wrong.
   current?: AgentDefinition | null;
   feedback?: string | null;
+  // What the platform knows that the maker didn't say (a Typeform form's
+  // questions, read with their connected token).
+  notes?: string[];
 }
 
-export function planRequest({ interview, history, current, feedback }: PlanInput): string {
+export function planRequest({ interview, history, current, feedback, notes }: PlanInput): string {
   const lines = [`Agent: ${interview.name ?? "unnamed"}`, "", "Interview:"];
   for (const k of INTERVIEW_FIELDS) if (interview[k]) lines.push(`${INTERVIEW_LABELS[k]}: ${interview[k]}`);
   const said = contextFor(history, PLAN_HISTORY_MESSAGES)
@@ -315,6 +319,7 @@ export function planRequest({ interview, history, current, feedback }: PlanInput
     lines.push("", "The plan as it is:", JSON.stringify(current));
     if (feedback) lines.push("", `The maker says: ${feedback}`, "Change only what this needs. Keep the ids of steps that stay the same.");
   } else if (feedback) lines.push("", `Also: ${feedback}`);
+  if (notes?.length) lines.push("", "What boardofserv knows:", ...notes.map((n) => `- ${n}`));
   return lines.join("\n");
 }
 
@@ -343,6 +348,8 @@ export async function planAgent(
   let maxCalls = opts.maxCalls ?? MAX_PLAN_CALLS;
   // Whether the maker asked to be asked first, in their own words.
   const asked = askedFirst([...input.history.filter((m) => m.role === "user").map((m) => m.content), ...(input.feedback ? [input.feedback] : [])], input.interview.asks);
+  // The Typeform form the maker named, if they named one.
+  const formLink = typeformLinkIn([...input.history.filter((m) => m.role === "user").map((m) => m.content), JSON.stringify(input.interview)].join("\n"));
   const calls: JsonResult[] = [];
   const answers: string[] = [];
   const planText = planRequest(input);
@@ -426,7 +433,7 @@ export async function planAgent(
       if (!chunk || !(await detail(chunk))) break;
       continue;
     }
-    const joined = repaired(wireToDefinition(joinPlan(outline, details)), { askedFirst: asked });
+    const joined = repaired(wireToDefinition(joinPlan(outline, details)), { askedFirst: asked, formLink });
     const checked = checkDefinition(joined);
     // A plan in the format still has to keep the planner's rules
     // (planRules.ts): judgement in decisions, counting in code, no loops.
@@ -472,7 +479,7 @@ export async function planAgent(
 // a loop over one value goes once, a plain comparison or the owner's yes
 // goes by a value, every send, write or pay is handed what it sends, and a
 // judgement or words only a model can give are asked of SERV at run time.
-export function repaired(plan: unknown, o: { askedFirst?: boolean } = {}): unknown {
+export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: string | null } = {}): unknown {
   const d = plan as { steps?: unknown; settings?: unknown; rules?: unknown; actions?: unknown };
   if (!Array.isArray(d?.steps)) return plan;
   const list = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
@@ -484,6 +491,9 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean } = {}): unkno
   // Sheets it uses with no sheet asked for at setup: one asked for.
   const sheet = askForSheet(d.steps as RawStep[], list(d.settings).map((x) => ({ key: s(x.key), type: x.type })), list(d.actions).map((x) => ({ id: s(x.id), tool: x.tool })));
   if (sheet) (d as { settings: unknown }).settings = [...list(d.settings), sheet];
+  // A Typeform form it reads with no link asked for: one asked for.
+  const form = askForForm(d.steps as RawStep[], list(d.settings).map((x) => ({ key: s(x.key), label: s(x.label), type: x.type, given: s(x.given) })), o.formLink);
+  if (form) (d as { settings: unknown }).settings = [...list(d.settings), form];
   // A value read that nothing makes or holds: a setting it forgot to ask.
   const missing = askForMissing(d.steps as RawStep[], { settings: list(d.settings).map((x) => ({ key: s(x.key) })), rules: list(d.rules).map((x) => ({ key: s(x.key) })), memory: list((d as { memory?: unknown }).memory).map((x) => ({ key: s(x.key) })) });
   if (missing.length) (d as { settings: unknown }).settings = [...list(d.settings), ...missing.map((m) => ({ ...m, choices: [] }))];

@@ -118,6 +118,7 @@ const TOOL_VERBS: Record<string, string> = {
   "telegram.send": "message you",
   "telegram.ask": "ask you",
   "memory.get": "look up where it got to",
+  "typeform.read": "read your form's responses",
   "memory.set": "note where it got to",
   "wallet.pay": "pay",
   "serv.reason": "ask SERV",
@@ -152,7 +153,9 @@ function updatedRows(events: RunEvent[]): Set<string> {
 // it has handled.
 export function keepsPlace(d: AgentDefinition): boolean {
   const tools = new Set([...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))]);
-  return tools.has("memory.set") || tools.has("sheets.update");
+  // A Typeform form's responses are kept track of by the platform: each
+  // goes through once.
+  return tools.has("memory.set") || tools.has("sheets.update") || tools.has("typeform.read");
 }
 
 // The checks a self test gives an agent, by the platform's rules and the
@@ -233,11 +236,24 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
       if (!reads.length || !ran) continue;
       // Rows read, and nothing of them passed on: it reads the columns by
       // names the sheet doesn't have (name for Name).
-      const rows = reads.flatMap((e) => (e.tool === "sheets.read" ? (((e.result ?? {}) as { rows?: Record<string, unknown>[] }).rows ?? []) : []));
+      const rows = reads.flatMap((e) =>
+        e.tool === "sheets.read"
+          ? (((e.result ?? {}) as { rows?: Record<string, unknown>[] }).rows ?? [])
+          : e.tool === "typeform.read"
+            ? (((e.result ?? {}) as { responses?: Record<string, unknown>[] }).responses ?? []).map(({ id: _id, submittedAt: _at, ...answers }) => answers)
+            : [],
+      );
+      const form = reads.some((e) => e.tool === "typeform.read");
       const lists = Object.values((ran.output ?? {}) as Record<string, unknown>).filter((v): v is unknown[] => Array.isArray(v) && v.length > 0);
       if (rows.some((r) => !hollow(r)) && lists.some((l) => l.every((x) => hollow(x)))) {
         const columns = [...new Set(rows.flatMap((r) => Object.keys(r)).filter((c) => c !== "_row"))];
-        problems.push({ step: s.id, text: `"${s.title}" read ${rows.length} rows of your sheet but passed on nothing from them: the sheet's columns are ${columns.join(", ")}, and it reads columns by other names.`, check: "read_nothing" });
+        problems.push({
+          step: s.id,
+          text: form
+            ? `"${s.title}" read ${rows.length} responses to your form but passed on nothing from them: the form's questions are ${columns.join(", ")}, and it reads answers by other names.`
+            : `"${s.title}" read ${rows.length} rows of your sheet but passed on nothing from them: the sheet's columns are ${columns.join(", ")}, and it reads columns by other names.`,
+          check: "read_nothing",
+        });
         break;
       }
       if (!reads.every(emptyRead)) continue;
@@ -276,10 +292,14 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   if (checks.has("second_run")) {
     const many = goesThroughList(d);
     const again: RunEvent[] = [];
+    // The Typeform responses the first run took are taken, as they are for
+    // real (agent_seen_items).
+    const taken = new Set(toolEvents(first.events, "typeform.read").flatMap((e) => ((e.result as { responses?: { id: string }[] } | null)?.responses ?? []).map((r) => r.id)));
+    const forms = first.bench.forms ? Object.fromEntries(Object.entries(first.bench.forms).map(([k, v]) => [k, v.filter((r) => !taken.has(r.id))])) : undefined;
     await runAgent({
       definition: d,
       code: v.code,
-      bench: { ...first.bench, sheets: first.end.sheets, memory: first.end.memory },
+      bench: { ...first.bench, sheets: first.end.sheets, memory: first.end.memory, ...(forms ? { forms } : {}) },
       dryRun: true,
       signal: o.signal,
       onEvent: (e) => again.push(e),
@@ -313,11 +333,12 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
 }
 
 // The tools that read from outside, and a read that brought nothing back.
-const READS: readonly ToolName[] = ["web.fetch", "sheets.read", "web.search"];
+const READS: readonly ToolName[] = ["web.fetch", "sheets.read", "web.search", "typeform.read"];
 function emptyRead(e: ToolEvent): boolean {
   const r = (e.result ?? {}) as { status?: unknown; text?: unknown; rows?: unknown; results?: unknown };
   if (e.tool === "web.fetch") return r.status !== 200 || !String(r.text ?? "").trim();
   if (e.tool === "sheets.read") return !Array.isArray(r.rows) || r.rows.length === 0;
+  if (e.tool === "typeform.read") return !Array.isArray((r as { responses?: unknown }).responses) || ((r as { responses: unknown[] }).responses).length === 0;
   return !Array.isArray(r.results) || r.results.length === 0;
 }
 

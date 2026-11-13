@@ -85,6 +85,44 @@ export type InlineKeyboard = { text: string; callback_data: string }[][];
 export const MAX_TEXT = 4096;
 export const clip = (text: string) => (text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT - 3)}...` : text);
 
+// A message too long for one, in parts Telegram takes one at a time (with
+// room for its HTML): each ends where a line does, or, for a line longer
+// than a part, at a space. Nothing is cut: the parts, a new line between
+// them (a space within a long line), are the whole text.
+export const PART_TEXT = 3500;
+export function inParts(text: string, max = PART_TEXT): string[] {
+  if (text.length <= max) return [text];
+  const parts: string[] = [];
+  let lines: string[] = [];
+  let size = 0;
+  const flush = () => {
+    if (lines.length) parts.push(lines.join("\n"));
+    lines = [];
+    size = 0;
+  };
+  const add = (line: string) => {
+    if (lines.length && size + 1 + line.length > max) flush();
+    size += (lines.length ? 1 : 0) + line.length;
+    lines.push(line);
+  };
+  for (const line of text.split("\n")) {
+    if (line.length <= max) {
+      add(line);
+      continue;
+    }
+    flush();
+    let rest = line;
+    while (rest.length > max) {
+      const at = rest.lastIndexOf(" ", max);
+      parts.push(rest.slice(0, at > 0 ? at : max));
+      rest = rest.slice(at > 0 ? at + 1 : max);
+    }
+    add(rest);
+  }
+  flush();
+  return parts;
+}
+
 // A message's text as Telegram shows it best: its HTML, with plain text
 // to fall back on when Telegram can't read the HTML.
 export function textFields(text: string): { text: string; parse_mode: "HTML" } {

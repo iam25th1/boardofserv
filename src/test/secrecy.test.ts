@@ -75,6 +75,7 @@ import { claimJob, enqueue, runJob } from "@/lib/agents/runtime/jobs";
 import * as demoLive from "@/app/api/demo/agent/live/route";
 import * as connectionsRoute from "@/app/api/connections/route";
 import * as telegramCode from "@/app/api/connections/telegram/code/route";
+import * as connectTypeform from "@/app/api/connections/typeform/route";
 import * as telegramWebhook from "@/app/api/telegram/webhook/route";
 import * as googleStart from "@/app/api/connections/google/start/route";
 import * as googleCallback from "@/app/api/connections/google/callback/route";
@@ -193,6 +194,7 @@ const ROUTES: Record<string, object> = {
   "demo/agent/live": demoLive,
   "connections": connectionsRoute,
   "connections/telegram/code": telegramCode,
+  "connections/typeform": connectTypeform,
   "telegram/webhook": telegramWebhook,
   "connections/google/start": googleStart,
   "connections/google/callback": googleCallback,
@@ -242,6 +244,8 @@ const BOT_TOKEN = "123:bosBotTokenMarker42";
 const GOOGLE_SECRET = "bosGoogleSecretMarker43";
 const BRAVE_KEY = "bosBraveKeyMarker44"; // gitleaks:allow (a made-up key the test plants)
 const DEV_HOOK_SECRET = "bosDevHookMarker45";
+// An owner's Typeform personal token, pasted once on Connections.
+const TYPEFORM_TOKEN = "tfp_bosTypeformMarker46";
 
 // What one owner gave their copy of an agent: never shown to its maker.
 const SAM_PRIVATE = "SamPrivateStockSheet";
@@ -395,6 +399,8 @@ beforeAll(async () => {
     }
     // Google: the sheets and the token endpoint (their bodies aren't JSON).
     if (url.startsWith("https://sheets.googleapis.com/") || url === "https://oauth2.googleapis.com/token") return google.fetch(url, init);
+    // Typeform: the token works (its GETs have no body).
+    if (url.startsWith("https://api.typeform.com/")) return Response.json({ alias: "secrecy" });
     const body = JSON.parse(String(init.body)) as { stream: boolean; tools?: unknown; response_format?: { json_schema?: { name?: string; schema?: { properties?: { outcome?: { enum?: string[] } } } } } };
     // Telegram's Bot API: everything it is asked works.
     if (url.startsWith("https://api.telegram.org/")) return Response.json({ ok: true, result: { username: "bostestbot", message_id: 1 } });
@@ -828,6 +834,8 @@ describe("a helper's instructions stay on the server", () => {
       await hit("telegram: webhook without its secret", hook(null, fromMaya(1, `/start ${linkCode.code}`)));
       await hit("telegram: webhook with a wrong secret", hook("not-it", fromMaya(2, `/start ${linkCode.code}`)));
       await hit("telegram: maya links her chat", hook(DEV_HOOK_SECRET, fromMaya(3, `/start ${linkCode.code}`)));
+      // And her Typeform, with a personal token: kept, never shown again.
+      await hit("connections: maya connects typeform", connectTypeform.POST(req("/api/connections/typeform", "POST", { token: TYPEFORM_TOKEN })));
       const tab = (t: string) => ({ url: fakeSheetUrl(MAYA_SHEET), tab: t });
       const installed = JSON.parse(
         await (
@@ -1070,10 +1078,11 @@ describe("a helper's instructions stay on the server", () => {
         await hit(`sheets: ${tag} opens maya's sheet`, sheetsInspect.POST(req("/api/sheets/inspect", "POST", { url: fakeSheetUrl(MAYA_SHEET) })));
         await hit(`connections: ${tag} disconnect`, connectionsRoute.DELETE(req("/api/connections?provider=google", "DELETE")));
       }
-      // Maya disconnects both: what used them pauses, and the vault forgets them.
+      // Maya disconnects all three: what used them pauses, and the vault forgets them.
       state.user = maya;
       await hit("connections: disconnect google", connectionsRoute.DELETE(req("/api/connections?provider=google", "DELETE")));
       await hit("connections: disconnect telegram", connectionsRoute.DELETE(req("/api/connections?provider=telegram", "DELETE")));
+      await hit("connections: disconnect typeform", connectionsRoute.DELETE(req("/api/connections?provider=typeform", "DELETE")));
       await hit("connections: disconnect what isn't there", connectionsRoute.DELETE(req("/api/connections?provider=telegram", "DELETE")));
       await hit("connections: no such service", connectionsRoute.DELETE(req("/api/connections?provider=fax", "DELETE")));
       await hit("connections: after", connectionsRoute.GET(req("/api/connections")));
@@ -1103,7 +1112,7 @@ describe("a helper's instructions stay on the server", () => {
     // response, no header and no log line, ever. Maya sees her connections
     // by their labels alone.
     for (const { label, body, head } of [...bodies, ...logged.map((body) => ({ label: "log", body, head: "" }))]) {
-      for (const secret of [String(VAULT_CHAT), VAULT_REFRESH, VAULT_ACCESS, BOT_TOKEN, BOT_TOKEN.split(":")[1]!, GOOGLE_SECRET, BRAVE_KEY, DEV_HOOK_SECRET]) {
+      for (const secret of [String(VAULT_CHAT), VAULT_REFRESH, VAULT_ACCESS, BOT_TOKEN, BOT_TOKEN.split(":")[1]!, GOOGLE_SECRET, BRAVE_KEY, DEV_HOOK_SECRET, TYPEFORM_TOKEN]) {
         expect(body.includes(secret), `${label} carries a connection secret`).toBe(false);
         expect(head.includes(secret), `${label}'s headers carry a connection secret`).toBe(false);
       }

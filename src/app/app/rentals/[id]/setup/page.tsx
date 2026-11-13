@@ -55,6 +55,7 @@ function Setup({ id }: { id: string }) {
       connections: api.listConnections,
       telegramCode: api.telegramCode,
       googleStart: api.googleStart,
+      connectTypeform: api.connectTypeform,
       inspectSheet: api.inspectSheet,
       install: (answers) => api.installRental(id, answers),
       control: (installationId, action) => api.controlInstallation(installationId, action),

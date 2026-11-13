@@ -56,11 +56,16 @@ export function Markdown({ content, words = false }: { content: string; words?: 
             if (lang || text.includes("\n")) return <CodeBlock code={text} language={lang} />;
             return <code className={styles.inline}>{children}</code>;
           },
-          a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noopener noreferrer">
-              {children}
-            </a>
-          ),
+          // A link inside the app (Connect Typeform) stays in this tab, so it
+          // can come back to the same chat; any other opens a new one.
+          a: ({ href, children }) =>
+            href?.startsWith("/") && !href.startsWith("//") ? (
+              <a href={href}>{children}</a>
+            ) : (
+              <a href={href} target="_blank" rel="noopener noreferrer">
+                {children}
+              </a>
+            ),
           table: ({ children }) => (
             <div className={styles.tableWrap}>
               <table>{children}</table>

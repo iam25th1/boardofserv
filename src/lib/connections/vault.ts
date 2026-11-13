@@ -7,7 +7,8 @@ import { connectionsNeeded, type AgentDefinition } from "../agents/definition";
 import type { Runtime } from "../agents/runtime/context";
 
 // The connection vault: what each owner has linked (their Telegram chat,
-// their Google account), one connection per service. The secret is kept
+// their Google account, their Typeform personal token), one connection per
+// service. The secret is kept
 // encrypted (crypto.ts) and decrypted here only, on the server, for the one
 // call that needs it. Nothing in here ever hands a secret to agent code, a
 // maker, a log line or a response: a connection is described to its owner
@@ -28,9 +29,15 @@ export interface GoogleSecret {
   scope: string;
 }
 
-export type SecretOf<P extends ConnectionProvider> = P extends "telegram" ? TelegramSecret : GoogleSecret;
+// A Typeform personal token the owner pasted: read access to their forms
+// and responses, never shown again.
+export interface TypeformSecret {
+  token: string;
+}
 
-export const SERVICE_NAME: Record<ConnectionProvider, string> = { telegram: "Telegram", google: "Google" };
+export type SecretOf<P extends ConnectionProvider> = P extends "telegram" ? TelegramSecret : P extends "google" ? GoogleSecret : TypeformSecret;
+
+export const SERVICE_NAME: Record<ConnectionProvider, string> = { telegram: "Telegram", google: "Google", typeform: "Typeform" };
 
 // A Telegram chat's lookup key: its owner can be found without decrypting
 // every connection, and the chat id isn't readable from the database.
@@ -110,6 +117,7 @@ async function installationsNeeding(rt: Runtime, ownerUserId: string, provider: 
 export const DISCONNECTED: Record<ConnectionProvider, string> = {
   telegram: "Telegram was disconnected, and this agent messages you there. Link Telegram again on Connections, then resume it.",
   google: "Google was disconnected, and this agent works on your sheets. Connect Google again on Connections, then resume it.",
+  typeform: "Typeform was disconnected, and this agent reads your form's answers. Connect Typeform again on Connections, then resume it.",
 };
 
 // Pauses every running installation of the owner's that needs this

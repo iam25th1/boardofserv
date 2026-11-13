@@ -1,7 +1,7 @@
 import "server-only";
 import { fixDashes } from "../../dashes";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { agentApprovals, agentFetchDays, agentInstallations, agentMessages, agentToolDays, users, type AgentInstallation, type AgentJob, type Payee, type SheetGrant, type User } from "../../db/schema";
+import { agentApprovals, agentFetchDays, agentInstallations, agentMessages, agentSeenItems, agentToolDays, users, type AgentInstallation, type AgentJob, type Payee, type SheetGrant, type User } from "../../db/schema";
 import { GoogleRevoked, GoogleUnavailable, REVOKED_REASON } from "../../google/oauth";
 import { readTab, SheetRefused, updateRows, writeTab, type SheetRow } from "../../google/sheets";
 import { braveSearch, SearchRefused, SearchUnavailable } from "../../search/brave";
@@ -28,6 +28,8 @@ import { addressFacts, highRisk, warningOf, type AddressFacts } from "../../spen
 import { paymentsNetworkProblem } from "../../spending/treasury";
 import { formatAmount, parseAmount } from "../../money";
 import { fetchPage, WebUnreachable } from "./webFetch";
+import { secretOf, touch as touchConnection } from "../../connections/vault";
+import { formIdOf, formResponses, TypeformError } from "../../typeform/api";
 import { sourceProblem, sourceRefusal } from "../sources";
 import { errorText } from "../../db/errors";
 
@@ -44,6 +46,10 @@ import { errorText } from "../../db/errors";
 // Memory is real: what the agent remembers for this owner, on their
 // installation alone. So is web.fetch (webFetch.ts), within a number of
 // pages a day for each installation.
+
+// Most Typeform responses one job takes: the rest wait for the next run.
+export const TYPEFORM_PER_RUN = 20;
+export const TYPEFORM_MISSING = "Typeform isn't connected, so the form's answers can't be read: connect it on Connections, then run it again.";
 
 export const GUARD_OVER_BUDGET = "This agent's model budget for the week is used up, so the safety check asks you instead.";
 
@@ -389,6 +395,7 @@ export class JobTools implements ToolHost {
     if (tool === "memory.get" || tool === "memory.set") return this.memory(tool, args);
     if (tool === "web.fetch") return this.fetch(args);
     if (tool === "web.search") return this.search(args);
+    if (tool === "typeform.read") return this.typeform(args);
     if (tool === "telegram.send") {
       const parsed = TOOL_ARGS["telegram.send"].safeParse(args);
       if (!parsed.success) throw new ToolError(tool, "telegram.send was called wrongly: it takes { text }.");
@@ -503,6 +510,38 @@ export class JobTools implements ToolHost {
       if (err instanceof WebUnreachable) throw new InfraError(err.message);
       throw new ToolError("web.fetch", err instanceof Error ? err.message : "The page couldn't be fetched.");
     }
+  }
+
+  // The owner's own Typeform form, read with their own token from the vault:
+  // its new responses, each once. What a job reads is noted against the job
+  // (agent_seen_items) and left out of every later read; the job settles
+  // it when it ends (jobs.ts settleSeen). A value check reads without
+  // taking anything.
+  private async typeform(args: unknown): Promise<unknown> {
+    const parsed = TOOL_ARGS["typeform.read"].safeParse(args);
+    if (!parsed.success) throw new ToolError("typeform.read", "typeform.read was called wrongly: it takes { form }, the form's link.");
+    const formId = formIdOf(parsed.data.form);
+    if (!formId) throw new ToolError("typeform.read", "That isn't a Typeform form's link.");
+    const secret = await secretOf(this.rt, this.installation.ownerUserId, "typeform");
+    if (!secret) throw new ToolError("typeform.read", TYPEFORM_MISSING);
+    const source = `typeform:${formId}`;
+    const here = and(eq(agentSeenItems.installationId, this.installation.id), eq(agentSeenItems.source, source));
+    const seen = await this.rt.db.select({ id: agentSeenItems.itemId }).from(agentSeenItems).where(here);
+    let got: Awaited<ReturnType<typeof formResponses>>;
+    try {
+      got = await formResponses(this.rt.services.fetch, secret.token, formId, { skip: new Set(seen.map((r) => r.id)), limit: TYPEFORM_PER_RUN });
+    } catch (err) {
+      if (err instanceof TypeformError && err.status === null) throw new InfraError(err.message);
+      throw new ToolError("typeform.read", err instanceof Error ? err.message : "Typeform couldn't be read.");
+    }
+    await touchConnection(this.rt, this.installation.ownerUserId, "typeform");
+    if (this.job && got.responses.length) {
+      await this.rt.db
+        .insert(agentSeenItems)
+        .values(got.responses.map((r) => ({ installationId: this.installation.id, source, itemId: r.id, jobId: this.job!.id, state: "read" as const, createdAt: this.rt.now() })))
+        .onConflictDoNothing();
+    }
+    return { responses: got.responses };
   }
 
   // What the agent remembers for this owner: on this installation's row

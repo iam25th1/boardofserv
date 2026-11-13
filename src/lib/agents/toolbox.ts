@@ -3,6 +3,7 @@ import { SIDE_EFFECT_TOOLS, TOOL_NAMES, type ToolName } from "./definition";
 import type { BenchData, SearchResult } from "./types";
 import { keepRequired } from "../zodErrors";
 import { sourceProblem, sourceRefusal } from "./sources";
+import { formIdOf } from "../typeform/api";
 
 // The kinds of field SERV can answer a reasoning call with.
 export const REASON_TYPES = ["text", "number", "boolean", "list"] as const;
@@ -27,11 +28,13 @@ export const TOOL_ARGS = {
   "sheets.update": z.object({ sheet: z.string().min(1).max(80), updates: z.array(z.object({ row: z.number().int().min(2).max(100_000), values: row })).min(1).max(500) }),
   "web.fetch": z.object({ url: z.string().url().max(2000) }),
   "web.search": z.object({ query: z.string().min(1).max(300) }),
-  "telegram.send": z.object({ text: z.string().min(1).max(4000) }),
+  "telegram.send": z.object({ text: z.string().min(1).max(12000) }),
   "telegram.ask": z.object({ question: z.string().min(1).max(2000), choices: z.array(z.string().max(80)).max(8).optional() }),
   "memory.get": z.object({ key: z.string().min(1).max(40) }),
   "memory.set": z.object({ key: z.string().min(1).max(40), value: z.unknown().optional() }),
   "wallet.pay": z.object({ to: z.string().min(1).max(120), amountUsdc: z.number().positive().max(100_000), memo: z.string().max(200).optional() }),
+  // A Typeform form, by its link (or id): its new responses.
+  "typeform.read": z.object({ form: z.string().min(4).max(500) }),
   // What SERV is asked, the values it works from, and the fields it answers
   // with, each of a type (text unless said): { text } when none are named.
   "serv.reason": z.object({
@@ -121,6 +124,13 @@ export const TOOLS: Record<ToolName, ToolInfo> = {
     sideEffect: true,
     risk: "money",
   },
+  "typeform.read": {
+    summary: "Read the new responses to the owner's Typeform form (by its link, connected with their own token): each a record of its id, when it came in, and every answer under its question's field name, the title in lower case with underscores (project_name for \"Project name\"; null when unanswered). Only responses this agent hasn't taken before.",
+    signature:
+      "tools.typeform.read({ form: string }): Promise<{ responses: Array<{ id: string, submittedAt: string, [field: string]: string | number | boolean | string[] | null }> }> // each answer at the top of its response, under its question's title in lower case with underscores: response.project_name for \"Project name\"; null when unanswered",
+    sideEffect: false,
+    risk: "read",
+  },
   // A model call: it changes nothing, but it is metered like a decision.
   "serv.reason": {
     summary: "Ask SERV Reasoning to judge or write something at run time (a score with its reasons, a reply, a line for the day), from the data given.",
@@ -200,6 +210,8 @@ export function withoutRowNumber<T extends Record<string, unknown>>(r: T): T {
 export class MockTools {
   readonly calls: ToolCall[] = [];
   private data: BenchData;
+  // Typeform responses already read in this run.
+  private formsRead = new Set<string>();
   private asked = 0;
   private paid = 0;
 
@@ -328,6 +340,15 @@ export class MockTools {
       }
       case "serv.reason":
         return standInReason(args as z.infer<(typeof TOOL_ARGS)["serv.reason"]>);
+      case "typeform.read": {
+        // The bench's responses to the form, each once a run, as for real.
+        const a = args as z.infer<(typeof TOOL_ARGS)["typeform.read"]>;
+        const all = d.forms?.[a.form] ?? Object.entries(d.forms ?? {}).find(([k]) => formIdOf(k) && formIdOf(k) === formIdOf(a.form))?.[1];
+        if (!all) throw new ToolError(tool, "There is no such Typeform form in the sample.");
+        const fresh = all.filter((r) => !this.formsRead.has(r.id));
+        for (const r of fresh) this.formsRead.add(r.id);
+        return { responses: structuredClone(fresh) };
+      }
     }
     throw new ToolError(tool, `${tool} is not a tool.`);
   }
@@ -378,4 +399,5 @@ export const BenchSchema = z.object({
   decisions: z.record(z.string(), z.string().max(40)),
   payees: z.array(z.string().max(120)).max(20).optional(),
   approve: z.enum(["yes", "no"]).optional(),
+  forms: z.record(z.string(), z.array(z.object({ id: z.string().max(100), submittedAt: z.string().max(40) }).catchall(z.unknown())).max(50)).optional(),
 }).refine((b) => json.safeParse(b).success, "The sample data is too large.");

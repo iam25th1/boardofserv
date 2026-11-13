@@ -193,10 +193,11 @@ describe("the public pages", () => {
     expect(screen.getByRole("main")).toHaveTextContent("Payments use test USDC on Base Sepolia");
   });
 
-  it("say what is kept, what for, how Google Sheets data is used, and how to have it deleted", () => {
+  it("say what is kept, what for, how Google Sheets and Typeform data is used, and how to have it deleted", () => {
     render(<PrivacyPage />);
     const main = screen.getByRole("main");
-    for (const kept of ["email address", "wallet you link", "Telegram chat and your Google Sheets access", "log of each job", "payments history"]) expect(main).toHaveTextContent(kept);
+    for (const kept of ["email address", "wallet you link", "Telegram chat, your Google Sheets access and your Typeform token", "log of each job", "payments history"]) expect(main).toHaveTextContent(kept);
+    expect(main).toHaveTextContent("Each response is handled once by each agent");
     expect(main).toHaveTextContent("Nothing is sold, and nothing is shared for ads.");
     expect(main).toHaveTextContent("Your Google Sheets data is only read or written by the agents you set up, only on the tabs you give them, and only for the jobs you set. It isn't used for anything else, isn't shown to other people, and isn't used to train AI models.");
     expect(main).toHaveTextContent("Limited Use requirements");

@@ -180,7 +180,7 @@ export function toolsCalled(source: string): string[] {
 
 // Tools that only look: listing one a step's code calls changes nothing it
 // may do, so the list takes it rather than the code being sent back.
-const LOOKS: readonly ToolName[] = ["sheets.read", "web.fetch", "web.search", "memory.get", REASON_TOOL];
+const LOOKS: readonly ToolName[] = ["sheets.read", "web.fetch", "web.search", "memory.get", "typeform.read", REASON_TOOL];
 
 // The step's tool list made to match its code: a listed tool the code never
 // calls comes off (SERV's review held steps for that), and a tool that only

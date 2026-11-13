@@ -4,6 +4,7 @@ import type { ConnectionDTO } from "@/lib/types";
 import { ConnectionsView, type ConnectionsApi } from "./ConnectionsView";
 import { GoogleConnect } from "./GoogleConnect";
 import { TelegramLink } from "./TelegramLink";
+import { TypeformConnect } from "./TypeformConnect";
 
 // The connections page: what is linked, as what and since when, what uses
 // it, Disconnect after a yes; and the ways to link Telegram and connect
@@ -23,7 +24,7 @@ describe("the connections page", () => {
   it("shows what is linked and what uses it, and disconnects after a yes, saying what paused", async () => {
     let linked = [telegram];
     const api = {
-      load: vi.fn(async () => ({ connections: linked, available: { telegram: true, google: false } })),
+      load: vi.fn(async () => ({ connections: linked, available: { telegram: true, google: false, typeform: true } })),
       disconnect: vi.fn(async () => {
         linked = [];
         return { revoked: null, paused: 1 };
@@ -67,5 +68,22 @@ describe("the connections page", () => {
     render(<GoogleConnect start={async () => Promise.reject(new Error("Google isn't set up here."))} />);
     fireEvent.click(screen.getByRole("button", { name: "Connect Google" }));
     expect(await screen.findByText("Google isn't set up here.")).toBeInTheDocument();
+  });
+  it("connects Typeform with a pasted token, clears it, and says why when Typeform turns it down", async () => {
+    const onConnected = vi.fn();
+    const connect = vi.fn(async (token: string) => (token === "tfp_good_token" ? { label: "Typeform (sample)" } : Promise.reject(new Error("That token didn't work with Typeform."))));
+    render(<TypeformConnect connect={connect} onConnected={onConnected} />);
+    const field = screen.getByLabelText("Your Typeform personal token");
+    expect(field).toHaveAttribute("type", "password");
+    expect(screen.getByRole("button", { name: "Connect Typeform" })).toBeDisabled();
+    fireEvent.change(field, { target: { value: "tfp_bad_token" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect Typeform" }));
+    expect(await screen.findByText("That token didn't work with Typeform.")).toBeInTheDocument();
+    expect(onConnected).not.toHaveBeenCalled();
+    fireEvent.change(field, { target: { value: " tfp_good_token " } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect Typeform" }));
+    await waitFor(() => expect(onConnected).toHaveBeenCalled());
+    expect(connect).toHaveBeenLastCalledWith("tfp_good_token");
+    expect(field).toHaveValue("");
   });
 });

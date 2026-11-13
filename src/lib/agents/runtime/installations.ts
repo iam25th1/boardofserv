@@ -55,7 +55,7 @@ export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agen
   if (why) throw new InstallRefused(why);
   const d = o.version.definition!;
   const missing = await missingConnections(rt, o.ownerUserId, d);
-  if (missing.length) throw new InstallRefused(`${missing.map((p) => (p === "telegram" ? "Link Telegram" : "Connect Google")).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
+  if (missing.length) throw new InstallRefused(`${missing.map((p) => (p === "telegram" ? "Link Telegram" : p === "google" ? "Connect Google" : "Connect Typeform")).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
   const checked = checkAnswers(d, o.answers);
   if (!checked.ok) throw new InstallRefused("Some answers need another look.", checked.errors);
   const { settings, sheets } = await grantSheets(rt, o.ownerUserId, d, checked.settings);
@@ -239,10 +239,10 @@ export async function setPolicy(rt: Runtime, l: Loaded, policy: SafetyPolicy): P
 }
 
 // The connections this agent needs that its owner hasn't made.
-export async function missingConnections(rt: Runtime, ownerUserId: string, d: AgentDefinition): Promise<("telegram" | "google")[]> {
+export async function missingConnections(rt: Runtime, ownerUserId: string, d: AgentDefinition): Promise<("telegram" | "google" | "typeform")[]> {
   const needs = connectionsNeeded(d);
-  const missing: ("telegram" | "google")[] = [];
-  for (const p of ["telegram", "google"] as const) if (needs[p] && !(await hasConnection(rt, ownerUserId, p))) missing.push(p);
+  const missing: ("telegram" | "google" | "typeform")[] = [];
+  for (const p of ["telegram", "google", "typeform"] as const) if (needs[p] && !(await hasConnection(rt, ownerUserId, p))) missing.push(p);
   return missing;
 }
 

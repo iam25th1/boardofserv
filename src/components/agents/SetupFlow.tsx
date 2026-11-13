@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { animate, svg } from "animejs";
 import { Button, TextInput } from "@/components/ui";
 import { GoogleConnect } from "@/components/connections/GoogleConnect";
+import { TypeformConnect } from "@/components/connections/TypeformConnect";
 import { TelegramLink, type LinkCode } from "@/components/connections/TelegramLink";
 import type { SetupShape } from "@/lib/agents/definition";
 import { minIntervalMinutes } from "@/lib/agents/interval";
@@ -30,9 +31,11 @@ import styles from "./SetupFlow.module.css";
 // is simply there.
 
 export interface SetupApi {
-  connections: () => Promise<{ connections: ConnectionDTO[]; available: Record<"telegram" | "google", boolean> }>;
+  connections: () => Promise<{ connections: ConnectionDTO[]; available: Record<"telegram" | "google", boolean> & { typeform?: boolean } }>;
   telegramCode: () => Promise<LinkCode>;
   googleStart: (returnTo: string) => Promise<{ url: string }>;
+  // Connect Typeform with a pasted personal token (absent: not offered here).
+  connectTypeform?: (token: string) => Promise<{ label: string }>;
   inspectSheet: (url: string) => Promise<SheetInfo>;
   // Installs it for a test run (not live).
   install: (answers: InstallAnswers) => Promise<InstallationDTO>;
@@ -42,8 +45,8 @@ export interface SetupApi {
   answer: (approvalId: string, answer: string) => Promise<void>;
 }
 
-type StepKey = "settings" | "telegram" | "google" | "rules" | "test";
-const STEP_TITLE: Record<StepKey, string> = { settings: "Its questions", telegram: "Link Telegram", google: "Your sheets", rules: "Rules and limits", test: "Test run" };
+type StepKey = "settings" | "telegram" | "google" | "typeform" | "rules" | "test";
+const STEP_TITLE: Record<StepKey, string> = { settings: "Its questions", telegram: "Link Telegram", google: "Your sheets", typeform: "Your Typeform", rules: "Rules and limits", test: "Test run" };
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const POLL_MS = 2_000;
 
@@ -106,8 +109,8 @@ export function SetupFlow({
   const sheetSettings = d.settings.filter((s) => s.type === "sheet");
   const schedule = d.triggers.find((t) => t.kind === "schedule");
   const steps = useMemo<StepKey[]>(
-    () => [...(plainSettings.length ? (["settings"] as const) : []), ...(needs.telegram ? (["telegram"] as const) : []), ...(needs.google ? (["google"] as const) : []), "rules", "test"],
-    [plainSettings.length, needs.telegram, needs.google],
+    () => [...(plainSettings.length ? (["settings"] as const) : []), ...(needs.telegram ? (["telegram"] as const) : []), ...(needs.google ? (["google"] as const) : []), ...(needs.typeform ? (["typeform"] as const) : []), "rules", "test"],
+    [plainSettings.length, needs.telegram, needs.google, needs.typeform],
   );
   const fresh = (): InstallAnswers => ({
     settings: Object.fromEntries(d.settings.map((s) => [s.key, s.type === "boolean" ? Boolean(defaults[s.key]) : s.type === "sheet" ? null : asText(defaults[s.key])])),
@@ -162,7 +165,7 @@ export function SetupFlow({
 
   const set = (patch: Partial<InstallAnswers>) => setState((s) => ({ ...s, answers: { ...s.answers, ...patch } }));
   const setSetting = (k: string, v: unknown) => setState((s) => ({ ...s, answers: { ...s.answers, settings: { ...s.answers.settings, [k]: v } } }));
-  const linked = (p: "telegram" | "google", c = conn) => Boolean(c?.connections.some((x) => x.provider === p));
+  const linked = (p: "telegram" | "google" | "typeform", c = conn) => Boolean(c?.connections.some((x) => x.provider === p));
 
   // The answers' problems that belong to this step.
   const problems = (step: StepKey): Record<string, string> => {
@@ -182,6 +185,7 @@ export function SetupFlow({
     if (now) setConn(now);
     if (state.at === "telegram" && !linked("telegram", now)) return setSaid("Link Telegram first: this agent messages you there.");
     if (state.at === "google" && !linked("google", now)) return setSaid("Connect Google first: this agent works on your sheets.");
+    if (state.at === "typeform" && !linked("typeform", now)) return setSaid("Connect Typeform first: this agent reads your form's answers.");
     const found = problems(state.at);
     setErrors(found);
     if (Object.keys(found).length) return setSaid("Some answers need another look.");
@@ -263,6 +267,19 @@ export function SetupFlow({
               <p className={styles.quiet}>Telegram isn&apos;t set up on this server.</p>
             ) : (
               <TelegramLink getCode={api.telegramCode} refresh={refresh} />
+            )}
+          </div>
+        )}
+
+        {state.at === "typeform" && (
+          <div className={styles.fields}>
+            <p className={styles.quiet}>{d.name} reads the answers to your Typeform form with your own token, each answer once.</p>
+            {linked("typeform") ? (
+              <p className={styles.done}>Connected: {conn!.connections.find((c) => c.provider === "typeform")!.label}.</p>
+            ) : api.connectTypeform ? (
+              <TypeformConnect connect={api.connectTypeform} onConnected={refresh} />
+            ) : (
+              <p className={styles.quiet}>Connect Typeform on Connections, then come back.</p>
             )}
           </div>
         )}

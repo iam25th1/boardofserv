@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { pushVerdict } from "../../scripts/db-push";
+import { checkMatches, checkSql, pushVerdict, SYNCED_CHECKS } from "../../scripts/db-push";
+import { CONNECTION_PROVIDERS } from "@/lib/db/schema";
 
 // What drizzle-kit push printed in a deploy's environment (stdin closed, no
 // terminal), captured from real runs against a scratch database.
@@ -52,3 +53,19 @@ describe("the deploy's schema push", () => {
     expect(pushVerdict(0, "[✓] Pulling schema from database...\n").ok).toBe(false);
   });
 });
+
+// drizzle-kit push leaves a changed check constraint as it is (rehearsed on
+// a scratch Postgres: "No changes detected"), so the deploy puts each one
+// right itself, only when the database's differs.
+describe("the checks the deploy keeps in step", () => {
+  it("knows when the database's check allows other values, and makes it again in one statement", () => {
+    const old = "CHECK ((provider = ANY (ARRAY['telegram'::text, 'google'::text])))";
+    const now = "CHECK ((provider = ANY (ARRAY['telegram'::text, 'google'::text, 'typeform'::text])))";
+    expect(checkMatches(old, CONNECTION_PROVIDERS)).toBe(false);
+    expect(checkMatches(now, CONNECTION_PROVIDERS)).toBe(true);
+    expect(checkMatches(null, CONNECTION_PROVIDERS)).toBe(false);
+    expect(SYNCED_CHECKS.map((c) => c.name)).toEqual(["connections_provider"]);
+    expect(checkSql(SYNCED_CHECKS[0]!)).toBe(`ALTER TABLE "connections" DROP CONSTRAINT IF EXISTS "connections_provider", ADD CONSTRAINT "connections_provider" CHECK ("provider" in ('telegram', 'google', 'typeform'))`);
+  });
+});
+

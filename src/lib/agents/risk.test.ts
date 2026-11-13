@@ -53,6 +53,8 @@ describe("the registry", () => {
       "wallet.pay": "money",
       // Asking SERV changes nothing: it is metered, never guarded.
       "serv.reason": "read",
+      // Reading the owner's own form's answers changes nothing.
+      "typeform.read": "read",
     });
   });
 

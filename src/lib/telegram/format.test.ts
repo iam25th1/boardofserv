@@ -7,6 +7,7 @@ import { addUser, testDb } from "@/test/helperDb";
 import { installed, publishedAgent, testRuntime, type TestRuntime } from "@/test/runtimeFixtures";
 import { deliverTelegram, resetTelegramHolds } from "./deliver";
 import { plainText, telegramHtml } from "./format";
+import { inParts } from "./api";
 
 // What reaches Telegram: never raw markdown. The live scorer's assessment
 // showed its *asterisks* as they were.
@@ -24,6 +25,19 @@ describe("a message's text", () => {
 
   it("or plain text with the marks taken out", () => {
     expect(plainText("*Score:* 8/10, **strong** and _clear_. [demo](https://x.example)")).toBe("Score: 8/10, strong and clear. demo (https://x.example)");
+  });
+
+  it("too long for one message, goes in parts that end where a line does, nothing cut", () => {
+    expect(inParts("Short one.")).toEqual(["Short one."]);
+    const lines = Array.from({ length: 9 }, (_, i) => `- Entry ${i + 1}: ${"a fair reason ".repeat(40).trim()}.`);
+    const parts = inParts(lines.join("\n"), 1500);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts.every((p) => p.length <= 1500)).toBe(true);
+    expect(parts.join("\n")).toBe(lines.join("\n"));
+    // A line longer than a part ends at a space.
+    const long = inParts("word ".repeat(700).trim(), 1500);
+    expect(long.every((p) => p.length <= 1500 && !p.startsWith(" ") && p.endsWith("word"))).toBe(true);
+    expect(long.join(" ")).toBe("word ".repeat(700).trim());
   });
 });
 
@@ -47,6 +61,20 @@ describe("an agent's message on its way", () => {
     const [sent] = rt.net.telegram("sendMessage").slice(-1);
     expect(sent).toMatchObject({ parse_mode: "HTML", text: "Fabric restock: <b>Tide</b> scored <b>8/10</b>: it has a demo &amp; a README." });
     expect(String(sent!.text)).not.toContain("*");
+  });
+
+  it("goes in parts, in order, when it is too long for one", async () => {
+    resetTelegramHolds();
+    const owner = await addUser(db, "owner3");
+    const inst = await installed(rt, owner, await publishedAgent(db, owner));
+    const lines = Array.from({ length: 5 }, (_, i) => `Entry ${i + 1}: ${"a fair reason ".repeat(70).trim()}.`);
+    await db.insert(schema.agentMessages).values({ installationId: inst.id, from: "agent", text: lines.join("\n"), tgState: "pending", createdAt: rt.now() });
+    const before = rt.net.telegram("sendMessage").length;
+    await deliverTelegram(rt);
+    const sent = rt.net.telegram("sendMessage").slice(before).map((m) => String(m.text));
+    expect(sent.length).toBeGreaterThan(1);
+    expect(sent[0]!.startsWith("Fabric restock: Entry 1")).toBe(true);
+    expect(sent.join("\n")).toBe(`Fabric restock: ${lines.join("\n")}`);
   });
 
   it("goes again as plain text when Telegram can't read the HTML", async () => {
