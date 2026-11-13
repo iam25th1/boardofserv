@@ -178,9 +178,12 @@ describe.skipIf(!enabled)("the Hackathon Submission Scorer, live", () => {
     expect(audits.filter((a) => a.outcome === "blocked")).toEqual([]);
     expect(row!.outcome).toBeNull();
     // SERV judged the two real submissions, and never the empty one.
+    // (SERV may write the summary too: the scoring calls are the ones that
+    // answer with a number.)
     if (reasons.length) {
-      expect(asked).toHaveLength(2);
-      const said = JSON.stringify(asked.map((a) => a.args));
+      const scoring = asked.filter((a) => Object.values((a.args as { answer?: Record<string, string> }).answer ?? {}).includes("number"));
+      expect(scoring).toHaveLength(2);
+      const said = JSON.stringify(scoring.map((a) => a.args));
       expect(said).toContain("Tide");
       expect(said).toContain("Notes");
     }
