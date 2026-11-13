@@ -8,6 +8,7 @@ import type { RunState } from "../types";
 import type { Runtime } from "./context";
 import { opinionsFor, requestOpinion } from "../../reppo/opinion";
 import { paymentsConfig } from "../../payments/config";
+import { heldAnswered, isHeldStep } from "./held";
 
 // Approvals that wait. A job that asks its owner something (telegram.ask),
 // or would spend past a limit (spend.ts), pauses as waiting_for_owner, and
@@ -110,6 +111,8 @@ export async function pauseForOwner(rt: Runtime, job: AgentJob, worker: string, 
 // The answer (null for none) goes to the paused call, and the job back in
 // the queue.
 async function resume(tx: Tx, a: AgentApproval, answer: string | null, now: Date): Promise<void> {
+  // About messages the run held (held.ts), not a paused call.
+  if (isHeldStep(a.stepId)) return heldAnswered(tx, a, answer, now);
   const [job] = await tx.select().from(agentJobs).where(eq(agentJobs.id, a.jobId));
   if (!job?.state || job.status !== "waiting_for_owner") return;
   const state = structuredClone(job.state);
@@ -201,7 +204,7 @@ export function approvalDTO(a: AgentApproval, d: AgentDefinition | null, opinion
     jobId: a.jobId,
     installationId: a.installationId,
     agentName: d?.name ?? "An agent",
-    stepTitle: d?.steps.find((s) => s.id === a.stepId)?.title ?? a.stepId,
+    stepTitle: isHeldStep(a.stepId) ? "Its messages" : (d?.steps.find((s) => s.id === a.stepId)?.title ?? a.stepId),
     kind: a.kind,
     question: a.question,
     reason: a.reason,

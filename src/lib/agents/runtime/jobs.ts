@@ -7,6 +7,7 @@ import { askReason, readReason, type ReasonArgs, type Reasoned } from "../reason
 import { askServ, readDecision, runSteps, startState, typedRules, type Decided, type EngineResult, type RunEvent, type RunState } from "../runner";
 import { FEE_SHORT, holdJobFee } from "../../market/charges";
 import { pauseForOwner } from "./approvals";
+import { askAboutHeld, dropHeld, releaseHeld } from "./held";
 import { screenText } from "../screen";
 import { budgetGate, meter, type Scope } from "../metering";
 import { pauseOnRepeatedFailure, rateLimits } from "./rates";
@@ -64,6 +65,7 @@ export async function cancelJob(rt: Runtime, userId: string, jobId: string): Pro
       await tx.update(agentApprovals).set({ status: "cancelled", answeredAt: now }).where(and(eq(agentApprovals.jobId, job.id), eq(agentApprovals.status, "pending")));
     });
     await settleSeen(rt, job.id, Boolean(job.state?.acted));
+    await dropHeld(rt.db, job.id);
     return;
   }
   if (job.status !== "running") throw new CancelRefused("It has finished already.");
@@ -207,6 +209,12 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
   }
 
   const state: RunState = job.state ?? startState(definition, startingBag(definition, installation, handTrigger(definition, job.trigger as JobTrigger, version.testResult?.sample)));
+  // Its run had ended with messages held, and the owner has answered about
+  // them: they go or not, and the job ends as its run did.
+  if (state.release) {
+    const end = await releaseHeld(rt, job, worker, definition, installation, state);
+    return end === "waiting" ? undefined : finish(rt, job, worker, state, end);
+  }
   const save = async (s: RunState) => {
     const rows = await rt.db
       .update(agentJobs)
@@ -312,7 +320,11 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
   // its owner asked.
   if (halt.signal.aborted) result = { kind: "end", status: "stopped", cause: "stop", reason: "Cancelled by its owner." };
   if (result.kind === "wait") return pauseForOwner(rt, job, worker, definition, state, result);
-  await finish(rt, job, worker, state, result.kind === "end" ? endOf(result) : { retry: result.reason });
+  const how = result.kind === "end" ? endOf(result) : { retry: result.reason };
+  // Messages it held for the owner's yes: one question about them all, and
+  // the job ends once it is answered. A job stopped by its owner sends none.
+  if (!("retry" in how) && how.status !== "cancelled" && (await askAboutHeld(rt, job, worker, definition, installation, state, how))) return;
+  await finish(rt, job, worker, state, how);
   if (result.kind === "end") await askAboutBlocked(rt, installation, result.reason).catch((err: unknown) => rt.log(`jobs: the chat wasn't asked about a blocked step: ${err instanceof Error ? err.name : "unknown error"}`));
 }
 
@@ -355,6 +367,7 @@ async function finish(rt: Runtime, job: AgentJob, worker: string, state: RunStat
         .set({ status: "failed", reason: `${how.retry} It was tried ${MAX_ATTEMPTS} times.`, attempts, state, claimedBy: null, finishedAt: now, updatedAt: now })
         .where(mine);
       await settleSeen(rt, job.id, Boolean(state?.acted));
+      await dropHeld(rt.db, job.id);
       await pauseOnRepeatedFailure(rt, job.installationId);
       return;
     }
@@ -375,6 +388,8 @@ async function finish(rt: Runtime, job: AgentJob, worker: string, state: RunStat
     .where(mine)
     .returning({ id: agentJobs.id });
   if (ended.length) await settleSeen(rt, job.id, how.status === "done" || Boolean(state?.acted));
+  // Anything still held wasn't asked about (a job stopped): none of it goes.
+  if (ended.length) await dropHeld(rt.db, job.id);
   // Failing the same way again and again pauses the installation.
   if (ended.length && how.status === "failed") await pauseOnRepeatedFailure(rt, job.installationId);
 }

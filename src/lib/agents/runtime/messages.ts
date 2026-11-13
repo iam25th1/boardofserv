@@ -44,7 +44,14 @@ export async function sendToAgent(rt: Runtime, i: AgentInstallation, d: AgentDef
   return { ...message!, jobId: job.id };
 }
 
+// A message held for the owner's yes (held.ts) isn't in the box until it
+// is sent.
 export async function messagesOf(rt: Runtime, installationId: string, limit = 50): Promise<AgentMessage[]> {
-  const rows = await rt.db.select().from(agentMessages).where(eq(agentMessages.installationId, installationId)).orderBy(sql`${agentMessages.createdAt} desc`).limit(limit);
+  const rows = await rt.db
+    .select()
+    .from(agentMessages)
+    .where(and(eq(agentMessages.installationId, installationId), sql`coalesce(${agentMessages.tgState}, '') <> 'held'`))
+    .orderBy(sql`${agentMessages.createdAt} desc`)
+    .limit(limit);
   return rows.reverse();
 }

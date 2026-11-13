@@ -209,6 +209,18 @@ export interface RunState {
   notes?: string[];
   // It sent, wrote or paid something in this run.
   acted?: boolean;
+  // The run ended with messages held for the owner's yes (runtime/held.ts):
+  // how it ended, and their answers so far.
+  release?: HeldRelease;
+}
+
+export interface HeldRelease {
+  end: { status: "done" | "failed" | "cancelled"; reason: string; outcome?: "skipped" | "noted" };
+  // To the question about them all (Yes to all, No to all, Pick one by
+  // one); null for no answer.
+  answer?: string | null;
+  // To each message's own question, by message id, after Pick one by one.
+  each?: Record<string, string | null>;
 }
 
 // The screen of a step's untrusted inputs takes the step's first journal

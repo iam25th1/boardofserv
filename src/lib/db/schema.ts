@@ -762,10 +762,16 @@ export const agentMessages = pgTable(
     text: text("text").notNull(),
     jobId: uuid("job_id").references(() => agentJobs.id, { onDelete: "set null" }),
     // A message to the owner, in their Telegram chat too: "pending" until
-    // sent, then "sent", "none" (no Telegram linked) or "failed". A message
-    // from the owner says "telegram" when it came from there.
-    tgState: text("tg_state", { enum: ["pending", "sent", "none", "failed", "telegram"] }),
+    // sent, then "sent", "none" (no Telegram linked) or "failed"; "held"
+    // while it waits for the owner's yes with the run's other messages
+    // (agents/runtime/held.ts), shown nowhere. A message from the owner
+    // says "telegram" when it came from there.
+    tgState: text("tg_state", { enum: ["pending", "sent", "none", "failed", "telegram", "held"] }),
     tgAttempts: integer("tg_attempts").notNull().default(0),
+    // A long message goes to Telegram in numbered parts: how many of them,
+    // from the first, were delivered, so a try after a failure sends only
+    // the rest.
+    tgParts: integer("tg_parts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({
