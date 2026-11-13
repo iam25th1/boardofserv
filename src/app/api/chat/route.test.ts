@@ -331,6 +331,21 @@ describe("an agent's interview", () => {
   });
 });
 
+describe("a source an agent can't read", () => {
+  it("is named in plain words with what reading it would take and what works, and no model writes the reply", async () => {
+    nextSketch = extraction({ name: "Hackathon Submission Scorer", kind: "agent", watches: "new hackathon submissions", asking: "none" });
+    nextReply = ["Great, I'll read your Typeform responses!"];
+    const before = calls.length;
+    const t = await turn("Score each new hackathon submission from https://form.typeform.com/to/AbC123xy and send me the scores on Telegram.");
+    expect(t.shown).toBe(
+      "That's a Typeform form link. A Typeform link opens the form, not the answers people send, so an agent can't read submissions from it. Reading the answers needs your Typeform personal access token, or a webhook from Typeform that sends each answer as it comes in. Simplest: in your form's Connect tab, turn on Google Sheets so each answer lands in a sheet, then give me that sheet when you set it up, and it reads each new answer as a row.",
+    );
+    // The plan call ran (the sketch is kept); the reply's never did.
+    expect(calls.slice(before).filter((c) => c.stream)).toEqual([]);
+    expect(t.sketch?.sketch).toMatchObject({ name: "Hackathon Submission Scorer" });
+  });
+});
+
 describe("an agent with steps", () => {
   let cid = "";
   let versionId = "";

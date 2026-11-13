@@ -9,7 +9,8 @@ import { modelConfig, type JsonResult, type ModelConfig } from "../../model";
 import { servKeyOf } from "../../servKey";
 import { refusal } from "../../spend";
 import { recordAgentCall, servOnly } from "../build";
-import type { DecisionStepDef } from "../definition";
+import type { AgentStep, DecisionStepDef } from "../definition";
+import type { ReasonArgs, Reasoned } from "../reason";
 import type { Decided } from "../runner";
 import type { WebPolicy } from "./webFetch";
 import type { GuardInput, GuardVerdict } from "../guard";
@@ -83,6 +84,8 @@ export interface Runtime {
   record: (owner: User, call: JsonResult, ownKey: boolean, kind?: "agent_decision" | "agent_guard" | "agent_screen" | "agent_vetting") => Promise<void>;
   // In place of SERV (the development demo only).
   decide?: (step: DecisionStepDef, input: Record<string, unknown>) => Promise<Decided>;
+  // In place of SERV for a code step's reasoning (the development demo only).
+  reason?: (step: AgentStep, args: ReasonArgs) => Promise<Reasoned>;
   // In place of SERV's action guard (the development demo only).
   guard?: (input: GuardInput) => Promise<{ verdict: GuardVerdict; reason: string }>;
   // web.fetch's rules: never any exceptions on the server; tests and the

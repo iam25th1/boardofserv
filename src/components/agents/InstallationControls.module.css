@@ -20,6 +20,16 @@
   flex-wrap: wrap;
   gap: 2px var(--s-2);
 }
+/* A job with something to say takes its own line, with why under it. */
+.jobs li:has(.why) {
+  flex-basis: 100%;
+}
+.why {
+  display: block;
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+  overflow-wrap: anywhere;
+}
 .controls {
   display: flex;
   flex-wrap: wrap;

@@ -18,6 +18,7 @@ import { agentForConversation, currentVersion } from "@/lib/agents/store";
 import { answer, changeSteps, offerMakeIt } from "@/lib/agents/journey";
 import { honestReply, MAKE_IT_NEXT, wholeSentences } from "@/lib/replyClaims";
 import { describedEnough } from "@/lib/sketchFields";
+import { sourceAsk, unreadableIn } from "@/lib/agents/sources";
 
 export const runtime = "nodejs";
 
@@ -171,6 +172,23 @@ export async function POST(req: Request) {
         turnPlan = { asking: sketch.asking, choices: sketch.asking ? plan.sketch.choices : [] };
         // The dock fills in now, while the reply is still being written.
         send("sketch", { conversationId: cid, sketch });
+      }
+
+      // A link an agent couldn't read with what it was given (a form's
+      // public link, a page behind a sign-in): the reply says so in plain
+      // words and asks for what's needed, or what works instead. No model
+      // writes it, so it never pretends the link can be read.
+      const unreadable = sketch?.kind === "agent" || planned ? unreadableIn(said) : null;
+      if (unreadable) {
+        const text = sourceAsk(unreadable.problem);
+        send("delta", { text });
+        const [saved] = await db.insert(messages).values({ conversationId: cid, role: "assistant", content: text }).returning();
+        await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
+        send("reply_end", { messageId: saved?.id, source: null, label: null, choices: [] });
+        await finishUsage(usageId, null, plan.result, plan.sketch !== null, ownKey, "ok");
+        send("done", { messageId: saved?.id, source: null, label: null });
+        if (open) ctrl.close();
+        return;
       }
 
       // A change asked for an agent that has steps goes the way "Change the

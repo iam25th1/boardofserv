@@ -2,7 +2,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Button, Dialog } from "@/components/ui";
-import type { InstallationDTO, JobSummaryDTO } from "@/lib/types";
+import type { InstallationDTO } from "@/lib/types";
+import { jobWord } from "@/lib/jobWords";
 import { dollars } from "./JobTimeline";
 import styles from "./InstallationControls.module.css";
 
@@ -13,14 +14,6 @@ import styles from "./InstallationControls.module.css";
 
 export type ControlAction = "pause" | "resume" | "stop" | "run" | "test" | "golive";
 
-const JOB_WORD: Record<JobSummaryDTO["status"], string> = {
-  queued: "waiting to start",
-  running: "running",
-  waiting_for_owner: "waiting for you",
-  done: "done",
-  failed: "failed",
-  cancelled: "stopped",
-};
 
 export function when(iso: string | null, timezone: string): string {
   if (!iso) return "not scheduled";
@@ -65,9 +58,8 @@ export function Glance({ data, jobHref = (id) => `/app/jobs/${id}` }: { data: In
             <ol className={styles.jobs}>
               {data.recentJobs.map((j) => (
                 <li key={j.id}>
-                  <Link href={jobHref(j.id)} title={j.reason ?? undefined}>
-                    {JOB_WORD[j.status]}
-                  </Link>
+                  <Link href={jobHref(j.id)}>{jobWord(j)}</Link>
+                  {j.why && <span className={styles.why}>{j.why}</span>}
                 </li>
               ))}
             </ol>

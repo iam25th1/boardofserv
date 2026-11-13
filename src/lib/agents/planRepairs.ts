@@ -1,4 +1,6 @@
-import { loopChain, loopsOf } from "./definition";
+import { loopChain, loopsOf, REASON_TOOL, type CodeStepDef } from "./definition";
+import { needsReasoning } from "./planRules";
+import { parseShape, showShape } from "./shapes";
 
 // Repairs to a plan as SERV answers it, each with only one meaning, made
 // before the plan is checked (plan.ts, wireToDefinition), so a slip SERV
@@ -461,12 +463,14 @@ export function fixSetup(settings: { key: string; label?: string; type: unknown 
   return kept;
 }
 
-// askedFirst: the maker asked to be asked before it acts (unknown counts as
-// asked: nothing they want is taken out).
+// askedFirst: the maker asked to be asked before it acts. Unknown counts as
+// not asked: a message to the owner's own Telegram, or a write to their
+// own sheet, goes without asking unless they said to ask (a payment always
+// asks, by itself).
 export function repairPlan(steps: RawStep[], setup: Setup, o: { askedFirst?: boolean } = {}): void {
   dropSingleLoops(steps, setup);
   decideByValue(steps, setup);
-  dropUnaskedQuestions(steps, setup, o.askedFirst ?? true);
+  dropUnaskedQuestions(steps, setup, o.askedFirst ?? false);
   dropAllowanceChecks(steps, setup);
   buildArguments(steps, setup);
 }
@@ -474,12 +478,80 @@ export function repairPlan(steps: RawStep[], setup: Setup, o: { askedFirst?: boo
 // Whether the maker asked to be asked before it acts, in their own words
 // ("ask me first", "only if I say yes"; "it never needs to ask me" isn't),
 // or in what the interview kept they must be asked about. Without anything
-// they said, it counts as asked.
+// they said, it counts as not asked: asking first is off by default for
+// what an agent sends its own owner.
 const ASKS = /\bask(?:s|ing)? me\b|\bcheck with me\b|\bconfirm with me\b|\bmy (?:ok|okay|yes|approval|permission|go-?ahead)\b|\bif I say yes\b|\bwithout asking\b|\bbefore (?:it |you )?(?:sends?|pays?|writes?)\b/i;
 const NEVER = /\b(?:never|don't|do not|doesn't|does not|no need to|without needing to|won't)\b[^.]*\bask/i;
 const NOTHING = /^(?:nothing|none|no|never|n\/a|nothing at all)\b|\bnever (?:needs to )?asks?\b|\bno need\b/i;
 export function askedFirst(said: string[], asks?: string | null): boolean {
   if (asks?.trim() && !NOTHING.test(asks.trim())) return true;
-  if (!said.length) return true;
   return said.some((m) => m.split(/(?<=[.!?])\s+/).some((sentence) => ASKS.test(sentence) && !NEVER.test(sentence)));
 }
+
+// A step whose job is a judgement or words only a model can give (a score
+// with its reasons, a reply, a line for the day: planRules.ts) asks SERV
+// for them at run time with serv.reason, and the run has room to pay for
+// that: a plan that says it never spends on models gets the floor.
+export const REASONING_SPEND_FLOOR_USD = 0.1;
+const REASON_NOTE = " It asks SERV for this with tools.serv.reason (what to judge or write, the values, the fields it answers) and uses SERV's answer, never a rule of thumb or a canned line.";
+export function askServToReason(steps: RawStep[], plan: { limits?: unknown }): void {
+  let reasons = false;
+  for (const st of steps) {
+    if (st.kind !== "code") continue;
+    const tools = Array.isArray(st.tools) ? st.tools : [];
+    if (tools.includes(REASON_TOOL)) {
+      reasons = true;
+      continue;
+    }
+    const description = typeof st.description === "string" ? st.description : "";
+    if (!needsReasoning({ ...(st as unknown as CodeStepDef), kind: "code", description, title: st.title ?? st.id, tools: [] })) continue;
+    st.tools = [...tools, REASON_TOOL];
+    st.description = `${description.trim().slice(0, 800 - REASON_NOTE.length)}${REASON_NOTE}`;
+    reasons = true;
+  }
+  const limits = plan.limits && typeof plan.limits === "object" ? (plan.limits as { maxSpendUsd?: unknown }) : null;
+  if (reasons && limits && !(Number(limits.maxSpendUsd) >= REASONING_SPEND_FLOOR_USD)) limits.maxSpendUsd = REASONING_SPEND_FLOOR_USD;
+}
+
+// An agent that writes results back into the rows it read (sheets.update)
+// needs each row's number on what it reads: the step that reads the sheet
+// keeps _row on every item, in its brief and its shape. Without it nothing
+// after can say which row to write to.
+const ROW_FIELD = /^(?:_?row|row_?(?:number|id|index))$/i;
+const KEEPS_ROW = " Keep each row's _row (its number in the sheet) on every item, so its results can be written back into that row.";
+export function keepRowNumbers(steps: RawStep[], setup: Pick<Setup, "actions">): void {
+  if (!setup.actions.some((a) => a.tool === "sheets.update")) return;
+  for (const st of steps) {
+    if (st.kind !== "code" || !(st.tools ?? []).includes("sheets.read")) continue;
+    const shapes = (st as RawStep & { shapes?: Record<string, string> }).shapes;
+    let changed = false;
+    for (const [out, text] of Object.entries(shapes ?? {})) {
+      const shape = parseShape(text);
+      if (shape.t !== "list" || shape.of.t !== "object" || shape.of.open || Object.keys(shape.of.fields).some((f) => ROW_FIELD.test(f))) continue;
+      shapes![out] = showShape({ t: "list", of: { ...shape.of, fields: { _row: { t: "number" }, ...shape.of.fields } } });
+      changed = true;
+    }
+    const description = st.description ?? "";
+    if ((changed || !/\b_?row\b/i.test(description)) && !description.includes(KEEPS_ROW.trim())) st.description = `${description.trim().slice(0, 800 - KEEPS_ROW.length)}${KEEPS_ROW}`;
+  }
+}
+
+// Sheets it works on with no sheet the renter gives: a sheet setting of
+// its own, and the steps that use sheets told to pass it. A tab's name
+// written into the code reaches nothing when it runs for real (only the
+// tabs a renter picks at setup are its own).
+const SHEET_TOOLS = ["sheets.read", "sheets.write", "sheets.update"];
+export function askForSheet(steps: RawStep[], settings: { key: string; type: unknown }[], actions: { id: string; tool: unknown }[]): { key: string; label: string; type: "sheet"; help: string; choices: string[] } | null {
+  const sheetActions = new Set(actions.filter((a) => SHEET_TOOLS.includes(String(a.tool))).map((a) => a.id));
+  const users = steps.filter((st) => (st.kind === "code" && (st.tools ?? []).some((t) => SHEET_TOOLS.includes(t))) || (st.kind === "action" && sheetActions.has(st.action ?? "")));
+  if (!users.length || settings.some((x) => x.type === "sheet")) return null;
+  const key = settings.some((x) => x.key === "sheet") ? "your_sheet" : "sheet";
+  for (const st of users) {
+    if (st.kind !== "code") continue;
+    if (!st.inputs.includes("settings")) st.inputs = [...st.inputs, "settings"];
+    const note = ` The sheet is settings.${key}: pass it as sheet to every sheet tool.`;
+    if (!(st.description ?? "").includes(`settings.${key}`)) st.description = `${(st.description ?? "").trim().slice(0, 800 - note.length)}${note}`;
+  }
+  return { key, label: "Your sheet", type: "sheet", help: "The sheet and tab it works on.", choices: [] };
+}
+

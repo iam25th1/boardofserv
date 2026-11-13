@@ -7,7 +7,7 @@ import type { Runtime } from "../agents/runtime/context";
 import { installationsOf, loadInstallation } from "../agents/runtime/installations";
 import { MessageRefused, sendToAgent } from "../agents/runtime/messages";
 import { keep, ownerOfChat } from "../connections/vault";
-import { clip, tg, TelegramError, type TgMessage, type TgUpdate } from "./api";
+import { clip, sendText, tg, TelegramError, type TgMessage, type TgUpdate } from "./api";
 import { settledText } from "./deliver";
 import { redeemLinkCode } from "./link";
 
@@ -32,7 +32,7 @@ const MAX_TEXT = 2000;
 // The bot's replies are best effort: what the update asked for is done
 // (and kept) whether or not the reply gets through.
 async function reply(rt: Runtime, chatId: number, text: string, extra: Record<string, unknown> = {}): Promise<void> {
-  await tg(rt.services, "sendMessage", { chat_id: chatId, text: clip(text), ...extra }).catch((err: unknown) => {
+  await sendText(rt.services, "sendMessage", { chat_id: chatId, text, ...extra }).catch((err: unknown) => {
     if (!(err instanceof TelegramError)) throw err;
     rt.log(`telegram: a reply wasn't delivered: ${err.message}`);
   });
@@ -138,7 +138,7 @@ async function onButton(rt: Runtime, cb: Callback): Promise<void> {
     const target = menu.installationIds[index];
     const said = target ? await deliverTo(rt, target, owner, menu.text) : "That agent isn't there any more.";
     await say(said);
-    if (cb.message) await tg(rt.services, "editMessageText", { chat_id: chatId, message_id: cb.message.message_id, text: clip(`${menu.text}\n\n${said}`) }).catch(() => undefined);
+    if (cb.message) await sendText(rt.services, "editMessageText", { chat_id: chatId, message_id: cb.message.message_id, text: `${menu.text}\n\n${said}` }).catch(() => undefined);
     return;
   }
 
@@ -164,7 +164,7 @@ async function onButton(rt: Runtime, cb: Callback): Promise<void> {
   }
   // This message shows the answer now; the app shows it on its next look.
   if (cb.message && settled.status !== "pending") {
-    await tg(rt.services, "editMessageText", { chat_id: chatId, message_id: cb.message.message_id, text: settledText(settled, row.definition) }).catch(() => undefined);
+    await sendText(rt.services, "editMessageText", { chat_id: chatId, message_id: cb.message.message_id, text: settledText(settled, row.definition) }).catch(() => undefined);
     await rt.db.update(agentApprovals).set({ tgState: "closed" }).where(eq(agentApprovals.id, id));
   }
 }

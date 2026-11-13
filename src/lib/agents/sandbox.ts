@@ -1,8 +1,9 @@
 import "server-only";
-import { newQuickJSWASMModuleFromVariant, shouldInterruptAfterDeadline, type QuickJSContext, type QuickJSDeferredPromise, type QuickJSHandle, type QuickJSWASMModule } from "quickjs-emscripten-core";
+import { newQuickJSWASMModuleFromVariant, type QuickJSContext, type QuickJSDeferredPromise, type QuickJSHandle, type QuickJSWASMModule } from "quickjs-emscripten-core";
 import variant from "@jitl/quickjs-wasmfile-release-sync";
 import type { ToolName } from "./definition";
 import { gate, ToolError } from "./toolbox";
+import { knownZone, ZONED_DATE, zoneOffsetMinutes } from "./timeZone";
 import { errorText } from "../db/errors";
 
 // The sandbox a code step runs in: QuickJS compiled to WebAssembly, one
@@ -36,12 +37,20 @@ export interface SandboxOptions {
   allowed: readonly ToolName[];
   // Answers a tool call (the mocks on the test bench).
   call: (tool: ToolName, args: unknown) => Promise<unknown>;
+  // The code's own time: waiting for a tool's answer (SERV thinking, a
+  // page loading) isn't counted against it.
   timeMs?: number;
+  // The most it may take in all, waiting included (the run's time left);
+  // timeMs when not given.
+  wallMs?: number;
   memoryBytes?: number;
   // Ends the step at once from outside: a tool call that has to wait for
   // the owner halts it, and the step runs again from the start once the
   // answer is in (its tool calls replayed, not repeated).
   signal?: AbortSignal;
+  // The run's time zone (timeZone.ts): the code's local time is in it,
+  // UTC when none is given, never the server's.
+  timeZone?: string | null;
 }
 
 // What a QuickJS error says, in plain words.
@@ -85,18 +94,25 @@ export async function runInSandbox(source: string, input: unknown, opts: Sandbox
   const runtime = QuickJS.newRuntime();
   runtime.setMemoryLimit(opts.memoryBytes ?? DEFAULT_MEMORY_BYTES);
   runtime.setMaxStackSize(STACK_BYTES);
-  const deadline = Date.now() + timeMs;
-  runtime.setInterruptHandler(shouldInterruptAfterDeadline(deadline));
+  // The code's own time: wall time less the time spent waiting on tools.
+  let inflight = 0;
+  let waited = 0;
+  let waitFrom = 0;
+  const busy = () => Date.now() - started - waited - (inflight ? Date.now() - waitFrom : 0);
+  const wallMs = Math.max(opts.wallMs ?? timeMs, timeMs);
+  runtime.setInterruptHandler(() => busy() > timeMs || Date.now() - started > wallMs);
   const vm: QuickJSContext = runtime.newContext();
   let alive = true;
   // A fault on the host side: the instance is dropped, not cleaned up.
   let faulted = false;
   const pending = new Set<QuickJSDeferredPromise>();
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: ReturnType<typeof setInterval> | undefined;
 
   const settle = (d: QuickJSDeferredPromise, how: { value: string } | { error: string }) => {
     if (!alive || !pending.has(d)) return;
     pending.delete(d);
+    inflight -= 1;
+    if (inflight === 0) waited += Date.now() - waitFrom;
     if ("value" in how) {
       const v = vm.newString(how.value);
       d.resolve(v);
@@ -113,6 +129,8 @@ export async function runInSandbox(source: string, input: unknown, opts: Sandbox
     const bridge = vm.newFunction("__bridge", (nameH: QuickJSHandle, argsH: QuickJSHandle) => {
       const d = vm.newPromise();
       pending.add(d);
+      if (inflight === 0) waitFrom = Date.now();
+      inflight += 1;
       try {
         // Only strings cross: anything else is refused before it is read.
         if (vm.typeof(nameH) !== "string" || vm.typeof(argsH) !== "string") throw new ToolError("bridge", "Tools take a name and JSON arguments.");
@@ -136,6 +154,29 @@ export async function runInSandbox(source: string, input: unknown, opts: Sandbox
     });
     vm.setProp(vm.global, "__bridge", bridge);
     bridge.dispose();
+    // Local time in the run's zone: the zone's offset at a moment, asked of
+    // the host (numbers only cross), kept by the hour.
+    const zone = knownZone(opts.timeZone);
+    const offsets = new Map<number, number>();
+    const tzOffset = vm.newFunction("__tzOffset", (msH: QuickJSHandle) => {
+      const ms = vm.typeof(msH) === "number" ? vm.getNumber(msH) : NaN;
+      if (!Number.isFinite(ms)) return vm.newNumber(0);
+      const hour = Math.floor(ms / 3_600_000);
+      if (!offsets.has(hour)) offsets.set(hour, zoneOffsetMinutes(zone, ms));
+      return vm.newNumber(offsets.get(hour)!);
+    });
+    vm.setProp(vm.global, "__tzOffset", tzOffset);
+    tzOffset.dispose();
+    const zoneH = vm.newString(zone);
+    vm.setProp(vm.global, "__tzName", zoneH);
+    zoneH.dispose();
+    const zoned = vm.evalCode(ZONED_DATE);
+    if (zoned.error) {
+      const why = explain(vm.dump(zoned.error), timeMs);
+      zoned.error.dispose();
+      return { ok: false, error: why, ms: ms() };
+    }
+    zoned.value.dispose();
     const inputH = vm.newString(inputJson);
     vm.setProp(vm.global, "__input", inputH);
     inputH.dispose();
@@ -164,8 +205,12 @@ export async function runInSandbox(source: string, input: unknown, opts: Sandbox
     started2.value.dispose();
     runtime.executePendingJobs();
 
+    // Out of its own time with nothing to wait for (code awaiting what never
+    // comes), or out of all its time, waiting included.
     const outOfTime = new Promise<"timeout">((resolve) => {
-      timer = setTimeout(() => resolve("timeout"), Math.max(0, deadline - Date.now()));
+      timer = setInterval(() => {
+        if ((!inflight && busy() > timeMs) || Date.now() - started > wallMs) resolve("timeout");
+      }, 25);
     });
     const halt = new Promise<"halted">((resolve) => {
       if (opts.signal?.aborted) resolve("halted");
@@ -193,7 +238,7 @@ export async function runInSandbox(source: string, input: unknown, opts: Sandbox
     const deep = err instanceof RangeError;
     return { ok: false, error: deep ? "It went too deep (stack overflow)." : "The sandbox stopped it.", ms: ms() };
   } finally {
-    clearTimeout(timer);
+    clearInterval(timer);
     alive = false;
     if (faulted) {
       // Dropped, not disposed: freeing a runtime after a trap can trap again.

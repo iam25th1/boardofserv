@@ -185,13 +185,13 @@ describe("planning an agent from its conversation", () => {
     ]);
     // SERV planned and reviewed; Dolphin only wrote code. Then SERV made the
     // sample data for the plan's self test, which runs dry.
-    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_outline", "agent_steps", "dolphin", "code_review", "dolphin", "code_review", "agent_sample"]);
+    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_outline", "agent_steps", "purpose_check", "dolphin", "code_review", "dolphin", "code_review", "agent_sample"]);
     // The conversation shows the agent beside its sketch.
     const convo = await (await messagesRoute.GET(json(`/api/conversations/${conversationId}/messages`), { params: Promise.resolve({ id: conversationId }) })).json();
     expect(convo.agent).toMatchObject({ id: first.id, buildState: "idle" });
     // Every model call is in the usage records.
     const usage = await db.select({ kind: schema.replyUsage.kind, provider: schema.replyUsage.provider }).from(schema.replyUsage).where(eq(schema.replyUsage.userId, ana.id));
-    expect(usage.map((u) => `${u.kind}/${u.provider}`).sort()).toEqual(["agent_code/dolphin", "agent_code/dolphin", "agent_plan/serv", "agent_plan/serv", "agent_plan/serv", "agent_review/serv", "agent_review/serv"]);
+    expect(usage.map((u) => `${u.kind}/${u.provider}`).sort()).toEqual(["agent_code/dolphin", "agent_code/dolphin", "agent_plan/serv", "agent_plan/serv", "agent_plan/serv", "agent_plan/serv", "agent_review/serv", "agent_review/serv"]);
   });
 
   it("refuses an interview that isn't finished, someone else's conversation, and planning twice at once", async () => {
@@ -294,10 +294,10 @@ describe("the builder", () => {
     await jobFor((await draftOf(id))!.id);
     // One plan, then only the changed step was written and reviewed, and the
     // changed plan got a new sample for its self test.
-    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_outline", "agent_steps", "dolphin", "code_review", "agent_sample"]);
+    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_outline", "agent_steps", "purpose_check", "dolphin", "code_review", "agent_sample"]);
     expect(seen[0]!.body.messages[1]!.content).toContain("The maker says: it ignored delivery time");
     expect(seen[1]!.body.messages[1]!.content).toContain("The maker says: it ignored delivery time");
-    expect(seen[2]!.body.messages[1]!.content).toContain("Step: Compare suppliers");
+    expect(seen[3]!.body.messages[1]!.content).toContain("Step: Compare suppliers");
     const after = await builderOf(id);
     expect(after.code.find_low!.status).toBe("approved");
     expect(after.code.compare!.status).toBe("approved");

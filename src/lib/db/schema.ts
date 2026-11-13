@@ -47,6 +47,10 @@ export const users = pgTable(
     // The agent page shows everything (the step graph, code, test bench and
     // versions) rather than the plain view: the maker's own choice, kept.
     agentDetails: boolean("agent_details").notNull().default(false),
+    // Their time zone, as their browser gives it (an IANA name), saved
+    // whenever it changes: what their agents' times and tests go by. Null
+    // until a browser has said, and then UTC, never the server's.
+    timezone: text("timezone"),
     access: text("access", { enum: ["waiting", "approved", "rejected"] }).notNull().default("waiting"),
     accessDecidedBy: uuid("access_decided_by").references((): AnyPgColumn => users.id),
     accessDecidedAt: timestamp("access_decided_at", { withTimezone: true }),
@@ -662,6 +666,10 @@ export const agentJobs = pgTable(
     // step that runs again sees the very same values.
     state: json("state").$type<RunState>(),
     reason: text("reason"),
+    // A done job that wasn't plainly done: "skipped" (a step that judges or
+    // writes had nothing to work on, so nothing was sent) or "noted" (a
+    // side step didn't go through); null otherwise.
+    outcome: text("outcome", { enum: ["skipped", "noted"] }),
     attempts: integer("attempts").notNull().default(0),
     runAfter: timestamp("run_after", { withTimezone: true }).defaultNow().notNull(),
     claimedBy: text("claimed_by"),

@@ -77,6 +77,9 @@ export function useApi() {
       // It gave up: a simpler version of the steps, for the maker to look at.
       simpler: (conversationId: string) =>
         json<{ agent: AgentSummaryDTO }>(`/api/conversations/${encodeURIComponent(conversationId)}/journey`, { method: "POST", body: JSON.stringify({ action: "simpler" }) }).then((d) => d.agent),
+      // Stop the work on an agent's steps (planning, building, testing,
+      // fixing): what was done is kept.
+      stopBuild: (id: string) => json<{ stopped: boolean; agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/stop`, { method: "POST" }),
       goLive: (id: string, body: { how: "run" } | { how: "board"; weeklyPrice: string; description: string }) =>
         json<{ installation?: InstallationDTO; listing?: MakerListingDTO }>(`/api/agents/${encodeURIComponent(id)}/golive`, { method: "POST", body: JSON.stringify(body) }),
       getAgent: (id: string) => json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}`).then((d) => d.agent),
@@ -163,6 +166,7 @@ export function useApi() {
       openDispute: (body: { kind: "payment" | "rent"; id: string; reason: string; note: string }) => json<DisputeList>("/api/disputes", { method: "POST", body: JSON.stringify(body) }),
       getInstallation: (id: string) => json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}`).then((d) => d.installation),
       getJob: (id: string) => json<{ job: JobDTO }>(`/api/jobs/${encodeURIComponent(id)}`).then((d) => d.job),
+      cancelJob: (id: string) => json<{ job: JobDTO }>(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST" }).then((d) => d.job),
       listInstallationJobs: (id: string) => json<{ jobs: JobSummaryDTO[] }>(`/api/installations/${encodeURIComponent(id)}/jobs`).then((d) => d.jobs),
       listAgentJobs: (id: string) => json<{ jobs: JobSummaryDTO[] }>(`/api/agents/${encodeURIComponent(id)}/jobs`).then((d) => d.jobs),
       listApprovals: () => json<{ approvals: ApprovalDTO[] }>("/api/approvals").then((d) => d.approvals),
@@ -186,6 +190,7 @@ export function useApi() {
         json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/fix`, { method: "POST", body: JSON.stringify({ step }) }).then((d) => d.agent),
       // "Show details" on the agent page, kept for this maker.
       setAgentDetails: (on: boolean) => json<{ agentDetails: boolean }>("/api/account/details", { method: "PUT", body: JSON.stringify({ on }) }).then((d) => d.agentDetails),
+      setTimezone: (timezone: string) => json<{ timezone: string }>("/api/account/timezone", { method: "PUT", body: JSON.stringify({ timezone }) }),
       // "Test it": one run on sample data made from the plan, as a story.
       testAgent: (id: string, o: { journey?: boolean } = {}) =>
         json<{ test: TestResult; agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/test`, { method: "POST", ...(o.journey ? { body: JSON.stringify({ journey: true }) } : {}) }),

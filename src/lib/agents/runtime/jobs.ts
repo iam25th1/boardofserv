@@ -1,7 +1,9 @@
 import "server-only";
-import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { agentInstallations, agentJobs, agentJobSteps, agentVersions, users, type AgentInstallation, type AgentJob } from "../../db/schema";
-import type { AgentDefinition, DecisionStepDef } from "../definition";
+import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { agentApprovals, agentInstallations, agentJobs, agentJobSteps, agents, agentVersions, messages, users, type AgentInstallation, type AgentJob } from "../../db/schema";
+import type { AgentDefinition, AgentStep, DecisionStepDef } from "../definition";
+import type { BenchData } from "../types";
+import { askReason, readReason, type ReasonArgs, type Reasoned } from "../reason";
 import { askServ, readDecision, runSteps, startState, typedRules, type Decided, type EngineResult, type RunEvent, type RunState } from "../runner";
 import { FEE_SHORT, holdJobFee } from "../../market/charges";
 import { pauseForOwner } from "./approvals";
@@ -33,6 +35,40 @@ export const HEARTBEAT_MS = 20_000;
 export const STALE_MS = 120_000;
 
 export type JobTrigger = { kind: "schedule" | "check" | "message" | "manual" | "test"; [k: string]: unknown };
+
+// The running jobs in this process, each with its stop: Cancel aborts the
+// one it names, its model calls where they are (cancelJob).
+const running = new Map<string, AbortController>();
+
+export class CancelRefused extends Error {
+  constructor(
+    message: string,
+    readonly status = 409,
+  ) {
+    super(message);
+  }
+}
+
+// Cancel, by its owner. A job not started yet, or waiting for their
+// answer, ends now (its questions with it); a running one stops where it
+// is: its model calls are aborted, and it ends after the step it was on,
+// keeping what it did.
+export async function cancelJob(rt: Runtime, userId: string, jobId: string): Promise<void> {
+  if (!/^[0-9a-f-]{36}$/i.test(jobId)) throw new CancelRefused("Not found", 404);
+  const [job] = await rt.db.select().from(agentJobs).where(eq(agentJobs.id, jobId));
+  if (!job || job.ownerUserId !== userId) throw new CancelRefused("Not found", 404);
+  const now = rt.now();
+  if (job.status === "queued" || job.status === "waiting_for_owner") {
+    await rt.db.transaction(async (tx) => {
+      await tx.update(agentJobs).set({ status: "cancelled", reason: "Cancelled by its owner.", claimedBy: null, finishedAt: now, updatedAt: now }).where(and(eq(agentJobs.id, job.id), inArray(agentJobs.status, ["queued", "waiting_for_owner"])));
+      await tx.update(agentApprovals).set({ status: "cancelled", answeredAt: now }).where(and(eq(agentApprovals.jobId, job.id), eq(agentApprovals.status, "pending")));
+    });
+    return;
+  }
+  if (job.status !== "running") throw new CancelRefused("It has finished already.");
+  await rt.db.update(agentJobs).set({ stopAsked: true, updatedAt: now }).where(eq(agentJobs.id, job.id));
+  running.get(job.id)?.abort();
+}
 
 // Another worker owns the job now: stop at once, write nothing more.
 export class Fenced extends Error {
@@ -121,6 +157,17 @@ function startingBag(d: AgentDefinition, i: AgentInstallation, trigger: JobTrigg
   return { settings: { ...i.settings }, rules: typedRules(d, i.rules), memory: { ...i.memory }, trigger };
 }
 
+// What a run by hand starts from. An agent that works on what wakes it (a
+// message) has nothing live to work on when its owner runs it by hand, so
+// it runs on the sample its test ran on, marked as the sample.
+export function handTrigger(d: AgentDefinition, trigger: JobTrigger, sample: BenchData | null | undefined): JobTrigger {
+  if (trigger.kind !== "manual" && trigger.kind !== "test") return trigger;
+  if (!d.triggers.some((t) => t.kind === "message")) return trigger;
+  const given = Object.keys(trigger).some((k) => k !== "kind");
+  if (given || !sample?.trigger || !Object.keys(sample.trigger).length) return trigger;
+  return { ...sample.trigger, kind: trigger.kind, sample: true };
+}
+
 // Runs a claimed job until it ends, waits or must be tried again later.
 export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promise<void> {
   const [row] = await rt.db
@@ -148,7 +195,7 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
     if (fee.how === "short") return finish(rt, job, worker, null, { status: "failed", reason: FEE_SHORT(fee.fee) });
   }
 
-  const state: RunState = job.state ?? startState(definition, startingBag(definition, installation, job.trigger as JobTrigger));
+  const state: RunState = job.state ?? startState(definition, startingBag(definition, installation, handTrigger(definition, job.trigger as JobTrigger, version.testResult?.sample)));
   const save = async (s: RunState) => {
     const rows = await rt.db
       .update(agentJobs)
@@ -159,15 +206,28 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
   };
   const log = stepLog(rt, job, state);
   const serv = rt.serv(owner);
+  // Cancel, while it runs here: its model calls and its step stop at once.
+  const halt = new AbortController();
+  running.set(job.id, halt);
   const decide = async (step: DecisionStepDef, input: Record<string, unknown>, untrusted: string[]): Promise<Decided> => {
     if (rt.decide) return rt.decide(step, input);
     if (!serv) return { ok: false, note: "SERV isn't set up here.", reason: "SERV isn't set up, so its decisions can't be made.", costUsd: 0, infra: true };
-    const call = await askServ(step, input, serv.config, { fetchImpl: rt.fetchImpl, untrusted });
+    const call = await askServ(step, input, serv.config, { fetchImpl: rt.fetchImpl, untrusted, signal: halt.signal });
     await rt.record(owner, call, serv.ownKey, "agent_decision");
     await meter(rt, scope, "decision", call, serv.ownKey);
     return readDecision(step, call, step.each && Array.isArray(input[step.each]) ? (input[step.each] as unknown[]).length : 0);
   };
   const scope: Scope = { installationId: installation.id, jobId: job.id, agentId: installation.agentId, ownerUserId: installation.ownerUserId };
+  // A code step's own call to SERV (serv.reason): recorded and metered like
+  // a decision.
+  const reason = async (step: AgentStep, args: ReasonArgs): Promise<Reasoned> => {
+    if (rt.reason) return rt.reason(step, args);
+    if (!serv) return { ok: false, error: "SERV isn't set up here, so it couldn't ask SERV.", costUsd: 0, infra: true };
+    const call = await askReason(args, serv.config, { fetchImpl: rt.fetchImpl, signal: halt.signal });
+    await rt.record(owner, call, serv.ownKey, "agent_decision");
+    await meter(rt, scope, "decision", call, serv.ownKey);
+    return readReason(args, call);
+  };
 
   let result: EngineResult;
   try {
@@ -177,6 +237,7 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
       state,
       tools: new JobTools(rt, installation, definition, job, owner),
       decide,
+      reason,
       onEvent: log.on,
       save,
       // Before each step: stopped by its owner, or its installation paused
@@ -192,7 +253,7 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
       // Before each model call: the installation's daily cap, then the
       // site's (this spend counts towards it like any other).
       canSpend: async () => {
-        if (rt.decide) return null;
+        if (rt.decide || rt.reason) return null;
         await log.flush();
         const cap = Number(installation.dailySpendUsd);
         if ((await spendToday(rt, installation.id)) >= cap) return `It reached its daily spend limit of $${cap >= 0.01 ? cap.toFixed(2) : Number(cap.toFixed(6))} for today.`;
@@ -201,7 +262,7 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
       // The week's model budget before each decision: over it, the renter
       // is asked; a free agent out of its allowance pauses until Monday.
       budget: async () => {
-        if (rt.decide || !serv) return null;
+        if (rt.decide || rt.reason || !serv) return null;
         const gate = await budgetGate(rt, installation, serv.ownKey);
         if (gate.kind === "ok") return null;
         if (gate.kind === "ask") return { ask: { question: gate.question, reason: gate.reason } };
@@ -223,26 +284,54 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
       },
       maxVisits: rateLimits().stepVisits,
       retryInfra: true,
+      signal: halt.signal,
+      // Its code's local time is its owner's, as they set it up.
+      timeZone: installation.timezone,
     });
   } catch (err) {
     await log.flush();
-    if (err instanceof Fenced) return;
+    if (err instanceof Fenced) return void running.delete(job.id);
     // Something broke outside the agent (the database, most likely): try again.
     rt.log(`jobs: job ${job.id} broke off: ${err instanceof Error ? err.name : "unknown error"}`);
     result = { kind: "retry", reason: "The server had a problem running it." };
   }
   await log.flush();
+  running.delete(job.id);
+  // Cancelled mid-call: whatever the call said on the way out, it ends as
+  // its owner asked.
+  if (halt.signal.aborted) result = { kind: "end", status: "stopped", cause: "stop", reason: "Cancelled by its owner." };
   if (result.kind === "wait") return pauseForOwner(rt, job, worker, definition, state, result);
   await finish(rt, job, worker, state, result.kind === "end" ? endOf(result) : { retry: result.reason });
+  if (result.kind === "end") await askAboutBlocked(rt, installation, result.reason).catch((err: unknown) => rt.log(`jobs: the chat wasn't asked about a blocked step: ${err instanceof Error ? err.name : "unknown error"}`));
 }
 
-function endOf(r: Extract<EngineResult, { kind: "end" }>): { status: "done" | "failed" | "cancelled"; reason: string } {
+// The safety check stopped a step of the maker's own agent as it ran: a
+// plan issue. The chat the agent was made in asks them, once a step,
+// whether to take it out or say why it belongs (a reply changes the plan,
+// as any change in the chat does). A renter's runs never reach the maker's
+// chat: what a renter's job saw is theirs.
+const BLOCKED = /"([^"]+)" was stopped by the safety check: (.+?)(?: Everything else it was for was done\.)?$/;
+export async function askAboutBlocked(rt: Runtime, installation: AgentInstallation, reason: string): Promise<boolean> {
+  const m = BLOCKED.exec(reason);
+  if (!m) return false;
+  const [agent] = await rt.db.select({ owner: agents.ownerUserId, conversationId: agents.sourceConversationId }).from(agents).where(eq(agents.id, installation.agentId));
+  if (!agent?.conversationId || agent.owner !== installation.ownerUserId) return false;
+  const text = `When it ran, the safety check stopped "${m[1]}": ${m[2]!.replace(/\.?$/, ".")} Should I take that step out? Say "take it out", or tell me why it belongs and I'll change the steps.`;
+  const [last] = await rt.db.select({ content: messages.content }).from(messages).where(and(eq(messages.conversationId, agent.conversationId), eq(messages.role, "assistant"))).orderBy(desc(messages.createdAt)).limit(1);
+  if (last?.content === text) return false;
+  await rt.db.insert(messages).values({ conversationId: agent.conversationId, role: "assistant", content: text, createdAt: rt.now() });
+  return true;
+}
+
+function endOf(r: Extract<EngineResult, { kind: "end" }>): { status: "done" | "failed" | "cancelled"; reason: string; outcome?: "skipped" | "noted" } {
   if (r.cause === "end") return { status: "done", reason: r.reason };
+  // Skipped for empty input, or done with a note: done, and said so.
+  if (r.cause === "skipped" || r.cause === "noted") return { status: "done", reason: r.reason, outcome: r.cause };
   if (r.cause === "stop" || r.cause === "declined") return { status: "cancelled", reason: r.reason };
   return { status: "failed", reason: r.reason };
 }
 
-type Finish = { status: "done" | "failed" | "cancelled"; reason: string } | { retry: string };
+type Finish = { status: "done" | "failed" | "cancelled"; reason: string; outcome?: "skipped" | "noted" } | { retry: string };
 
 async function finish(rt: Runtime, job: AgentJob, worker: string, state: RunState | null, how: Finish): Promise<void> {
   const now = rt.now();
@@ -270,7 +359,7 @@ async function finish(rt: Runtime, job: AgentJob, worker: string, state: RunStat
   }
   const ended = await rt.db
     .update(agentJobs)
-    .set({ status: how.status, reason: how.reason, state, claimedBy: null, finishedAt: now, updatedAt: now, ...(state ? { costUsd: state.costUsd.toFixed(6) } : {}) })
+    .set({ status: how.status, reason: how.reason, outcome: how.outcome ?? null, state, claimedBy: null, finishedAt: now, updatedAt: now, ...(state ? { costUsd: state.costUsd.toFixed(6) } : {}) })
     .where(mine)
     .returning({ id: agentJobs.id });
   // Failing the same way again and again pauses the installation.

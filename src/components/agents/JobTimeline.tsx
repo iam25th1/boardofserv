@@ -3,7 +3,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createTimeline, stagger, svg, utils } from "animejs";
 import { dustIn, ease, prefersReducedMotion } from "@/lib/motion";
 import type { JobDTO, JobStepDTO } from "@/lib/types";
+import { Button } from "@/components/ui";
 import { ApprovalCard } from "./ApprovalCard";
+import { jobWord } from "@/lib/jobWords";
 import styles from "./JobTimeline.module.css";
 
 // A job, step by step, as a chalk timeline: a line down the side, each step
@@ -18,6 +20,8 @@ import styles from "./JobTimeline.module.css";
 export interface JobApi {
   load: () => Promise<JobDTO>;
   answer?: (approvalId: string, answer: string) => Promise<void>;
+  // Cancel, for its owner, while it waits, runs or waits for them.
+  cancel?: () => Promise<JobDTO>;
 }
 
 const POLL_MS = 2_000;
@@ -100,6 +104,20 @@ export function JobTimeline({ initial, api }: { initial: JobDTO; api: JobApi }) 
 
   const waiting = job.approvals.filter((a) => a.status === "pending");
   const plan = new Map(job.plan.map((p) => [p.id, p]));
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelSaid, setCancelSaid] = useState<string | null>(null);
+  const cancel = async () => {
+    if (!api.cancel || cancelling) return;
+    setCancelling(true);
+    setCancelSaid(null);
+    try {
+      setJob(await api.cancel());
+    } catch (err) {
+      setCancelSaid(err instanceof Error ? err.message : "It couldn't be cancelled just now. Try again.");
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   return (
     <div className={styles.job}>
@@ -111,9 +129,18 @@ export function JobTimeline({ initial, api }: { initial: JobDTO; api: JobApi }) 
           </p>
         </div>
         <span className={styles.status} data-status={job.status}>
-          {STATUS_WORD[job.status]}
+          {job.status === "done" && job.outcome ? jobWord(job) : STATUS_WORD[job.status]}
         </span>
       </header>
+      {api.cancel && job.viewer === "owner" && LIVE.has(job.status) && (
+        <p className={styles.quiet}>
+          <Button variant="ghost" onClick={() => void cancel()} disabled={cancelling}>
+            {cancelling ? "Cancelling..." : "Cancel this job"}
+          </Button>{" "}
+          {job.status === "running" ? "It stops after the step it is on, keeping what it did." : "It won't run."}
+          {cancelSaid && <span role="status"> {cancelSaid}</span>}
+        </p>
+      )}
       <dl className={styles.totals} aria-label="Totals">
         <div>
           <dt>Steps</dt>
@@ -128,7 +155,7 @@ export function JobTimeline({ initial, api }: { initial: JobDTO; api: JobApi }) 
           <dd>{dollars(job.costUsd)}</dd>
         </div>
       </dl>
-      {job.reason && job.status !== "done" && <p className={styles.reason}>{job.reason}</p>}
+      {job.reason && (job.status !== "done" || job.outcome) && <p className={styles.reason}>{job.why ?? job.reason}</p>}
       {job.viewer === "maker" && <p className={styles.quiet}>Someone else runs this copy of your agent: you see how it ran, never what it saw or made.</p>}
       <ol className={`${styles.timeline} chalky`} ref={listRef} aria-label="The steps it ran">
         {job.steps.map((s, i) => {

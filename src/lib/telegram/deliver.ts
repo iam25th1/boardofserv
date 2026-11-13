@@ -4,7 +4,7 @@ import { agentApprovals, agentInstallations, agentMessages, agentVersions, reppo
 import type { AgentDefinition } from "../agents/definition";
 import type { Runtime } from "../agents/runtime/context";
 import { secretOf, touch } from "../connections/vault";
-import { clip, tg, TelegramError, type InlineKeyboard } from "./api";
+import { clip, sendText, TelegramError, type InlineKeyboard } from "./api";
 
 // What goes out to owners' Telegram chats, from the worker's cycle: the
 // questions their jobs wait on (a button per answer), what their agents
@@ -123,7 +123,7 @@ export async function deliverTelegram(rt: Runtime, limit = 20): Promise<number> 
       continue;
     }
     try {
-      const sent = await tg<{ message_id: number }>(rt.services, "sendMessage", { chat_id: chat, text: approvalText(a, defs.get(a.installationId) ?? null, opinions.has(a.id)), reply_markup: { inline_keyboard: keyboard(a) } });
+      const sent = await sendText<{ message_id: number }>(rt.services, "sendMessage", { chat_id: chat, text: approvalText(a, defs.get(a.installationId) ?? null, opinions.has(a.id)), reply_markup: { inline_keyboard: keyboard(a) } });
       // Answered in the app while it was on its way: settle it next cycle.
       await rt.db.update(agentApprovals).set({ tgState: "sent", tgMessageId: sent.message_id }).where(eq(agentApprovals.id, a.id));
       await touch(rt, a.ownerUserId, "telegram");
@@ -147,7 +147,7 @@ export async function deliverTelegram(rt: Runtime, limit = 20): Promise<number> 
       continue;
     }
     try {
-      await tg(rt.services, "editMessageText", { chat_id: chat, message_id: a.tgMessageId, text: settledText(a, defs.get(a.installationId) ?? null) });
+      await sendText(rt.services, "editMessageText", { chat_id: chat, message_id: a.tgMessageId, text: settledText(a, defs.get(a.installationId) ?? null) });
       await rt.db.update(agentApprovals).set({ tgState: "closed" }).where(eq(agentApprovals.id, a.id));
       done += 1;
     } catch (err) {
@@ -174,7 +174,9 @@ export async function deliverTelegram(rt: Runtime, limit = 20): Promise<number> 
       continue;
     }
     try {
-      await tg(rt.services, "sendMessage", { chat_id: chat, text: clip(`${defs.get(m.installationId)?.name ?? "Your agent"}: ${m.text}`) });
+      // HTML, with the agent's own marks (*bold*, `code`) made into tags
+      // and everything else escaped: never raw markdown.
+      await sendText(rt.services, "sendMessage", { chat_id: chat, text: `${defs.get(m.installationId)?.name ?? "Your agent"}: ${m.text}` });
       await rt.db.update(agentMessages).set({ tgState: "sent" }).where(eq(agentMessages.id, m.id));
       await touch(rt, owner!, "telegram");
       done += 1;

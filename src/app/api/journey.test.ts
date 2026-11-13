@@ -144,7 +144,7 @@ describe("the journey in the chat", () => {
     // Make it planned and stopped: nothing written, nothing tried.
     let c = await conversation(cid);
     expect(stages(c)).toEqual(["steps"]);
-    expect(seen).toEqual(["agent_outline", "agent_steps", "agent_steps"]);
+    expect(seen).toEqual(["agent_outline", "agent_steps", "agent_steps", "purpose_check"]);
     expect(c.agent).toMatchObject({ buildState: "idle", test: null });
     expect(c.agent!.plain!.map((l) => l.text)).toEqual(["Read the price", "At or below your target? If above the target, it stops there.", "Write the question", "Ask you whether to send a reminder to buy it", "Did you say yes? If no, it stops there.", "Write the reminder", "Send you the reminder to buy it"]);
     expect(c.messages.at(-1)!.content).toMatch(/^The steps:\n1\. Read the price\n/);
@@ -261,14 +261,24 @@ describe("the journey in the chat", () => {
     expect(board.status, await board.clone().text()).toBe(200);
     expect(await listed()).toBe(1);
     expect(await installs()).toBe(0);
-    // Running for the maker: an installation in their time zone, and the
-    // listing as it was.
+    // A change the maker tries for themselves: a new draft, built and
+    // tested, that the board hasn't seen.
+    const [v1] = await db.select().from(schema.agentVersions).where(eq(schema.agentVersions.agentId, id));
+    const [v2] = await db
+      .insert(schema.agentVersions)
+      .values({ agentId: id, number: 2, state: "draft", definition: v1!.definition, code: v1!.code, bench: v1!.bench, testResult: v1!.testResult, buildState: "idle" })
+      .returning();
+    // Running for the maker: an installation in their time zone, on the new
+    // version, and the listing as it was: running never publishes.
     const ran = await golive.POST(json(`/api/agents/${id}/golive`, "POST", { how: "run" }), at(id));
     expect(ran.status).toBe(200);
     expect(await installs()).toBe(1);
     expect(await listed()).toBe(1);
     const [inst] = await db.select().from(schema.agentInstallations).where(eq(schema.agentInstallations.agentId, id));
     expect(inst!.timezone).toBe("Europe/London");
+    expect(inst!.versionId).toBe(v2!.id);
+    const [listing] = await db.select().from(schema.agentListings).where(eq(schema.agentListings.agentId, id));
+    expect(listing!.versionId).toBe(v1!.id);
   });
 
   it("never makes it before the job is clear, or for anyone else", async () => {

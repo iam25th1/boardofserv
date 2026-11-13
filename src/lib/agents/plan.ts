@@ -7,7 +7,8 @@ import type { SketchDTO } from "../types";
 import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAMES, type AgentDefinition, type AgentStep } from "./definition";
 import { TOOLS } from "./toolbox";
 import { planProblems } from "./planRules";
-import { askedFirst, askForMissing, columnsByName, fixSetup, repairPlan, type RawStep } from "./planRepairs";
+import { askedFirst, askForMissing, askForSheet, askServToReason, columnsByName, fixSetup, keepRowNumbers, repairPlan, type RawStep } from "./planRepairs";
+import { actingSteps, askPurpose, leaveOut, readPurpose } from "./purpose";
 import { rulesText } from "./lessonRules";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
 
@@ -187,6 +188,14 @@ export function wireToDefinition(w: Wire): unknown {
   const steps = arr(w.steps).map((x) => {
     const st = x as Wire;
     const base = { id: s(st.id), title: s(st.title), ...(s(st.plain) ? { plain: s(st.plain).slice(0, 200) } : {}), inputs: arr(st.inputs).map(s), outputs: arr(st.outputs).map(s) };
+    // Each output's shape: in the outputs' order on the wire, by name in a
+    // plan already read.
+    const shapes = Array.isArray(st.shapes)
+      ? Object.fromEntries(base.outputs.flatMap((o, i) => (s(arr(st.shapes)[i]) ? [[o, s(arr(st.shapes)[i]).slice(0, 300)]] : [])))
+      : st.shapes && typeof st.shapes === "object"
+        ? Object.fromEntries(Object.entries(st.shapes as Record<string, unknown>).flatMap(([k, v]) => (base.outputs.includes(k) && s(v) ? [[k, s(v).slice(0, 300)]] : [])))
+        : {};
+    if (Object.keys(shapes).length) Object.assign(base, { shapes });
     if (st.kind === "decision") {
       return {
         ...base,
@@ -317,6 +326,9 @@ export interface PlanResult {
   errors: string[];
   // Every call made, for the usage records.
   calls: JsonResult[];
+  // Steps left out because the safety guard would block them (purpose.ts),
+  // with its reason, for the maker to see.
+  dropped: { title: string; reason: string }[];
 }
 
 type Stage = "outline" | "details";
@@ -330,7 +342,7 @@ export async function planAgent(
   const config = { ...opts.config, firstTokenTimeoutMs: Number.isInteger(t) && t > 0 ? t : DEFAULT_PLAN_TIMEOUT_MS };
   let maxCalls = opts.maxCalls ?? MAX_PLAN_CALLS;
   // Whether the maker asked to be asked first, in their own words.
-  const asked = askedFirst(input.history.filter((m) => m.role === "user").map((m) => m.content), input.interview.asks);
+  const asked = askedFirst([...input.history.filter((m) => m.role === "user").map((m) => m.content), ...(input.feedback ? [input.feedback] : [])], input.interview.asks);
   const calls: JsonResult[] = [];
   const answers: string[] = [];
   const planText = planRequest(input);
@@ -363,7 +375,19 @@ export async function planAgent(
       return null;
     }
   };
-  const done = (definition: AgentDefinition | null): PlanResult => ({ definition, answers, errors: definition ? [] : silent ? ["No model answered."] : errors, calls });
+  let dropped: PlanResult["dropped"] = [];
+  const done = (definition: AgentDefinition | null): PlanResult => ({ definition, answers, errors: definition ? [] : silent ? ["No model answered."] : errors, calls, dropped });
+  // The plan as the guard will see it running: a step it would block, left
+  // out (purpose.ts). Without an answer, the plan stays as it is.
+  const said = input.history.filter((m) => m.role === "user").map((m) => m.content);
+  const agreed = async (d: AgentDefinition): Promise<AgentDefinition> => {
+    if (!actingSteps(d).length) return d;
+    const call = await askPurpose(d, said, opts.config, { signal: opts.signal, fetchImpl: opts.fetchImpl });
+    calls.push(call);
+    const out = leaveOut(d, readPurpose(d, call));
+    dropped = out.dropped;
+    return out.definition;
+  };
 
   // Stage one: the outline.
   const outlineMessages: ChatMessage[] = [
@@ -409,7 +433,7 @@ export async function planAgent(
     // They are read off a plan that doesn't check out yet too, as far as it
     // goes, so a wrong kind of step goes back with everything else.
     const broken = rulesOf(checked.ok ? checked.definition : (joined as AgentDefinition));
-    if (checked.ok && !broken.length) return done(checked.definition);
+    if (checked.ok && !broken.length) return done(await agreed(checked.definition));
     errors = [...new Set([...(checked.ok ? [] : checked.errors), ...broken])];
     if (repairs >= MAX_REPAIRS) break;
     repairs += 1;
@@ -446,7 +470,8 @@ export async function planAgent(
 
 // SERV's plan with the repairs that have one meaning made (planRepairs.ts):
 // a loop over one value goes once, a plain comparison or the owner's yes
-// goes by a value, and every send, write or pay is handed what it sends.
+// goes by a value, every send, write or pay is handed what it sends, and a
+// judgement or words only a model can give are asked of SERV at run time.
 export function repaired(plan: unknown, o: { askedFirst?: boolean } = {}): unknown {
   const d = plan as { steps?: unknown; settings?: unknown; rules?: unknown; actions?: unknown };
   if (!Array.isArray(d?.steps)) return plan;
@@ -456,6 +481,9 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean } = {}): unkno
   const drop = columnsByName(d.steps as RawStep[], { settings: list(d.settings).map((x) => ({ key: s(x.key), label: s(x.label), given: s(x.given) })), rules: list(d.rules).map((x) => ({ key: s(x.key), label: s(x.label), value: s(x.value) })) });
   if (drop.settings.length) (d as { settings: unknown }).settings = list(d.settings).filter((x) => !drop.settings.includes(s(x.key)));
   if (drop.rules.length) (d as { rules: unknown }).rules = list(d.rules).filter((x) => !drop.rules.includes(s(x.key)));
+  // Sheets it uses with no sheet asked for at setup: one asked for.
+  const sheet = askForSheet(d.steps as RawStep[], list(d.settings).map((x) => ({ key: s(x.key), type: x.type })), list(d.actions).map((x) => ({ id: s(x.id), tool: x.tool })));
+  if (sheet) (d as { settings: unknown }).settings = [...list(d.settings), sheet];
   // A value read that nothing makes or holds: a setting it forgot to ask.
   const missing = askForMissing(d.steps as RawStep[], { settings: list(d.settings).map((x) => ({ key: s(x.key) })), rules: list(d.rules).map((x) => ({ key: s(x.key) })), memory: list((d as { memory?: unknown }).memory).map((x) => ({ key: s(x.key) })) });
   if (missing.length) (d as { settings: unknown }).settings = [...list(d.settings), ...missing.map((m) => ({ ...m, choices: [] }))];
@@ -468,6 +496,10 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean } = {}): unkno
     },
     o,
   );
+  // Judgement or words only a model can give: SERV, at run time.
+  askServToReason(d.steps as RawStep[], d as { limits?: unknown });
+  // Rows written back keep their numbers from the read on.
+  keepRowNumbers(d.steps as RawStep[], { actions: list(d.actions).map((x) => ({ id: s(x.id), tool: x.tool, description: s(x.description) })) });
   // An action no step takes any more (a question taken out) goes too.
   const taken = new Set(list(d.steps).flatMap((x) => (s(x.kind) === "action" ? [s(x.action)] : [])));
   const used = new Set(list(d.steps).flatMap((x) => (Array.isArray(x.tools) ? (x.tools as string[]) : [])));

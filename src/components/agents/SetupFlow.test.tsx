@@ -41,7 +41,7 @@ const installation = (o: Partial<InstallationDTO> = {}): InstallationDTO =>
     ...o,
   }) as InstallationDTO;
 
-const testJob = { id: "job-1", installationId: "inst-1", agentName: definition.name, status: "done" as const, reason: "It reached the end of its steps.", started: "as a test run", trigger: "test", createdAt: "2026-11-09T08:01:00Z", finishedAt: "2026-11-09T08:01:05Z", costUsd: 0.001, ms: 5000, stepCount: 6, mine: true };
+const testJob = { id: "job-1", installationId: "inst-1", agentName: definition.name, status: "done" as const, reason: "It reached the end of its steps.", outcome: null, why: null, started: "as a test run", trigger: "test", createdAt: "2026-11-09T08:01:00Z", finishedAt: "2026-11-09T08:01:05Z", costUsd: 0.001, ms: 5000, stepCount: 6, mine: true };
 const job: JobDTO = { ...testJob, viewer: "owner", version: 1, untrusted: [], steps: [], plan: [], approvals: [] };
 
 function makeApi() {

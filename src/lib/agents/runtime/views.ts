@@ -5,6 +5,7 @@ import { dayStart } from "../../spend";
 import type { JobDTO, JobStepDTO, JobSummaryDTO } from "../../types";
 import type { AgentDefinition } from "../definition";
 import { approvalsOf } from "./approvals";
+import { jobWhy } from "../plainWords";
 import type { Runtime } from "./context";
 
 // What people see of jobs. The owner sees everything of theirs: each step's
@@ -36,6 +37,8 @@ function summary(job: AgentJob, d: AgentDefinition | null, viewer: Viewer, mine:
     status: job.status,
     // A failure's reason can quote the owner's data: theirs alone.
     reason: viewer === "owner" ? job.reason : null,
+    outcome: job.outcome ?? null,
+    why: viewer === "owner" ? jobWhy(job) : null,
     started: TRIGGER_WORDS[kind] ?? "by hand",
     trigger: kind,
     createdAt: job.createdAt.toISOString(),

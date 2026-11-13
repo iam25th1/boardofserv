@@ -15,7 +15,8 @@ import { keepRequired } from "../zodErrors";
 // - rules: the limits a renter may adjust (a spend cap, an approval
 //   threshold, an allowed list), each with the maker's default.
 // - memory: named values kept per renter between jobs.
-// - steps: code (data work in the sandbox), decision (a judgement by SERV
+// - steps: code (data work in the sandbox, asking SERV with serv.reason
+//   for any judgement or writing it needs), decision (a judgement by SERV
 //   with a fixed set of outcomes), action (one declared action) or loop
 //   (the steps inside it, once per item of a list). A run starts at the
 //   first step; each step names the next, a decision one per outcome, and
@@ -42,8 +43,15 @@ export const TOOL_NAMES = [
   "memory.get",
   "memory.set",
   "wallet.pay",
+  "serv.reason",
 ] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
+
+// SERV Reasoning from inside a code step: a judgement with no fixed
+// outcomes (a score with its reasons, a priority) or words for people (a
+// reply, feedback, a line for the day), asked at run time. A step whose job
+// is one of those must use it: never a rule of thumb in its place.
+export const REASON_TOOL = "serv.reason" as const;
 
 // Tools that change something outside the run: a step may use one only when
 // the agent declares an action with it.
@@ -134,7 +142,16 @@ export const Action = z.object({
 
 // plain: the step in one sentence for someone who has never seen code, as
 // the agent's page shows it with details off (no names of values or tools).
-const stepBase = { id: key, title: text(80), plain: z.string().trim().max(200).optional(), inputs: z.array(key).max(12), outputs: z.array(key).max(12) };
+// shapes: the shape of each output, as the plan says it (shapes.ts), which
+// what reads it is checked against: "{ name, score: number, reasons }[]".
+const stepBase = {
+  id: key,
+  title: text(80),
+  plain: z.string().trim().max(200).optional(),
+  inputs: z.array(key).max(12),
+  outputs: z.array(key).max(12),
+  shapes: z.record(key, z.string().trim().min(1).max(300)).optional(),
+};
 
 export const CodeStep = z.object({
   ...stepBase,
@@ -584,5 +601,5 @@ export function stepContract(step: AgentStep): string {
 // A short fingerprint of what a code step must do: when it is unchanged, the
 // step's code can stay.
 export function codeSpec(step: CodeStepDef): string {
-  return JSON.stringify([step.description, step.inputs, step.outputs, [...step.tools].sort()]);
+  return JSON.stringify([step.description, step.inputs, step.outputs, [...step.tools].sort(), ...(step.shapes && Object.keys(step.shapes).length ? [step.shapes] : [])]);
 }

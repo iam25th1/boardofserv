@@ -377,6 +377,24 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
     if (activeId) await openConversation(activeId);
   }, [activeId, openConversation, abortReply]);
 
+  // Stop while the steps are worked out, built, tried or fixed: the work
+  // stops on the server where it is, what was done is kept, and the
+  // maker's last message comes back into the composer to change and send
+  // again.
+  const stopWork = useCallback(async () => {
+    if (!agent) return;
+    const said = [...messages].reverse().find((m) => m.role === "user" && !m.card)?.content ?? "";
+    try {
+      const r = await api.stopBuild(agent.id);
+      setAgent(r.agent);
+    } catch {
+      toast.show({ title: "It couldn't stop just now. Try again.", tone: "danger" });
+      return;
+    }
+    if (activeId) await openConversation(activeId);
+    if (said) setPutBack({ text: said, nonce: Date.now() });
+  }, [agent, messages, api, activeId, openConversation, toast]);
+
   const regenerate = useCallback(() => {
     if (!activeId) return;
     setMessages((prev) => {
@@ -756,6 +774,7 @@ export function ChatShell({ initialAccount = null }: { initialAccount?: AccountD
         prefillNonce={putBack?.nonce}
         onSend={send}
         onStop={stop}
+        onStopWork={busyNow ? () => void stopWork() : undefined}
         dock={
           fixture ? (
             <SketchDock sketch={fixture} canSwitch onToggle={(live) => setFixture({ ...fixture, live })} />

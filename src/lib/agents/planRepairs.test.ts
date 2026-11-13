@@ -30,7 +30,8 @@ const SLIPPED = {
   ],
 };
 
-const fix = (wire: Record<string, unknown>) => repaired(wireToDefinition(JSON.parse(JSON.stringify(wire)))) as AgentDefinition;
+// The price watcher's maker asked to be asked before the reminder.
+const fix = (wire: Record<string, unknown>) => repaired(wireToDefinition(JSON.parse(JSON.stringify(wire))), { askedFirst: true }) as AgentDefinition;
 
 describe("the repairs", () => {
   it("puts the slipped price watcher right with no call to SERV", () => {
@@ -127,6 +128,14 @@ describe("the repairs", () => {
   });
 });
 
+describe("asking first", () => {
+  it("is off by default for what it sends its own owner: a question the maker never asked for goes", () => {
+    const d = repaired(wireToDefinition(JSON.parse(JSON.stringify(SLIPPED)))) as AgentDefinition;
+    expect(d.steps.some((s) => s.kind === "action" && d.actions.find((a) => a.id === s.action)?.tool === "telegram.ask")).toBe(false);
+    expect(d.steps.some((s) => s.kind === "action" && d.actions.find((a) => a.id === s.action)?.tool === "telegram.send")).toBe(true);
+  });
+});
+
 describe("planning with the repairs", () => {
   it("takes the slipped price watcher in one outline and its details: nothing goes back to SERV", async () => {
     const asked: string[] = [];
@@ -136,9 +145,10 @@ describe("planning with the repairs", () => {
       return Response.json({ choices: [{ message: { content: JSON.stringify(planAnswer(SLIPPED, body)) } }], usage: { prompt_tokens: 10, completion_tokens: 10 } });
     }) as unknown as typeof fetch;
     const interview = { name: "Price watcher", kind: "agent" as const, watches: null, when: null, how: null, tells: null, takes: null, does: null, gives: null, asking: null, live: false };
-    const plan = await planAgent({ interview, history: [] }, { config: servOnly(modelConfig({ SERV_API_KEY: "test-serv" })), signal: new AbortController().signal, fetchImpl });
+    const history = [{ role: "user" as const, content: "If the price is below my target, ask me on Telegram whether I want a reminder to buy it." }];
+    const plan = await planAgent({ interview, history }, { config: servOnly(modelConfig({ SERV_API_KEY: "test-serv" })), signal: new AbortController().signal, fetchImpl });
     expect(plan.errors).toEqual([]);
-    expect(asked).toEqual(["agent_outline", "agent_steps"]);
+    expect(asked).toEqual(["agent_outline", "agent_steps", "purpose_check"]);
     expect(plan.definition?.steps.map((s) => s.id)).toEqual(["read_price", "is_low", "make_ask", "ask", "said_yes", "make_send", "send"]);
   });
 });

@@ -16,6 +16,7 @@ const TOOL_WORDS: Record<string, string> = {
   "memory.get": "what it remembers",
   "memory.set": "what it remembers",
   "wallet.pay": "the wallet",
+  "serv.reason": "SERV",
 };
 
 // Words written for the plan, made plain: a tool's name becomes what it
@@ -23,7 +24,7 @@ const TOOL_WORDS: Record<string, string> = {
 // and brackets and code marks go.
 export function plain(text: string): string {
   return text
-    .replace(/\b(?:sheets|web|telegram|memory|wallet)\.[a-z]+\b/g, (m) => TOOL_WORDS[m] ?? m.replace(".", " "))
+    .replace(/\b(?:sheets|web|telegram|memory|wallet|serv)\.[a-z]+\b/g, (m) => TOOL_WORDS[m] ?? m.replace(".", " "))
     .replace(/\b(?:settings|rules|memory|trigger|input|inputs)\.([a-z][a-z0-9_]*)/g, (_, k: string) => k.replace(/_/g, " "))
     .replace(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g, (m) => m.replace(/_/g, " "))
     .replace(/[{}[\]`<>]/g, "")

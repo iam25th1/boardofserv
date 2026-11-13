@@ -50,6 +50,8 @@ export interface AccountDTO {
   // The agent page opens with everything shown (step graph, code, test
   // bench, versions), not the plain view.
   agentDetails?: boolean;
+  // Their time zone, as their browser last gave it (null until one has).
+  timezone?: string | null;
 }
 
 // The agent sketch for one conversation, as the server stores and sends it.
@@ -178,6 +180,9 @@ export interface InstallationDTO {
   // The connections it needs, and which of those the owner hasn't made.
   needs: { telegram: boolean; google: boolean };
   missing: ("telegram" | "google")[];
+  // For an agent that pays, when its allowance is empty: why it can't pay
+  // until its owner tops it up, in one sentence. Null otherwise.
+  allowanceWarning: string | null;
   timezone: string;
   // A sheet setting also says which spreadsheet and tab it was given.
   settings: { key: string; label: string; value: unknown; sheet?: { title: string; tab: string; link: string } }[];
@@ -391,6 +396,11 @@ export interface JobSummaryDTO {
   agentName: string;
   status: "queued" | "running" | "waiting_for_owner" | "done" | "failed" | "cancelled";
   reason: string | null;
+  // A done job that skipped for empty input, or finished with a note.
+  outcome: "skipped" | "noted" | null;
+  // Why it failed, was skipped or has a note, in one plain sentence (its
+  // owner only); null when there is nothing to say.
+  why: string | null;
   // In words: "on its schedule", "by your message".
   started: string;
   // What started it: schedule, check, message, manual or test.

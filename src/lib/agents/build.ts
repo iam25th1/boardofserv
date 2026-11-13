@@ -37,6 +37,46 @@ import { learn, recurringRules } from "./lessons";
 // say, and one sentence with two choices if it gives up.
 
 const jobs = new Map<string, Promise<void>>();
+// Each job's stop: aborting it ends its model calls where they are, and
+// the job goes no further (stopBuild).
+const aborts = new Map<string, AbortController>();
+
+// A job on a draft, kept so it can be waited on and stopped.
+function track(versionId: string, abort: AbortController, job: Promise<void>): void {
+  const kept = job.finally(() => {
+    jobs.delete(versionId);
+    if (aborts.get(versionId) === abort) aborts.delete(versionId);
+  });
+  jobs.set(versionId, kept);
+}
+
+function begin(versionId: string): AbortController {
+  const abort = new AbortController();
+  aborts.set(versionId, abort);
+  return abort;
+}
+
+export const STOPPED_NOTE = "Stopped. What was done is kept: change what you like and send it again.";
+
+// The maker's Stop while the chat plans, builds, tests or heals: the job's
+// model calls are aborted where they are, nothing more is started, and
+// the draft rests with what was done (steps, approved code), its other
+// steps' code back in the queue. False when nothing was running.
+export async function stopBuild(versionId: string, waitMs = 15_000): Promise<boolean> {
+  const abort = aborts.get(versionId);
+  const job = jobs.get(versionId);
+  if (!abort || !job) return false;
+  abort.abort();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([job.catch(() => undefined), new Promise<void>((r) => (timer = setTimeout(r, waitMs)))]);
+  clearTimeout(timer);
+  const v = await versionById(versionId);
+  if (v?.state !== "draft") return true;
+  const code = Object.fromEntries(Object.entries(v.code).map(([id, c]) => [id, c.status === "writing" || c.status === "reviewing" ? { ...c, status: "queued" as const } : c]));
+  await updateDraft(versionId, { buildState: "idle", buildNote: STOPPED_NOTE, code });
+  await setHeal(versionId, withLine({ ...(v.heal ?? emptyHeal()), question: null }, "Stopped.", "stopped"));
+  return true;
+}
 
 // The job running on a draft, if any (tests wait on it).
 export function jobFor(versionId: string): Promise<void> | undefined {
@@ -48,6 +88,12 @@ export function jobFor(versionId: string): Promise<void> | undefined {
 export async function diagnosed(versionId: string, diagnosis: Diagnosis): Promise<void> {
   const v = await versionById(versionId);
   if (v) await setHeal(versionId, withDiagnosis(v.heal, diagnosis));
+}
+
+// A step the planner made that the safety guard would block every run:
+// left out of the plan, and the maker told which and why.
+async function leftOut(versionId: string, dropped: { title: string; reason: string }[]): Promise<void> {
+  for (const d of dropped) await healOf(versionId, (l) => withLine(l, `Left out "${d.title}": the safety check would stop it every run. ${d.reason}`.trim(), "fixed"));
 }
 
 async function healOf(versionId: string, f: (log: HealLog) => HealLog): Promise<HealLog | null> {
@@ -71,11 +117,16 @@ export interface BuildContext {
   // Rules learned from earlier builds, for the planner, Dolphin and the
   // fixer (lessons.ts).
   lessons?: string[];
+  // The maker's time zone, as their browser gave it: a test's local time.
+  timeZone?: string | null;
+  // The job's stop (stopBuild): every model call it makes ends with it.
+  signal?: AbortSignal;
 }
 
-// The context a job runs in: its draft, and the rules learned so far.
+// The context a job runs in: its draft, the rules learned so far, and its
+// stop.
 async function jobContext(ctx: BuildContext, versionId: string): Promise<BuildContext> {
-  return { ...ctx, versionId, lessons: ctx.lessons ?? (await recurringRules().catch(() => [])) };
+  return { ...ctx, versionId, lessons: ctx.lessons ?? (await recurringRules().catch(() => [])), signal: ctx.signal ?? aborts.get(versionId)?.signal };
 }
 
 // Only SERV, whatever else is set up.
@@ -224,6 +275,7 @@ async function writeCode(versionId: string, definition: AgentDefinition, ctx: Bu
   let current = definition;
   let held: Diagnosis | null = null;
   for (const step of todo) {
+    if (ctx.signal?.aborted) return null;
     const spec = codeSpec(step);
     if (!dolphin && o.writer !== "serv") {
       const entry: StepCode = { spec, status: "needs_attention", source: null, rounds: 0, note: "Code writing isn't set up here.", updatedAt: new Date().toISOString() };
@@ -231,7 +283,8 @@ async function writeCode(versionId: string, definition: AgentDefinition, ctx: Bu
       held ??= codeDiagnosis(current, step.id, entry);
       continue;
     }
-    const written = await writeStep(step, current, spec, { dolphin, serv: ctx.serv, fetchImpl: o.fetchImpl, hooks: writeHooks(version, step, spec, ctx), hint: o.hints?.[step.id], rounds: o.rounds, writer: o.writer, lessons: ctx.lessons });
+    const written = await writeStep(step, current, spec, { dolphin, serv: ctx.serv, fetchImpl: o.fetchImpl, hooks: writeHooks(version, step, spec, ctx), hint: o.hints?.[step.id], rounds: o.rounds, writer: o.writer, lessons: ctx.lessons, signal: ctx.signal });
+    if (ctx.signal?.aborted) return null;
     const fit = await fitPlan(versionId, current, step, written);
     current = fit.definition;
     // A draft published or replanned meanwhile stops the writing.
@@ -257,7 +310,7 @@ async function testDraft(versionId: string, ctx: BuildContext, settle: Settle, o
     await settle.onTest?.();
     const tested = await selfTest(
       { definition: now.definition, code: now.code, testResult: now.testResult },
-      { serv: ctx.serv, record: (call) => recordAgentCall(ctx, "agent_plan", call), sampleNote: o.sampleNote },
+      { serv: ctx.serv, record: (call) => recordAgentCall(ctx, "agent_plan", call), sampleNote: o.sampleNote, timeZone: ctx.timeZone, signal: ctx.signal },
     );
     const plain = tested.plain ?? {};
     const definition = Object.keys(plain).length ? { ...now.definition, steps: now.definition.steps.map((s) => (plain[s.id] && !s.plain ? { ...s, plain: plain[s.id] } : s)) } : undefined;
@@ -327,6 +380,7 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
   // What the maker said, for the fixer to read beside the diagnosis.
   const said = interviewText(input ?? (ctx.conversationId ? await planInputFor(ctx.conversationId, null, "") : null));
   for (;;) {
+    if (c.signal?.aborted) return;
     const v = await versionById(versionId);
     if (!v) return;
     const log = v.heal ?? emptyHeal();
@@ -368,7 +422,7 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
       answer = null;
     } else {
       await healOf(versionId, (l) => withLine(l, foundLine(dx, v.definition), "working"));
-      const asked = await askFixer(dx, ctx.serv, { tried: triedOf(log), interview: said, lessons: c.lessons });
+      const asked = await askFixer(dx, ctx.serv, { tried: triedOf(log), interview: said, lessons: c.lessons, signal: c.signal });
       await recordAgentCall(c, "agent_plan", asked.call);
       verdict = asked.verdict;
     }
@@ -416,8 +470,9 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
     } else {
       await healOf(versionId, (l) => withLine(withRound(l, { ...round, verdict: "plan", repair: change }), repairLine("plan", v.definition, null), "working"));
       const base = input ?? (await planInputFor(ctx.conversationId, v.definition, ""));
-      const plan = await planAgent({ ...base, current: v.definition, feedback: change }, { config: ctx.serv, signal: new AbortController().signal, maxCalls: planCallCap(v.definition), lessons: c.lessons });
+      const plan = await planAgent({ ...base, current: v.definition, feedback: change }, { config: ctx.serv, signal: c.signal ?? new AbortController().signal, maxCalls: planCallCap(v.definition), lessons: c.lessons });
       for (const call of plan.calls) await recordAgentCall(c, "agent_plan", call);
+      await leftOut(versionId, plan.dropped);
       if (!plan.definition) {
         const failed = planDiagnosis(plan.errors, v.definition);
         await healOf(versionId, (l) => withRound(l, { outcome: "failed" }));
@@ -519,16 +574,19 @@ async function giveUp(versionId: string, dx: Diagnosis, d: AgentDefinition | nul
 // the background. False when a job is already running on the draft.
 export function answerQuestion(version: AgentVersion, answer: string, ctx: BuildContext, settle: Settle = {}, after?: PlanOptions): boolean {
   if (jobs.has(version.id) || !version.heal?.question) return false;
+  const abort = begin(version.id);
   const job = (async () => {
     try {
       const input = version.definition ? undefined : await planInputFor(ctx.conversationId, null, "");
       await heal(version.id, ctx, settle, { answer }, input, after);
     } catch (err) {
+      // Stopped by the maker: stopBuild settles the draft.
+      if (abort.signal.aborted) return;
       console.error(`agents: healing stopped: ${errorText(err, "unknown error")}`);
       await updateDraft(version.id, { buildState: version.definition ? "idle" : "failed", buildNote: version.definition ? null : "Something went wrong while building. Try again." }).catch(() => null);
     }
-  })().finally(() => jobs.delete(version.id));
-  jobs.set(version.id, job);
+  })();
+  track(version.id, abort, job);
   return true;
 }
 
@@ -536,17 +594,20 @@ export function answerQuestion(version: AgentVersion, answer: string, ctx: Build
 // in the background like one. False when a job is already running.
 export function startHeal(version: AgentVersion, diagnosis: Diagnosis, ctx: BuildContext, settle: Settle = {}): boolean {
   if (jobs.has(version.id)) return false;
+  const abort = begin(version.id);
   const job = (async () => {
     try {
       await setHeal(version.id, freshBuild((await versionById(version.id))?.heal));
       await diagnosed(version.id, diagnosis);
       await heal(version.id, ctx, settle, { diagnosis });
     } catch (err) {
+      // Stopped by the maker: stopBuild settles the draft.
+      if (abort.signal.aborted) return;
       console.error(`agents: healing stopped: ${errorText(err, "unknown error")}`);
       await updateDraft(version.id, { buildState: "idle", buildNote: null }).catch(() => null);
     }
-  })().finally(() => jobs.delete(version.id));
-  jobs.set(version.id, job);
+  })();
+  track(version.id, abort, job);
   return true;
 }
 
@@ -567,6 +628,7 @@ export function startRewrite(version: AgentVersion, stepId: string, ctx: BuildCo
   const definition = version.definition;
   const step = definition?.steps.find((s): s is CodeStepDef => s.id === stepId && s.kind === "code");
   if (!definition || !step || jobs.has(version.id)) return false;
+  const abort = begin(version.id);
   const job = (async () => {
     await updateDraft(version.id, { buildState: "writing", buildNote: null, code: { ...version.code, [step.id]: { ...(version.code[step.id] ?? { spec: codeSpec(step), source: null, rounds: 0, note: null, updatedAt: new Date().toISOString() }), status: "queued" } } });
     await setHeal(version.id, freshBuild(version.heal));
@@ -575,11 +637,13 @@ export function startRewrite(version: AgentVersion, stepId: string, ctx: BuildCo
       const outcome = await writeAndTest(version.id, definition, c, settle, { fetchImpl, writer: "serv" });
       await settleBuild(version.id, c, settle, outcome);
     } catch (err) {
+      // Stopped by the maker: stopBuild settles the draft.
+      if (abort.signal.aborted) return;
       console.error(`agents: a rewrite stopped: ${errorText(err, "unknown error")}`);
       await updateDraft(version.id, { buildState: "idle", buildNote: "Rewriting that step stopped part way. Try again." }).catch(() => null);
     }
-  })().finally(() => jobs.delete(version.id));
-  jobs.set(version.id, job);
+  })();
+  track(version.id, abort, job);
   return true;
 }
 
@@ -601,13 +665,16 @@ export interface PlanOptions {
 export function startPlan(version: AgentVersion, input: PlanInput, ctx: BuildContext, mode: "plan" | "fix" = "plan", o: PlanOptions = {}): boolean {
   if (jobs.has(version.id)) return false;
   const settle = o.settle ?? {};
+  const abort = begin(version.id);
   const job = (async () => {
     await updateDraft(version.id, { buildState: mode === "fix" ? "fixing" : "planning", buildNote: null });
     await setHeal(version.id, freshBuild(version.heal));
     const c = await jobContext(ctx, version.id);
     try {
-      const plan = await planAgent(input, { config: ctx.serv, signal: new AbortController().signal, lessons: c.lessons, ...(version.definition ? { maxCalls: planCallCap(version.definition) } : {}) });
+      const plan = await planAgent(input, { config: ctx.serv, signal: c.signal ?? new AbortController().signal, lessons: c.lessons, ...(version.definition ? { maxCalls: planCallCap(version.definition) } : {}) });
+      if (c.signal?.aborted) return;
       for (const call of plan.calls) await recordAgentCall(c, "agent_plan", call);
+      await leftOut(version.id, plan.dropped);
       if (!plan.definition) {
         const failures = plan.calls.flatMap((x) => x.failures);
         const answered = plan.calls.some((x) => x.content);
@@ -634,11 +701,13 @@ export function startPlan(version: AgentVersion, input: PlanInput, ctx: BuildCon
       await o.planned?.(version.definition, plan.definition, null);
       if (saved && !stop) await writeAllCode(saved, plan.definition, c, undefined, settle);
     } catch (err) {
+      // Stopped by the maker: stopBuild settles the draft.
+      if (abort.signal.aborted) return;
       console.error(`agents: the build stopped: ${errorText(err, "unknown error")}`);
       await updateDraft(version.id, { buildState: "failed", buildNote: "Something went wrong while building. Try again." }).catch(() => null);
     }
-  })().finally(() => jobs.delete(version.id));
-  jobs.set(version.id, job);
+  })();
+  track(version.id, abort, job);
   return true;
 }
 
@@ -648,17 +717,20 @@ export function startPlan(version: AgentVersion, input: PlanInput, ctx: BuildCon
 export function startBuild(version: AgentVersion, ctx: BuildContext, settle?: Settle): boolean {
   const definition = version.definition;
   if (!definition || jobs.has(version.id)) return false;
+  const abort = begin(version.id);
   const job = (async () => {
     const saved = await updateDraft(version.id, { buildState: "writing", buildNote: null });
     await setHeal(version.id, freshBuild(version.heal));
     try {
       if (saved) await writeAllCode(saved, definition, ctx, undefined, settle);
     } catch (err) {
+      // Stopped by the maker: stopBuild settles the draft.
+      if (abort.signal.aborted) return;
       console.error(`agents: the build stopped: ${errorText(err, "unknown error")}`);
       await updateDraft(version.id, { buildState: "failed", buildNote: "Something went wrong while building. Try again." }).catch(() => null);
     }
-  })().finally(() => jobs.delete(version.id));
-  jobs.set(version.id, job);
+  })();
+  track(version.id, abort, job);
   return true;
 }
 

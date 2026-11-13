@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, ne, or } from "drizzle-orm";
 import { agentInstallations, agentListings, agentMessages, agents, agentTriggers, agentVersions, rentals, type AgentVersion, type Rental } from "../db/schema";
 import { breakingChange } from "../agents/definition";
 import { control, loadInstallation } from "../agents/runtime/installations";
@@ -27,7 +27,7 @@ export async function offerVersion(rt: Runtime, agentId: string, version: AgentV
   const open = await rt.db
     .select()
     .from(rentals)
-    .where(and(eq(rentals.agentId, agentId), ne(rentals.status, "ended"), ne(rentals.versionId, version.id)));
+    .where(and(eq(rentals.agentId, agentId), ne(rentals.status, "ended"), ne(rentals.versionId, version.id), or(isNull(rentals.offeredVersionId), ne(rentals.offeredVersionId, version.id))));
   let offered = 0;
   for (const r of open) {
     const l = r.installationId ? await loadInstallation(rt, r.installationId) : null;

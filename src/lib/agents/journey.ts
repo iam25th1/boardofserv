@@ -12,6 +12,7 @@ import { buildContext, NOT_AVAILABLE } from "./context";
 import type { AgentDefinition } from "./definition";
 import { plain } from "./plainView";
 import { problemOf } from "./plainWords";
+import { sourceAsk, unreadableIn } from "./sources";
 import { agentForConversation, agentsOf, createAgent, currentVersion, editableDraft } from "./store";
 
 // The journey in the chat, on the server (src/lib/journey.ts has the
@@ -213,13 +214,19 @@ export async function makeIt(user: User, conversationId: string, feedback: strin
   if (!ctx) return { refused: { status: 503, error: NOT_AVAILABLE } };
   const no = await refusal(user.id, { ownKey: ctx.ownKey });
   if (no) return { refused: { status: 429, error: no.error } };
-  const existing = await agentForConversation(conversationId);
-  const { agent, draft } = existing ? { agent: existing, draft: await editableDraft(existing.id) } : await createAgent({ ownerUserId: user.id, conversationId, name: await nameOfNew(user.id, sketch!.name ?? "Unnamed agent") });
   const history = await db
     .select({ role: messages.role, content: messages.content })
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(asc(messages.createdAt));
+  // A source it can't read with what it was given (a form's public link,
+  // a page behind a sign-in) is never planned as a step that pretends to
+  // read it: the maker is told what it would take, or what works instead.
+  const lastSaid = history.filter((m) => m.role === "user").at(-1)?.content ?? "";
+  const unreadable = unreadableIn([...Object.values(sketch!).filter((v): v is string => typeof v === "string"), lastSaid, feedback ?? ""].join("\n"));
+  if (unreadable) return { refused: { status: 400, error: sourceAsk(unreadable.problem) } };
+  const existing = await agentForConversation(conversationId);
+  const { agent, draft } = existing ? { agent: existing, draft: await editableDraft(existing.id) } : await createAgent({ ownerUserId: user.id, conversationId, name: await nameOfNew(user.id, sketch!.name ?? "Unnamed agent") });
   if (jobFor(draft.id)) return { refused: { status: 409, error: BUSY } };
   if ((await cardsIn(conversationId)).at(-1)?.card?.stage !== "steps") await addCard(conversationId, { stage: "steps", agentId: agent.id }, "Working out the steps.");
   startPlan(draft, { interview: sketch!, history, feedback }, ctx, "plan", {

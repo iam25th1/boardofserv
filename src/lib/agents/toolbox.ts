@@ -2,6 +2,11 @@ import { z } from "zod";
 import { SIDE_EFFECT_TOOLS, TOOL_NAMES, type ToolName } from "./definition";
 import type { BenchData, SearchResult } from "./types";
 import { keepRequired } from "../zodErrors";
+import { sourceProblem, sourceRefusal } from "./sources";
+
+// The kinds of field SERV can answer a reasoning call with.
+export const REASON_TYPES = ["text", "number", "boolean", "list"] as const;
+export type ReasonType = (typeof REASON_TYPES)[number];
 
 // The toolbox: the only things a code step can reach, through the sandbox's
 // host bridge. Each tool has typed arguments (checked here, whatever the
@@ -27,6 +32,16 @@ export const TOOL_ARGS = {
   "memory.get": z.object({ key: z.string().min(1).max(40) }),
   "memory.set": z.object({ key: z.string().min(1).max(40), value: z.unknown().optional() }),
   "wallet.pay": z.object({ to: z.string().min(1).max(120), amountUsdc: z.number().positive().max(100_000), memo: z.string().max(200).optional() }),
+  // What SERV is asked, the values it works from, and the fields it answers
+  // with, each of a type (text unless said): { text } when none are named.
+  "serv.reason": z.object({
+    task: z.string().min(1).max(2000),
+    data: z.unknown().optional(),
+    answer: z
+      .record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,39}$/), z.enum(REASON_TYPES))
+      .refine((a) => Object.keys(a).length >= 1 && Object.keys(a).length <= 8, "name 1 to 8 fields")
+      .optional(),
+  }),
 } satisfies Record<ToolName, z.ZodTypeAny>;
 
 // How much harm a tool's call can do, fixed here for each tool rather than
@@ -106,6 +121,14 @@ export const TOOLS: Record<ToolName, ToolInfo> = {
     sideEffect: true,
     risk: "money",
   },
+  // A model call: it changes nothing, but it is metered like a decision.
+  "serv.reason": {
+    summary: "Ask SERV Reasoning to judge or write something at run time (a score with its reasons, a reply, a line for the day), from the data given.",
+    signature:
+      'tools.serv.reason({ task: string, data?: unknown, answer?: { [field: string]: "text" | "number" | "boolean" | "list" } }): Promise<{ [field: string]: string | number | boolean | string[] }> // answer names the fields SERV answers with and the type of each: answer { score: "number", reasons: "text" } gives { score: 7, reasons: "..." }; with no answer it gives { text }',
+    sideEffect: false,
+    risk: "read",
+  },
 };
 
 // The declarations for these tools, one per line, for Dolphin's prompt.
@@ -181,9 +204,12 @@ export class MockTools {
   private paid = 0;
 
   // With memory fields, memory.get and memory.set keep to them, as for real.
+  // With the agent's sheet settings, the sheet tools reach only the tabs
+  // those name, as for real (a tab written into the code reaches nothing).
   constructor(
     bench: BenchData,
     private memoryFields?: readonly MemoryField[],
+    private sheetSettings?: readonly string[],
   ) {
     this.data = structuredClone(bench);
   }
@@ -219,12 +245,25 @@ export class MockTools {
     }
   }
 
+  // A tab by its name, or by the sheet setting that names it, as the real
+  // tools take it.
+  private tab(name: string): string {
+    const d = this.data;
+    const set = d.settings[name];
+    const tab = d.sheets[name] ? name : typeof set === "string" && d.sheets[set] ? set : name;
+    if (this.sheetSettings) {
+      const given = this.sheetSettings.flatMap((k) => (typeof d.settings[k] === "string" ? [d.settings[k] as string] : []));
+      if (!given.includes(tab)) throw new ToolError("sheets", given.length ? `This agent wasn't given a sheet called "${name}". It was given ${given.map((g) => `"${g}"`).join(", ")}.` : "This agent wasn't given any sheets.");
+    }
+    return tab;
+  }
+
   private answer<T extends ToolName>(tool: T, args: z.infer<(typeof TOOL_ARGS)[T]>): unknown {
     const d = this.data;
     switch (tool) {
       case "sheets.read": {
         const a = args as z.infer<(typeof TOOL_ARGS)["sheets.read"]>;
-        const rows = d.sheets[a.sheet];
+        const rows = d.sheets[this.tab(a.sheet)];
         if (!rows) throw new ToolError(tool, `There is no sheet called "${a.sheet}".`);
         // Each row with its number in the sheet, as Google's rows are: the
         // header is row 1.
@@ -233,12 +272,13 @@ export class MockTools {
       case "sheets.write": {
         const a = args as z.infer<(typeof TOOL_ARGS)["sheets.write"]>;
         const rows = a.rows.map(withoutRowNumber);
-        d.sheets[a.sheet] = a.mode === "replace" ? rows : [...(d.sheets[a.sheet] ?? []), ...rows];
+        const name = this.tab(a.sheet);
+        d.sheets[name] = a.mode === "replace" ? rows : [...(d.sheets[name] ?? []), ...rows];
         return { written: a.rows.length };
       }
       case "sheets.update": {
         const a = args as z.infer<(typeof TOOL_ARGS)["sheets.update"]>;
-        const rows = d.sheets[a.sheet];
+        const rows = d.sheets[this.tab(a.sheet)];
         if (!rows) throw new ToolError(tool, `There is no sheet called "${a.sheet}".`);
         for (const u of a.updates) if (!rows[u.row - 2]) throw new ToolError(tool, `"${a.sheet}" has no row ${u.row}: it has rows 2 to ${rows.length + 1}.`);
         for (const u of a.updates) rows[u.row - 2] = { ...rows[u.row - 2], ...withoutRowNumber(u.values) };
@@ -246,6 +286,9 @@ export class MockTools {
       }
       case "web.fetch": {
         const a = args as z.infer<(typeof TOOL_ARGS)["web.fetch"]>;
+        // As for real: a form's link or a page behind a sign-in can't be read.
+        const unreadable = sourceProblem(a.url);
+        if (unreadable) throw new ToolError(tool, sourceRefusal(unreadable));
         const text = d.pages[a.url];
         return text === undefined ? { status: 404, text: "" } : { status: 200, text };
       }
@@ -283,9 +326,32 @@ export class MockTools {
         this.paid += 1;
         return { paid: true, txId: `mock-${this.paid}` };
       }
+      case "serv.reason":
+        return standInReason(args as z.infer<(typeof TOOL_ARGS)["serv.reason"]>);
     }
     throw new ToolError(tool, `${tool} is not a tool.`);
   }
+}
+
+// A dry run's stand-in for SERV's reasoning: the fields asked for, each of
+// its type, made from the data so two different items get different
+// answers (a number from 1 to 10), and text that carries what SERV was
+// given (so a summary written from the results still names every item).
+// Never presented as SERV's own words.
+export function standInReason(args: { task: string; data?: unknown; answer?: Record<string, ReasonType> }): Record<string, unknown> {
+  const text = JSON.stringify(args.data ?? null);
+  let h = 0x811c9dc5;
+  for (const ch of `${args.task}\n${text}`) h = Math.imul(h ^ ch.charCodeAt(0), 0x01000193) >>> 0;
+  const fields = args.answer ?? { text: "text" as const };
+  return Object.fromEntries(
+    Object.entries(fields).map(([k, type], i) => {
+      const n = (h >>> (i * 3)) % 10;
+      if (type === "number") return [k, n + 1];
+      if (type === "boolean") return [k, n % 2 === 0];
+      if (type === "list") return [k, [`Dry run: SERV gives ${k} here on a live run.`]];
+      return [k, `Dry run: SERV writes ${k} here on a live run, from ${text.slice(0, 1500)}`];
+    }),
+  );
 }
 
 // The bridge's gate: a code step reaches only the tools it lists, whatever

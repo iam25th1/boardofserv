@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { definitionOf, codeOf, MOTIVATION_SOURCES, MOTIVATION_WIRE, PRICE_SOURCES, PRICE_WIRE, priceBench, SALES_SOURCES, SALES_WIRE, salesBench } from "@/test/suiteFixtures";
-import { NESTED_HACKATHON_WIRE } from "@/test/hackathonFixture";
+import { definitionOf, codeOf, CANNED_MOTIVATION_SOURCE, MOTIVATION_SOURCES, MOTIVATION_WIRE, PRICE_SOURCES, PRICE_WIRE, priceBench, SALES_SOURCES, SALES_WIRE, salesBench } from "@/test/suiteFixtures";
+import { FIND_NEW_NESTED, hackathonBench, hackathonCode, NESTED_HACKATHON_WIRE, NESTED_SOURCES } from "@/test/hackathonFixture";
 import type { BenchData, TestResult } from "./types";
-import { readSample, sampleCount, samplePrompt } from "./sample";
+import { fitSample, readSample, sampleCount, samplePrompt } from "./sample";
 import { keepsPlace, sampleKey, selfTest } from "./test";
 import type { AgentDefinition } from "./definition";
 import { repaired, wireToDefinition } from "./plan";
@@ -34,11 +34,26 @@ describe("the sample", () => {
   });
 });
 
+describe("a sample's sheets", () => {
+  it("answer a sheet setting with a tab the sample has, never an id that names none", async () => {
+    const d = definitionOf(SALES_WIRE);
+    const answer = { noun: "sale", plural: "sales", labels: ["Today"], settings: [{ key: "sales_sheet", value: "1aBcDeFgHiJkLmNoPqRsTuVwXyZ" }], sheets: [{ sheet: "Sales", columns: ["Date", "Amount"], rows: [{ cells: ["2026-11-13", "10"] }] }], pages: [], searches: [], answers: [], steps: [] };
+    const fitted = fitSample(d, readSample(d, JSON.stringify(answer))!);
+    expect(fitted.bench.settings.sales_sheet).toBe("Sales");
+  });
+
+  it("keeps a sample whose names don't fit, naming its items from its own rows", () => {
+    const d = definitionOf(NESTED_HACKATHON_WIRE);
+    const answer = { noun: "submission", plural: "submissions", labels: ["submissions_sheet"], settings: [], sheets: [{ sheet: "Submissions", columns: ["Row", "Title", "Status"], rows: [{ cells: ["1", "Tide", ""] }, { cells: ["2", "Notes", ""] }, { cells: ["3", "Garden", ""] }] }], pages: [], searches: [], answers: [], steps: [] };
+    expect(readSample(d, JSON.stringify(answer))?.items.labels).toEqual(["Tide", "Notes", "Garden"]);
+  });
+});
+
 describe("the self test", () => {
   it("passes the price watcher on its one product, and tells what it did", async () => {
     const d = definitionOf(PRICE_WIRE);
     // The plan as the planner wants it: the repairs leave it as it is.
-    expect(repaired(wireToDefinition(JSON.parse(JSON.stringify(PRICE_WIRE))))).toEqual(wireToDefinition(PRICE_WIRE));
+    expect(repaired(wireToDefinition(JSON.parse(JSON.stringify(PRICE_WIRE))), { askedFirst: true })).toEqual(wireToDefinition(PRICE_WIRE));
     const t = await selfTest({ definition: d, code: codeOf(d, PRICE_SOURCES), testResult: kept(d, priceBench(), { noun: "product", plural: "products", labels: ["Stone Kettle"] }) }, { serv: null });
     expect(t.result.problems).toEqual([]);
     expect(t.result.status).toBe("passed");
@@ -54,6 +69,22 @@ describe("the self test", () => {
     expect(t.result.problems.map((p) => p.text)).toEqual(["On its sample it didn't send you the reminder to buy it: it found nothing to do in data made for it to work on."]);
   });
 
+  it("doesn't pass a step that read nothing on a sample made for it", async () => {
+    const d = definitionOf(PRICE_WIRE);
+    const t = await selfTest({ definition: d, code: codeOf(d, PRICE_SOURCES), testResult: kept(d, { ...priceBench(), pages: {} }, { noun: "product", plural: "products", labels: ["Stone Kettle"] }) }, { serv: null });
+    expect(t.result.status).toBe("failed");
+    expect(t.result.problems).toContainEqual(expect.objectContaining({ step: "read_price", check: "read_nothing" }));
+  });
+
+  it("says so when a step reads rows and passes on nothing of them, naming the sheet's columns", async () => {
+    const d = definitionOf(NESTED_HACKATHON_WIRE);
+    // The rows' columns read by lower-case names the sheet doesn't have.
+    const lowerCase = FIND_NEW_NESTED.replace("r.Project", "r.project").replace("r.Demo", "r.demo").replace("r.Notes", "r.notes");
+    const t = await selfTest({ definition: d, code: hackathonCode(d, { ...NESTED_SOURCES, find_new: lowerCase }), testResult: kept(d, hackathonBench(), { noun: "submission", plural: "submissions", labels: ["Tide Tracker", "Lunch Vote", "Plant Pal"] }) }, { serv: null });
+    expect(t.result.status).toBe("failed");
+    expect(t.result.problems).toContainEqual(expect.objectContaining({ step: "find_new", check: "read_nothing", text: expect.stringMatching(/read \d+ rows of your sheet but passed on nothing from them: the sheet's columns are .+, and it reads columns by other names\./) }));
+  });
+
   it("doesn't pass a run that went on with nothing after a call went wrong", async () => {
     const d = definitionOf(PRICE_WIRE);
     // The page is asked for by an address too long to be one: the code
@@ -64,11 +95,20 @@ describe("the self test", () => {
     expect(t.result.problems[0]!.text).toBe('"Read the price" couldn\'t read the page on the sample product, so it went on with nothing.');
   });
 
-  it("passes the morning line: one message is not a summary of anything", async () => {
+  it("passes the morning line: one message is not a summary of anything, and SERV writes it", async () => {
     const d = definitionOf(MOTIVATION_WIRE);
     const t = await selfTest({ definition: d, code: codeOf(d, MOTIVATION_SOURCES), testResult: kept(d, { ...priceBench(), settings: {}, pages: {}, telegram: { answers: [] } }, { noun: "message", plural: "messages", labels: ["Monday"] }) }, { serv: null });
     expect(t.result.status).toBe("passed");
-    expect(t.result.story).toMatch(/^Passed\. It sent you ".+" on Telegram\.$/);
+    expect(t.result.story).toMatch(/^Passed\. It asked SERV and sent you ".+" on Telegram\.$/);
+    expect(t.events.some((e) => e.type === "tool" && e.tool === "serv.reason")).toBe(true);
+  });
+
+  it("fails a line picked from a canned list: words for people come from SERV, never a stand-in", async () => {
+    const d = definitionOf(MOTIVATION_WIRE);
+    const t = await selfTest({ definition: d, code: codeOf(d, { pick_line: CANNED_MOTIVATION_SOURCE }), testResult: kept(d, { ...priceBench(), settings: {}, pages: {}, telegram: { answers: [] } }, { noun: "message", plural: "messages", labels: ["Monday"] }) }, { serv: null });
+    expect(t.result.status).toBe("failed");
+    expect(t.end.reason).toContain("without asking SERV");
+    expect(t.events.some((e) => e.type === "tool" && e.tool === "telegram.send")).toBe(false);
   });
 
   it("passes the sales totals without a second run: totalling the day again is its job", async () => {

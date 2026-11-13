@@ -51,6 +51,8 @@ describe("the registry", () => {
       "memory.get": "read",
       "memory.set": "write",
       "wallet.pay": "money",
+      // Asking SERV changes nothing: it is metered, never guarded.
+      "serv.reason": "read",
     });
   });
 

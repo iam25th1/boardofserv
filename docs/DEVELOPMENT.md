@@ -449,7 +449,12 @@ checked with zod.
   inputs, or a list setting's key with `settings` in its inputs), running the
   steps inside it (from `body`) once per item, the item in the bag under its
   name (`item`). A run starts at the first step; inside a loop, a next of
-  null ends the pass.
+  null ends the pass. Each step may say the shape of each output
+  (`shapes`: `text`, `number`, `{ name, score: number, reasons }`, a list of
+  one with `[]` after it), and what reads it is checked against that
+  (`shapes.ts`): an action is handed exactly its tool's arguments, a loop
+  goes through a list, a step reads only the fields the value has. The self
+  test then checks what each step really made against its shape.
 - `actions`: the only actions the agent may ever take, each with a tool that
   changes something (`sheets.write`, `telegram.send`, `telegram.ask`,
   `wallet.pay`, `memory.set`); reading and working things out happen in code
@@ -483,6 +488,23 @@ checks beyond the shape:
 Most of these came from building the example agent live (see below): each
 is a way a plan from SERV passed the shape and still couldn't run.
 
+Judgement and words for people are always SERV's, at run time. A decision
+picks one of a fixed set of outcomes; a judgement with no fixed outcomes (a
+score from 1 to 10 with its reasons) or words for people (a reply,
+feedback, a line for the day) is made by a code step that calls
+`serv.reason`. The planner is told so, the repairs add `serv.reason` to a
+step whose brief scores, rates or writes (`planRules.ts` `needsReasoning`),
+Dolphin's code for such a step is sent back if it never calls it, and a run
+fails a step that answers without asking SERV. Filling in the maker's own
+template is not writing: no model is needed for it.
+
+Before a plan is kept, SERV reads every step that acts the way the action
+guard will when the agent runs (`purpose.ts`): a step the guard would block
+every run is left out, and the maker sees which and why. A form's public
+link (Typeform, Google Forms, Tally) or a page behind a sign-in is never
+planned as a step that reads it (`sources.ts`): the chat says plainly what
+it is, what reading it would take and what works instead.
+
 Agents live in `agents` (owner, the conversation it was built in, name) and
 `agent_versions` (number, state, definition, code, bench data, build state).
 An agent has at most one draft. Publishing turns the draft into a version
@@ -501,6 +523,13 @@ the sandbox's host bridge, and only the ones its step lists.
   asks the owner and waits for the answer
 - `memory.get({ key })` and `memory.set({ key, value })`
 - `wallet.pay({ to, amountUsdc, memo })`
+- `serv.reason({ task, data, answer })`: SERV Reasoning at run time, for
+  a judgement or words for people. `data` goes to SERV as fenced data,
+  never instructions, and SERV answers with the fields `answer` names, each
+  of its type (`{ text }` when none are named). It is metered like a
+  decision, within the run's spend limit, the day's cap and the week's
+  model budget, and journaled so a resumed step never asks twice; a dry run
+  answers with a labelled stand-in.
 
 Each has typed arguments, checked whatever the code sends, and a result
 shape, written out as declarations for Dolphin. On the test bench each is
@@ -569,8 +598,19 @@ earlier one keeps what it showed when the journey moved on.
    or password. Saved with `POST /api/conversations/:id/journey`.
 6. Go live (`POST /api/agents/:id/golive`): Run it for me publishes the
    version (with its code review) and starts it for the maker with what
-   they connected, showing when it runs next; Put it on the board lists it
-   with a weekly price and a description, previewed as the board shows it.
+   they connected, showing when it runs next and how its last run went;
+   Put it on the board lists it with a weekly price and a description,
+   previewed as the board shows it. Running never publishes: the board's
+   listing and its renters move to a new version only with Put it on the
+   board. An agent that pays with an empty allowance says so here, on its
+   page and in the chat, and never asks for a payment it can't make.
+
+While the chat works out, builds, tries or fixes the steps, the composer
+has a Stop beside Send (`POST /api/agents/:id/stop`): the work stops on the
+server where it is (each build job's model calls are aborted), what was
+done is kept, and the maker's last message comes back to change and send
+again. When the safety check stops a step of the maker's own agent while it
+runs, the chat asks them whether to take it out.
 
 The agent's page stays for the step graph, the code, the test bench and the
 versions, reached from a small Details link on the latest card. Helpers
@@ -856,7 +896,17 @@ starts its triggers. Installing needs the connections the agent uses.
   true; a message from the installation's in-app message box starts a job
   with the message as its input.
 - Jobs are rows (`agent_jobs`): queued, running, waiting_for_owner, done,
-  failed or cancelled. The worker runs in the server process (`boot.ts` says
+  failed or cancelled. A done job may be "skipped, empty input" (a step that
+  judges or writes had nothing to work on, or every item a loop was given
+  was empty, so nothing was sent) or "done, with a note" (a side step that
+  only notes something for the agent itself failed or was blocked, after
+  the rest did what it was for): `agent_jobs.outcome`. Every job card says
+  in one plain sentence why it failed, was skipped or has a note. A run by
+  hand of an agent that works on a message, with none given, runs on the
+  sample its test ran on. A code step's local time is the run's time zone
+  (the renter's, the maker's for a test, UTC when none is known, never the
+  server's). Its owner can cancel a job: one not started or waiting ends at
+  once, a running one stops where it is. The worker runs in the server process (`boot.ts` says
   why) under its own Postgres advisory lock, the payments worker's way, and
   claims jobs atomically, one running per installation (the database holds
   to that too). A job saves where it is after every step and tool call, so

@@ -43,6 +43,7 @@ function Job({ id }: { id: string }) {
     () => ({
       load: () => api.getJob(id),
       answer: async (approvalId, answer) => void (await api.answerApproval(approvalId, answer)),
+      cancel: () => api.cancelJob(id),
     }),
     [api, id],
   );

@@ -37,6 +37,9 @@ export const ANSWER_LIMITS = {
   publish_review: 400,
   // A decision in a run: one outcome and a short reason, measured 20 to 32.
   decision: 160,
+  // A code step asking SERV at run time (serv.reason): a score with its
+  // reasons, or a few sentences for people.
+  reason: 900,
   // The safety check before an action: allow, ask or block, and why.
   guard: 160,
   // Screening what a run reads: a verdict, an excerpt and a reason.

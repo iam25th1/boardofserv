@@ -1,9 +1,10 @@
 import "server-only";
 import type { JsonResult, ModelConfig } from "../model";
-import { loopsOf, type AgentDefinition } from "./definition";
+import { loopsOf, type AgentDefinition, type ToolName } from "./definition";
 import { storyOf, toldAs } from "./plainWords";
 import { plain } from "./plainView";
-import { runAgent } from "./runner";
+import { hollow, runAgent } from "./runner";
+import { runMisfits } from "./shapes";
 import { goesThroughList, makeSample, sampleRequest, type Sample } from "./sample";
 import type { BenchData, CheckId, RunEvent, StepCode, TestResult } from "./types";
 
@@ -33,6 +34,8 @@ export interface TestOptions {
   fetchImpl?: typeof fetch;
   // What the last sample lacked (the fixer): a new one is made with it.
   sampleNote?: string | null;
+  // The maker's time zone: the test's local time.
+  timeZone?: string | null;
 }
 
 export interface Tested {
@@ -72,6 +75,7 @@ export async function testVersion(v: { definition: AgentDefinition; code: Record
     fetchImpl: o.fetchImpl,
     onEvent: (e) => events.push(e),
     record: (call) => o.record?.(call, "decision") ?? Promise.resolve(),
+    timeZone: o.timeZone,
   });
   const problems: TestResult["problems"] = [];
   const sampled = sample.items.labels.length === 1 ? `sample ${sample.items.noun}` : `sample ${sample.items.plural}`;
@@ -116,6 +120,7 @@ const TOOL_VERBS: Record<string, string> = {
   "memory.get": "look up where it got to",
   "memory.set": "note where it got to",
   "wallet.pay": "pay",
+  "serv.reason": "ask SERV",
 };
 const toolEvents = (events: RunEvent[], tool: string) => events.filter((e): e is ToolEvent => e.type === "tool" && e.tool === tool && !e.error);
 
@@ -160,6 +165,8 @@ export function keepsPlace(d: AgentDefinition): boolean {
 // place: run again, it skips what it did.
 export function checksFor(d: AgentDefinition): CheckId[] {
   const out: CheckId[] = ["ran", "tool_error"];
+  if (d.steps.some((s) => s.kind === "code" && s.tools.some((t) => READS.includes(t)))) out.push("read_nothing");
+  if (d.steps.some((s) => s.kind === "code" && s.shapes && Object.keys(s.shapes).length)) out.push("shape");
   const tools = new Set([...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))]);
   if (d.actions.some((a) => a.tool !== "memory.set")) out.push("did_job");
   const many = goesThroughList(d);
@@ -210,6 +217,39 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
     problems.push({ step: d.steps.find((s) => s.kind === "action" && s.action === job.id)?.id ?? null, text: `On its sample it didn't ${lowerFirst(plain(job.description)).replace(/\.$/, "")}: it found nothing to do in data made for it to work on.`, check: "did_job" });
   }
 
+  // What passes between steps: each output in the shape its plan says.
+  const misfit = checks.has("shape") ? runMisfits(d, first.events) : null;
+  if (misfit) problems.push({ step: misfit.step, text: misfit.text, check: "shape" });
+
+  // What it read: a step that reads a page, a sheet or a search and got
+  // nothing back, on a sample made for it, either went on with nothing or
+  // made up what it passed on. Either way it reads the wrong thing.
+  if (checks.has("read_nothing")) {
+    const sampled = items.labels.length === 1 ? `sample ${items.noun}` : `sample ${items.plural}`;
+    for (const s of d.steps) {
+      if (s.kind !== "code" || !s.tools.some((t) => READS.includes(t))) continue;
+      const reads = first.events.filter((e): e is ToolEvent => e.type === "tool" && e.stepId === s.id && READS.includes(e.tool as ToolName) && !e.error);
+      const ran = first.events.find((e): e is Extract<RunEvent, { type: "step_done" }> => e.type === "step_done" && e.stepId === s.id && e.status === "ok");
+      if (!reads.length || !ran) continue;
+      // Rows read, and nothing of them passed on: it reads the columns by
+      // names the sheet doesn't have (name for Name).
+      const rows = reads.flatMap((e) => (e.tool === "sheets.read" ? (((e.result ?? {}) as { rows?: Record<string, unknown>[] }).rows ?? []) : []));
+      const lists = Object.values((ran.output ?? {}) as Record<string, unknown>).filter((v): v is unknown[] => Array.isArray(v) && v.length > 0);
+      if (rows.some((r) => !hollow(r)) && lists.some((l) => l.every((x) => hollow(x)))) {
+        const columns = [...new Set(rows.flatMap((r) => Object.keys(r)).filter((c) => c !== "_row"))];
+        problems.push({ step: s.id, text: `"${s.title}" read ${rows.length} rows of your sheet but passed on nothing from them: the sheet's columns are ${columns.join(", ")}, and it reads columns by other names.`, check: "read_nothing" });
+        break;
+      }
+      if (!reads.every(emptyRead)) continue;
+      problems.push({
+        step: s.id,
+        text: hollow(ran.output) ? `"${s.title}" read nothing on the ${sampled}, so it would go on with nothing.` : `"${s.title}" read nothing on the ${sampled}, yet passed something on: it would make up what it read.`,
+        check: "read_nothing",
+      });
+      break;
+    }
+  }
+
   // The summary: the last message it sends, after going through the list.
   const sends = toolEvents(first.events, "telegram.send");
   const summary = sends.at(-1);
@@ -243,6 +283,7 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
       dryRun: true,
       signal: o.signal,
       onEvent: (e) => again.push(e),
+      timeZone: o.timeZone,
     });
     const before = updatedRows(first.events);
     const twice = [...updatedRows(again)].some((r) => before.has(r));
@@ -262,13 +303,22 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   if (checks.has("said_no")) {
     noRun = [];
     const no = { ...first.bench, telegram: { answers: first.bench.telegram.answers.map(() => "No").concat(["No", "No", "No"]) }, approve: "no" as const };
-    await runAgent({ definition: d, code: v.code, bench: no, dryRun: true, signal: o.signal, onEvent: (e) => noRun!.push(e) });
+    await runAgent({ definition: d, code: v.code, bench: no, dryRun: true, signal: o.signal, onEvent: (e) => noRun!.push(e), timeZone: o.timeZone });
     const said = noRun.findIndex((e) => e.type === "tool" && ((e.tool === "telegram.ask" && /^\s*no\b/i.test(String((e.result as { answer?: unknown } | null)?.answer ?? ""))) || (e.tool === "wallet.pay" && Boolean(e.error))));
     const after = said < 0 ? undefined : noRun.slice(said + 1).find((e): e is ToolEvent => e.type === "tool" && !e.error && ["wallet.pay", "telegram.send", "sheets.write", "sheets.update"].includes(e.tool));
     if (after) problems.push({ step: after.stepId, text: `When you say no, it still ${TOOL_DID[after.tool] ?? "goes on"}.`, check: "said_no" });
   }
 
   return told({ ...first, noRun, result: { ...first.result, status: problems.length ? "failed" : "passed", problems } });
+}
+
+// The tools that read from outside, and a read that brought nothing back.
+const READS: readonly ToolName[] = ["web.fetch", "sheets.read", "web.search"];
+function emptyRead(e: ToolEvent): boolean {
+  const r = (e.result ?? {}) as { status?: unknown; text?: unknown; rows?: unknown; results?: unknown };
+  if (e.tool === "web.fetch") return r.status !== 200 || !String(r.text ?? "").trim();
+  if (e.tool === "sheets.read") return !Array.isArray(r.rows) || r.rows.length === 0;
+  return !Array.isArray(r.results) || r.results.length === 0;
 }
 
 // What a tool did, in words that follow "it still".

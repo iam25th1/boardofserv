@@ -2,7 +2,7 @@ import "server-only";
 import { Script } from "node:vm";
 import { completeJson, DOLPHIN_LABEL, modelConfig, type ChatMessage, type JsonResult, type ModelConfig, type Provider } from "../model";
 import { ANSWER_LIMITS } from "../modelLimits";
-import { ARGS_TOOLS, loopsOf, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
+import { ARGS_TOOLS, loopsOf, REASON_TOOL, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
 import { TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
 import type { StepCode } from "./types";
@@ -39,7 +39,10 @@ export const CODE_PROMPT = [
   "Call only the tools listed, always with await. Plain JavaScript (ES2020): no TypeScript, no imports, no require, no fetch, no console, no timers, no globals.",
   "Read only the inputs listed, as they are described: never invent input fields, flags or options the step doesn't name (no input.skip, input.nothingToDo or input.cancelled), and never skip what the step says to do.",
   "Keep it short, and handle missing or odd values without throwing where you can.",
+  "When serv.reason is listed, every judgement or piece of writing the step makes (a score and its reasons, a reply, a line for the day) comes from SERV: call tools.serv.reason({ task, data, answer }) for it (once per item), and return what SERV answered. Never work it out yourself with word counts, lengths, keyword lists or canned text.",
   "Text it writes for people never uses em dashes: use a colon or a comma.",
+  "A sheet's rows (sheets.read) are objects keyed by the sheet's own column headers, exactly as written (row.Name, row[\"Due date\"]), plus _row, the row's number: read each column by its header as the step names it, never lower-cased or renamed.",
+  "Dates and times are the owner's: new Date() and its local methods (getDate, getHours, toLocaleDateString) are in their time zone. For today's date use those, never toISOString().slice(0, 10), which is UTC.",
 ].join("\n");
 
 // The review's rules go in the request, not the system message: live, a
@@ -51,6 +54,7 @@ export const REVIEW_SYSTEM = "You review JavaScript code for one step of an auto
 export const REVIEW_PROMPT = [
   "Review this code before it is saved and run in a sandbox.",
   "Approve only if all of these hold: it does what the step says, reading only its inputs and returning an object whose keys are exactly its outputs (never a bare value); a message the step makes for the owner may be the text itself or telegram.send's arguments { text }, either is right; an output an action takes as its tool's arguments has exactly that shape; it calls only the tools listed (the list is exactly what the code calls, so a tool the step's words mention but the code doesn't need is not listed); it does nothing risky (no reaching for the network, files, timers or globals, no endless loops or huge allocations, nothing sent anywhere except through the listed tools).",
+  "When serv.reason is listed, the step's judgement or writing must come from tools.serv.reason, not from rules of thumb, word counts, keyword lists or canned text in the code: reject code that works it out itself.",
   "Approving, leave the reason empty. Rejecting, say in one or two plain sentences, in your own words, what to change in this code. Never use em dashes.",
 ].join(" ");
 
@@ -98,7 +102,8 @@ export function codeRequest(step: CodeStepDef, d: AgentDefinition): string {
     if (from?.kind === "decision" && from.outputs[0] === name && loopsOf(d).inside.get(from.id)) {
       return `the verdict of the step "${from.title}" (${from.prompt}): { outcome: ${from.outcomes.map((o) => `"${o.id}"`).join(" | ")}, label: string, reason: string }`;
     }
-    return from ? `from the step "${from.title}"${from.kind === "code" ? `: ${from.description}` : ""}` : "a value from an earlier step";
+    const shaped = from?.shapes?.[name] ? `, shaped ${from.shapes[name]}` : "";
+    return from ? `from the step "${from.title}"${from.kind === "code" ? `: ${from.description}` : ""}${shaped}` : "a value from an earlier step";
   };
   const shapes = argShapes(step, d);
   return [
@@ -110,6 +115,7 @@ export function codeRequest(step: CodeStepDef, d: AgentDefinition): string {
     ...(step.inputs.length ? step.inputs.map((i) => `- ${i}: ${holds(i)}`) : ["- (nothing)"]),
     "",
     `Return: { ${step.outputs.join(", ") || "nothing"} }`,
+    ...step.outputs.filter((o) => step.shapes?.[o]).map((o) => `- ${o} is shaped ${step.shapes![o]}: exactly those fields, so the steps after it can read them.`),
     ...shapes,
     "",
     "Tools it may call:",
@@ -163,6 +169,7 @@ export function checkCode(source: string, step: CodeStepDef): string | null {
   const used = [...source.matchAll(/\btools\s*\.\s*([a-z]+)\s*\.\s*([a-zA-Z]+)/g)].map((m) => `${m[1]}.${m[2]}`);
   const stray = [...new Set(used.filter((u) => !(step.tools as readonly string[]).includes(u)))];
   if (stray.length) return `It calls ${stray.join(", ")}, which this step may not use (allowed: ${step.tools.join(", ") || "none"}).`;
+  if (step.tools.includes(REASON_TOOL) && !used.includes(REASON_TOOL)) return "It never asks SERV (tools.serv.reason), so its judgement or writing would be a guess: ask SERV for it and use the answer.";
   return null;
 }
 
@@ -173,15 +180,17 @@ export function toolsCalled(source: string): string[] {
 
 // Tools that only look: listing one a step's code calls changes nothing it
 // may do, so the list takes it rather than the code being sent back.
-const LOOKS: readonly ToolName[] = ["sheets.read", "web.fetch", "web.search", "memory.get"];
+const LOOKS: readonly ToolName[] = ["sheets.read", "web.fetch", "web.search", "memory.get", REASON_TOOL];
 
 // The step's tool list made to match its code: a listed tool the code never
 // calls comes off (SERV's review held steps for that), and a tool that only
 // looks, called but not listed, goes on. A tool that changes something,
 // called but not listed, stays off: the code is sent back for it.
+// SERV's reasoning stays listed even when the code skips it: the check
+// sends that code back rather than let the step guess.
 export function fitTools(step: CodeStepDef, source: string): ToolName[] {
   const called = toolsCalled(source);
-  const kept = step.tools.filter((t) => called.includes(t));
+  const kept = step.tools.filter((t) => called.includes(t) || t === REASON_TOOL);
   const looks = called.filter((t): t is ToolName => (LOOKS as readonly string[]).includes(t) && !kept.includes(t as ToolName));
   return [...kept, ...looks];
 }

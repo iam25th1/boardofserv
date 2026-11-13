@@ -9,6 +9,7 @@ import { SheetField, type SheetInfo } from "@/components/agents/SheetField";
 import { isSheetAnswer } from "@/lib/google/sheetLink";
 import { animateEnter, dustIn, ease, prefersReducedMotion } from "@/lib/motion";
 import { STAGE_NAMES, STAGES, type ConnectAnswers, type HealTone, type JourneyCard, type PlainLine } from "@/lib/journey";
+import { jobWord } from "@/lib/jobWords";
 import type { AgentSummaryDTO, ConnectionDTO, InstallationDTO, SketchDTO } from "@/lib/types";
 import styles from "./Journey.module.css";
 
@@ -775,6 +776,8 @@ function LiveCard({ card, latest, agent, api }: Props) {
   const gaveUp = !building(agent) && healed.length ? (agent?.heal?.gaveUp ?? null) : null;
   const status = healing ? "Fixing it first" : installationId && listed ? "Running, and on the board" : installationId ? "Running for you" : listed ? "On the board" : "Ready";
   const when2 = agent?.setup?.triggers[0]?.kind === "schedule" ? agent.setup.triggers[0].description : null;
+  // How its last run went, with why when it failed, skipped or has a note.
+  const lastRun = installation?.recentJobs?.[0] ?? null;
   return (
     <Frame card={card} latest={latest} status={status} agentId={agent?.id}>
       {latest && !gaveUp && <Healing lines={healed} live />}
@@ -789,6 +792,12 @@ function LiveCard({ card, latest, agent, api }: Props) {
                 {installation.runs.join(" ")}
                 {installation.nextRunAt ? ` Next run: ${when(installation.nextRunAt)}.` : ""}
               </p>
+              {installation.allowanceWarning && <p className={styles.problem}>{installation.allowanceWarning}</p>}
+              {lastRun && (
+                <p className={styles.quiet}>
+                  Last run: {jobWord(lastRun)}.{lastRun.why ? ` ${lastRun.why}` : ""}
+                </p>
+              )}
               <Link className={styles.link} href={`/app/installations/${installationId}`}>
                 See how it&apos;s doing
               </Link>

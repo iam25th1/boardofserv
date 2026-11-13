@@ -60,7 +60,11 @@ export interface TestResult {
 // error was passed over; it did its job on a sample made for it; the
 // summary covers every item; it doesn't add its results to the tab it
 // reads; run again, it skips what it did; told no, it does nothing.
-export type CheckId = "ran" | "tool_error" | "did_job" | "summary" | "write_back" | "second_run" | "said_no";
+// read_nothing: a step that reads (a page, a sheet, a search) read nothing
+// on a sample made for it, and went on with nothing or made up the rest.
+// shape: a step made a value in a different shape from the one its plan
+// says, so the step after it can't read it.
+export type CheckId = "ran" | "tool_error" | "did_job" | "summary" | "write_back" | "second_run" | "said_no" | "read_nothing" | "shape";
 
 // What went wrong, as the build found it, with everything there is to act
 // on: where (the stage and the step), what happened, what was expected, and
@@ -198,6 +202,11 @@ export interface RunState {
   // The loops it is inside, outermost first: the loop step, the pass it is
   // on (from 0) and what it has gathered from the passes before.
   loops?: { step: string; index: number; gathered: Record<string, unknown[]> }[];
+  // Side steps that didn't go through (runner.ts isSideStep), one plain
+  // sentence each: the job is done with a note.
+  notes?: string[];
+  // It sent, wrote or paid something in this run.
+  acted?: boolean;
 }
 
 // The screen of a step's untrusted inputs takes the step's first journal
@@ -227,4 +236,5 @@ export type RunEvent =
   | { type: "step_done"; stepId: string; status: "ok" | "failed"; output: unknown; outcome: string | null; note: string | null; ms: number; costUsd: number; model?: string | null }
   // A job (never the bench) waiting for its owner's answer at this step.
   | { type: "wait"; stepId: string; question: string; choices: string[] }
-  | { type: "end"; status: "done" | "failed" | "stopped"; reason: string; steps: number; ms: number; costUsd: number; memory: Record<string, unknown>; sheets: BenchData["sheets"] };
+  // outcome: done, but skipped for empty input, or with a note.
+  | { type: "end"; status: "done" | "failed" | "stopped"; reason: string; steps: number; ms: number; costUsd: number; memory: Record<string, unknown>; sheets: BenchData["sheets"]; outcome?: "skipped" | "noted" };

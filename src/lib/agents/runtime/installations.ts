@@ -18,6 +18,7 @@ import { enqueue } from "./jobs";
 import { setUpTriggers } from "./triggers";
 import { jobRoom, rateLimits } from "./rates";
 import { holdOn } from "../../safety/freeze";
+import { allowanceOf } from "../../spending/allowance";
 import { jobsOfInstallation, spendToday } from "./views";
 
 // Installations: one owner's running copy of a published agent version.
@@ -170,6 +171,15 @@ export async function installationsOf(rt: Runtime, ownerUserId: string): Promise
   return rows.flatMap((r) => (r.version.definition ? [{ ...r, definition: r.version.definition }] : []));
 }
 
+// An agent that pays, with nothing in its allowance: it can't pay, and
+// never asks, until its owner tops it up.
+export const EMPTY_ALLOWANCE = "Its allowance is empty, so it can't pay anyone until you top it up.";
+export async function allowanceWarning(rt: Runtime, d: AgentDefinition, installationId: string): Promise<string | null> {
+  if (!d.actions.some((a) => a.tool === "wallet.pay")) return null;
+  const { available } = await allowanceOf(rt.db, installationId);
+  return available > 0n ? null : EMPTY_ALLOWANCE;
+}
+
 // What its owner sees of an installation.
 export async function installationDTO(rt: Runtime, l: Loaded): Promise<InstallationDTO> {
   const { installation: i, definition: d } = l;
@@ -186,6 +196,7 @@ export async function installationDTO(rt: Runtime, l: Loaded): Promise<Installat
     pausedReason: i.status === "paused" ? i.pausedReason : null,
     needs: connectionsNeeded(d),
     missing: await missingConnections(rt, i.ownerUserId, d),
+    allowanceWarning: await allowanceWarning(rt, d, i.id),
     timezone: i.timezone,
     settings: d.settings.map((s) => {
       const g = (i.sheets as Record<string, SheetGrant>)[s.key];

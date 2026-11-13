@@ -105,3 +105,21 @@ describe("the sandbox", () => {
     expect(failed(await run("async function run() { return 'x'.repeat(2000000); }", [], {}, 2000))).toBe("It returned too much.");
   });
 });
+
+describe("the sandbox's time", () => {
+  it("counts the code's own time, not the time waiting for a tool's answer", async () => {
+    const slow = async () => new Promise((r) => setTimeout(() => r({ score: 7 }), 400));
+    const r = await runInSandbox("async function run(input, tools) { const a = await tools.serv.reason({ task: 'x' }); const b = await tools.serv.reason({ task: 'y' }); return { a, b }; }", {}, { allowed: ["serv.reason"], call: slow, timeMs: 300, wallMs: 5000 });
+    expect(r).toMatchObject({ ok: true, output: { a: { score: 7 }, b: { score: 7 } } });
+  });
+
+  it("still stops code that runs away, and waiting past all its time", async () => {
+    expect(await runInSandbox("async function run() { for (;;) {} }", {}, { allowed: [], call: async () => null, timeMs: 200, wallMs: 5000 })).toMatchObject({ ok: false, error: "It ran out of time (0.2 seconds)." });
+    expect(await runInSandbox("async function run() { await new Promise(() => {}); }", {}, { allowed: [], call: async () => null, timeMs: 200, wallMs: 5000 })).toMatchObject({ ok: false });
+    const never = async () => new Promise(() => {});
+    const t0 = Date.now();
+    expect(await runInSandbox("async function run(input, tools) { await tools.web.fetch({ url: 'https://x.example' }); }", {}, { allowed: ["web.fetch"], call: never, timeMs: 200, wallMs: 600 })).toMatchObject({ ok: false });
+    expect(Date.now() - t0).toBeLessThan(3000);
+  });
+});
+

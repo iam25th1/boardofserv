@@ -33,8 +33,10 @@ export class NotLive extends Error {
 }
 
 // The version it goes live with: the draft, published now, or the newest
-// published one when nothing has changed since.
-export async function publishedFor(rt: Runtime, user: User, agent: Agent): Promise<AgentVersion> {
+// published one when nothing has changed since. Publishing a version is
+// not putting it on the board: only "Put it on the board" moves the
+// board's listing to it and offers it to renters (offer).
+export async function publishedFor(rt: Runtime, user: User, agent: Agent, o: { offer: boolean }): Promise<AgentVersion> {
   const draft = await draftOf(agent.id);
   if (!draft) {
     const published = (await versionsOf(agent.id)).find((v) => v.state === "published");
@@ -52,14 +54,15 @@ export async function publishedFor(rt: Runtime, user: User, agent: Agent): Promi
   if (review.status === "blocked") throw new NotLive(`${REVIEW_BLOCKED} ${review.findings.find((f) => f.severity === "blocking")?.finding ?? ""}`.trim(), 409, liveDiagnosis(draft.definition, review.findings, draft.code));
   const published = await publishDraft(agent.id);
   if (!published) throw new NotLive("It couldn't go live just now. Try again.");
-  await offerVersion(rt, agent.id, published);
+  if (o.offer) await offerVersion(rt, agent.id, published);
   return published;
 }
 
 // Run it for me: the maker's own copy, live from now, with their answers
-// and, for an agent that pays, the payee it pays.
+// and, for an agent that pays, the payee it pays. Running never publishes:
+// what is on the board, and what renters run, stay as they were.
 export async function runForMaker(rt: Runtime, user: User, agent: Agent, answers: ConnectAnswers): Promise<InstallationDTO> {
-  const version = await publishedFor(rt, user, agent);
+  const version = await publishedFor(rt, user, agent, { offer: false });
   try {
     const row = await install(rt, { ownerUserId: user.id, agent, version, answers: { settings: answers.settings, rules: answers.rules, timezone: answers.timezone, schedule: answers.schedule ?? null }, live: true });
     if (answers.payee) await savePayee(rt, user, row.id, answers.payee);
@@ -90,9 +93,12 @@ export async function putOnBoard(rt: Runtime, user: User, agent: Agent, o: { wee
   const description = o.description.replace(/\s+/g, " ").trim().slice(0, 400);
   const draft = await draftOf(agent.id);
   if (draft?.definition && description && description !== draft.definition.job.does) await updateDraft(draft.id, { definition: { ...draft.definition, job: { ...draft.definition.job, does: description } } });
-  await publishedFor(rt, user, agent);
+  const version = await publishedFor(rt, user, agent, { offer: false });
   const listing = await setListing(rt, agent, { weeklyPrice: price, jobFee: 0n, listed: true });
   if (!listing) throw new NotLive("It couldn't go on the board just now. Try again.");
+  // The board's listing and its renters move to it now, and only now: a
+  // version published earlier for the maker's own use included.
+  await offerVersion(rt, agent.id, version);
   await screenListing(rt, user, agent.id);
   return listing;
 }

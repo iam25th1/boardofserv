@@ -1,4 +1,5 @@
-import { nextOf, SIDE_EFFECT_TOOLS, spends, type AgentDefinition, type AgentStep, type ToolName } from "./definition";
+import { nextOf, REASON_TOOL, SIDE_EFFECT_TOOLS, spends, type AgentDefinition, type AgentStep, type ToolName } from "./definition";
+import { REASONING_SPEND_FLOOR_USD } from "./planRepairs";
 import { checksFor } from "./test";
 import type { CheckId } from "./types";
 
@@ -15,7 +16,8 @@ import type { CheckId } from "./types";
 // - spending: what spends still spends (and counts against limits), and
 //   every limit it asks over stays, at no higher a value;
 // - the maker's own rules, schedule and answers: never changed by a repair;
-// - the run's own limits on steps, time and model spend: never raised;
+// - the run's own limits on steps, time and model spend: never raised
+//   (model spend only to the floor a step asking SERV needs);
 // - the checks: the check a test failed still applies after the repair,
 //   so it can only pass by doing what the check asks.
 //
@@ -126,7 +128,9 @@ export function weakens(before: AgentDefinition, after: AgentDefinition, o: { fa
     if (a.triggers !== b.triggers) return "It would change when it runs, which only you change.";
     for (const [k, v] of Object.entries(a.given)) if (b.given[k] !== v) return "It would change an answer you gave, which only you change.";
   }
-  if (b.limits.maxSpendUsd > a.limits.maxSpendUsd || b.limits.maxSteps > a.limits.maxSteps || b.limits.maxRunSeconds > a.limits.maxRunSeconds) return "It would raise the limits on what one run may do.";
+  // Model spend may rise to the floor a step asking SERV needs, no further.
+  const spendRoom = after.steps.some((st) => st.kind === "code" && st.tools.includes(REASON_TOOL)) ? Math.max(a.limits.maxSpendUsd, REASONING_SPEND_FLOOR_USD) : a.limits.maxSpendUsd;
+  if (b.limits.maxSpendUsd > spendRoom || b.limits.maxSteps > a.limits.maxSteps || b.limits.maxRunSeconds > a.limits.maxRunSeconds) return "It would raise the limits on what one run may do.";
   if (o.failed && !b.checks.includes(o.failed)) return "It would pass its test by making the check it failed stop applying.";
   return null;
 }

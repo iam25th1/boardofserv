@@ -149,3 +149,11 @@ describe("the sandbox", () => {
     expect(await new JobTools(rt, a, remember, null).call(s, "memory.get", { key: "last" })).toEqual({ value: { account: "renter A's bank detail" } });
   });
 });
+
+describe("the review's request", () => {
+  it("says tools that change nothing, serv.reason among them, need no action of their own", async () => {
+    const { reviewRequest } = await import("./vetting");
+    const text = reviewRequest(restockDefinition(), RESTOCK_CODE);
+    expect(text).toContain("serv.reason, which asks SERV Reasoning to judge or write");
+  });
+});

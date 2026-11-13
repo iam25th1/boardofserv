@@ -53,6 +53,8 @@ const job = (o: Partial<JobDTO> = {}): JobDTO => ({
   agentName: "Fabric restock",
   status: "waiting_for_owner",
   reason: null,
+  outcome: null,
+  why: null,
   started: "on its schedule",
   trigger: "schedule",
   createdAt: "2026-11-09T08:00:00.000Z",
@@ -122,6 +124,26 @@ describe("a job's timeline", () => {
     render(<JobTimeline initial={job({ viewer: "maker", mine: false, steps, approvals: [], untrusted: [] })} api={{ load: async () => job() }} />);
     expect(screen.getByText(/you see how it ran, never what it saw or made/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Find low stock" })).toBeDisabled();
+  });
+});
+
+describe("Cancel", () => {
+  it("is there for the owner while it runs, and ends it", async () => {
+    motion(true);
+    const cancel = vi.fn(async () => job({ status: "cancelled", reason: "Cancelled by its owner.", why: "Cancelled by its owner.", approvals: [] }));
+    render(<JobTimeline initial={job({ status: "running", approvals: [] })} api={{ load: async () => job({ status: "running", approvals: [] }), cancel }} />);
+    expect(screen.getByText("It stops after the step it is on, keeping what it did.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel this job" }));
+    await waitFor(() => expect(cancel).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText("stopped")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Cancel this job" })).toBeNull();
+    expect(screen.getByText("Cancelled by its owner.")).toBeTruthy();
+  });
+
+  it("isn't offered to the maker of someone else's copy", () => {
+    motion(true);
+    render(<JobTimeline initial={job({ status: "running", viewer: "maker", approvals: [] })} api={{ load: async () => job(), cancel: vi.fn() }} />);
+    expect(screen.queryByRole("button", { name: "Cancel this job" })).toBeNull();
   });
 });
 
