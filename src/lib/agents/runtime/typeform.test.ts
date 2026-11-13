@@ -13,8 +13,9 @@ import type { StepCode } from "@/lib/agents/types";
 import { claimJob, enqueue, runJob } from "./jobs";
 
 // An agent that reads its owner's Typeform form with their own token: each
-// new response once, every answer under its question's title, a response
-// with nothing in it but a name passed by, and nothing ever sent twice.
+// new response once, every answer under its question's field name, a
+// response with nothing in it but a name passed by, and nothing ever sent
+// twice.
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
@@ -57,9 +58,9 @@ function scorer(): AgentDefinition {
 }
 
 const CODE = {
-  read: ok("async function run(input, tools) { const r = await tools.typeform.read({ form: input.settings.form_link }); return { submissions: r.responses.map((x) => ({ id: x.id, answers: x.answers })) }; }"),
+  read: ok("async function run(input, tools) { const r = await tools.typeform.read({ form: input.settings.form_link }); return { submissions: r.responses }; }"),
   score: ok(
-    "async function run(input, tools) { const a = input.submission.answers; const r = await tools.serv.reason({ task: 'Score this hackathon submission from 1 to 10 for quality.', data: a, answer: { score: 'number', reasons: 'text' } }); return { result: { name: a['Project name'], score: r.score, reasons: r.reasons } }; }",
+    "async function run(input, tools) { const s = input.submission; const r = await tools.serv.reason({ task: 'Score this hackathon submission from 1 to 10 for quality.', data: { project_name: s.project_name, team_name: s.team_name, track: s.track, description: s.description, demo_link: s.demo_link, repo_link: s.repo_link }, answer: { score: 'number', reasons: 'text' } }); return { result: { name: s.project_name, score: r.score, reasons: r.reasons } }; }",
   ),
   summary: ok("async function run(input) { return { message: { text: input.results.map((r) => '*' + r.name + '*: ' + r.score + '/10. ' + r.reasons).join('\\n') } }; }"),
 };
@@ -91,9 +92,9 @@ describe("an agent reading its owner's Typeform form", () => {
     // SERV scored five; "Moonshot", only a name, was passed by.
     expect(rt.reasoned).toHaveLength(5);
     expect(rt.reasoned.some((r) => r.includes("Moonshot"))).toBe(false);
-    // Each answer under its question's title, unanswered ones as null.
-    expect(rt.reasoned[0]).toContain('"Project name":"Tidewatch"');
-    expect(rt.reasoned[3]).toContain('"Team name":null');
+    // Each answer under its question's field name, unanswered ones as null.
+    expect(rt.reasoned[0]).toContain('"project_name":"Tidewatch"');
+    expect(rt.reasoned[3]).toContain('"team_name":null');
     const [message] = await sent(inst.id);
     expect(message).toContain("*Tidewatch*: 9/10");
     expect(message).not.toContain("Moonshot");

@@ -125,9 +125,9 @@ export const TOOLS: Record<ToolName, ToolInfo> = {
     risk: "money",
   },
   "typeform.read": {
-    summary: "Read the new responses to the owner's Typeform form (by its link, connected with their own token): each with its id, when it came in, and every answer under its question's title (null when unanswered). Only responses this agent hasn't taken before.",
+    summary: "Read the new responses to the owner's Typeform form (by its link, connected with their own token): each a record of its id, when it came in, and every answer under its question's field name, the title in lower case with underscores (project_name for \"Project name\"; null when unanswered). Only responses this agent hasn't taken before.",
     signature:
-      "tools.typeform.read({ form: string }): Promise<{ responses: Array<{ id: string, submittedAt: string, answers: Record<string, string | number | boolean | string[] | null> }> }> // answers by question title, exactly as the form words them",
+      "tools.typeform.read({ form: string }): Promise<{ responses: Array<{ id: string, submittedAt: string, [field: string]: string | number | boolean | string[] | null }> }> // each answer at the top of its response, under its question's title in lower case with underscores: response.project_name for \"Project name\"; null when unanswered",
     sideEffect: false,
     risk: "read",
   },
@@ -399,5 +399,5 @@ export const BenchSchema = z.object({
   decisions: z.record(z.string(), z.string().max(40)),
   payees: z.array(z.string().max(120)).max(20).optional(),
   approve: z.enum(["yes", "no"]).optional(),
-  forms: z.record(z.string(), z.array(z.object({ id: z.string().max(100), submittedAt: z.string().max(40), answers: z.record(z.string(), z.unknown()) })).max(50)).optional(),
+  forms: z.record(z.string(), z.array(z.object({ id: z.string().max(100), submittedAt: z.string().max(40) }).catchall(z.unknown())).max(50)).optional(),
 }).refine((b) => json.safeParse(b).success, "The sample data is too large.");

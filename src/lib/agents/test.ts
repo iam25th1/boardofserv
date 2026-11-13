@@ -240,7 +240,7 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
         e.tool === "sheets.read"
           ? (((e.result ?? {}) as { rows?: Record<string, unknown>[] }).rows ?? [])
           : e.tool === "typeform.read"
-            ? (((e.result ?? {}) as { responses?: { answers: Record<string, unknown> }[] }).responses ?? []).map((r) => r.answers)
+            ? (((e.result ?? {}) as { responses?: Record<string, unknown>[] }).responses ?? []).map(({ id: _id, submittedAt: _at, ...answers }) => answers)
             : [],
       );
       const form = reads.some((e) => e.tool === "typeform.read");

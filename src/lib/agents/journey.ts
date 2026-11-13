@@ -257,7 +257,7 @@ async function formNotes(rt: Runtime, ownerUserId: string, said: string): Promis
   if (!id || !secret) return [];
   try {
     const form = await formQuestions(rt.services.fetch, secret.token, id);
-    return [`The maker's Typeform form ${link} has these questions, and typeform.read gives each response's answers under exactly these titles: ${form.questions.map((q) => `"${q.title}"`).join(", ")}. A step reads the form with typeform.read({ form: settings.<its link setting> }), the link being a url setting the maker gave.`];
+    return [`The maker's Typeform form ${link} has these questions, and typeform.read gives each response as a record of id, submittedAt and these fields, exactly: ${form.questions.map((q) => `${q.key} ("${q.title}")`).join(", ")}. A step reads the form with typeform.read({ form: settings.<its link setting> }), the link being a url setting the maker gave, and names each answer by its field.`];
   } catch {
     return [];
   }

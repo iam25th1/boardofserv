@@ -59,7 +59,7 @@ export function samplePrompt(count: 1 | 3): string {
       : "It handles one thing each run: give exactly one item (the one product, the one message), realistic, the kind the maker would watch for: where it compares against a target or threshold, make it one that meets it. A tab it reads still has the rows its job needs (the day's sales to add up).",
     `Answer every setting, with values that fit together (a target the item meets, a page address the pages below use). A sheet setting's answer is a tab name: give that tab with the columns the steps name${count === 3 ? " and the three items as rows" : ""}. Leave empty the columns the agent itself fills in (a status or result it writes).`,
     'Give pages or search results only if a step fetches or searches. Answers only if it asks its owner something: then answer as the owner who says yes ("Yes"), one answer for every question it asks.',
-    "If it reads a Typeform form (typeform.read), give the form's responses as a tab named exactly as the form's link setting is answered: one column per question, titled as the steps name the questions, one row per response.",
+    "If it reads a Typeform form (typeform.read), give the form's responses as a tab named exactly as the form's link setting is answered: one column per question, named by its field name exactly as the steps name it (the question's title in lower case with underscores: project_name), one row per response.",
     "Where it pays someone, the payee's name is exactly the one the plan pays.",
     "Also say what every step does in one plain sentence a first-time maker understands, with no names of values or tools.",
     "Never use em dashes.",
@@ -241,7 +241,7 @@ export function fitSample(d: AgentDefinition, sample: Sample): Sample {
       const tab = bench.sheets[link] ? link : Object.keys(bench.sheets).find((t) => !claimed.has(t));
       if (!tab) continue;
       const rows = bench.sheets[tab]!;
-      (bench.forms ??= {})[link] = rows.map((r, i) => ({ id: `sample-${i + 1}`, submittedAt: new Date(Date.UTC(2026, 0, 1, 9, i)).toISOString(), answers: Object.fromEntries(Object.entries(r).filter(([k]) => k !== "_row").map(([k, v]) => [k, v === "" ? null : v])) }));
+      (bench.forms ??= {})[link] = rows.map((r, i) => ({ ...Object.fromEntries(Object.entries(r).filter(([k]) => k !== "_row").map(([k, v]) => [k, v === "" ? null : v])), id: `sample-${i + 1}`, submittedAt: new Date(Date.UTC(2026, 0, 1, 9, i)).toISOString() }));
       delete bench.sheets[tab];
     }
   }

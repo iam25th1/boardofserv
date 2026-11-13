@@ -1,7 +1,8 @@
 // Typeform's Create and Responses APIs, read with the owner's own personal
 // token (connected on Connections, kept in the vault). Only what an agent
-// needs: whether a token works, a form's questions, and its responses with
-// each answer under its question's title. The token goes in one header and
+// needs: whether a token works, a form's questions, and its responses, each
+// a record of its answers under field names made from the questions'
+// titles. The token goes in one header and
 // nowhere else: errors carry Typeform's status, never the token.
 
 const API = "https://api.typeform.com";
@@ -62,6 +63,8 @@ export async function tokenAccount(fetchImpl: typeof fetch, token: string): Prom
 export interface FormQuestion {
   id: string;
   title: string;
+  // Its answer's field name in a response: project_name for "Project name".
+  key: string;
   type: string;
 }
 
@@ -75,9 +78,31 @@ interface RawField {
 // The form's questions, in order, a group's questions with them.
 export async function formQuestions(fetchImpl: typeof fetch, token: string, formId: string): Promise<{ title: string; questions: FormQuestion[] }> {
   const form = await call<{ title?: string; fields?: RawField[] }>(fetchImpl, token, `/forms/${encodeURIComponent(formId)}`);
-  const flat = (fields: RawField[]): FormQuestion[] =>
+  const flat = (fields: RawField[]): Omit<FormQuestion, "key">[] =>
     fields.flatMap((f) => [...(f.type === "group" ? [] : [{ id: f.id, title: plainTitle(f.title ?? f.id), type: f.type ?? "" }]), ...flat(f.properties?.fields ?? [])]);
-  return { title: form.title ?? formId, questions: flat(form.fields ?? []) };
+  const questions = flat(form.fields ?? []);
+  const keys = fieldKeys(questions.map((q) => q.title));
+  return { title: form.title ?? formId, questions: questions.map((q, i) => ({ ...q, key: keys[i]! })) };
+}
+
+// Each question's field name: its title in lower case with underscores
+// ("Project name" is project_name), the way a step names what it reads.
+// Each once in the form, and never the response's own id or submittedAt.
+export function fieldKeys(titles: string[]): string[] {
+  const taken = new Set(["id", "submitted_at", "submittedat"]);
+  return titles.map((t) => {
+    const base = t
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 40)
+      .replace(/_+$/, "");
+    const k = /^[a-z]/.test(base) ? base : `q_${base || "answer"}`;
+    let key = k;
+    for (let i = 2; taken.has(key); i++) key = `${k}_${i}`;
+    taken.add(key);
+    return key;
+  });
 }
 
 // A question's title as people read it: Typeform's recall marks and
@@ -105,15 +130,14 @@ interface RawAnswer {
   choices?: { labels?: string[]; other?: string };
 }
 
-export interface FormResponse {
-  // The response's own id, the same however often it is read.
-  id: string;
-  submittedAt: string;
-  // Every question's answer under its title; null when it wasn't answered.
-  answers: Record<string, string | number | boolean | string[] | null>;
-}
+export type FormAnswer = string | number | boolean | string[] | null;
 
-function answerOf(a: RawAnswer): string | number | boolean | string[] | null {
+// A response: its own id (the same however often it is read), when it came
+// in, and every question's answer under its field name, null when it
+// wasn't answered.
+export type FormResponse = { id: string; submittedAt: string } & { [key: string]: FormAnswer };
+
+function answerOf(a: RawAnswer): FormAnswer {
   switch (a.type) {
     case "choice":
       return a.choice?.label ?? a.choice?.other ?? null;
@@ -130,16 +154,16 @@ function answerOf(a: RawAnswer): string | number | boolean | string[] | null {
 
 export function mapResponse(r: { response_id?: string; token?: string; submitted_at?: string; answers?: RawAnswer[] | null }, questions: FormQuestion[]): FormResponse {
   const byId = new Map((r.answers ?? []).map((a) => [a.field.id, a]));
-  const answers: FormResponse["answers"] = {};
+  const out: FormResponse = { id: r.response_id ?? r.token ?? "", submittedAt: r.submitted_at ?? "" };
   for (const q of questions) {
     const a = byId.get(q.id);
-    answers[q.title] = a ? answerOf(a) : null;
+    out[q.key] = a ? answerOf(a) : null;
   }
-  return { id: r.response_id ?? r.token ?? "", submittedAt: r.submitted_at ?? "", answers };
+  return out;
 }
 
-// The form's completed responses, oldest first, each with its answers by
-// question title: up to `limit`, leaving out the ids in `skip`.
+// The form's completed responses, oldest first, each a record of its
+// answers by field name: up to `limit`, leaving out the ids in `skip`.
 export async function formResponses(fetchImpl: typeof fetch, token: string, formId: string, o: { skip?: Set<string>; limit?: number } = {}): Promise<{ title: string; questions: FormQuestion[]; responses: FormResponse[] }> {
   const form = await formQuestions(fetchImpl, token, formId);
   const page = await call<{ items?: { response_id?: string; token?: string; submitted_at?: string; answers?: RawAnswer[] | null }[] }>(

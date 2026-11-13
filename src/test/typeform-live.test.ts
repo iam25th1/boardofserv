@@ -126,9 +126,9 @@ describe.skipIf(!enabled)("a scorer on a real Typeform form, live", () => {
     // the rest with something to judge.
     const formId = formIdOf(LINK)!;
     const { responses } = await formResponses(realFetch, TOKEN, formId);
-    const nameOf = (r: { answers: Record<string, unknown> }) => String(r.answers["Project name"] ?? "");
-    const empty = responses.filter((r) => thin(r.answers));
-    const judged = responses.filter((r) => !thin(r.answers));
+    const nameOf = (r: Record<string, unknown>) => String(r.project_name ?? "");
+    const empty = responses.filter((r) => thin(r));
+    const judged = responses.filter((r) => !thin(r));
     report.form = { responses: responses.length, empty: empty.map(nameOf), judged: judged.map(nameOf) };
     expect(empty).toHaveLength(1);
     expect(judged).toHaveLength(5);

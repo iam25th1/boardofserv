@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { fakeNet } from "@/test/fakeNet";
 import { FAKE_FORM_ID, FAKE_TYPEFORM_TOKEN, fakeTypeform } from "@/test/fakeTypeform";
-import { formIdOf, formResponses, tokenAccount, TypeformError, typeformLinkIn } from "./api";
+import { fieldKeys, formIdOf, formResponses, tokenAccount, TypeformError, typeformLinkIn } from "./api";
 
 describe("a Typeform form's link", () => {
   it("gives the form's id, from any of its links", () => {
@@ -21,16 +21,27 @@ describe("a Typeform form's link", () => {
 });
 
 describe("reading a form with the owner's token", () => {
-  it("gives each response's answers under its question's title, unanswered ones as null, leaving out the ones taken", async () => {
+  it("gives each response as a record of its answers, each under its question's field name, unanswered ones as null, leaving out the ones taken", async () => {
     const net = fakeNet();
     fakeTypeform(net);
     const got = await formResponses(net.fetch, FAKE_TYPEFORM_TOKEN, FAKE_FORM_ID, { skip: new Set(["resp1"]) });
-    expect(got.questions.map((q) => q.title)).toEqual(["Project name", "Team name", "Track", "Description", "Demo link", "Repo link"]);
+    expect(got.questions.map((q) => [q.key, q.title])).toEqual([
+      ["project_name", "Project name"],
+      ["team_name", "Team name"],
+      ["track", "Track"],
+      ["description", "Description"],
+      ["demo_link", "Demo link"],
+      ["repo_link", "Repo link"],
+    ]);
     expect(got.responses.map((r) => r.id)).toEqual(["resp2", "resp3", "resp4", "resp5", "resp6"]);
-    expect(got.responses.at(-1)).toMatchObject({ id: "resp6", answers: { "Project name": "Moonshot", "Team name": null, Track: null, Description: null, "Demo link": null, "Repo link": null } });
-    expect(got.responses[0]!.answers.Track).toBe("Reppo");
+    expect(got.responses.at(-1)).toEqual({ id: "resp6", submittedAt: "2026-11-13T09:05:00.000Z", project_name: "Moonshot", team_name: null, track: null, description: null, demo_link: null, repo_link: null });
+    expect(got.responses[0]!.track).toBe("Reppo");
     // The token only ever goes in the header.
     expect(net.calls.every((c) => !c.url.href.includes(FAKE_TYPEFORM_TOKEN))).toBe(true);
+  });
+
+  it("names every question's field once, never as the response's own id", () => {
+    expect(fieldKeys(["What's your project called?", "Team", "Team!", "ID", "Submitted at", "\u00bfQu\u00e9?", "1st pick"])).toEqual(["what_s_your_project_called", "team", "team_2", "id_2", "submitted_at_2", "qu", "q_1st_pick"]);
   });
 
   it("says plainly when the token doesn't work, never with the token in it", async () => {

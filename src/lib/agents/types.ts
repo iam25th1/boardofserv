@@ -170,7 +170,7 @@ export interface BenchData {
   // self test's run where the owner says no).
   approve?: "yes" | "no";
   // A Typeform form's responses, by the form's link (typeform.read).
-  forms?: Record<string, { id: string; submittedAt: string; answers: Record<string, unknown> }[]>;
+  forms?: Record<string, ({ id: string; submittedAt: string } & Record<string, unknown>)[]>;
 }
 
 export function emptyBench(): BenchData {

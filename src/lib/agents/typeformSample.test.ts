@@ -36,9 +36,9 @@ function scorer(): AgentDefinition {
 }
 
 const SOURCES = {
-  read: "async function run(input, tools) { const r = await tools.typeform.read({ form: input.settings.form_link }); return { submissions: r.responses.map((x) => ({ id: x.id, answers: x.answers })) }; }",
+  read: "async function run(input, tools) { const r = await tools.typeform.read({ form: input.settings.form_link }); return { submissions: r.responses }; }",
   score:
-    "async function run(input, tools) { const a = input.submission.answers; const r = await tools.serv.reason({ task: 'Score this hackathon submission from 1 to 10 for quality.', data: a, answer: { score: 'number', reasons: 'text' } }); return { result: { name: a['Project name'], score: r.score, reasons: r.reasons } }; }",
+    "async function run(input, tools) { const s = input.submission; const r = await tools.serv.reason({ task: 'Score this hackathon submission from 1 to 10 for quality.', data: { project_name: s.project_name, description: s.description, demo_link: s.demo_link }, answer: { score: 'number', reasons: 'text' } }); return { result: { name: s.project_name, score: r.score, reasons: r.reasons } }; }",
   summary: "async function run(input) { return { message: { text: input.results.map((r) => r.name + ': ' + r.score + '/10. ' + r.reasons).join('\\n') } }; }",
 };
 
@@ -48,9 +48,9 @@ const sample = {
     settings: { form_link: LINK },
     sheets: {
       [LINK]: [
-        { "Project name": "Tidewatch", "Team name": "Low Tide Labs", Description: "Plans safe tide-pool visits from the tide table. Demo and tests.", "Demo link": "https://example.com/tidewatch" },
-        { "Project name": "Commute Buddy", "Team name": "Two Coders", Description: "Compares bus and bike times for one city. No tests yet.", "Demo link": "" },
-        { "Project name": "Something with AI", "Team name": "TBD", Description: "We want to use AI to make life easier.", "Demo link": "" },
+        { project_name: "Tidewatch", team_name: "Low Tide Labs", description: "Plans safe tide-pool visits from the tide table. Demo and tests.", demo_link: "https://example.com/tidewatch" },
+        { project_name: "Commute Buddy", team_name: "Two Coders", description: "Compares bus and bike times for one city. No tests yet.", demo_link: "" },
+        { project_name: "Something with AI", team_name: "TBD", description: "We want to use AI to make life easier.", demo_link: "" },
       ],
     },
   },
@@ -58,11 +58,11 @@ const sample = {
 };
 
 describe("a Typeform form's sample", () => {
-  it("is the form's responses, each with its id and answers by question, the tab gone", () => {
+  it("is the form's responses, each a record of its id and answers by field name, the tab gone", () => {
     const { bench } = fitSample(scorer(), sample);
     expect(bench.sheets[LINK]).toBeUndefined();
     expect(bench.forms?.[LINK]?.map((r) => r.id)).toEqual(["sample-1", "sample-2", "sample-3"]);
-    expect(bench.forms?.[LINK]?.[1]?.answers).toEqual({ "Project name": "Commute Buddy", "Team name": "Two Coders", Description: "Compares bus and bike times for one city. No tests yet.", "Demo link": null });
+    expect(bench.forms?.[LINK]?.[1]).toEqual({ id: "sample-2", submittedAt: "2026-01-01T09:01:00.000Z", project_name: "Commute Buddy", team_name: "Two Coders", description: "Compares bus and bike times for one city. No tests yet.", demo_link: null });
   });
 
   it("passes the self test, asking SERV to score each response", async () => {
