@@ -28,6 +28,7 @@ import { addressFacts, highRisk, warningOf, type AddressFacts } from "../../spen
 import { paymentsNetworkProblem } from "../../spending/treasury";
 import { formatAmount, parseAmount } from "../../money";
 import { fetchPage, WebUnreachable } from "./webFetch";
+import { sourceProblem, sourceRefusal } from "../sources";
 import { errorText } from "../../db/errors";
 
 // A job's tools (and a value check's, with no job). Sheets are real: the
@@ -484,6 +485,10 @@ export class JobTools implements ToolHost {
   private async fetch(args: unknown): Promise<unknown> {
     const parsed = TOOL_ARGS["web.fetch"].safeParse(args);
     if (!parsed.success) throw new ToolError("web.fetch", "web.fetch was called wrongly: it takes { url }, a full http or https address.");
+    // A form's public link or a page behind a sign-in: said plainly, never
+    // read as if it held what the step wanted.
+    const unreadable = sourceProblem(parsed.data.url);
+    if (unreadable) throw new ToolError("web.fetch", sourceRefusal(unreadable));
     const day = this.rt.now().toISOString().slice(0, 10);
     const limit = this.rt.fetchesPerDay;
     const taken = await this.rt.db

@@ -1,9 +1,9 @@
 import "server-only";
 import type { JsonResult, ModelConfig } from "../model";
-import { loopsOf, type AgentDefinition } from "./definition";
+import { loopsOf, type AgentDefinition, type ToolName } from "./definition";
 import { storyOf, toldAs } from "./plainWords";
 import { plain } from "./plainView";
-import { runAgent } from "./runner";
+import { hollow, runAgent } from "./runner";
 import { goesThroughList, makeSample, sampleRequest, type Sample } from "./sample";
 import type { BenchData, CheckId, RunEvent, StepCode, TestResult } from "./types";
 
@@ -164,6 +164,7 @@ export function keepsPlace(d: AgentDefinition): boolean {
 // place: run again, it skips what it did.
 export function checksFor(d: AgentDefinition): CheckId[] {
   const out: CheckId[] = ["ran", "tool_error"];
+  if (d.steps.some((s) => s.kind === "code" && s.tools.some((t) => READS.includes(t)))) out.push("read_nothing");
   const tools = new Set([...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))]);
   if (d.actions.some((a) => a.tool !== "memory.set")) out.push("did_job");
   const many = goesThroughList(d);
@@ -212,6 +213,25 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   const job = jobs.length ? (jobs.some((a) => did(a.tool)) ? null : jobs[0]!) : asked.length && !asked.some((a) => did(a.tool)) ? asked[0]! : null;
   if (job && checks.has("did_job")) {
     problems.push({ step: d.steps.find((s) => s.kind === "action" && s.action === job.id)?.id ?? null, text: `On its sample it didn't ${lowerFirst(plain(job.description)).replace(/\.$/, "")}: it found nothing to do in data made for it to work on.`, check: "did_job" });
+  }
+
+  // What it read: a step that reads a page, a sheet or a search and got
+  // nothing back, on a sample made for it, either went on with nothing or
+  // made up what it passed on. Either way it reads the wrong thing.
+  if (checks.has("read_nothing")) {
+    const sampled = items.labels.length === 1 ? `sample ${items.noun}` : `sample ${items.plural}`;
+    for (const s of d.steps) {
+      if (s.kind !== "code" || !s.tools.some((t) => READS.includes(t))) continue;
+      const reads = first.events.filter((e): e is ToolEvent => e.type === "tool" && e.stepId === s.id && READS.includes(e.tool as ToolName) && !e.error);
+      const ran = first.events.find((e): e is Extract<RunEvent, { type: "step_done" }> => e.type === "step_done" && e.stepId === s.id && e.status === "ok");
+      if (!reads.length || !ran || !reads.every(emptyRead)) continue;
+      problems.push({
+        step: s.id,
+        text: hollow(ran.output) ? `"${s.title}" read nothing on the ${sampled}, so it would go on with nothing.` : `"${s.title}" read nothing on the ${sampled}, yet passed something on: it would make up what it read.`,
+        check: "read_nothing",
+      });
+      break;
+    }
   }
 
   // The summary: the last message it sends, after going through the list.
@@ -274,6 +294,15 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   }
 
   return told({ ...first, noRun, result: { ...first.result, status: problems.length ? "failed" : "passed", problems } });
+}
+
+// The tools that read from outside, and a read that brought nothing back.
+const READS: readonly ToolName[] = ["web.fetch", "sheets.read", "web.search"];
+function emptyRead(e: ToolEvent): boolean {
+  const r = (e.result ?? {}) as { status?: unknown; text?: unknown; rows?: unknown; results?: unknown };
+  if (e.tool === "web.fetch") return r.status !== 200 || !String(r.text ?? "").trim();
+  if (e.tool === "sheets.read") return !Array.isArray(r.rows) || r.rows.length === 0;
+  return !Array.isArray(r.results) || r.results.length === 0;
 }
 
 // What a tool did, in words that follow "it still".

@@ -71,8 +71,17 @@ export function needsReasoning(step: AgentStep): boolean {
   return reasonsIn(step.description) || reasonsIn(step.title);
 }
 
+// A step that says it reads ("Read the submission") and is given nothing
+// to read and no tool to read with only makes up what it passes on.
+const SAYS_READS = /^(?:read|fetch|get|load|pull|collect|gather|download|import)\b/i;
+const READ_TOOLS = ["web.fetch", "sheets.read", "web.search", "memory.get"];
+
 export function planProblems(d: AgentDefinition): string[] {
   const out: string[] = [];
+  for (const s of d.steps) {
+    if (s.kind !== "code" || !SAYS_READS.test(s.title) || s.tools.some((t) => READ_TOOLS.includes(t))) continue;
+    if (s.inputs.every((k) => k === "settings" || k === "rules")) out.push(`code step "${s.id}" says it reads ("${s.title}") but has no tool that reads and nothing given to it to read, so it could only make up what it passes on: list the tool it reads with (web.fetch for a public page, sheets.read for a sheet). A form's link can't be read at all: its answers come from the sheet they go to, a setting of type sheet.`);
+  }
   for (const s of d.steps) {
     if (s.kind !== "code") continue;
     const asks = s.tools.includes(REASON_TOOL);

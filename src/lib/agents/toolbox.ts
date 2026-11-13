@@ -2,6 +2,7 @@ import { z } from "zod";
 import { SIDE_EFFECT_TOOLS, TOOL_NAMES, type ToolName } from "./definition";
 import type { BenchData, SearchResult } from "./types";
 import { keepRequired } from "../zodErrors";
+import { sourceProblem, sourceRefusal } from "./sources";
 
 // The kinds of field SERV can answer a reasoning call with.
 export const REASON_TYPES = ["text", "number", "boolean", "list"] as const;
@@ -268,6 +269,9 @@ export class MockTools {
       }
       case "web.fetch": {
         const a = args as z.infer<(typeof TOOL_ARGS)["web.fetch"]>;
+        // As for real: a form's link or a page behind a sign-in can't be read.
+        const unreadable = sourceProblem(a.url);
+        if (unreadable) throw new ToolError(tool, sourceRefusal(unreadable));
         const text = d.pages[a.url];
         return text === undefined ? { status: 404, text: "" } : { status: 200, text };
       }

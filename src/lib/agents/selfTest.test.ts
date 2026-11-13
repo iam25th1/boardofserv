@@ -54,6 +54,13 @@ describe("the self test", () => {
     expect(t.result.problems.map((p) => p.text)).toEqual(["On its sample it didn't send you the reminder to buy it: it found nothing to do in data made for it to work on."]);
   });
 
+  it("doesn't pass a step that read nothing on a sample made for it", async () => {
+    const d = definitionOf(PRICE_WIRE);
+    const t = await selfTest({ definition: d, code: codeOf(d, PRICE_SOURCES), testResult: kept(d, { ...priceBench(), pages: {} }, { noun: "product", plural: "products", labels: ["Stone Kettle"] }) }, { serv: null });
+    expect(t.result.status).toBe("failed");
+    expect(t.result.problems).toContainEqual(expect.objectContaining({ step: "read_price", check: "read_nothing" }));
+  });
+
   it("doesn't pass a run that went on with nothing after a call went wrong", async () => {
     const d = definitionOf(PRICE_WIRE);
     // The page is asked for by an address too long to be one: the code

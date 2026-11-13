@@ -60,7 +60,9 @@ export interface TestResult {
 // error was passed over; it did its job on a sample made for it; the
 // summary covers every item; it doesn't add its results to the tab it
 // reads; run again, it skips what it did; told no, it does nothing.
-export type CheckId = "ran" | "tool_error" | "did_job" | "summary" | "write_back" | "second_run" | "said_no";
+// read_nothing: a step that reads (a page, a sheet, a search) read nothing
+// on a sample made for it, and went on with nothing or made up the rest.
+export type CheckId = "ran" | "tool_error" | "did_job" | "summary" | "write_back" | "second_run" | "said_no" | "read_nothing";
 
 // What went wrong, as the build found it, with everything there is to act
 // on: where (the stage and the step), what happened, what was expected, and

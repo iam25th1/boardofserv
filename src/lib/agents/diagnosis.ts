@@ -89,6 +89,7 @@ const EXPECTED: Record<CheckId, string> = {
   write_back: "It writes each result into the row it belongs to, never as a new row of the tab it reads.",
   second_run: "Run again on what the first run left, it leaves the items it already did alone.",
   said_no: "When the owner says no, it pays nothing and sends nothing more.",
+  read_nothing: "Each step that reads (a page, a sheet, a search) gets what it reads on its sample, and passes on only what it read. A form's link or a page behind a sign-in can't be read: its answers come from the sheet they go to.",
 };
 
 // The self test failed: the check, its sentence, the run and its sample.
