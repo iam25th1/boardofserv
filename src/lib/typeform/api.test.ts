@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { fakeNet } from "@/test/fakeNet";
 import { FAKE_FORM_ID, FAKE_TYPEFORM_TOKEN, fakeTypeform } from "@/test/fakeTypeform";
-import { formIdOf, formResponses, tokenAccount, TypeformError } from "./api";
+import { formIdOf, formResponses, tokenAccount, TypeformError, typeformLinkIn } from "./api";
 
 describe("a Typeform form's link", () => {
   it("gives the form's id, from any of its links", () => {
@@ -12,6 +12,11 @@ describe("a Typeform form's link", () => {
     expect(formIdOf("AbC123xy")).toBe("AbC123xy");
     expect(formIdOf("https://example.com/to/AbC123xy")).toBeNull();
     expect(formIdOf("not a link at all")).toBeNull();
+  });
+
+  it("is found in what the maker said, without the full stop after it", () => {
+    expect(typeformLinkIn("Score each submission to my Typeform https://form.typeform.com/to/AbC123xy.")).toBe("https://form.typeform.com/to/AbC123xy");
+    expect(typeformLinkIn("Read https://example.com/page and https://typeform.com/pricing")).toBeNull();
   });
 });
 

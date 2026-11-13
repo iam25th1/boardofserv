@@ -555,3 +555,19 @@ export function askForSheet(steps: RawStep[], settings: { key: string; type: unk
   return { key, label: "Your sheet", type: "sheet", help: "The sheet and tab it works on.", choices: [] };
 }
 
+// A Typeform form it reads with no link the maker gives: a url setting of
+// its own (filled in with the link the maker said, when they said one),
+// and the steps that read the form told to pass it. The token reads any
+// of the owner's forms: only the link says which.
+export function askForForm(steps: RawStep[], settings: { key: string; label: string; type: unknown; given: string }[], link?: string | null): { key: string; label: string; type: "url"; help: string; choices: string[]; given: string } | null {
+  const users = steps.filter((st) => st.kind === "code" && (st.tools ?? []).includes("typeform.read"));
+  if (!users.length) return null;
+  const own = settings.find((x) => (x.type === "url" || x.type === "text") && (/typeform\.com/i.test(x.given) || /\b(?:type)?form\b/i.test(`${x.key.replace(/_/g, " ")} ${x.label}`)));
+  const key = own?.key ?? (settings.some((x) => x.key === "form_link") ? "typeform_link" : "form_link");
+  for (const st of users) {
+    if (!st.inputs.includes("settings")) st.inputs = [...st.inputs, "settings"];
+    const note = ` The form is settings.${key}: pass it as typeform.read's form.`;
+    if (!(st.description ?? "").includes(`settings.${key}`)) st.description = `${(st.description ?? "").trim().slice(0, 800 - note.length)}${note}`;
+  }
+  return own ? null : { key, label: "Your Typeform form's link", type: "url", help: "The form people fill in: its link, from Share in Typeform.", choices: [], given: link ?? "" };
+}

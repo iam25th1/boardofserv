@@ -15,7 +15,7 @@ import { problemOf } from "./plainWords";
 import { sourceAsk, unreadableIn } from "./sources";
 import { hasConnection, secretOf } from "../connections/vault";
 import { serverRuntime, type Runtime } from "./runtime/context";
-import { formIdOf, formQuestions } from "../typeform/api";
+import { formIdOf, formQuestions, typeformLinkIn } from "../typeform/api";
 import { agentForConversation, agentsOf, createAgent, currentVersion, editableDraft } from "./store";
 
 // The journey in the chat, on the server (src/lib/journey.ts has the
@@ -251,7 +251,7 @@ export async function makeIt(user: User, conversationId: string, feedback: strin
 // questions, by title. Nothing when it can't be read just now: the plan
 // goes on without.
 async function formNotes(rt: Runtime, ownerUserId: string, said: string): Promise<string[]> {
-  const link = (said.match(/https?:\/\/[^\s"'<>)\]]*typeform\.com\/[^\s"'<>)\]]+/i) ?? [])[0]?.replace(/[.,;:!?]+$/, "");
+  const link = typeformLinkIn(said);
   const id = link ? formIdOf(link) : null;
   const secret = id ? await secretOf(rt, ownerUserId, "typeform") : null;
   if (!id || !secret) return [];

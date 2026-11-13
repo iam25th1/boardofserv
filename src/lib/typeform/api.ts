@@ -33,6 +33,12 @@ export function formIdOf(link: string): string | null {
   return m?.[1] ?? null;
 }
 
+// The first Typeform form link in some text, as written, or null.
+export function typeformLinkIn(text: string): string | null {
+  const link = /https?:\/\/[^\s"'<>)\]]*typeform\.com\/[^\s"'<>)\]]+/i.exec(text)?.[0]?.replace(/[.,;:!?]+$/, "") ?? null;
+  return link && formIdOf(link) ? link : null;
+}
+
 async function call<T>(fetchImpl: typeof fetch, token: string, path: string): Promise<T> {
   let res: Response;
   try {

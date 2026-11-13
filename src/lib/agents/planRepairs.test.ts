@@ -188,3 +188,38 @@ describe("a decision that goes by a value", () => {
     expect(called).toBe(0);
   });
 });
+
+// A scorer of a Typeform form as SERV planned it in a live run: it reads
+// "the connected Typeform account" with no link to say which form.
+const FORM_LINK = "https://form.typeform.com/to/AbC123xy";
+const FORMLESS = {
+  ...PRICE_WIRE,
+  name: "Hackathon Submission Scorer",
+  settings: [],
+  actions: [{ id: "send_scores", tool: "telegram.send", description: "Send you the scores", askOver: "", askOverDay: "", amountColumn: "" }],
+  steps: [
+    step({ id: "read", title: "Fetch new submissions from Typeform", kind: "code", inputs: [], outputs: ["submissions"], next: "make", description: "Read all new submissions from the connected Typeform account by calling typeform.read.", tools: ["typeform.read"] }),
+    step({ id: "make", title: "Write the message", kind: "code", inputs: ["submissions"], outputs: ["message"], next: "send", description: "Return message as telegram.send's arguments { text }, naming each submission's Project name." }),
+    step({ id: "send", title: "Send the scores", kind: "action", action: "send_scores", inputs: ["message"], next: "" }),
+  ],
+};
+
+describe("a form it reads", () => {
+  it("gets a setting for the form's link when the plan forgot one, with the link the maker gave, and the step that reads it passes it", () => {
+    const d = repaired(wireToDefinition(JSON.parse(JSON.stringify(FORMLESS))), { formLink: FORM_LINK }) as AgentDefinition;
+    const checked = checkDefinition(d);
+    expect(checked.ok ? [] : checked.errors).toEqual([]);
+    expect(d.settings).toEqual([expect.objectContaining({ key: "form_link", label: "Your Typeform form's link", type: "url", given: FORM_LINK })]);
+    const read = d.steps.find((s) => s.id === "read")!;
+    expect(read.inputs).toEqual(["settings"]);
+    expect(read.kind === "code" && read.description).toContain("The form is settings.form_link: pass it as typeform.read's form.");
+  });
+
+  it("keeps the link setting a plan has, and the step that reads it passes that one", () => {
+    const wire = { ...FORMLESS, settings: [{ key: "typeform_url", label: "Your Typeform link", type: "url", help: "The form.", choices: [] }] };
+    const d = repaired(wireToDefinition(JSON.parse(JSON.stringify(wire))), { formLink: FORM_LINK }) as AgentDefinition;
+    expect(d.settings.map((s) => s.key)).toEqual(["typeform_url"]);
+    const read = d.steps.find((s) => s.id === "read")!;
+    expect(read.kind === "code" && read.description).toContain("settings.typeform_url");
+  });
+});
