@@ -73,7 +73,9 @@ export function planLines(d: AgentDefinition): string[] {
 // A sheet the maker picks at Connect: a link to their spreadsheet, and a tab.
 const SHEET = "https://docs.google.com/spreadsheets/d/1SuiteSheetSuiteSheetSuiteSheet00/edit";
 
-export async function runJourney(r: SuiteRequest, o: { db: PgliteDatabase<typeof schema>; user: schema.User; ledger: Ledger; onPlan?: (d: AgentDefinition) => void }): Promise<JourneyResult> {
+// With conversationId, it goes on in a chat the maker already started (as
+// when they come back to it from connecting a service).
+export async function runJourney(r: SuiteRequest, o: { db: PgliteDatabase<typeof schema>; user: schema.User; ledger: Ledger; onPlan?: (d: AgentDefinition) => void; conversationId?: string }): Promise<JourneyResult> {
   const out: JourneyResult = { id: r.id, name: r.name, stage: 1, passed: false, failure: null, turns: [], questions: [], plan: [], test: null, repairs: [], rounds: 0, typedFixes: 0, serv: 0, dolphin: 0 };
   let agentId: string | null = null;
   const done = async () => {
@@ -85,7 +87,7 @@ export async function runJourney(r: SuiteRequest, o: { db: PgliteDatabase<typeof
   };
   try {
     // 1 Describe: the first message, then answers to what it asks.
-    let conversationId: string | undefined;
+    let conversationId: string | undefined = o.conversationId;
     let sketch: SketchDTO | null = null;
     let said = r.says;
     for (let turn = 0; turn < 6; turn++) {
