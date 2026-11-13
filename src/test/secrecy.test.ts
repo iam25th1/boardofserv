@@ -53,6 +53,7 @@ import * as agentBuild from "@/app/api/agents/[id]/build/route";
 import * as agentGoLive from "@/app/api/agents/[id]/golive/route";
 import * as conversationJourney from "@/app/api/conversations/[id]/journey/route";
 import * as agentTest from "@/app/api/agents/[id]/test/route";
+import * as agentStop from "@/app/api/agents/[id]/stop/route";
 import * as agentBench from "@/app/api/agents/[id]/bench/route";
 import * as agentPublish from "@/app/api/agents/[id]/publish/route";
 import * as agentInstall from "@/app/api/agents/[id]/installations/route";
@@ -62,6 +63,7 @@ import * as installationMessages from "@/app/api/installations/[id]/messages/rou
 import * as approvalsRoute from "@/app/api/approvals/route";
 import * as approvalRoute from "@/app/api/approvals/[id]/route";
 import * as jobRoute from "@/app/api/jobs/[id]/route";
+import * as jobCancel from "@/app/api/jobs/[id]/cancel/route";
 import { planAnswer } from "@/test/planAnswers";
 import * as installationJobs from "@/app/api/installations/[id]/jobs/route";
 import * as agentJobs from "@/app/api/agents/[id]/jobs/route";
@@ -173,6 +175,7 @@ const ROUTES: Record<string, object> = {
   "agents/[id]/golive": agentGoLive,
   "conversations/[id]/journey": conversationJourney,
   "agents/[id]/test": agentTest,
+  "agents/[id]/stop": agentStop,
   "agents/[id]/bench": agentBench,
   "agents/[id]/publish": agentPublish,
   "agents/[id]/installations": agentInstall,
@@ -182,6 +185,7 @@ const ROUTES: Record<string, object> = {
   "approvals": approvalsRoute,
   "approvals/[id]": approvalRoute,
   "jobs/[id]": jobRoute,
+  "jobs/[id]/cancel": jobCancel,
   "installations/[id]/jobs": installationJobs,
   "agents/[id]/jobs": agentJobs,
   "installations/[id]/control": installationControl,
@@ -906,6 +910,7 @@ describe("a helper's instructions stay on the server", () => {
       state.user = sam;
       await hit("agent: sam's own job", jobRoute.GET(req(`/api/jobs/${samsJob.id}`), sj));
       await hit("agent: sam sees maya's job", jobRoute.GET(req(`/api/jobs/${jp.id}`), jp));
+      await hit("agent: sam cancels maya's job", jobCancel.POST(req(`/api/jobs/${jp.id}/cancel`, "POST"), jp));
       await hit("agent: sam answers maya's question", approvalRoute.POST(req(`/api/approvals/${pending[0]!.id}`, "POST", { answer: "No" }), { params: Promise.resolve({ id: pending[0]!.id }) }));
       // The audit log: Sam's own in full, Maya's agent's for Maya with Sam's
       // data hidden, all of it for an admin, and nobody else's.
@@ -930,6 +935,7 @@ describe("a helper's instructions stay on the server", () => {
       await hit("agent: fix", agentFix.POST(req(`/api/agents/${id}/fix`, "POST", { message: "it ignored delivery time" }), p));
       await jobFor((await draftOf(id))!.id);
       await hit("agent: test it", agentTest.POST(req(`/api/agents/${id}/test`, "POST"), p));
+      await hit("agent: stop", agentStop.POST(req(`/api/agents/${id}/stop`, "POST"), p));
       await hit("agent: board", board.GET(req("/api/board")));
       await hit("market: an agent that isn't on the board", marketAgent.GET(req(`/api/market/agents/${id}`), { params: Promise.resolve({ id }) }));
 

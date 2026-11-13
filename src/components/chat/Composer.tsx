@@ -13,6 +13,9 @@ interface Props {
   prefillNonce?: number;
   onSend: (text: string) => void;
   onStop: () => void;
+  // While the agent's steps are worked out, built, tried or fixed: Stop
+  // stops that work, and the maker can still type.
+  onStopWork?: () => void;
   // The agent sketch dock, drawn on top of the input inside the same box.
   dock?: React.ReactNode;
   // A quiet line under the box: messages left today, or why it is paused.
@@ -22,7 +25,7 @@ interface Props {
 
 const MAX_H = 180;
 
-export function Composer({ conversationKey, busy, disabled, prefill, prefillNonce, onSend, onStop, dock, notice, placeholder }: Props) {
+export function Composer({ conversationKey, busy, disabled, prefill, prefillNonce, onSend, onStop, onStopWork, dock, notice, placeholder }: Props) {
   const area = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
 
@@ -92,6 +95,13 @@ export function Composer({ conversationKey, busy, disabled, prefill, prefillNonc
               aria-label="Message boardofserv"
               data-composer-input
             />
+            {onStopWork && !busy && (
+              <Tooltip label="Stop">
+                <button type="button" className={styles.send} aria-label="Stop working on the steps" onClick={onStopWork}>
+                  <StopIcon />
+                </button>
+              </Tooltip>
+            )}
             {busy ? (
               <Tooltip label="Stop">
                 <button type="button" className={styles.send} aria-label="Stop generating" onClick={onStop}>

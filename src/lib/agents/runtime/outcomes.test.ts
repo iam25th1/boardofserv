@@ -9,7 +9,7 @@ import { checkDefinition, type AgentDefinition } from "@/lib/agents/definition";
 import { installed, publishedAgent, testRuntime, type TestRuntime } from "@/test/runtimeFixtures";
 import { jobWhy } from "@/lib/agents/plainWords";
 import { emptyBench, type StepCode, type TestResult } from "@/lib/agents/types";
-import { claimJob, enqueue, handTrigger, runJob } from "./jobs";
+import { cancelJob, claimJob, enqueue, handTrigger, runJob } from "./jobs";
 import { jobsOfInstallation } from "./views";
 
 // How a job ends when it isn't plainly done: skipped when a step that
@@ -185,3 +185,43 @@ describe("why a job ended, on its card", () => {
     expect(jobWhy({ status: "running", reason: null })).toBeNull();
   });
 });
+
+describe("Cancel", () => {
+  it("ends a job that hasn't started", async () => {
+    const inst = await ready();
+    const job = await enqueue(rt, inst, { kind: "message", text: "Tide" });
+    await cancelJob(rt, maker.id, job.id);
+    expect(await jobOf(job.id)).toMatchObject({ status: "cancelled", reason: "Cancelled by its owner." });
+    expect(await claimJob(rt, "w")).toBeNull();
+  });
+
+  it("stops a running job where it is: its call to SERV aborted, nothing sent", async () => {
+    const inst = await ready();
+    const fetch = rt.fetchImpl!;
+    let waiting: (() => void) | null = null;
+    const reached = new Promise<void>((r) => (waiting = r));
+    rt.fetchImpl = (async (url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as { response_format?: { json_schema?: { name?: string } } };
+      if (body.response_format?.json_schema?.name !== "reasoning") return fetch(url, init);
+      waiting?.();
+      return new Promise<Response>((_r, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError"))));
+    }) as typeof fetch;
+    const job = await enqueue(rt, inst, { kind: "message", text: "Tide" });
+    const running = runJob(rt, (await claimJob(rt, "w"))!, "w");
+    await reached;
+    await cancelJob(rt, maker.id, job.id);
+    await running;
+    expect(await jobOf(job.id)).toMatchObject({ status: "cancelled", reason: "Cancelled by its owner." });
+    expect(await sentTo(inst.id)).toEqual([]);
+  });
+
+  it("is only for the job's owner, and not once it has finished", async () => {
+    const inst = await ready();
+    const job = await enqueue(rt, inst, { kind: "message", text: "Tide" });
+    const someone = await addUser(db, "someone");
+    await expect(cancelJob(rt, someone.id, job.id)).rejects.toThrow("Not found");
+    await runJob(rt, (await claimJob(rt, "w"))!, "w");
+    await expect(cancelJob(rt, maker.id, job.id)).rejects.toThrow("It has finished already.");
+  });
+});
+

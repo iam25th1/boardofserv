@@ -1,6 +1,6 @@
 import "server-only";
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { agentInstallations, agentJobs, agentJobSteps, agents, agentVersions, messages, users, type AgentInstallation, type AgentJob } from "../../db/schema";
+import { agentApprovals, agentInstallations, agentJobs, agentJobSteps, agents, agentVersions, messages, users, type AgentInstallation, type AgentJob } from "../../db/schema";
 import type { AgentDefinition, AgentStep, DecisionStepDef } from "../definition";
 import type { BenchData } from "../types";
 import { askReason, readReason, type ReasonArgs, type Reasoned } from "../reason";
@@ -35,6 +35,40 @@ export const HEARTBEAT_MS = 20_000;
 export const STALE_MS = 120_000;
 
 export type JobTrigger = { kind: "schedule" | "check" | "message" | "manual" | "test"; [k: string]: unknown };
+
+// The running jobs in this process, each with its stop: Cancel aborts the
+// one it names, its model calls where they are (cancelJob).
+const running = new Map<string, AbortController>();
+
+export class CancelRefused extends Error {
+  constructor(
+    message: string,
+    readonly status = 409,
+  ) {
+    super(message);
+  }
+}
+
+// Cancel, by its owner. A job not started yet, or waiting for their
+// answer, ends now (its questions with it); a running one stops where it
+// is: its model calls are aborted, and it ends after the step it was on,
+// keeping what it did.
+export async function cancelJob(rt: Runtime, userId: string, jobId: string): Promise<void> {
+  if (!/^[0-9a-f-]{36}$/i.test(jobId)) throw new CancelRefused("Not found", 404);
+  const [job] = await rt.db.select().from(agentJobs).where(eq(agentJobs.id, jobId));
+  if (!job || job.ownerUserId !== userId) throw new CancelRefused("Not found", 404);
+  const now = rt.now();
+  if (job.status === "queued" || job.status === "waiting_for_owner") {
+    await rt.db.transaction(async (tx) => {
+      await tx.update(agentJobs).set({ status: "cancelled", reason: "Cancelled by its owner.", claimedBy: null, finishedAt: now, updatedAt: now }).where(and(eq(agentJobs.id, job.id), inArray(agentJobs.status, ["queued", "waiting_for_owner"])));
+      await tx.update(agentApprovals).set({ status: "cancelled", answeredAt: now }).where(and(eq(agentApprovals.jobId, job.id), eq(agentApprovals.status, "pending")));
+    });
+    return;
+  }
+  if (job.status !== "running") throw new CancelRefused("It has finished already.");
+  await rt.db.update(agentJobs).set({ stopAsked: true, updatedAt: now }).where(eq(agentJobs.id, job.id));
+  running.get(job.id)?.abort();
+}
 
 // Another worker owns the job now: stop at once, write nothing more.
 export class Fenced extends Error {
@@ -172,10 +206,13 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
   };
   const log = stepLog(rt, job, state);
   const serv = rt.serv(owner);
+  // Cancel, while it runs here: its model calls and its step stop at once.
+  const halt = new AbortController();
+  running.set(job.id, halt);
   const decide = async (step: DecisionStepDef, input: Record<string, unknown>, untrusted: string[]): Promise<Decided> => {
     if (rt.decide) return rt.decide(step, input);
     if (!serv) return { ok: false, note: "SERV isn't set up here.", reason: "SERV isn't set up, so its decisions can't be made.", costUsd: 0, infra: true };
-    const call = await askServ(step, input, serv.config, { fetchImpl: rt.fetchImpl, untrusted });
+    const call = await askServ(step, input, serv.config, { fetchImpl: rt.fetchImpl, untrusted, signal: halt.signal });
     await rt.record(owner, call, serv.ownKey, "agent_decision");
     await meter(rt, scope, "decision", call, serv.ownKey);
     return readDecision(step, call, step.each && Array.isArray(input[step.each]) ? (input[step.each] as unknown[]).length : 0);
@@ -186,7 +223,7 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
   const reason = async (step: AgentStep, args: ReasonArgs): Promise<Reasoned> => {
     if (rt.reason) return rt.reason(step, args);
     if (!serv) return { ok: false, error: "SERV isn't set up here, so it couldn't ask SERV.", costUsd: 0, infra: true };
-    const call = await askReason(args, serv.config, { fetchImpl: rt.fetchImpl });
+    const call = await askReason(args, serv.config, { fetchImpl: rt.fetchImpl, signal: halt.signal });
     await rt.record(owner, call, serv.ownKey, "agent_decision");
     await meter(rt, scope, "decision", call, serv.ownKey);
     return readReason(args, call);
@@ -247,17 +284,22 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
       },
       maxVisits: rateLimits().stepVisits,
       retryInfra: true,
+      signal: halt.signal,
       // Its code's local time is its owner's, as they set it up.
       timeZone: installation.timezone,
     });
   } catch (err) {
     await log.flush();
-    if (err instanceof Fenced) return;
+    if (err instanceof Fenced) return void running.delete(job.id);
     // Something broke outside the agent (the database, most likely): try again.
     rt.log(`jobs: job ${job.id} broke off: ${err instanceof Error ? err.name : "unknown error"}`);
     result = { kind: "retry", reason: "The server had a problem running it." };
   }
   await log.flush();
+  running.delete(job.id);
+  // Cancelled mid-call: whatever the call said on the way out, it ends as
+  // its owner asked.
+  if (halt.signal.aborted) result = { kind: "end", status: "stopped", cause: "stop", reason: "Cancelled by its owner." };
   if (result.kind === "wait") return pauseForOwner(rt, job, worker, definition, state, result);
   await finish(rt, job, worker, state, result.kind === "end" ? endOf(result) : { retry: result.reason });
   if (result.kind === "end") await askAboutBlocked(rt, installation, result.reason).catch((err: unknown) => rt.log(`jobs: the chat wasn't asked about a blocked step: ${err instanceof Error ? err.name : "unknown error"}`));

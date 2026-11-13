@@ -127,6 +127,26 @@ describe("a job's timeline", () => {
   });
 });
 
+describe("Cancel", () => {
+  it("is there for the owner while it runs, and ends it", async () => {
+    motion(true);
+    const cancel = vi.fn(async () => job({ status: "cancelled", reason: "Cancelled by its owner.", why: "Cancelled by its owner.", approvals: [] }));
+    render(<JobTimeline initial={job({ status: "running", approvals: [] })} api={{ load: async () => job({ status: "running", approvals: [] }), cancel }} />);
+    expect(screen.getByText("It stops after the step it is on, keeping what it did.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel this job" }));
+    await waitFor(() => expect(cancel).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText("stopped")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Cancel this job" })).toBeNull();
+    expect(screen.getByText("Cancelled by its owner.")).toBeTruthy();
+  });
+
+  it("isn't offered to the maker of someone else's copy", () => {
+    motion(true);
+    render(<JobTimeline initial={job({ status: "running", viewer: "maker", approvals: [] })} api={{ load: async () => job(), cancel: vi.fn() }} />);
+    expect(screen.queryByRole("button", { name: "Cancel this job" })).toBeNull();
+  });
+});
+
 describe("a question", () => {
   it("offers each answer with what happens then, and says how it ended", async () => {
     const said: string[] = [];
