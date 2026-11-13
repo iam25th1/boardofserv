@@ -363,8 +363,9 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       // What the pass made is gone: the next pass starts afresh.
       for (const v of madeInside(d, loops, loop.id)) delete state.bag[v];
       for (const s of d.steps) if (state.visits && loopChain(loops, s.id).includes(loop.id)) delete state.visits[s.id];
-      frame.index += 1;
       const items = loopList(loop, state.bag);
+      // An empty item (a blank row) has nothing to work on: passed by.
+      frame.index = Array.isArray(items) ? filledFrom(items, frame.index + 1) : frame.index + 1;
       if (Array.isArray(items) && frame.index < items.length) {
         state.bag[loop.item] = items[frame.index];
         return loop.body;
@@ -771,13 +772,21 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         done("failed", null, null, `It was given ${items.length} items to go through; the most is ${MAX_LOOP_ITEMS}.`);
         return end("failed", "logic", `"${step.title}" was given more than ${MAX_LOOP_ITEMS} items to go through.`);
       }
-      done("ok", { items: items.length }, null, items.length ? null : "Nothing to go through.");
-      if (!items.length) {
+      // Empty items (a blank row, an empty submission) are passed by, and
+      // a run whose every item is empty is skipped there, sending nothing.
+      const first = filledFrom(items, 0);
+      const empty = items.filter((x) => hollow(x)).length;
+      if (items.length && first >= items.length && !loops.inside.get(step.id)) {
+        done("ok", { items: items.length, empty }, null, "Skipped: every item was empty.");
+        return end("done", "skipped", `Skipped, empty input: every one of the ${items.length} items "${step.title}" was given was empty, so nothing was sent.`);
+      }
+      done("ok", { items: items.length, ...(empty ? { empty } : {}) }, null, items.length ? (empty ? `${empty} empty, passed by.` : null) : "Nothing to go through.");
+      if (first >= items.length) {
         for (const g of step.gather) state.bag[g.into] = [];
         next = step.next;
       } else {
-        (state.loops ??= []).push({ step: step.id, index: 0, gathered: {} });
-        state.bag[step.item] = items[0];
+        (state.loops ??= []).push({ step: step.id, index: first, gathered: {} });
+        state.bag[step.item] = items[first];
         const from = loopSource(step, input);
         if (from && untrusted.has(from)) taint(step.item, sources[from] ?? []);
         next = step.body;
@@ -900,6 +909,13 @@ export function isSideStep(d: AgentDefinition, step: AgentStep): boolean {
   const tools = step.kind === "action" ? [d.actions.find((a) => a.id === step.action)?.tool] : step.kind === "code" ? step.tools : [];
   if (!tools.includes("memory.set") || !tools.every((t) => t === "memory.set" || t === "memory.get")) return false;
   return !d.steps.some((s) => s.id !== step.id && s.inputs.some((k) => step.outputs.includes(k)));
+}
+
+// The place of the first item from here that has something in it.
+function filledFrom(items: unknown[], from: number): number {
+  let i = from;
+  while (i < items.length && hollow(items[i])) i++;
+  return i;
 }
 
 // Where a loop's list is: the input it names, or the bag (settings, rules

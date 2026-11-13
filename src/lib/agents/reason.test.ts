@@ -148,6 +148,23 @@ describe("a run", () => {
     expect(end.costUsd).toBeGreaterThan(0);
   });
 
+  it("passes an empty submission by, and skips the run when every one is empty", async () => {
+    const calls: string[] = [];
+    const withBlank = { ...bench(), sheets: { Submissions: [...bench().sheets.Submissions!, { Name: "", Description: "" }] } };
+    const events: RunEvent[] = [];
+    const end = await runAgent({ definition: scorer(), code: { read: ok(READ), score: ok(SCORE), summary: ok(SUMMARY) }, bench: withBlank, dryRun: false, serv, fetchImpl: servFetch(calls), onEvent: (e) => events.push(e) });
+    expect(end.status).toBe("done");
+    expect(calls).toHaveLength(2);
+    expect(events.find((e) => e.type === "step_done" && e.stepId === "each")).toMatchObject({ output: { items: 3, empty: 1 }, note: "1 empty, passed by." });
+
+    const blank = { ...bench(), sheets: { Submissions: [{ Name: "", Description: " " }, { Name: null, Description: "" }] } };
+    const sent: RunEvent[] = [];
+    const skipped = await runAgent({ definition: scorer(), code: { read: ok(READ), score: ok(SCORE), summary: ok(SUMMARY) }, bench: blank, dryRun: false, serv, fetchImpl: servFetch(calls), onEvent: (e) => sent.push(e) });
+    expect(skipped).toMatchObject({ status: "done", outcome: "skipped", reason: 'Skipped, empty input: every one of the 2 items "Each submission" was given was empty, so nothing was sent.' });
+    expect(calls).toHaveLength(2);
+    expect(sent.some((e) => e.type === "tool" && e.tool === "telegram.send")).toBe(false);
+  });
+
   it("fails a step that answers without asking SERV, and sends nothing", async () => {
     const events: RunEvent[] = [];
     const end = await runAgent({ definition: scorer(), code: { read: ok(READ), score: ok(HEURISTIC), summary: ok(SUMMARY) }, bench: bench(), dryRun: true, onEvent: (e) => events.push(e) });
