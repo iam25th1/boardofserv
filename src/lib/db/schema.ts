@@ -820,9 +820,10 @@ export const agentApprovals = pgTable(
     answeredAt: timestamp("answered_at", { withTimezone: true }),
     // The question in the owner's Telegram chat: "pending" until it is
     // sent there (with a button per answer), "sent" while it waits there,
-    // "closed" once that message shows how it ended, "none" when the owner
-    // has no Telegram linked, "failed" after giving up.
-    tgState: text("tg_state", { enum: ["pending", "sent", "closed", "none", "failed"] }),
+    // "refresh" when it waits there and has news to show (Reppo's second
+    // opinion came), "closed" once that message shows how it ended, "none"
+    // when the owner has no Telegram linked, "failed" after giving up.
+    tgState: text("tg_state", { enum: ["pending", "sent", "refresh", "closed", "none", "failed"] }),
     tgMessageId: integer("tg_message_id"),
     tgAttempts: integer("tg_attempts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),

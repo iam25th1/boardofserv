@@ -139,7 +139,7 @@ function Opinion({ o }: { o: NonNullable<ApprovalDTO["opinion"]> }) {
           <strong>{o.score === null ? "No score" : `${o.score} out of 100`}</strong>, {o.route ? ROUTE_WORDS[o.route] : "no recommendation"}.{o.reason ? ` ${o.reason}` : ""}
         </span>
       ) : (
-        <span>Reppo couldn&apos;t give one this time.</span>
+        <span>Not checked this time.</span>
       )}
       <small>Your answer decides: Reppo never approves or blocks anything.</small>
     </div>

@@ -196,13 +196,13 @@ export async function approvalsOf(rt: Runtime, ownerUserId: string, o: { install
 }
 
 // The question about a run's held messages: Reppo's opinion with its
-// reason in one line, and the links it called risky flagged on their
-// messages.
+// reason in one line, the links it called risky flagged on their messages,
+// and "not checked" when it wasn't asked or couldn't give one.
 function heldView(a: AgentApproval, opinion: ApprovalDTO["opinion"]): Pick<ApprovalDTO, "opinion" | "items"> {
   const risky = new Set(opinion?.state === "ready" ? riskyLabels(opinion.reason) : []);
   const items = (a.items ?? []).map((m) => ({ text: m.text, links: m.links.map((l) => ({ link: l.link, risky: Boolean(l.risky) || risky.has(l.label) })) }));
   if (a.stepId !== HELD_ALL) return { opinion, items };
-  return { opinion: opinion ? { ...opinion, reason: opinion.state === "ready" ? oneLine(opinion.reason) : opinion.reason } : null, items };
+  return { opinion: opinion ? { ...opinion, reason: opinion.state === "ready" ? oneLine(opinion.reason) : opinion.reason } : { state: "none", score: null, route: null, reason: null }, items };
 }
 
 export function approvalDTO(a: AgentApproval, d: AgentDefinition | null, opinion: ApprovalDTO["opinion"] = null): ApprovalDTO {

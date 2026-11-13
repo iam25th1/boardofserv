@@ -63,7 +63,7 @@ describe("Reppo's second opinion on a card", () => {
     expect(screen.getByText(/34 out of 100/).closest("span")).toHaveTextContent("34 out of 100, it suggests a closer look. The order is larger than usual.");
     cleanup();
     render(<ApprovalCard approval={{ ...base, opinion: { state: "none", score: null, route: null, reason: null } }} onAnswer={async () => undefined} />);
-    expect(screen.getByText("Reppo couldn't give one this time.")).toBeInTheDocument();
+    expect(screen.getByText("Not checked this time.")).toBeInTheDocument();
     cleanup();
     render(<ApprovalCard approval={{ ...base, opinion: null }} onAnswer={async () => undefined} />);
     expect(screen.queryByText(/Second opinion/)).toBeNull();

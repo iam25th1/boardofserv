@@ -20,7 +20,9 @@ import { linkFacts, oneLine, riskyLabels } from "./batch";
 // one redacted evaluation for the whole batch (each link a label and what
 // can be told of it, never the link or the words), its score, route and
 // one-line reason on the card and in Telegram, and each link it calls risky
-// flagged on its message.
+// flagged on its message. It never decides and never holds anything up:
+// slow, capped or down, the question goes at once with "Reppo: not
+// checked", and the owner's answer alone decides.
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
@@ -121,22 +123,77 @@ describe("Reppo on the one question about a run's messages", () => {
   it("shows its score, route and one-line reason on the card and in Telegram, and flags each risky link on its message", async () => {
     reppo.verdict = () => ({ score: 41, route: "review", reason: "Risky links: L3. A shortened plain http link asking to claim something is a common lure. The other four look like ordinary demo pages." });
     const { a } = await waiting();
+    // The question goes to Telegram at once, before Reppo is back.
+    await deliverTelegram(rt);
+    const first = asksIn(rt.net.telegram("sendMessage").map((m) => String(m.text)));
+    expect(first).toHaveLength(1);
+    expect(first[0]).toContain("Reppo: not checked yet.");
     await opinionBack();
     const [shown] = await approvalsOf(rt, owner.id, { jobId: a.jobId });
     expect(shown!.opinion).toMatchObject({ state: "ready", score: 41, route: "review", reason: "A shortened plain http link asking to claim something is a common lure." });
     expect(shown!.items!.map((m) => m.links.map((l) => l.risky))).toEqual([[false], [false], [true], [false], [false]]);
     expect(shown!.items![2]).toMatchObject({ text: `Prize Corner: try the demo at ${LINKS[2]}`, links: [{ link: LINKS[2], risky: true }] });
-    // The Telegram question carries it too.
+    // The Telegram question is brought up to date in place, buttons kept.
     await deliverTelegram(rt);
-    const asked = rt.net.telegram("sendMessage").filter((m) => String(m.text).includes(", asks:"));
-    expect(asked).toHaveLength(1);
-    const text = String(asked[0]!.text);
+    const edited = rt.net.telegram("editMessageText");
+    expect(edited).toHaveLength(1);
+    const text = String(edited[0]!.text);
     expect(text).toContain("Reppo: 41 out of 100, it suggests a closer look. A shortened plain http link asking to claim something is a common lure.");
     expect(text).toContain(`${LINKS[2]} (Reppo calls this risky)`);
     expect(text).not.toContain(`${LINKS[0]} (Reppo calls this risky)`);
-    expect(asked[0]!.reply_markup).toBeTruthy();
+    expect(edited[0]!.reply_markup).toBeTruthy();
     // No separate note in the message box: the question carries it.
     expect((await said(a.installationId)).some((t) => t.startsWith("Second opinion"))).toBe(false);
+  });
+
+  it("goes at once with Reppo: not checked when Reppo is capped or off, and the owner's yes still sends them all", async () => {
+    vi.stubEnv("REPPO_DAILY_CREDITS", "0");
+    const { inst, job, a } = await waiting();
+    expect(await db.select().from(schema.reppoEvals).where(eq(schema.reppoEvals.approvalId, a.id))).toEqual([]);
+    expect(a.opinion).toMatchObject({ state: "none" });
+    await deliverTelegram(rt);
+    const [asked] = asksIn(rt.net.telegram("sendMessage").map((m) => String(m.text)));
+    expect(asked).toContain("Reppo: not checked.");
+    await answer(rt, owner.id, a.id, "Yes to all");
+    await runOnce();
+    expect(await jobOf(job.id)).toMatchObject({ status: "done" });
+    expect(await said(inst.id)).toHaveLength(5);
+  });
+
+  it("goes at once when Reppo is down, says not checked once it gives up, and the owner's no still sends none", async () => {
+    reppo.down = true;
+    const { inst, job, a } = await waiting();
+    await deliverTelegram(rt);
+    expect(asksIn(rt.net.telegram("sendMessage").map((m) => String(m.text)))[0]).toContain("Reppo: not checked yet.");
+    for (let i = 0; i < 6; i++) {
+      await reppoCycle(rt, { call: { sleep: async () => undefined } });
+      rt.clock.move(2 * 60 * 60_000);
+    }
+    const [shown] = await approvalsOf(rt, owner.id, { jobId: job.id });
+    expect(shown).toMatchObject({ status: "pending", opinion: { state: "none" } });
+    await answer(rt, owner.id, a.id, "No to all");
+    await runOnce();
+    expect(await jobOf(job.id)).toMatchObject({ status: "done" });
+    expect(await said(inst.id)).toEqual([]);
+  });
+
+  it("decides nothing: advising against them, the owner's yes sends them; liking them, the owner's no sends none", async () => {
+    reppo.verdict = () => ({ score: 12, route: "block", reason: "Risky links: L1, L2, L3, L4, L5. None of these should be trusted." });
+    const one = await waiting();
+    await opinionBack();
+    expect((await jobOf(one.job.id)).status).toBe("waiting_for_owner");
+    await answer(rt, owner.id, one.a.id, "Yes to all");
+    await runOnce();
+    expect(await said(one.inst.id)).toHaveLength(5);
+
+    reppo.verdict = () => ({ score: 95, route: "ship", reason: "Risky links: none. Ordinary demo pages." });
+    const two = await waiting();
+    await opinionBack();
+    expect((await jobOf(two.job.id)).status).toBe("waiting_for_owner");
+    await answer(rt, owner.id, two.a.id, "No to all");
+    await runOnce();
+    expect(await jobOf(two.job.id)).toMatchObject({ status: "done" });
+    expect(await db.select().from(schema.agentMessages).where(eq(schema.agentMessages.jobId, two.job.id))).toEqual([]);
   });
 
   it("carries its flags into Pick one by one", async () => {
