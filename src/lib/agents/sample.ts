@@ -204,6 +204,23 @@ export function fitSample(d: AgentDefinition, sample: Sample): Sample {
     ].filter((u) => /^https?:\/\//.test(u));
     for (const u of urls) bench.pages[u] ??= pages[0]!;
   }
+  // A sheet setting's answer is a tab the sample has (as it is for real: a
+  // tab the renter picked), never an id or a link that names none of them:
+  // the tab most like the setting, else the only one, else one of its own.
+  const tabs = Object.keys(bench.sheets);
+  for (const st of d.settings.filter((x) => x.type === "sheet")) {
+    const said = String(bench.settings[st.key] ?? "");
+    if (tabs.includes(said)) continue;
+    const words = `${st.key.replace(/_/g, " ")} ${st.label}`.toLowerCase();
+    const like = tabs.find((t) => words.includes(t.toLowerCase()) || t.toLowerCase().split(/\s+/).some((w) => w.length > 3 && words.includes(w.replace(/s$/, ""))));
+    const tab = like ?? (tabs.length === 1 ? tabs[0]! : null);
+    if (tab) bench.settings[st.key] = tab;
+    else {
+      const own = st.label.replace(/[^\w\s-]/g, "").trim().slice(0, 40) || "Sheet";
+      bench.settings[st.key] = own;
+      bench.sheets[own] ??= [];
+    }
+  }
   const columns = namedColumns(d);
   if (columns.length) {
     for (const [tab, rows] of Object.entries(bench.sheets)) {

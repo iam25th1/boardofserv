@@ -126,10 +126,15 @@ describe.skipIf(!enabled)("the Hackathon Submission Scorer, live", () => {
     await ledger.settled();
     report.journey = journey;
     const [agent] = await db.select().from(schema.agents).where(eq(schema.agents.ownerUserId, user.id));
-    const version = agent ? (await versionsOf(agent.id)).find((v) => v.state === "published") : undefined;
-    report.definition = version?.definition ?? null;
-    report.code = version?.code ?? null;
+    const versions = agent ? await versionsOf(agent.id) : [];
+    const version = versions.find((v) => v.state === "published");
+    // The plan as it ended, published or not, with its code and last test.
+    const last = version ?? versions[0];
+    report.definition = last?.definition ?? null;
+    report.code = last?.code ?? null;
+    report.bench = last?.bench ?? null;
     if (process.env.SCORER_REPORT) writeFileSync(process.env.SCORER_REPORT, JSON.stringify({ ...report, calls: ledger.calls }, null, 2));
+    if (process.env.SCORER_RECORD) writeFileSync(process.env.SCORER_RECORD, JSON.stringify(Object.fromEntries(ledger.recorded), null, 2));
     expect(journey.failure).toBeNull();
     expect(version?.definition).toBeTruthy();
     const d = version!.definition!;

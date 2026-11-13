@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { definitionOf, codeOf, CANNED_MOTIVATION_SOURCE, MOTIVATION_SOURCES, MOTIVATION_WIRE, PRICE_SOURCES, PRICE_WIRE, priceBench, SALES_SOURCES, SALES_WIRE, salesBench } from "@/test/suiteFixtures";
 import { NESTED_HACKATHON_WIRE } from "@/test/hackathonFixture";
 import type { BenchData, TestResult } from "./types";
-import { readSample, sampleCount, samplePrompt } from "./sample";
+import { fitSample, readSample, sampleCount, samplePrompt } from "./sample";
 import { keepsPlace, sampleKey, selfTest } from "./test";
 import type { AgentDefinition } from "./definition";
 import { repaired, wireToDefinition } from "./plan";
@@ -31,6 +31,15 @@ describe("the sample", () => {
     expect(sample?.items.labels).toEqual(["Stone Kettle"]);
     expect(sample?.bench.settings).toEqual({ product_url: "https://shop.example/kettle", target_price: 50 });
     expect(sample?.bench.telegram.answers).toEqual(["Yes"]);
+  });
+});
+
+describe("a sample's sheets", () => {
+  it("answer a sheet setting with a tab the sample has, never an id that names none", async () => {
+    const d = definitionOf(SALES_WIRE);
+    const answer = { noun: "sale", plural: "sales", labels: ["Today"], settings: [{ key: "sales_sheet", value: "1aBcDeFgHiJkLmNoPqRsTuVwXyZ" }], sheets: [{ sheet: "Sales", columns: ["Date", "Amount"], rows: [{ cells: ["2026-11-13", "10"] }] }], pages: [], searches: [], answers: [], steps: [] };
+    const fitted = fitSample(d, readSample(d, JSON.stringify(answer))!);
+    expect(fitted.bench.settings.sales_sheet).toBe("Sales");
   });
 });
 

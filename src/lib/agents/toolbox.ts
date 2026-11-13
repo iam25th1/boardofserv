@@ -242,12 +242,21 @@ export class MockTools {
     }
   }
 
+  // A tab by its name, or by the sheet setting that names it, as the real
+  // tools take it.
+  private tab(name: string): string {
+    const d = this.data;
+    if (d.sheets[name]) return name;
+    const set = d.settings[name];
+    return typeof set === "string" && d.sheets[set] ? set : name;
+  }
+
   private answer<T extends ToolName>(tool: T, args: z.infer<(typeof TOOL_ARGS)[T]>): unknown {
     const d = this.data;
     switch (tool) {
       case "sheets.read": {
         const a = args as z.infer<(typeof TOOL_ARGS)["sheets.read"]>;
-        const rows = d.sheets[a.sheet];
+        const rows = d.sheets[this.tab(a.sheet)];
         if (!rows) throw new ToolError(tool, `There is no sheet called "${a.sheet}".`);
         // Each row with its number in the sheet, as Google's rows are: the
         // header is row 1.
@@ -256,12 +265,13 @@ export class MockTools {
       case "sheets.write": {
         const a = args as z.infer<(typeof TOOL_ARGS)["sheets.write"]>;
         const rows = a.rows.map(withoutRowNumber);
-        d.sheets[a.sheet] = a.mode === "replace" ? rows : [...(d.sheets[a.sheet] ?? []), ...rows];
+        const name = this.tab(a.sheet);
+        d.sheets[name] = a.mode === "replace" ? rows : [...(d.sheets[name] ?? []), ...rows];
         return { written: a.rows.length };
       }
       case "sheets.update": {
         const a = args as z.infer<(typeof TOOL_ARGS)["sheets.update"]>;
-        const rows = d.sheets[a.sheet];
+        const rows = d.sheets[this.tab(a.sheet)];
         if (!rows) throw new ToolError(tool, `There is no sheet called "${a.sheet}".`);
         for (const u of a.updates) if (!rows[u.row - 2]) throw new ToolError(tool, `"${a.sheet}" has no row ${u.row}: it has rows 2 to ${rows.length + 1}.`);
         for (const u of a.updates) rows[u.row - 2] = { ...rows[u.row - 2], ...withoutRowNumber(u.values) };
