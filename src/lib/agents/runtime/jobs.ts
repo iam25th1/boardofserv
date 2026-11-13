@@ -2,6 +2,7 @@ import "server-only";
 import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { agentInstallations, agentJobs, agentJobSteps, agentVersions, users, type AgentInstallation, type AgentJob } from "../../db/schema";
 import type { AgentDefinition, AgentStep, DecisionStepDef } from "../definition";
+import type { BenchData } from "../types";
 import { askReason, readReason, type ReasonArgs, type Reasoned } from "../reason";
 import { askServ, readDecision, runSteps, startState, typedRules, type Decided, type EngineResult, type RunEvent, type RunState } from "../runner";
 import { FEE_SHORT, holdJobFee } from "../../market/charges";
@@ -122,6 +123,17 @@ function startingBag(d: AgentDefinition, i: AgentInstallation, trigger: JobTrigg
   return { settings: { ...i.settings }, rules: typedRules(d, i.rules), memory: { ...i.memory }, trigger };
 }
 
+// What a run by hand starts from. An agent that works on what wakes it (a
+// message) has nothing live to work on when its owner runs it by hand, so
+// it runs on the sample its test ran on, marked as the sample.
+export function handTrigger(d: AgentDefinition, trigger: JobTrigger, sample: BenchData | null | undefined): JobTrigger {
+  if (trigger.kind !== "manual" && trigger.kind !== "test") return trigger;
+  if (!d.triggers.some((t) => t.kind === "message")) return trigger;
+  const given = Object.keys(trigger).some((k) => k !== "kind");
+  if (given || !sample?.trigger || !Object.keys(sample.trigger).length) return trigger;
+  return { ...sample.trigger, kind: trigger.kind, sample: true };
+}
+
 // Runs a claimed job until it ends, waits or must be tried again later.
 export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promise<void> {
   const [row] = await rt.db
@@ -149,7 +161,7 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
     if (fee.how === "short") return finish(rt, job, worker, null, { status: "failed", reason: FEE_SHORT(fee.fee) });
   }
 
-  const state: RunState = job.state ?? startState(definition, startingBag(definition, installation, job.trigger as JobTrigger));
+  const state: RunState = job.state ?? startState(definition, startingBag(definition, installation, handTrigger(definition, job.trigger as JobTrigger, version.testResult?.sample)));
   const save = async (s: RunState) => {
     const rows = await rt.db
       .update(agentJobs)
@@ -248,13 +260,15 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
   await finish(rt, job, worker, state, result.kind === "end" ? endOf(result) : { retry: result.reason });
 }
 
-function endOf(r: Extract<EngineResult, { kind: "end" }>): { status: "done" | "failed" | "cancelled"; reason: string } {
+function endOf(r: Extract<EngineResult, { kind: "end" }>): { status: "done" | "failed" | "cancelled"; reason: string; outcome?: "skipped" | "noted" } {
   if (r.cause === "end") return { status: "done", reason: r.reason };
+  // Skipped for empty input, or done with a note: done, and said so.
+  if (r.cause === "skipped" || r.cause === "noted") return { status: "done", reason: r.reason, outcome: r.cause };
   if (r.cause === "stop" || r.cause === "declined") return { status: "cancelled", reason: r.reason };
   return { status: "failed", reason: r.reason };
 }
 
-type Finish = { status: "done" | "failed" | "cancelled"; reason: string } | { retry: string };
+type Finish = { status: "done" | "failed" | "cancelled"; reason: string; outcome?: "skipped" | "noted" } | { retry: string };
 
 async function finish(rt: Runtime, job: AgentJob, worker: string, state: RunState | null, how: Finish): Promise<void> {
   const now = rt.now();
@@ -282,7 +296,7 @@ async function finish(rt: Runtime, job: AgentJob, worker: string, state: RunStat
   }
   const ended = await rt.db
     .update(agentJobs)
-    .set({ status: how.status, reason: how.reason, state, claimedBy: null, finishedAt: now, updatedAt: now, ...(state ? { costUsd: state.costUsd.toFixed(6) } : {}) })
+    .set({ status: how.status, reason: how.reason, outcome: how.outcome ?? null, state, claimedBy: null, finishedAt: now, updatedAt: now, ...(state ? { costUsd: state.costUsd.toFixed(6) } : {}) })
     .where(mine)
     .returning({ id: agentJobs.id });
   // Failing the same way again and again pauses the installation.

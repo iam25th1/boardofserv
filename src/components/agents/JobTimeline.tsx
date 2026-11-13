@@ -4,6 +4,7 @@ import { createTimeline, stagger, svg, utils } from "animejs";
 import { dustIn, ease, prefersReducedMotion } from "@/lib/motion";
 import type { JobDTO, JobStepDTO } from "@/lib/types";
 import { ApprovalCard } from "./ApprovalCard";
+import { jobWord } from "@/lib/jobWords";
 import styles from "./JobTimeline.module.css";
 
 // A job, step by step, as a chalk timeline: a line down the side, each step
@@ -111,7 +112,7 @@ export function JobTimeline({ initial, api }: { initial: JobDTO; api: JobApi }) 
           </p>
         </div>
         <span className={styles.status} data-status={job.status}>
-          {STATUS_WORD[job.status]}
+          {job.status === "done" && job.outcome ? jobWord(job) : STATUS_WORD[job.status]}
         </span>
       </header>
       <dl className={styles.totals} aria-label="Totals">
@@ -128,7 +129,7 @@ export function JobTimeline({ initial, api }: { initial: JobDTO; api: JobApi }) 
           <dd>{dollars(job.costUsd)}</dd>
         </div>
       </dl>
-      {job.reason && job.status !== "done" && <p className={styles.reason}>{job.reason}</p>}
+      {job.reason && (job.status !== "done" || job.outcome) && <p className={styles.reason}>{job.why ?? job.reason}</p>}
       {job.viewer === "maker" && <p className={styles.quiet}>Someone else runs this copy of your agent: you see how it ran, never what it saw or made.</p>}
       <ol className={`${styles.timeline} chalky`} ref={listRef} aria-label="The steps it ran">
         {job.steps.map((s, i) => {

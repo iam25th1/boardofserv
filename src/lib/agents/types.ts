@@ -198,6 +198,11 @@ export interface RunState {
   // The loops it is inside, outermost first: the loop step, the pass it is
   // on (from 0) and what it has gathered from the passes before.
   loops?: { step: string; index: number; gathered: Record<string, unknown[]> }[];
+  // Side steps that didn't go through (runner.ts isSideStep), one plain
+  // sentence each: the job is done with a note.
+  notes?: string[];
+  // It sent, wrote or paid something in this run.
+  acted?: boolean;
 }
 
 // The screen of a step's untrusted inputs takes the step's first journal
@@ -227,4 +232,5 @@ export type RunEvent =
   | { type: "step_done"; stepId: string; status: "ok" | "failed"; output: unknown; outcome: string | null; note: string | null; ms: number; costUsd: number; model?: string | null }
   // A job (never the bench) waiting for its owner's answer at this step.
   | { type: "wait"; stepId: string; question: string; choices: string[] }
-  | { type: "end"; status: "done" | "failed" | "stopped"; reason: string; steps: number; ms: number; costUsd: number; memory: Record<string, unknown>; sheets: BenchData["sheets"] };
+  // outcome: done, but skipped for empty input, or with a note.
+  | { type: "end"; status: "done" | "failed" | "stopped"; reason: string; steps: number; ms: number; costUsd: number; memory: Record<string, unknown>; sheets: BenchData["sheets"]; outcome?: "skipped" | "noted" };

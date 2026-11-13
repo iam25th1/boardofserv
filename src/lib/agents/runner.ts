@@ -1,7 +1,7 @@
 import "server-only";
 import { completeJson, modelPrices, type ChatMessage, type JsonResult, type ModelConfig } from "../model";
 import { ANSWER_LIMITS } from "../modelLimits";
-import { loopChain, loopsOf, madeInside, MAX_EACH_ITEMS, MAX_LOOP_ITEMS, REASON_TOOL, RUN_VALUES, type ActionStepDef, type AgentDefinition, type AgentStep, type DecisionStepDef, type LoopStepDef, type ToolName } from "./definition";
+import { loopChain, loopsOf, madeInside, MAX_EACH_ITEMS, MAX_LOOP_ITEMS, REASON_TOOL, RUN_VALUES, SIDE_EFFECT_TOOLS, type ActionStepDef, type AgentDefinition, type AgentStep, type DecisionStepDef, type LoopStepDef, type ToolName } from "./definition";
 import { askReason, readReason, readReasonArgs, type ReasonArgs, type Reasoned } from "./reason";
 import { needsReasoning } from "./planRules";
 import { runInSandbox, DEFAULT_TIME_MS } from "./sandbox";
@@ -33,7 +33,11 @@ export type { JournalEntry, RunEvent, RunState } from "./types";
 //
 // It stops at the end of the steps, at the first failure, or at the
 // agent's limits on steps, time and spend, and says which. Every step, tool
-// call and result is an event.
+// call and result is an event. Two endings are neither: a step that judges
+// or writes with nothing to work on (an empty submission, a hand run with
+// no message) skips the run, sending nothing; and a side step that fails
+// or is stopped, when nothing after it needs what it makes, is noted and
+// passed, so the job is done with a note, not failed.
 //
 // On the bench every tool is a mock answering from the bench's data and the
 // whole run happens at once (runAgent). A job (runtime/jobs.ts) runs the
@@ -152,7 +156,11 @@ export type Decided =
   | { ok: true; outcome: string; note: string | null; costUsd: number; model: string | null; verdicts?: Verdict[] }
   | { ok: false; note: string; reason: string; costUsd: number; infra: boolean };
 
-export type EndCause = "end" | "logic" | "limit" | "stop" | "declined" | "infra" | "blocked";
+// skipped: a step that judges or writes had nothing to work on, so the run
+// ended there, having sent nothing. noted: it got to the end, but a side
+// step (one nothing after it reads, like noting where it got to) failed or
+// was stopped.
+export type EndCause = "end" | "logic" | "limit" | "stop" | "declined" | "infra" | "blocked" | "skipped" | "noted";
 
 export type EngineResult =
   | { kind: "end"; status: "done" | "failed" | "stopped"; cause: EndCause; reason: string }
@@ -427,6 +435,9 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       }
       try {
         const result = await o.tools.call(step, tool, args, prior?.approval, { inputs: input, untrusted: step.inputs.filter((k) => untrusted.has(k)), callKey: `${state.steps}:${step.id}:${i}` });
+        // It did something the owner can see: a side step failing after
+        // this leaves the job done, with a note.
+        if (SIDE_EFFECT_TOOLS.includes(tool)) state.acted = true;
         state.journal[i] = { tool, args, result: result ?? null, ...(prior?.approval ? { approval: prior.approval } : {}) };
         await o.save?.(state);
         emit(result, null);
@@ -535,6 +546,20 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       cursor = 1;
     }
 
+    // A step that judges or writes, at the top of the run, with nothing to
+    // work on: the run is skipped there, and nothing is sent.
+    const hollowInput = judgesOrWrites(step) && !loops.inside.get(step.id) ? dataInputs(d, step).find((k) => hollow(input[k])) : undefined;
+    if (hollowInput) {
+      done("ok", null, null, "Skipped: empty input.");
+      return end("done", "skipped", `Skipped, empty input: "${step.title}" had nothing to work on (${hollowInput.replace(/_/g, " ")} was empty), so nothing was sent.`);
+    }
+    // A side step that didn't go through, noted: the run goes on past it.
+    const passed = (why: string): boolean => {
+      if (!isSideStep(d, step)) return false;
+      (state.notes ??= []).push(`"${step.title}" ${why}`);
+      return true;
+    };
+
     let next: string | null = null;
     if (step.kind === "code") {
       const entry = o.code[step.id];
@@ -597,24 +622,27 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       }
       if (blocked) {
         done("failed", null, null, blocked, spent, usedModel);
-        return end("failed", "blocked", `"${step.title}" was stopped by the safety check: ${blocked}`);
+        if (!passed(`was stopped by the safety check: ${blocked}`)) return end("failed", "blocked", `"${step.title}" was stopped by the safety check: ${blocked}`);
       }
       if (diverged) {
         done("failed", null, null, DIVERGED, spent, usedModel);
         return end("failed", "logic", `"${step.title}" failed: ${DIVERGED}`);
       }
-      if (!result.ok) {
+      if (blocked) {
+        // Passed as a side step: nothing after it reads what it makes.
+      } else if (!result.ok) {
         const infra = infraFault || result.error === "The sandbox stopped it.";
         done("failed", null, null, result.error, spent, usedModel);
         if (infra && o.retryInfra) return { kind: "retry", reason: `"${step.title}" failed: ${result.error}` };
-        return end("failed", infra ? "infra" : "logic", `"${step.title}" failed: ${result.error}`);
+        if (infra || !passed(`failed: ${result.error}`)) return end("failed", infra ? "infra" : "logic", `"${step.title}" failed: ${result.error}`);
       }
-      const out = result.output;
-      if (!out || typeof out !== "object" || Array.isArray(out)) {
+      const out = blocked || !result.ok ? {} : result.output;
+      const sidePassed = Boolean(blocked) || !result.ok;
+      if (!sidePassed && (!out || typeof out !== "object" || Array.isArray(out))) {
         done("failed", out, null, "It didn't return an object.");
         return end("failed", "logic", `"${step.title}" didn't return an object.`);
       }
-      const missing = step.outputs.filter((k) => !(k in out));
+      const missing = sidePassed ? [] : step.outputs.filter((k) => !(k in (out as object)));
       if (missing.length) {
         done("failed", out, null, `It didn't return ${missing.join(", ")}.`, spent, usedModel);
         return end("failed", "logic", `"${step.title}" didn't return ${missing.join(", ")}.`);
@@ -622,11 +650,11 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       // A step that must ask SERV and gave an answer without asking: its
       // answer is a guess (a word count, a canned line), so it fails. With
       // nothing to judge (every output empty) it had nothing to ask.
-      if (step.tools.includes(REASON_TOOL) && reasoned === 0 && !step.outputs.every((k) => isEmpty((out as Record<string, unknown>)[k]))) {
+      if (!sidePassed && step.tools.includes(REASON_TOOL) && reasoned === 0 && !step.outputs.every((k) => isEmpty((out as Record<string, unknown>)[k]))) {
         done("failed", pick(out as Record<string, unknown>, step.outputs), null, GUESSES, spent, usedModel);
         return end("failed", "logic", `"${step.title}" ${GUESSES_WHY}`);
       }
-      for (const k of step.outputs) if (!(RUN_VALUES as readonly string[]).includes(k)) state.bag[k] = (out as Record<string, unknown>)[k];
+      for (const k of step.outputs) if (!(RUN_VALUES as readonly string[]).includes(k)) state.bag[k] = sidePassed ? null : (out as Record<string, unknown>)[k];
       // What a step makes from outside data, or from anything made from
       // it, is untrusted too, and keeps where it came from.
       const from = [...new Set([...fromOutside, ...sourcesOf(step.inputs.filter((k) => untrusted.has(k)))])];
@@ -641,7 +669,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       }
       state.untrusted = [...untrusted];
       state.sources = sources;
-      done("ok", pick(out as Record<string, unknown>, step.outputs), null, null, spent, usedModel);
+      if (!sidePassed) done("ok", pick(out as Record<string, unknown>, step.outputs), null, null, spent, usedModel);
       next = step.next;
     } else if (step.kind === "decision" && step.from) {
       // Decided by a value a step before it made: no judgement, no call.
@@ -786,18 +814,19 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       }
       if (r.kind === "blocked") {
         done("failed", null, null, r.reason);
-        return end("failed", "blocked", `"${step.title}" was stopped by the safety check: ${r.reason}`);
-      }
-      if (r.kind === "diverged") {
+        if (!passed(`was stopped by the safety check: ${r.reason}`)) return end("failed", "blocked", `"${step.title}" was stopped by the safety check: ${r.reason}`);
+        if (step.outputs[0]) state.bag[step.outputs[0]] = null;
+        next = step.next;
+      } else if (r.kind === "diverged") {
         done("failed", null, null, DIVERGED);
         return end("failed", "logic", `"${step.title}" failed: ${DIVERGED}`);
-      }
-      if (r.kind === "error") {
+      } else if (r.kind === "error") {
         done("failed", null, null, r.message);
         if (r.infra && o.retryInfra) return { kind: "retry", reason: `"${step.title}" failed: ${r.message}` };
-        return end("failed", r.infra ? "infra" : "logic", `"${step.title}" failed: ${r.message}`);
-      }
-      if (r.kind === "declined") {
+        if (r.infra || !passed(`failed: ${r.message}`)) return end("failed", r.infra ? "infra" : "logic", `"${step.title}" failed: ${r.message}`);
+        if (step.outputs[0]) state.bag[step.outputs[0]] = null;
+        next = step.next;
+      } else if (r.kind === "declined") {
         const said = r.answer === null ? "No answer came in time" : "You said no";
         const away = step.otherwise ? byId.get(step.otherwise) : undefined;
         if (!away) {
@@ -823,7 +852,51 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
     flush();
     await o.save?.(state);
   }
+  // A side step didn't go through: done with a note when the run did what
+  // it was for, and failed when it did nothing else.
+  if (state.notes?.length) {
+    if (state.acted) return end("done", "noted", `Done, with a note: ${state.notes.join(" ")} Everything else it was for was done.`);
+    return end("failed", "logic", state.notes[0]!);
+  }
   return end("done", "end", "It reached the end of its steps.");
+}
+
+// The steps that judge or write: a decision SERV makes, and a code step
+// that asks SERV (or should). With nothing to work on they have nothing to
+// say.
+function judgesOrWrites(step: AgentStep): boolean {
+  if (step.kind === "decision") return !step.from && !step.each;
+  return step.kind === "code" && (step.tools.includes(REASON_TOOL) || needsReasoning(step));
+}
+
+// What a step works on: the values earlier steps made and, for an agent
+// that runs on messages, the message. The renter's settings, rules and
+// memory are theirs whatever the run, and a schedule brings nothing.
+function dataInputs(d: AgentDefinition, step: AgentStep): string[] {
+  const messages = d.triggers.some((t) => t.kind === "message");
+  return step.inputs.filter((k) => k !== "settings" && k !== "rules" && k !== "memory" && (k !== "trigger" || messages));
+}
+
+// Keys that say where a value came from, not what it holds.
+const ABOUT = new Set(["kind", "_row", "row", "at", "sample"]);
+
+// Nothing to work on: no value, or only empty texts, lists and objects all
+// the way down (a row with its cells empty, a trigger with no message).
+export function hollow(v: unknown): boolean {
+  if (isEmpty(v)) return true;
+  if (Array.isArray(v) || typeof v !== "object") return false;
+  return Object.entries(v as Record<string, unknown>)
+    .filter(([k]) => !ABOUT.has(k))
+    .every(([, x]) => hollow(x));
+}
+
+// A side step: one that only notes something for the agent itself (saving
+// to memory, with nothing else to do), whose outputs no other step reads.
+// When it fails or is stopped, what the run was for can still be done.
+export function isSideStep(d: AgentDefinition, step: AgentStep): boolean {
+  const tools = step.kind === "action" ? [d.actions.find((a) => a.id === step.action)?.tool] : step.kind === "code" ? step.tools : [];
+  if (!tools.includes("memory.set") || !tools.every((t) => t === "memory.set" || t === "memory.get")) return false;
+  return !d.steps.some((s) => s.id !== step.id && s.inputs.some((k) => step.outputs.includes(k)));
 }
 
 // Where a loop's list is: the input it names, or the bag (settings, rules
@@ -1033,8 +1106,9 @@ export async function runAgent(o: RunOptions): Promise<Extract<RunEvent, { type:
       : undefined;
   const r = await runSteps({ definition: d, code: o.code, state, tools: { call: (_step, tool, args) => call(tool, args) }, decide, reason, onEvent: o.onEvent, signal: o.signal, dryRun: o.dryRun });
   // The bench's mocks never wait and nothing is retried: every run ends.
-  const ended = r.kind === "end" ? r : { status: "failed" as const, reason: r.kind === "retry" ? r.reason : "It stopped to wait, which the bench can't do." };
-  const e = { type: "end" as const, status: ended.status, reason: ended.reason, steps: state.steps, ms: state.ms, costUsd: state.costUsd, memory: mock.memory, sheets: mock.sheets };
+  const ended = r.kind === "end" ? r : { status: "failed" as const, cause: "logic" as const, reason: r.kind === "retry" ? r.reason : "It stopped to wait, which the bench can't do." };
+  const outcome = ended.cause === "skipped" || ended.cause === "noted" ? { outcome: ended.cause } : {};
+  const e = { type: "end" as const, status: ended.status, reason: ended.reason, steps: state.steps, ms: state.ms, costUsd: state.costUsd, memory: mock.memory, sheets: mock.sheets, ...outcome };
   o.onEvent(e);
   return e;
 }

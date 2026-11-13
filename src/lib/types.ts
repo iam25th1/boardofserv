@@ -391,6 +391,11 @@ export interface JobSummaryDTO {
   agentName: string;
   status: "queued" | "running" | "waiting_for_owner" | "done" | "failed" | "cancelled";
   reason: string | null;
+  // A done job that skipped for empty input, or finished with a note.
+  outcome: "skipped" | "noted" | null;
+  // Why it failed, was skipped or has a note, in one plain sentence (its
+  // owner only); null when there is nothing to say.
+  why: string | null;
   // In words: "on its schedule", "by your message".
   started: string;
   // What started it: schedule, check, message, manual or test.

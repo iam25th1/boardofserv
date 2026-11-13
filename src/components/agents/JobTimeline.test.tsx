@@ -53,6 +53,8 @@ const job = (o: Partial<JobDTO> = {}): JobDTO => ({
   agentName: "Fabric restock",
   status: "waiting_for_owner",
   reason: null,
+  outcome: null,
+  why: null,
   started: "on its schedule",
   trigger: "schedule",
   createdAt: "2026-11-09T08:00:00.000Z",

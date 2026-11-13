@@ -130,6 +130,8 @@ function joined(parts: string[]): string {
 // it did, in order: "It read the page, asked you on Telegram "..." and you
 // answered "Yes", and sent you "..." on Telegram." Or where it stopped.
 export function storyOf(d: AgentDefinition, events: RunEvent[], end: Extract<RunEvent, { type: "end" }>, items: TestResult["items"]): string {
+  // Skipped for empty input: that is the whole story.
+  if (end.outcome === "skipped") return end.reason;
   const title = (id: string) => d.steps.find((s) => s.id === id)?.title ?? "a step";
   const tools = events.filter((e): e is Extract<RunEvent, { type: "tool" }> => e.type === "tool" && !e.error);
   const failed = [...events].reverse().find((e): e is Extract<RunEvent, { type: "step_done" }> => e.type === "step_done" && e.status === "failed");
@@ -226,4 +228,21 @@ export function problemOf(v: {
   const failed = v.testResult?.status === "failed" ? v.testResult.problems[0] : undefined;
   if (failed) return { text: failed.text, step: failed.step, fix: "replan" };
   return null;
+}
+
+// Why a job failed, was skipped or has a note, in one plain sentence for
+// its card: the run's own reason, with a code error said as a mistake in
+// its code (the error itself is in the job's steps), or null for a job
+// that simply did its work.
+export function jobWhy(job: { status: string; reason: string | null; outcome?: string | null }): string | null {
+  const reason = job.reason?.replace(/\s+/g, " ").trim() ?? "";
+  if (!reason) return null;
+  if (job.status === "done" && !job.outcome) return null;
+  if (job.status === "queued" || job.status === "running" || job.status === "waiting_for_owner") return null;
+  const code = /^("[^"]+") failed: (?:TypeError|ReferenceError|SyntaxError|RangeError|Error|InternalError): .*$/.exec(reason);
+  const said = code ? `${code[1]} stopped on a mistake in its code.` : reason;
+  // One sentence: the first, unless that leaves it cut mid-thought.
+  const first = /^.{20,}?[.!?](?=\s|$)/.exec(said)?.[0] ?? said;
+  const sentence = job.outcome ? said : first;
+  return sentence.length > 280 ? `${sentence.slice(0, 277).trimEnd()}...` : sentence;
 }

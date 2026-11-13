@@ -72,7 +72,8 @@ export async function sampleFinished(rt: Runtime, settings = reppoSettings(), li
     .select({ id: agentJobs.id, versionId: agentJobs.versionId, agentId: agentVersions.agentId, finishedAt: agentJobs.finishedAt })
     .from(agentJobs)
     .innerJoin(agentVersions, eq(agentVersions.id, agentJobs.versionId))
-    .where(and(isNull(agentJobs.reppoSample), inArray(agentJobs.status, ["done", "failed"]), isNotNull(agentJobs.finishedAt), gte(agentJobs.finishedAt, new Date(now.getTime() - LOOKBACK_MS))))
+    // A job skipped for empty input did nothing worth a score.
+    .where(and(isNull(agentJobs.reppoSample), inArray(agentJobs.status, ["done", "failed"]), sql`${agentJobs.outcome} is distinct from 'skipped'`, isNotNull(agentJobs.finishedAt), gte(agentJobs.finishedAt, new Date(now.getTime() - LOOKBACK_MS))))
     .orderBy(agentJobs.finishedAt)
     .limit(limit);
   let queued = 0;

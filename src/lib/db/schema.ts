@@ -662,6 +662,10 @@ export const agentJobs = pgTable(
     // step that runs again sees the very same values.
     state: json("state").$type<RunState>(),
     reason: text("reason"),
+    // A done job that wasn't plainly done: "skipped" (a step that judges or
+    // writes had nothing to work on, so nothing was sent) or "noted" (a
+    // side step didn't go through); null otherwise.
+    outcome: text("outcome", { enum: ["skipped", "noted"] }),
     attempts: integer("attempts").notNull().default(0),
     runAfter: timestamp("run_after", { withTimezone: true }).defaultNow().notNull(),
     claimedBy: text("claimed_by"),

@@ -15,6 +15,8 @@ const job = (id: string, status: JobSummaryDTO["status"], started: string, hours
   agentName: "Enquiry follow-up",
   status,
   reason,
+  outcome: null,
+  why: status === "failed" ? reason : null,
   started,
   trigger: started === "by hand" ? "manual" : "check",
   createdAt: at(0, -hoursAgo),
