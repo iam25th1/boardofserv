@@ -90,6 +90,13 @@ export const clip = (text: string) => (text.length > MAX_TEXT ? `${text.slice(0,
 // than a part, at a space. Nothing is cut: the parts, a new line between
 // them (a space within a long line), are the whole text.
 export const PART_TEXT = 3500;
+
+// The parts as they go: each numbered, "(2/4)" on a line of its own at its
+// end, when there is more than one.
+export function numberedParts(text: string, max = PART_TEXT): string[] {
+  const parts = inParts(text, max);
+  return parts.length === 1 ? parts : parts.map((p, i) => `${p}\n(${i + 1}/${parts.length})`);
+}
 export function inParts(text: string, max = PART_TEXT): string[] {
   if (text.length <= max) return [text];
   const parts: string[] = [];

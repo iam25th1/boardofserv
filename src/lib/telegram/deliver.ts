@@ -1,10 +1,10 @@
 import "server-only";
-import { and, eq, inArray, lt, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, lt, ne, sql } from "drizzle-orm";
 import { agentApprovals, agentInstallations, agentMessages, agentVersions, reppoEvals, telegramLinkCodes, telegramPending, telegramUpdates, type AgentApproval } from "../db/schema";
 import type { AgentDefinition } from "../agents/definition";
 import type { Runtime } from "../agents/runtime/context";
 import { secretOf, touch } from "../connections/vault";
-import { clip, inParts, sendText, TelegramError, type InlineKeyboard } from "./api";
+import { clip, numberedParts, sendText, TelegramError, type InlineKeyboard } from "./api";
 
 // What goes out to owners' Telegram chats, from the worker's cycle: the
 // questions their jobs wait on (a button per answer), what their agents
@@ -96,7 +96,7 @@ export async function deliverTelegram(rt: Runtime, limit = 20): Promise<number> 
     .from(agentApprovals)
     .where(and(eq(agentApprovals.tgState, "sent"), ne(agentApprovals.status, "pending")))
     .limit(limit);
-  const outgoing = await rt.db.select().from(agentMessages).where(eq(agentMessages.tgState, "pending")).limit(limit);
+  const outgoing = await rt.db.select().from(agentMessages).where(eq(agentMessages.tgState, "pending")).orderBy(asc(agentMessages.createdAt)).limit(limit);
   // Questions Reppo is giving a second opinion on.
   const opinions = asks.length
     ? new Set(
@@ -176,9 +176,14 @@ export async function deliverTelegram(rt: Runtime, limit = 20): Promise<number> 
     try {
       // HTML, with the agent's own marks (*bold*, `code`) made into tags
       // and everything else escaped: never raw markdown. One too long for
-      // a Telegram message goes in parts, in order (after a failure part
-      // way, the next try sends it all again).
-      for (const part of inParts(`${defs.get(m.installationId)?.name ?? "Your agent"}: ${m.text}`)) await sendText(rt.services, "sendMessage", { chat_id: chat, text: part });
+      // a Telegram message goes in numbered parts, in order, each kept as
+      // delivered once it is: after a failure part way, the next try sends
+      // only the parts still missing.
+      const parts = numberedParts(`${defs.get(m.installationId)?.name ?? "Your agent"}: ${m.text}`);
+      for (let i = m.tgParts; i < parts.length; i++) {
+        await sendText(rt.services, "sendMessage", { chat_id: chat, text: parts[i]! });
+        await rt.db.update(agentMessages).set({ tgParts: i + 1 }).where(eq(agentMessages.id, m.id));
+      }
       await rt.db.update(agentMessages).set({ tgState: "sent" }).where(eq(agentMessages.id, m.id));
       await touch(rt, owner!, "telegram");
       done += 1;

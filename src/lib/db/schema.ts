@@ -768,6 +768,10 @@ export const agentMessages = pgTable(
     // says "telegram" when it came from there.
     tgState: text("tg_state", { enum: ["pending", "sent", "none", "failed", "telegram", "held"] }),
     tgAttempts: integer("tg_attempts").notNull().default(0),
+    // A long message goes to Telegram in numbered parts: how many of them,
+    // from the first, were delivered, so a try after a failure sends only
+    // the rest.
+    tgParts: integer("tg_parts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({

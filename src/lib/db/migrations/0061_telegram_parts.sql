@@ -1,0 +1,1 @@
+ALTER TABLE "agent_messages" ADD COLUMN "tg_parts" integer DEFAULT 0 NOT NULL;

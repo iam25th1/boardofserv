@@ -2,6 +2,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { PgliteDatabase } from "drizzle-orm/pglite";
+import { eq } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import { addUser, testDb } from "@/test/helperDb";
 import { installed, publishedAgent, testRuntime, type TestRuntime } from "@/test/runtimeFixtures";
@@ -63,7 +64,7 @@ describe("an agent's message on its way", () => {
     expect(String(sent!.text)).not.toContain("*");
   });
 
-  it("goes in parts, in order, when it is too long for one", async () => {
+  it("goes in numbered parts, in order, when it is too long for one", async () => {
     resetTelegramHolds();
     const owner = await addUser(db, "owner3");
     const inst = await installed(rt, owner, await publishedAgent(db, owner));
@@ -74,7 +75,33 @@ describe("an agent's message on its way", () => {
     const sent = rt.net.telegram("sendMessage").slice(before).map((m) => String(m.text));
     expect(sent.length).toBeGreaterThan(1);
     expect(sent[0]!.startsWith("Fabric restock: Entry 1")).toBe(true);
-    expect(sent.join("\n")).toBe(`Fabric restock: ${lines.join("\n")}`);
+    expect(sent.map((t) => /\n\((\d+)\/(\d+)\)$/.exec(t)?.slice(1).join("/"))).toEqual(sent.map((_, i) => `${i + 1}/${sent.length}`));
+    expect(sent.map((t) => t.replace(/\n\(\d+\/\d+\)$/, "")).join("\n")).toBe(`Fabric restock: ${lines.join("\n")}`);
+  });
+
+  it("after a part fails, sends only the parts still missing, never one twice", async () => {
+    resetTelegramHolds();
+    const owner = await addUser(db, "owner4");
+    const inst = await installed(rt, owner, await publishedAgent(db, owner));
+    // Four parts' worth.
+    const lines = Array.from({ length: 4 }, (_, i) => `Entry ${i + 1}: ${"a fair reason ".repeat(220).trim()}.`);
+    const [m] = await db.insert(schema.agentMessages).values({ installationId: inst.id, from: "agent", text: lines.join("\n"), tgState: "pending", createdAt: rt.now() }).returning();
+    const tries: string[] = [];
+    let failing = true;
+    rt.net.on("https://api.telegram.org/", (req) => {
+      const text = String(req.json().text ?? "");
+      if (req.method_ !== "sendMessage" || !text.includes("Entry")) return Response.json({ ok: true, result: { message_id: 1, date: 0, chat: { id: 1, type: "private" } } });
+      tries.push(/\((\d+)\/4\)$/.exec(text)?.[1] ?? "?");
+      if (failing && text.endsWith("(3/4)")) return Response.json({ ok: false, error_code: 500, description: "Internal Server Error" }, { status: 500 });
+      return Response.json({ ok: true, result: { message_id: 1, date: 0, chat: { id: 1, type: "private" } } });
+    });
+    await deliverTelegram(rt);
+    expect(tries).toEqual(["1", "2", "3"]);
+    expect((await db.select().from(schema.agentMessages).where(eq(schema.agentMessages.id, m!.id)))[0]).toMatchObject({ tgState: "pending", tgParts: 2, tgAttempts: 1 });
+    failing = false;
+    await deliverTelegram(rt);
+    expect(tries).toEqual(["1", "2", "3", "3", "4"]);
+    expect((await db.select().from(schema.agentMessages).where(eq(schema.agentMessages.id, m!.id)))[0]).toMatchObject({ tgState: "sent", tgParts: 4 });
   });
 
   it("goes again as plain text when Telegram can't read the HTML", async () => {
