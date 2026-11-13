@@ -17,13 +17,13 @@ import { suiteMaker } from "./suite/setup";
 // CI checks the same chats, plans, repairs, code, tests and going live
 // with no key. Each request ends where it ends on those answers with this
 // code (suite/expected.json). A call the live run never made has no answer
-// here, and is refused. The clock reads the day of the live run (code that
-// picks a line by the day picks the same one). SUITE_UPDATE=1 writes what
-// it got as the new expectations.
+// here, and is refused. The clock starts on the day of the live run (code
+// that picks a line by the day picks the same one). SUITE_UPDATE=1 writes
+// what it got as the new expectations.
 
 const RECORDED = join(__dirname, "suite/recorded.json");
 const EXPECTED = join(__dirname, "suite/expected.json");
-const DAY = process.env.SUITE_DAY ?? "2026-11-12T00:45:00.000Z";
+const DAY = process.env.SUITE_DAY ?? "2026-11-13T17:30:00.000Z";
 
 const state = vi.hoisted(() => ({ db: null as unknown, user: null as unknown }));
 vi.mock("@/lib/db", () => ({ db: new Proxy({}, { get: (_, key) => Reflect.get(state.db as object, key) }) }));
@@ -35,7 +35,11 @@ let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
 
 beforeAll(async () => {
-  vi.useFakeTimers({ toFake: ["Date"], now: new Date(DAY) });
+  // The day of the live run, its clock ticking a millisecond each time it
+  // is read, so every card and row has a time of its own and the chat's
+  // cards keep their order (a frozen clock gave them all the same time),
+  // the same on every run.
+  vi.stubGlobal("Date", tickingDate(DAY));
   ({ client, db } = await testDb());
   state.db = db;
   vi.stubEnv("SERV_API_KEY", "replayed");
@@ -45,11 +49,27 @@ beforeAll(async () => {
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
 afterAll(async () => {
-  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
   await client?.close();
 });
+
+// A Date whose now starts at a given moment and moves on a millisecond
+// each time it is read.
+function tickingDate(start: string): DateConstructor {
+  const Real = Date;
+  let tick = new Real(start).getTime();
+  class Ticking extends Real {
+    constructor(...a: unknown[]) {
+      if (a.length) super(...(a as [string]));
+      else super((tick += 1));
+    }
+    static now() {
+      return (tick += 1);
+    }
+  }
+  return Ticking as unknown as DateConstructor;
+}
 
 type Expected = Pick<JourneyResult, "id" | "stage" | "passed" | "rounds" | "plan"> & { story: string | null; questions: number };
 // The story with what it quoted left out: code may pick its line at
@@ -69,7 +89,7 @@ describe("the regression suite, on its recorded answers", () => {
     if (process.env.SUITE_UPDATE === "1") writeFileSync(EXPECTED, `${JSON.stringify(results.map(summary), null, 2)}\n`);
     for (const [i, want] of expected.entries()) expect(summary(results[i]!), results[i]!.failure ?? undefined).toEqual(want);
     // What went live in the live runs goes live here too.
-    for (const id of ["price", "designer", "motivation"]) expect(results.find((r) => r.id === id)?.stage, id).toBe(6);
+    for (const id of ["designer", "motivation", "sales", "enquiries", "supplies"]) expect(results.find((r) => r.id === id)?.stage, id).toBe(6);
     // Nothing typed to fix any of them.
     expect(results.every((r) => r.typedFixes === 0)).toBe(true);
     // Nothing reached a model: every answer was the recorded one, or none.

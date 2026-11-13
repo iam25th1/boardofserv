@@ -1,46 +1,49 @@
 [
   {
     "id": "price",
-    "stage": 6,
-    "passed": true,
-    "rounds": 1,
+    "stage": 3,
+    "passed": false,
+    "rounds": 3,
     "plan": [
-      "1. Fetch the product page and extract its current price value.",
-      "2. Check whether the current price is below the target price.",
-      "3. Prepare a question asking the owner to approve sending a reminder.",
-      "4. Send the approval question to the owner and wait for their response.",
-      "5. Determine whether the owner gave approval to send the reminder.",
-      "6. Compose the reminder message to notify the owner.",
-      "7. Send the reminder message to the owner.",
-      "8. Store the current price for comparison in future runs."
+      "1. Retrieve the product page and extract the current selling price in USDC, then determine whether it is below the target threshold.",
+      "2. Check if the current price is lower than the target amount.",
+      "3. Create a question asking the owner for permission with two response options.",
+      "4. Request approval from the owner about sending a reminder.",
+      "5. Verify that the owner approved the reminder request.",
+      "6. Compose a message informing the owner about the price reduction.",
+      "7. Deliver the price alert message to the owner.",
+      "8. Mark the execution as finished."
     ],
-    "story": "Passed. It read the page, asked you on Telegram \"...\" (you answered \"...\"), sent you \"...\" on Telegram and noted where it got to, for next time.",
+    "story": "It asked SERV and found \"...\", so there was nothing more to do.",
     "questions": 0
   },
   {
     "id": "eth",
-    "stage": 2,
+    "stage": 3,
     "passed": false,
-    "rounds": 1,
+    "rounds": 3,
     "plan": [
       "1. Fetch ETH price",
-      "2. Compare price to target: price below target, no alert sent yet or price below target, alert already sent or price at or above target",
-      "3. Prepare alert message",
-      "4. Send a Telegram message with the current ETH price when it drops below target",
-      "5. Update alert state",
-      "6. Update recovery state"
+      "2. Check if price below target: price below target or price at or above target",
+      "3. Work out: Check if message already sent",
+      "4. Check if message already sent: message not sent yet or message already sent",
+      "5. Send price alert",
+      "6. Prepare what it writes",
+      "7. Record that a message was sent for the current below-target period.",
+      "8. Prepare what it writes",
+      "9. Clear the message-sent flag so the agent can alert again on the next price drop below target."
     ],
-    "story": null,
+    "story": "It tried the page, which didn't answer and asked SERV, then it stopped at \"...\".",
     "questions": 0
   },
   {
     "id": "designer",
     "stage": 6,
     "passed": true,
-    "rounds": 0,
+    "rounds": 1,
     "plan": [
-      "1. Work out the payment details for sending half a USDC token to the designated recipient after receiving approval.",
-      "2. Send half a USDC token to the designated recipient after approval has been confirmed."
+      "1. Prepare payment",
+      "2. Send 0.5 USDC to Designer payee"
     ],
     "story": "Passed. It paid 0.5 test USDC to \"...\".",
     "questions": 0
@@ -51,65 +54,79 @@
     "passed": true,
     "rounds": 0,
     "plan": [
-      "1. Pick a motivational message",
-      "2. Send a motivational message to Telegram"
+      "1. Prepare motivational message",
+      "2. Send the motivational message to Telegram"
     ],
-    "story": "Passed. It sent you \"...\" on Telegram.",
+    "story": "Passed. It asked SERV and sent you \"...\" on Telegram.",
     "questions": 0
   },
   {
     "id": "sales",
-    "stage": 5,
-    "passed": false,
-    "rounds": 1,
+    "stage": 6,
+    "passed": true,
+    "rounds": 0,
     "plan": [
-      "1. Get last read position",
-      "2. Read sales sheet",
-      "3. Sum and count today's sales",
-      "4. Prepare summary message",
-      "5. Save last position",
-      "6. Send today's sales total and count to Telegram"
+      "1. Read all sales rows from the sheet where the date matches today's date and return them with their date and amount information.",
+      "2. Add up all the amounts from today's sales rows and count how many rows there are, then return both totals.",
+      "3. Create a text message that includes the total amount and the number of sales in a readable format.",
+      "4. Send the formatted message to the messaging service."
     ],
-    "story": "Passed. It read 1 row of your sheet, noted where it got to, for next time and sent you \"...\" on Telegram.",
+    "story": "Passed. It read 3 rows of your sheet and sent you \"...\" on Telegram.",
     "questions": 0
   },
   {
     "id": "enquiries",
-    "stage": 2,
-    "passed": false,
-    "rounds": 2,
+    "stage": 6,
+    "passed": true,
+    "rounds": 1,
     "plan": [
-      "1. Read enquiry sheet",
-      "2. For each row",
-      "  3. Decide priority: urgent or not urgent",
-      "  4. Prepare update",
-      "  5. Write the priority decision to the Priority column",
-      "6. End"
+      "1. Read all new rows from the sheet that have not been checked yet.",
+      "2. Evaluate each new enquiry one by one.",
+      "  3. Determine whether each enquiry needs immediate attention or can wait.",
+      "  4. Prepare the urgency decision to be written back to the sheet.",
+      "  5. Write the urgency decision into the sheet for each enquiry.",
+      "6. Remember where the check ended so the next run knows where to start."
     ],
-    "story": null,
+    "story": "Passed. 5 enquiries checked, nothing written or sent.",
     "questions": 0
   },
   {
     "id": "supplies",
-    "stage": 2,
-    "passed": false,
+    "stage": 6,
+    "passed": true,
     "rounds": 1,
     "plan": [
-      "1. Read supply sheet",
-      "2. Check if restocking needed: items found below minimum or no items below minimum",
-      "3. Prepare approval request",
-      "4. Pay the supplier for restocking"
+      "1. Fetch the sheet and identify items where current quantity falls below the minimum threshold.",
+      "2. For each low-stock item, determine how many units are needed to reach the minimum and multiply by the unit price.",
+      "3. Compose a summary message listing each item that needs restocking with its cost and calculate the total expense.",
+      "4. Send the restocking summary to the owner for approval.",
+      "5. Prepare the payment instruction with the supplier name and total restock amount.",
+      "6. Execute the payment to the supplier for the restocking order.",
+      "7. Record the highest row number processed to avoid rechecking the same items next time."
     ],
-    "story": null,
+    "story": "Passed. It read 3 rows of your sheet, sent you \"...\" on Telegram, paid 148.75 test USDC to \"...\" and noted where it got to, for next time.",
     "questions": 0
   },
   {
     "id": "hackathon",
-    "stage": 1,
+    "stage": 2,
     "passed": false,
-    "rounds": 1,
-    "plan": [],
-    "story": null,
+    "rounds": 3,
+    "plan": [
+      "1. Read new rows from the sheet that have not been checked before",
+      "2. Process each submission one at a time",
+      "  3. Check each submission against every requirement",
+      "    4. Determine whether the submission satisfies a single requirement",
+      "  5. Tally how many requirements the submission met and decide if it passes overall",
+      "  6. Determine if enough requirements are satisfied for approval",
+      "  7. Prepare the pass or fail status and detailed reasoning for the submission",
+      "  8. Format the status and reasons to be written back to the sheet",
+      "  9. Write the status and reasons to the submission row",
+      "10. Compose a summary message listing all submissions checked with their results",
+      "11. Deliver the summary message to the chat platform",
+      "12. Record which submissions have been processed to avoid rechecking them"
+    ],
+    "story": "3 submissions checked: 3 rejected, summary sent.",
     "questions": 0
   }
 ]
