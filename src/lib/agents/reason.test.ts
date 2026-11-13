@@ -110,6 +110,13 @@ describe("which steps need SERV at run time", () => {
     expect(planProblems(guessing)).toEqual([expect.stringContaining('code step "score" makes a judgement or words only a model can')]);
   });
 
+  it("sends back a plan that asks SERV to compare numbers: that is code's own work", () => {
+    const d = scorer();
+    const comparing = { ...d, steps: d.steps.map((s) => (s.id === "score" && s.kind === "code" ? { ...s, description: "Fetch the price. Also call serv.reason to determine if the price is below the target, returning way as below_target or above_target." } : s)) };
+    expect(planProblems(comparing)).toContainEqual(expect.stringContaining('code step "score" asks SERV to compare'));
+    expect(planProblems(d).some((p) => p.includes("asks SERV to compare"))).toBe(false);
+  });
+
   it("repairs a plan that scores in code: the step asks SERV, and the run has room to pay for it", () => {
     const d = scorer();
     const wire = JSON.parse(JSON.stringify({ ...d, limits: { ...d.limits, maxSpendUsd: 0 }, steps: d.steps.map((s) => (s.id === "score" ? { ...s, tools: [], description: "Score the submission from 1 to 10 for quality. Return result { name, score, reasons }." } : s)) }));

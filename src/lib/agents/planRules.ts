@@ -39,6 +39,8 @@ const MANY = /\b(?:each|every|all(?: of)?(?: the)?)\s+(?:of\s+the\s+)?(?:[a-z]+\
 const JUDGES = /\b(?:judge|judges|judging|assess|assesses|assessing)\b/i;
 const WEIGHS = /\b(?:evaluat(?:e|es|ed|ing)|determin(?:e|es|ed|ing)) (?:whether|if|how well)\b[^.]*\b(?:meets?|met|good|quality|worth|requirements?)\b/i;
 const COUNTS = /\b(?:count\w*|how many|number of|verdicts?)\b/i;
+// A comparison of values: below or above a target, over a limit.
+const COMPARES = /\b(?:below|above|under|over|exceeds?|greater|less|more than|fewer|at or (?:below|above)|compar\w+|threshold|higher|lower)\b/i;
 const judges = (text: string) => JUDGES.test(text) || text.split(/[.;:]/).some((sentence) => WEIGHS.test(sentence) && !COUNTS.test(sentence));
 
 // A step whose job is reasoning only a model can do: a score, a rating or
@@ -82,6 +84,13 @@ export function planProblems(d: AgentDefinition): string[] {
   for (const s of d.steps) {
     if (s.kind !== "code" || !SAYS_READS.test(s.title) || s.tools.some((t) => READ_TOOLS.includes(t))) continue;
     if (s.inputs.every((k) => k === "settings" || k === "rules")) out.push(`code step "${s.id}" says it reads ("${s.title}") but has no tool that reads and nothing given to it to read, so it could only make up what it passes on: list the tool it reads with (web.fetch for a public page, sheets.read for a sheet). A form's link can't be read at all: its answers come from the sheet they go to, a setting of type sheet.`);
+  }
+  // SERV for a plain comparison (is the price below the target?): code's
+  // own work, never a model's.
+  for (const s of d.steps) {
+    if (s.kind !== "code" || !s.tools.includes(REASON_TOOL)) continue;
+    const asked = s.description.split(/(?<=[.;])\s+/).filter((x) => /\bserv\.reason\b|\bSERV\b/.test(x));
+    if (asked.length && asked.every((x) => COMPARES.test(x) && !reasonsIn(x))) out.push(`code step "${s.id}" asks SERV to compare ("${s.title}"): a comparison of numbers (below or above a target, over a limit) is code's own work, never SERV's. Work it out in the code and take serv.reason off its tools.`);
   }
   for (const s of d.steps) {
     if (s.kind !== "code") continue;

@@ -92,6 +92,7 @@ export function reviewRequest(d: AgentDefinition, code: Record<string, StepCode>
     `What it is for: ${d.job.does}`,
     `Done when: ${d.job.done}`,
     `All it may ever do: ${d.actions.map((a) => `${a.description} (${a.tool})`).join("; ") || "nothing but read and work things out"}`,
+    "Tools that change nothing need no action of their own: reading (sheets.read, web.fetch, web.search, memory.get) and serv.reason, which asks SERV Reasoning to judge or write from the values the step gives it. A step that judges or writes for people is expected to use serv.reason.",
     "",
     ...steps.flatMap((s) => [`STEP "${s.title}": ${s.description}`, `Tools: ${s.tools.join(", ") || "none"}`, "<<<CODE", (code[s.id]?.source ?? "").slice(0, 8000).replace(/CODE>>>/g, "CODE> > >"), "CODE>>>", ""]),
   ].join("\n");
