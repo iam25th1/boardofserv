@@ -4,7 +4,7 @@ import { agentApprovals, agentInstallations, agentMessages, agentVersions, reppo
 import type { AgentDefinition } from "../agents/definition";
 import type { Runtime } from "../agents/runtime/context";
 import { secretOf, touch } from "../connections/vault";
-import { clip, sendText, TelegramError, type InlineKeyboard } from "./api";
+import { clip, inParts, sendText, TelegramError, type InlineKeyboard } from "./api";
 
 // What goes out to owners' Telegram chats, from the worker's cycle: the
 // questions their jobs wait on (a button per answer), what their agents
@@ -175,8 +175,10 @@ export async function deliverTelegram(rt: Runtime, limit = 20): Promise<number> 
     }
     try {
       // HTML, with the agent's own marks (*bold*, `code`) made into tags
-      // and everything else escaped: never raw markdown.
-      await sendText(rt.services, "sendMessage", { chat_id: chat, text: `${defs.get(m.installationId)?.name ?? "Your agent"}: ${m.text}` });
+      // and everything else escaped: never raw markdown. One too long for
+      // a Telegram message goes in parts, in order (after a failure part
+      // way, the next try sends it all again).
+      for (const part of inParts(`${defs.get(m.installationId)?.name ?? "Your agent"}: ${m.text}`)) await sendText(rt.services, "sendMessage", { chat_id: chat, text: part });
       await rt.db.update(agentMessages).set({ tgState: "sent" }).where(eq(agentMessages.id, m.id));
       await touch(rt, owner!, "telegram");
       done += 1;

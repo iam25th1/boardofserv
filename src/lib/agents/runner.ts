@@ -259,14 +259,18 @@ function words(v: unknown): string {
 
 // Words for a message to the owner, from whatever the step reads: a lone
 // piece of text as it is, anything else labelled.
-function summary(input: Record<string, unknown>): string {
+function summary(input: Record<string, unknown>, max = 3000): string {
   const values = Object.values(input);
-  if (values.length === 1 && typeof values[0] === "string") return values[0].slice(0, 3000);
+  if (values.length === 1 && typeof values[0] === "string") return values[0].slice(0, max);
   return Object.entries(input)
     .map(([k, v]) => `${k.replace(/_/g, " ")}: ${words(v)}`)
     .join("\n")
-    .slice(0, 3000);
+    .slice(0, max);
 }
+
+// A message to the owner goes whole, up to what a few Telegram messages
+// hold: delivery sends a long one in parts. A question stays one message.
+const MAX_MESSAGE = 12_000;
 
 // The tool arguments an action step is taken with.
 const YES = /^(?:y|yes|yeah|yep|sure|ok|okay|please|true|approve[ds]?|confirm(?:ed)?|go ahead)\b/i;
@@ -293,7 +297,7 @@ export function actionArgs(step: ActionStepDef, tool: keyof typeof TOOL_ARGS, in
   const first = step.inputs[0] ? input[step.inputs[0]] : undefined;
   if (TOOL_ARGS[tool].safeParse(first).success) return { ok: true, args: first };
   // A message made as text is sent as it is, whatever else the step reads.
-  if (tool === "telegram.send") return { ok: true, args: { text: (typeof first === "string" && first.trim() ? first.slice(0, 3000) : summary(input)) || step.title } };
+  if (tool === "telegram.send") return { ok: true, args: { text: (typeof first === "string" && first.trim() ? first.slice(0, MAX_MESSAGE) : summary(input, MAX_MESSAGE)) || step.title } };
   if (tool === "telegram.ask") return { ok: true, args: { question: `${step.title}\n${summary(input)}`.trim(), choices: ["Yes", "No"] } };
   return { ok: false, why: `This action needs its first input to be ${tool}'s arguments: ${TOOLS[tool].signature}` };
 }

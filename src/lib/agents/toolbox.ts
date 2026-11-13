@@ -28,7 +28,7 @@ export const TOOL_ARGS = {
   "sheets.update": z.object({ sheet: z.string().min(1).max(80), updates: z.array(z.object({ row: z.number().int().min(2).max(100_000), values: row })).min(1).max(500) }),
   "web.fetch": z.object({ url: z.string().url().max(2000) }),
   "web.search": z.object({ query: z.string().min(1).max(300) }),
-  "telegram.send": z.object({ text: z.string().min(1).max(4000) }),
+  "telegram.send": z.object({ text: z.string().min(1).max(12000) }),
   "telegram.ask": z.object({ question: z.string().min(1).max(2000), choices: z.array(z.string().max(80)).max(8).optional() }),
   "memory.get": z.object({ key: z.string().min(1).max(40) }),
   "memory.set": z.object({ key: z.string().min(1).max(40), value: z.unknown().optional() }),
