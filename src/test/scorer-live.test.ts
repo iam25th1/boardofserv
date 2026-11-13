@@ -54,7 +54,7 @@ const NEVER_ASKS: [RegExp, string] = [/\bask\b|approv|permission|confirm|before/
 export const SCORER: SuiteRequest = {
   id: "scorer",
   name: "Hackathon Submission Scorer",
-  says: "Make me a Hackathon Submission Scorer: every hour, take each new submission row in my Google Sheet, have it scored for quality from 1 to 10 with the reasons, write the Score and Reasons into that row, and send me the scores on Telegram.",
+  says: "Make me a Hackathon Submission Scorer: every hour, take each new row of my Google Sheet of submissions (it has Name and Description columns), have it scored for quality from 1 to 10 with the reasons, write them into its Score and Reasons columns, and send me the scores on Telegram.",
   knows: [
     [/column|row|new|sheet|checked|status|filled/i, "Each row has Name and Description columns. A row is new until its Score is filled in."],
     [/quality|1 to 10|how|judge|good|score/i, "Quality means a clear idea, something working to try, and a README."],

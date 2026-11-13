@@ -892,8 +892,9 @@ function dataInputs(d: AgentDefinition, step: AgentStep): string[] {
   return step.inputs.filter((k) => k !== "settings" && k !== "rules" && k !== "memory" && (k !== "trigger" || messages));
 }
 
-// Keys that say where a value came from, not what it holds.
-const ABOUT = new Set(["kind", "_row", "row", "at", "sample"]);
+// Keys that say where a value came from or which one it is, not what it
+// holds: a submission that is only its id and row number has nothing in it.
+const ABOUT = /^(?:kind|_?row|row_?(?:number|id|index)|id|index|sample|at)$/i;
 
 // Nothing to work on: no value, or only empty texts, lists and objects all
 // the way down (a row with its cells empty, a trigger with no message).
@@ -901,7 +902,7 @@ export function hollow(v: unknown): boolean {
   if (isEmpty(v)) return true;
   if (Array.isArray(v) || typeof v !== "object") return false;
   return Object.entries(v as Record<string, unknown>)
-    .filter(([k]) => !ABOUT.has(k))
+    .filter(([k]) => !ABOUT.test(k))
     .every(([, x]) => hollow(x));
 }
 

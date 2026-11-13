@@ -8,7 +8,7 @@ import { repaired, wireToDefinition } from "./plan";
 import { REASONING_SPEND_FLOOR_USD } from "./planRepairs";
 import { needsReasoning, planProblems } from "./planRules";
 import { readReason, reasonRequest } from "./reason";
-import { runAgent, runSteps, startState } from "./runner";
+import { hollow, runAgent, runSteps, startState } from "./runner";
 import { emptyBench, type BenchData, type RunEvent, type RunState, type StepCode } from "./types";
 
 // Real reasoning: a step whose job is a judgement or words for people asks
@@ -157,6 +157,9 @@ describe("a run", () => {
     expect(calls).toHaveLength(2);
     expect(events.find((e) => e.type === "step_done" && e.stepId === "each")).toMatchObject({ output: { items: 3, empty: 1 }, note: "1 empty, passed by." });
 
+    // A submission that is only its id and row has nothing in it either.
+    expect(hollow({ id: 2, row: 3, submission_text: "" })).toBe(true);
+    expect(hollow({ id: 2, submission_text: "Tide" })).toBe(false);
     const blank = { ...bench(), sheets: { Submissions: [{ Name: "", Description: " " }, { Name: null, Description: "" }] } };
     const sent: RunEvent[] = [];
     const skipped = await runAgent({ definition: scorer(), code: { read: ok(READ), score: ok(SCORE), summary: ok(SUMMARY) }, bench: blank, dryRun: false, serv, fetchImpl: servFetch(calls), onEvent: (e) => sent.push(e) });
