@@ -7,11 +7,13 @@ import { YourAgentsNav } from "@/components/shell/SubNav";
 import { ConnectionsView, type ConnectionsApi } from "@/components/connections/ConnectionsView";
 import { GoogleConnect } from "@/components/connections/GoogleConnect";
 import { TelegramLink } from "@/components/connections/TelegramLink";
+import { TypeformConnect } from "@/components/connections/TypeformConnect";
+import { backTo } from "@/lib/backTo";
 import { privyAppId } from "@/lib/privy-config";
 import { useApi } from "@/lib/useApi";
 import styles from "../agents/agents.module.css";
 
-// The signed-in owner's connections to Telegram and Google.
+// The signed-in owner's connections to Telegram, Google and Typeform.
 export default function ConnectionsPage() {
   return (
     <Page title="Connections" note="what your agents may reach, and only for you" width="narrow" above={<YourAgentsNav />}>
@@ -46,9 +48,24 @@ function useGoogleReturn(): string | null {
   return said;
 }
 
+// Sent here to connect one service (?connect=typeform&back=/app/chat?c=...):
+// that card is brought into view, and once it is connected the page goes
+// back to where it was asked from.
+function useConnectHere(): { back: string | null } {
+  const [back, setBack] = useState<string | null>(null);
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const which = q.get("connect");
+    setBack(backTo(q.get("back")));
+    if (which) setTimeout(() => document.getElementById(`connect-${which}`)?.scrollIntoView({ block: "center" }), 400);
+  }, []);
+  return { back };
+}
+
 function Connections() {
   const api = useApi();
   const back = useGoogleReturn();
+  const here = useConnectHere();
   const view: ConnectionsApi = useMemo(() => ({ load: api.listConnections, disconnect: api.disconnect }), [api]);
   return (
     <>
@@ -62,6 +79,15 @@ function Connections() {
         connect={{
           telegram: (refresh) => <TelegramLink getCode={api.telegramCode} refresh={refresh} />,
           google: () => <GoogleConnect start={api.googleStart} />,
+          typeform: (refresh) => (
+            <TypeformConnect
+              connect={api.connectTypeform}
+              onConnected={async () => {
+                if (here.back) window.location.assign(here.back);
+                else await refresh();
+              }}
+            />
+          ),
         }}
       />
     </>

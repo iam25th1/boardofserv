@@ -302,9 +302,12 @@ export interface PlanInput {
   // Changing a plan: the plan as it is, and what the maker says is wrong.
   current?: AgentDefinition | null;
   feedback?: string | null;
+  // What the platform knows that the maker didn't say (a Typeform form's
+  // questions, read with their connected token).
+  notes?: string[];
 }
 
-export function planRequest({ interview, history, current, feedback }: PlanInput): string {
+export function planRequest({ interview, history, current, feedback, notes }: PlanInput): string {
   const lines = [`Agent: ${interview.name ?? "unnamed"}`, "", "Interview:"];
   for (const k of INTERVIEW_FIELDS) if (interview[k]) lines.push(`${INTERVIEW_LABELS[k]}: ${interview[k]}`);
   const said = contextFor(history, PLAN_HISTORY_MESSAGES)
@@ -315,6 +318,7 @@ export function planRequest({ interview, history, current, feedback }: PlanInput
     lines.push("", "The plan as it is:", JSON.stringify(current));
     if (feedback) lines.push("", `The maker says: ${feedback}`, "Change only what this needs. Keep the ids of steps that stay the same.");
   } else if (feedback) lines.push("", `Also: ${feedback}`);
+  if (notes?.length) lines.push("", "What boardofserv knows:", ...notes.map((n) => `- ${n}`));
   return lines.join("\n");
 }
 

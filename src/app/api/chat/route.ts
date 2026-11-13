@@ -19,6 +19,8 @@ import { answer, changeSteps, offerMakeIt } from "@/lib/agents/journey";
 import { honestReply, MAKE_IT_NEXT, wholeSentences } from "@/lib/replyClaims";
 import { describedEnough } from "@/lib/sketchFields";
 import { sourceAsk, unreadableIn } from "@/lib/agents/sources";
+import { hasConnection } from "@/lib/connections/vault";
+import { serverRuntime } from "@/lib/agents/runtime/context";
 
 export const runtime = "nodejs";
 
@@ -178,9 +180,12 @@ export async function POST(req: Request) {
       // public link, a page behind a sign-in): the reply says so in plain
       // words and asks for what's needed, or what works instead. No model
       // writes it, so it never pretends the link can be read.
-      const unreadable = sketch?.kind === "agent" || planned ? unreadableIn(said) : null;
+      const connected = new Set((await hasConnection(serverRuntime(), user.id, "typeform")) ? ["typeform"] : []);
+      const unreadable = sketch?.kind === "agent" || planned ? unreadableIn(said, connected) : null;
       if (unreadable) {
-        const text = sourceAsk(unreadable.problem);
+        // With a connection that would read it, a link to connect it that
+        // comes back to this conversation.
+        const text = sourceAsk(unreadable.problem, `/app/chat?c=${cid}`);
         send("delta", { text });
         const [saved] = await db.insert(messages).values({ conversationId: cid, role: "assistant", content: text }).returning();
         await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));

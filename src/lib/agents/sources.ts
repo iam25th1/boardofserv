@@ -10,6 +10,9 @@
 export interface SourceProblem {
   // What it is: "a Typeform form link".
   what: string;
+  // The connection that makes it readable (typeform.read with the owner's
+  // own token), when there is one.
+  via?: "typeform";
   // Why it can't be read, what reading it would take, and what works.
   why: string;
   needs: string;
@@ -37,11 +40,14 @@ const IN_A_SHEET = "give me that sheet when you set it up, and it reads each new
 const RULES: { host: RegExp; path?: RegExp; problem: SourceProblem }[] = [
   {
     host: /(^|\.)typeform\.com$/,
-    problem: FORM(
-      "Typeform",
-      "Reading the answers needs your Typeform personal access token, or a webhook from Typeform that sends each answer as it comes in.",
-      `Simplest: in your form's Connect tab, turn on Google Sheets so each answer lands in a sheet, then ${IN_A_SHEET}.`,
-    ),
+    problem: {
+      ...FORM(
+        "Typeform",
+        "To read its answers I need your Typeform personal token: connect Typeform and I'll read each new answer from the form, each one once.",
+        `Or, without a token: in your form's Connect tab, turn on Google Sheets so each answer lands in a sheet, then ${IN_A_SHEET}.`,
+      ),
+      via: "typeform",
+    },
   },
   { host: /^forms\.gle$/, problem: FORM("Google Forms", "Reading the answers needs the sheet the form's responses go to.", `In the form's Responses tab, choose Link to Sheets, then ${IN_A_SHEET}.`) },
   { host: /^docs\.google\.com$/, path: /^\/forms\//, problem: FORM("Google Forms", "Reading the answers needs the sheet the form's responses go to.", `In the form's Responses tab, choose Link to Sheets, then ${IN_A_SHEET}.`) },
@@ -71,23 +77,28 @@ export function sourceProblem(url: string): SourceProblem | null {
 
 const LINK = /\bhttps?:\/\/[^\s"'<>)\]}]+/gi;
 
-// The first link in some text an agent couldn't read, with its problem.
-export function unreadableIn(text: string): { url: string; problem: SourceProblem } | null {
+// The first link in some text an agent couldn't read with what its owner
+// has connected, with its problem: a Typeform link reads once Typeform is.
+export function unreadableIn(text: string, connected: ReadonlySet<string> = new Set()): { url: string; problem: SourceProblem } | null {
   for (const m of text.match(LINK) ?? []) {
     const url = m.replace(/[.,;:!?]+$/, "");
     const problem = sourceProblem(url);
-    if (problem) return { url, problem };
+    if (problem && !(problem.via && connected.has(problem.via))) return { url, problem };
   }
   return null;
 }
 
 // The chat's answer to a maker who gave such a link: what it is, why it
-// can't be read, what reading it would take, and what works instead.
-export function sourceAsk(p: SourceProblem): string {
-  return `That's ${p.what}. ${p.why} ${p.needs} ${p.instead}`;
+// can't be read, what reading it would take, and what works instead. With
+// a connection that reads it, a link to connect it that comes back to here.
+export function sourceAsk(p: SourceProblem, connectBack?: string): string {
+  const ask = `That's ${p.what}. ${p.why} ${p.needs} ${p.instead}`;
+  if (!p.via || !connectBack) return ask;
+  return `${ask}\n\n[Connect Typeform](/app/connections?connect=${p.via}&back=${encodeURIComponent(connectBack)})`;
 }
 
 // Why a read of it fails, for the step and the job.
 export function sourceRefusal(p: SourceProblem): string {
+  if (p.via === "typeform") return `It can't read this with web.fetch: ${p.why} Read its answers with typeform.read, with the owner's Typeform connected.`;
   return `It can't read this: ${p.why} ${p.instead}`;
 }

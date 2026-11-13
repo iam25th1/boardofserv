@@ -30,9 +30,14 @@ describe("a link an agent can't read", () => {
   it("is found in what the maker said, and answered in plain words that ask for what's needed", () => {
     const found = unreadableIn("Score submissions from https://form.typeform.com/to/AbC123xy, please.");
     expect(found?.url).toBe("https://form.typeform.com/to/AbC123xy");
-    const ask = sourceAsk(found!.problem);
-    expect(ask).toContain("personal access token, or a webhook");
+    const ask = sourceAsk(found!.problem, "/app/chat?c=abc");
+    expect(ask).toContain("I need your Typeform personal token: connect Typeform");
     expect(ask).toContain("Google Sheets");
+    // One tap to connect it, coming back to the same chat.
+    expect(ask).toContain("[Connect Typeform](/app/connections?connect=typeform&back=%2Fapp%2Fchat%3Fc%3Dabc)");
+    // Once Typeform is connected, the link is one an agent can read.
+    expect(unreadableIn("Score submissions from https://form.typeform.com/to/AbC123xy", new Set(["typeform"]))).toBeNull();
+    expect(unreadableIn("Score submissions from https://forms.gle/x1y2z3", new Set(["typeform"]))?.problem.what).toBe("a Google Forms form link");
   });
 });
 
@@ -40,7 +45,7 @@ describe("a step that tries to read one", () => {
   it("fails on the bench as it would for real: nothing read, nothing pretended", async () => {
     const mock = new MockTools({ ...emptyBench(), pages: { "https://form.typeform.com/to/AbC123xy": "Made-up answers" } });
     await expect(mock.call("web.fetch", { url: "https://form.typeform.com/to/AbC123xy" })).rejects.toBeInstanceOf(ToolError);
-    await expect(mock.call("web.fetch", { url: "https://form.typeform.com/to/AbC123xy" })).rejects.toThrow("It can't read this: A Typeform link opens the form");
+    await expect(mock.call("web.fetch", { url: "https://form.typeform.com/to/AbC123xy" })).rejects.toThrow("It can't read this with web.fetch: A Typeform link opens the form");
   });
 
   it("is never planned as one that reads with no tool and nothing to read", () => {
