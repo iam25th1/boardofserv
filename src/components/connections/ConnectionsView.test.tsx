@@ -23,7 +23,7 @@ describe("the connections page", () => {
   it("shows what is linked and what uses it, and disconnects after a yes, saying what paused", async () => {
     let linked = [telegram];
     const api = {
-      load: vi.fn(async () => ({ connections: linked, available: { telegram: true, google: false } })),
+      load: vi.fn(async () => ({ connections: linked, available: { telegram: true, google: false, typeform: true } })),
       disconnect: vi.fn(async () => {
         linked = [];
         return { revoked: null, paused: 1 };

@@ -179,7 +179,7 @@ export interface InstallationDTO {
   pausedReason: string | null;
   // The connections it needs, and which of those the owner hasn't made.
   needs: { telegram: boolean; google: boolean };
-  missing: ("telegram" | "google")[];
+  missing: ("telegram" | "google" | "typeform")[];
   // For an agent that pays, when its allowance is empty: why it can't pay
   // until its owner tops it up, in one sentence. Null otherwise.
   allowanceWarning: string | null;
@@ -380,7 +380,7 @@ export interface RentalDetailDTO extends RentalDTO {
 // One of the owner's connections, as only they see it: the service, the
 // account or chat it is linked to, when, and what uses it. Never a secret.
 export interface ConnectionDTO {
-  provider: "telegram" | "google";
+  provider: "telegram" | "google" | "typeform";
   name: string;
   label: string;
   connectedAt: string;

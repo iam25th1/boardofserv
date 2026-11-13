@@ -24,6 +24,7 @@ export interface ConnectionsApi {
 const FOR: Record<Provider, string> = {
   telegram: "Your agents message you and ask you things in Telegram, and you can message them back. Answer with a button there or here, whichever comes first.",
   google: "Your agents read and write the Google Sheets you give them, and only those, tab by tab.",
+  typeform: "Your agents read the answers to the Typeform forms you give them, each new answer once, with your own personal token.",
 };
 
 const when = (iso: string) => new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" });
@@ -45,7 +46,7 @@ export function ConnectionsView({ api, connect }: { api: ConnectionsApi; connect
   if (!data) return <SkeletonRows label="Getting your connections" count={2} />;
   return (
     <ul className={styles.list} ref={listRef}>
-      {(["telegram", "google"] as const).map((p) => (
+      {(["telegram", "google", "typeform"] as const).map((p) => (
         <li key={p} data-enter>
           <ServiceCard
             provider={p}
@@ -64,7 +65,7 @@ export function ConnectionsView({ api, connect }: { api: ConnectionsApi; connect
   );
 }
 
-const NAME: Record<Provider, string> = { telegram: "Telegram", google: "Google Sheets" };
+const NAME: Record<Provider, string> = { telegram: "Telegram", google: "Google Sheets", typeform: "Typeform" };
 
 function ServiceCard({
   provider,
@@ -118,7 +119,7 @@ function ServiceCard({
   };
 
   return (
-    <section className={styles.card} data-connected={c ? "true" : "false"} aria-labelledby={`svc-${provider}`}>
+    <section className={styles.card} id={`connect-${provider}`} data-connected={c ? "true" : "false"} aria-labelledby={`svc-${provider}`}>
       <header className={styles.head}>
         <h2 id={`svc-${provider}`} className={styles.name}>
           {NAME[provider]}
@@ -187,7 +188,9 @@ function ServiceCard({
         <p>
           {provider === "google"
             ? "boardofserv asks Google to revoke its access and forgets it here. Your sheets stay as they are."
-            : "boardofserv forgets your chat. It sends nothing there again until you link it."}
+            : provider === "typeform"
+              ? "boardofserv forgets your token here. Delete it in Typeform too if nothing else uses it. Your forms and their answers stay as they are."
+              : "boardofserv forgets your chat. It sends nothing there again until you link it."}
         </p>
         {c && c.usedBy.some((i) => i.status === "active") && (
           <p>

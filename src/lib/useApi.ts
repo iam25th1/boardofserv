@@ -36,7 +36,8 @@ export function useApi() {
     };
     return {
       // The owner's connections, and which services can be connected here.
-      listConnections: () => json<{ connections: ConnectionDTO[]; available: { telegram: boolean; google: boolean } }>("/api/connections"),
+      listConnections: () => json<{ connections: ConnectionDTO[]; available: { telegram: boolean; google: boolean; typeform: boolean } }>("/api/connections"),
+      connectTypeform: (token: string) => json<{ connected: true; label: string }>("/api/connections/typeform", { method: "POST", body: JSON.stringify({ token }) }),
       disconnect: (provider: ConnectionDTO["provider"]) => json<{ revoked: boolean | null; paused: number }>(`/api/connections?provider=${provider}`, { method: "DELETE" }),
       // A one-time code to send the bot from the chat to link.
       telegramCode: () => json<{ code: string; link: string; bot: string; expiresAt: string }>("/api/connections/telegram/code", { method: "POST" }),
