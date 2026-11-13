@@ -9,6 +9,8 @@ import type { Runtime } from "./context";
 import { opinionsFor, requestOpinion } from "../../reppo/opinion";
 import { paymentsConfig } from "../../payments/config";
 import { heldAnswered, isHeldStep } from "./held";
+import { HELD_ALL } from "../heldIds";
+import { oneLine, riskyLabels } from "../../reppo/batch";
 
 // Approvals that wait. A job that asks its owner something (telegram.ask),
 // or would spend past a limit (spend.ts), pauses as waiting_for_owner, and
@@ -193,6 +195,16 @@ export async function approvalsOf(rt: Runtime, ownerUserId: string, o: { install
   return [...list.filter((a) => a.status === "pending"), ...list.filter((a) => a.status !== "pending")];
 }
 
+// The question about a run's held messages: Reppo's opinion with its
+// reason in one line, and the links it called risky flagged on their
+// messages.
+function heldView(a: AgentApproval, opinion: ApprovalDTO["opinion"]): Pick<ApprovalDTO, "opinion" | "items"> {
+  const risky = new Set(opinion?.state === "ready" ? riskyLabels(opinion.reason) : []);
+  const items = (a.items ?? []).map((m) => ({ text: m.text, links: m.links.map((l) => ({ link: l.link, risky: Boolean(l.risky) || risky.has(l.label) })) }));
+  if (a.stepId !== HELD_ALL) return { opinion, items };
+  return { opinion: opinion ? { ...opinion, reason: opinion.state === "ready" ? oneLine(opinion.reason) : opinion.reason } : null, items };
+}
+
 export function approvalDTO(a: AgentApproval, d: AgentDefinition | null, opinion: ApprovalDTO["opinion"] = null): ApprovalDTO {
   // A payment's question says what the money is.
   const step = d?.steps.find((s) => s.id === a.stepId);
@@ -215,5 +227,7 @@ export function approvalDTO(a: AgentApproval, d: AgentDefinition | null, opinion
     expiresAt: a.expiresAt.toISOString(),
     createdAt: a.createdAt.toISOString(),
     opinion,
+    items: null,
+    ...(isHeldStep(a.stepId) ? heldView(a, opinion) : {}),
   };
 }

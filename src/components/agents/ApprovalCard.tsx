@@ -12,7 +12,9 @@ import { moneyNote } from "@/lib/moneyWords";
 // option with what happens then, and what happens with no answer. Once
 // answered (or expired) it says how it ended. For a payment or a new
 // contact, Reppo's second opinion sits beside it: "still being checked"
-// until it comes, never in the way of answering.
+// until it comes, never in the way of answering. On the question about
+// the messages a run held, each message is listed with its links, as
+// text, never as links to follow, and those Reppo called risky say so.
 
 const ENDED: Record<Exclude<ApprovalDTO["status"], "pending">, string> = {
   answered: "Answered",
@@ -54,6 +56,27 @@ export function ApprovalCard({ approval, onAnswer, jobHref }: { approval: Approv
         </span>
       </header>
       <p className={styles.question}>{a.question}</p>
+      {a.items?.length ? (
+        <ol className={styles.items} data-one={a.items.length === 1 || undefined}>
+          {a.items.map((m, i) => (
+            <li key={i}>
+              <span>&ldquo;{m.text}&rdquo;</span>
+              {m.links.length > 0 && (
+                <span className={styles.links}>
+                  Links:{" "}
+                  {m.links.map((l, j) => (
+                    <span key={j}>
+                      {j > 0 && ", "}
+                      <span className={styles.link}>{l.link}</span>
+                      {l.risky && <strong className={styles.risky}>Reppo calls this risky</strong>}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </li>
+          ))}
+        </ol>
+      ) : null}
       {a.money && <p className={styles.money}>{moneyNote(a.money)}</p>}
       {a.reason && (
         <p className={styles.reason} data-kind={a.kind}>

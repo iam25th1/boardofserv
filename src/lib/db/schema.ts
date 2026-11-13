@@ -810,6 +810,9 @@ export const agentApprovals = pgTable(
     // Why the platform asks, in plain words, when it does.
     reason: text("reason"),
     options: jsonb("options").$type<{ label: string; effect: string }[]>().notNull(),
+    // About messages a run held (agents/runtime/held.ts): each one's words
+    // and its links, labelled for Reppo (risky once Reppo called it so).
+    items: jsonb("items").$type<{ text: string; links: { label: string; link: string; risky?: boolean }[] }[]>(),
     noAnswer: text("no_answer").notNull(),
     status: text("status", { enum: ["pending", "answered", "expired", "cancelled"] }).notNull().default("pending"),
     answer: text("answer"),

@@ -1,6 +1,8 @@
 import "server-only";
-import { and, asc, eq, inArray } from "drizzle-orm";
-import { agentApprovals, agentInstallations, agentJobs, agentMessages, type AgentInstallation, type AgentJob, type AgentMessage } from "../../db/schema";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { agentApprovals, agentInstallations, agentJobs, agentMessages, reppoEvals, type AgentInstallation, type AgentJob, type AgentMessage } from "../../db/schema";
+import { requestBatchOpinion, riskyLabels, type HeldItem } from "../../reppo/batch";
+import { HELD_ALL, HELD_ONE } from "../heldIds";
 import { DEFAULT_APPROVAL_HOURS, type AgentDefinition } from "../definition";
 import { audit } from "../audit";
 import { describeCall } from "../calls";
@@ -21,10 +23,7 @@ type Tx = Parameters<Parameters<Runtime["db"]["transaction"]>[0]>[0];
 type Db = Runtime["db"] | Tx;
 type End = HeldRelease["end"];
 
-// The approvals' step ids: one for the run's messages, one for each.
-export const HELD_ALL = "_messages";
-const HELD_ONE = "_message:";
-export const isHeldStep = (stepId: string) => stepId === HELD_ALL || stepId.startsWith(HELD_ONE);
+export { HELD_ALL, isHeldStep } from "../heldIds";
 
 export const YES_TO_ALL = "Yes to all";
 export const NO_TO_ALL = "No to all";
@@ -60,7 +59,8 @@ const excerpt = (t: string, max: number) => {
 const hours = (d: AgentDefinition) => d.approvalHours ?? DEFAULT_APPROVAL_HOURS;
 
 // The run ended with messages held: one approval for them all, and the job
-// waits for it, keeping how it ended. False when it held none.
+// waits for it, keeping how it ended; Reppo's one second opinion on them
+// is asked for beside it. False when it held none.
 export async function askAboutHeld(rt: Runtime, job: AgentJob, worker: string, d: AgentDefinition, installation: AgentInstallation, state: RunState, end: End): Promise<boolean> {
   const held = await heldOf(rt.db, job.id);
   if (!held.length) return false;
@@ -68,16 +68,10 @@ export async function askAboutHeld(rt: Runtime, job: AgentJob, worker: string, d
   const links = held.map((m) => unknownContacts(m.text, known));
   const all = [...new Set(links.flat())];
   const n = held.length;
-  const shown = held.slice(0, 20);
-  const question =
-    n === 1
-      ? `Send this message to you? "${excerpt(held[0]!.text, 400)}"`
-      : [
-          `Send these ${n} messages to you? Each carries links you didn't give it.`,
-          "",
-          ...shown.map((m, i) => `${i + 1}. "${excerpt(m.text, 160)}"${links[i]!.length ? `\n   Links: ${links[i]!.slice(0, 4).join(", ")}` : ""}`),
-          ...(n > shown.length ? [`And ${n - shown.length} more.`] : []),
-        ].join("\n");
+  // Each message shown with its links, every link labelled for Reppo.
+  let label = 0;
+  const items: HeldItem[] = held.slice(0, 20).map((m, i) => ({ text: excerpt(m.text, n === 1 ? 400 : 160), links: links[i]!.slice(0, 4).map((link) => ({ label: `L${++label}`, link })) }));
+  const question = n === 1 ? "Send this message to you?" : `Send these ${n} messages to you? Each carries links you didn't give it.${n > items.length ? ` The first ${items.length} are shown.` : ""}`;
   const some = all.length === 1 ? "a link, address or contact detail" : "links, addresses or contact details";
   const reason = `${n === 1 ? "It carries" : "They carry"} ${some} you didn't give it: ${all.slice(0, 3).join(", ")}${all.length > 3 ? ` and ${all.length - 3} more` : ""}. Don't follow ${all.length === 1 ? "it" : "them"} unless you trust ${all.length === 1 ? "it" : "them"}.`;
   const options =
@@ -94,11 +88,17 @@ export async function askAboutHeld(rt: Runtime, job: AgentJob, worker: string, d
   const h = hours(d);
   const noAnswer = `After ${h} ${h === 1 ? "hour" : "hours"} with no answer, ${n === 1 ? "it isn't sent" : "none of them is sent"}.`;
   state.release = { end };
-  return wait(rt, job, worker, state, [{ stepId: HELD_ALL, question, reason, options, noAnswer }], d);
+  const ids = await wait(rt, job, worker, state, [{ stepId: HELD_ALL, question, reason, options, noAnswer, items }], d);
+  // Beside the wait, never in its way: the question is out whatever Reppo does.
+  if (ids[0]) await requestBatchOpinion(rt, { job, agentId: installation.agentId, approvalId: ids[0], definition: d, items, outside: Boolean(state.untrusted?.length) });
+  return true;
 }
 
-// The job waits for these approvals, its state kept.
-async function wait(rt: Runtime, job: AgentJob, worker: string, state: RunState, asks: { stepId: string; question: string; reason: string | null; options: { label: string; effect: string }[]; noAnswer: string }[], d: AgentDefinition): Promise<boolean> {
+type HeldAsk = { stepId: string; question: string; reason: string | null; options: { label: string; effect: string }[]; noAnswer: string; items: HeldItem[] };
+
+// The job waits for these approvals, its state kept. Their ids, none when
+// the job wasn't this worker's to move any more.
+async function wait(rt: Runtime, job: AgentJob, worker: string, state: RunState, asks: HeldAsk[], d: AgentDefinition): Promise<string[]> {
   const now = rt.now();
   return rt.db.transaction(async (tx) => {
     const moved = await tx
@@ -106,25 +106,29 @@ async function wait(rt: Runtime, job: AgentJob, worker: string, state: RunState,
       .set({ status: "waiting_for_owner", state, claimedBy: null, costUsd: state.costUsd.toFixed(6), updatedAt: now })
       .where(and(eq(agentJobs.id, job.id), eq(agentJobs.claimedBy, worker), eq(agentJobs.status, "running")))
       .returning({ id: agentJobs.id });
-    if (!moved.length) return true;
-    await tx.insert(agentApprovals).values(
-      asks.map((a) => ({
-        jobId: job.id,
-        installationId: job.installationId,
-        ownerUserId: job.ownerUserId,
-        stepId: a.stepId,
-        callIndex: -1,
-        kind: "safety" as const,
-        question: a.question,
-        reason: a.reason,
-        options: a.options,
-        noAnswer: a.noAnswer,
-        expiresAt: new Date(now.getTime() + hours(d) * 3_600_000),
-        tgState: "pending" as const,
-        createdAt: now,
-      })),
-    );
-    return true;
+    if (!moved.length) return [];
+    const rows = await tx
+      .insert(agentApprovals)
+      .values(
+        asks.map((a) => ({
+          jobId: job.id,
+          installationId: job.installationId,
+          ownerUserId: job.ownerUserId,
+          stepId: a.stepId,
+          callIndex: -1,
+          kind: "safety" as const,
+          question: a.question,
+          reason: a.reason,
+          options: a.options,
+          items: a.items,
+          noAnswer: a.noAnswer,
+          expiresAt: new Date(now.getTime() + hours(d) * 3_600_000),
+          tgState: "pending" as const,
+          createdAt: now,
+        })),
+      )
+      .returning({ id: agentApprovals.id });
+    return rows.map((r) => r.id);
   });
 }
 
@@ -158,22 +162,33 @@ export async function releaseHeld(rt: Runtime, job: AgentJob, worker: string, d:
     release.each = {};
     const known = knownTo(installation, job);
     const h = hours(d);
+    // The links Reppo called risky on the question about them all stay
+    // flagged on each one's own.
+    const [all] = await rt.db
+      .select({ id: agentApprovals.id, items: agentApprovals.items })
+      .from(agentApprovals)
+      .where(and(eq(agentApprovals.jobId, job.id), eq(agentApprovals.stepId, HELD_ALL)))
+      .orderBy(desc(agentApprovals.createdAt))
+      .limit(1);
+    const [opinion] = all ? await rt.db.select({ reason: reppoEvals.reason }).from(reppoEvals).where(and(eq(reppoEvals.approvalId, all.id), eq(reppoEvals.status, "completed"))) : [];
+    const risky = new Set(riskyLabels(opinion?.reason));
     await wait(
       rt,
       job,
       worker,
       state,
-      held.map((m) => {
-        const links = unknownContacts(m.text, known);
+      held.map((m, i) => {
+        const links = all?.items?.[i]?.links ?? unknownContacts(m.text, known).slice(0, 4).map((link, j) => ({ label: `M${j + 1}`, link }));
         return {
           stepId: `${HELD_ONE}${m.id}`,
-          question: `Send this message to you? "${excerpt(m.text, 400)}"`,
-          reason: links.length ? `It carries ${links.length === 1 ? "a link, address or contact detail" : "links, addresses or contact details"} you didn't give it: ${links.slice(0, 3).join(", ")}.` : null,
+          question: "Send this message to you?",
+          reason: links.length ? `It carries ${links.length === 1 ? "a link, address or contact detail" : "links, addresses or contact details"} you didn't give it: ${links.map((l) => l.link).slice(0, 3).join(", ")}.` : null,
           options: [
             { label: "Yes", effect: "It is sent to you." },
             { label: "No", effect: "It isn't sent." },
           ],
           noAnswer: `After ${h} ${h === 1 ? "hour" : "hours"} with no answer, it isn't sent.`,
+          items: [{ text: excerpt(m.text, 400), links: links.map((l) => ({ ...l, risky: risky.has(l.label) })) }],
         };
       }),
       d,

@@ -359,7 +359,15 @@ export class JobTools implements ToolHost {
       if (tool === "telegram.send" && this.job && !over && strange.length && why.length === 1) {
         const parsed = TOOL_ARGS["telegram.send"].safeParse(args);
         if (!parsed.success) throw new ToolError(tool, "telegram.send was called wrongly: it takes { text }.");
-        await this.rt.db.insert(agentMessages).values({ installationId: this.installation.id, from: "agent", text: fixDashes(parsed.data.text), jobId: this.job.id, tgState: "held", createdAt: this.rt.now() });
+        // Each after the one before, so they are listed and sent in the
+        // order the run made them.
+        const [last] = await this.rt.db
+          .select({ at: sql<string | null>`max(${agentMessages.createdAt})` })
+          .from(agentMessages)
+          .where(and(eq(agentMessages.jobId, this.job.id), eq(agentMessages.tgState, "held")));
+        const now = this.rt.now();
+        const after = last?.at ? new Date(last.at).getTime() + 1 : 0;
+        await this.rt.db.insert(agentMessages).values({ installationId: this.installation.id, from: "agent", text: fixDashes(parsed.data.text), jobId: this.job.id, tgState: "held", createdAt: after > now.getTime() ? new Date(after) : now });
         await this.logged(step, tool, risk, what, { outcome: "asked", guard: g, reason: `Kept to ask you once, with the run's other messages, when the run ends: ${lowerFirst(why[0]!)}` });
         return { sent: false, held: true };
       }

@@ -461,6 +461,9 @@ export interface ApprovalDTO {
   // checked, ready (a score, a route and why), or none this time. Absent
   // when none was asked for. Never the decision: the answer is.
   opinion?: { state: "checking" | "ready" | "none"; score: number | null; route: "ship" | "review" | "block" | null; reason: string | null } | null;
+  // About messages a run held: each one's words and its links, each link
+  // flagged when Reppo called it risky.
+  items?: { text: string; links: { link: string; risky: boolean }[] }[] | null;
   options: { label: string; effect: string }[];
   // For a payment: what the money is (test USDC on Base Sepolia in the beta).
   money?: MoneyKind | null;
