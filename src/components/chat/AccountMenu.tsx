@@ -146,7 +146,7 @@ export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, 
                 Agents you&apos;re building
               </Link>
               <Link className={styles.link} href="/app/connections" onClick={() => setOpen(false)}>
-                Connections: Telegram and Google
+                Connections: Telegram, Google and Typeform
               </Link>
               {account?.admin && (
                 <Link className={styles.link} href="/app/admin" onClick={() => setOpen(false)}>

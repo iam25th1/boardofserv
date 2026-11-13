@@ -10,7 +10,7 @@ import { FIRST_VISIT } from "./warm";
 const LINKS = [
   { name: "Balance, top up and earnings", path: "/app/wallet", heading: "Your wallet" },
   { name: "Agents you're building", path: "/app/agents", heading: "Agents you make" },
-  { name: "Connections: Telegram and Google", path: "/app/connections", heading: "Connections" },
+  { name: "Connections: Telegram, Google and Typeform", path: "/app/connections", heading: "Connections" },
   { name: "Admin", path: "/app/admin", heading: "Admin" },
 ];
 
