@@ -144,7 +144,7 @@ describe("the journey in the chat", () => {
     // Make it planned and stopped: nothing written, nothing tried.
     let c = await conversation(cid);
     expect(stages(c)).toEqual(["steps"]);
-    expect(seen).toEqual(["agent_outline", "agent_steps", "agent_steps"]);
+    expect(seen).toEqual(["agent_outline", "agent_steps", "agent_steps", "purpose_check"]);
     expect(c.agent).toMatchObject({ buildState: "idle", test: null });
     expect(c.agent!.plain!.map((l) => l.text)).toEqual(["Read the price", "At or below your target? If above the target, it stops there.", "Write the question", "Ask you whether to send a reminder to buy it", "Did you say yes? If no, it stops there.", "Write the reminder", "Send you the reminder to buy it"]);
     expect(c.messages.at(-1)!.content).toMatch(/^The steps:\n1\. Read the price\n/);

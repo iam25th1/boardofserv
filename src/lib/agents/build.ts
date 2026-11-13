@@ -50,6 +50,12 @@ export async function diagnosed(versionId: string, diagnosis: Diagnosis): Promis
   if (v) await setHeal(versionId, withDiagnosis(v.heal, diagnosis));
 }
 
+// A step the planner made that the safety guard would block every run:
+// left out of the plan, and the maker told which and why.
+async function leftOut(versionId: string, dropped: { title: string; reason: string }[]): Promise<void> {
+  for (const d of dropped) await healOf(versionId, (l) => withLine(l, `Left out "${d.title}": the safety check would stop it every run. ${d.reason}`.trim(), "fixed"));
+}
+
 async function healOf(versionId: string, f: (log: HealLog) => HealLog): Promise<HealLog | null> {
   const v = await versionById(versionId);
   if (!v) return null;
@@ -420,6 +426,7 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
       const base = input ?? (await planInputFor(ctx.conversationId, v.definition, ""));
       const plan = await planAgent({ ...base, current: v.definition, feedback: change }, { config: ctx.serv, signal: new AbortController().signal, maxCalls: planCallCap(v.definition), lessons: c.lessons });
       for (const call of plan.calls) await recordAgentCall(c, "agent_plan", call);
+      await leftOut(versionId, plan.dropped);
       if (!plan.definition) {
         const failed = planDiagnosis(plan.errors, v.definition);
         await healOf(versionId, (l) => withRound(l, { outcome: "failed" }));
@@ -610,6 +617,7 @@ export function startPlan(version: AgentVersion, input: PlanInput, ctx: BuildCon
     try {
       const plan = await planAgent(input, { config: ctx.serv, signal: new AbortController().signal, lessons: c.lessons, ...(version.definition ? { maxCalls: planCallCap(version.definition) } : {}) });
       for (const call of plan.calls) await recordAgentCall(c, "agent_plan", call);
+      await leftOut(version.id, plan.dropped);
       if (!plan.definition) {
         const failures = plan.calls.flatMap((x) => x.failures);
         const answered = plan.calls.some((x) => x.content);

@@ -148,7 +148,7 @@ describe("planning with the repairs", () => {
     const history = [{ role: "user" as const, content: "If the price is below my target, ask me on Telegram whether I want a reminder to buy it." }];
     const plan = await planAgent({ interview, history }, { config: servOnly(modelConfig({ SERV_API_KEY: "test-serv" })), signal: new AbortController().signal, fetchImpl });
     expect(plan.errors).toEqual([]);
-    expect(asked).toEqual(["agent_outline", "agent_steps"]);
+    expect(asked).toEqual(["agent_outline", "agent_steps", "purpose_check"]);
     expect(plan.definition?.steps.map((s) => s.id)).toEqual(["read_price", "is_low", "make_ask", "ask", "said_yes", "make_send", "send"]);
   });
 });

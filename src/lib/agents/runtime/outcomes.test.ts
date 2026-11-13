@@ -110,6 +110,31 @@ describe("a job whose side step is stopped", () => {
     expect(card).toMatchObject({ status: "done", outcome: "noted", why: job.reason });
   });
 
+  it("asks its maker in the chat it was made in, once, whether to take the step out", async () => {
+    rt.guardVerdict = (request) => (request.includes("memory.set") ? { verdict: "block", reason: "Remembering scores is outside what this agent is for." } : { verdict: "allow", reason: "It fits." });
+    const inst = await ready();
+    const [convo] = await db.insert(schema.conversations).values({ userId: maker.id, title: "Scorer" }).returning();
+    await db.update(schema.agents).set({ sourceConversationId: convo!.id }).where(eq(schema.agents.id, inst.agentId));
+    await runOnce(inst, { kind: "message", text: "Tide" });
+    rt.clock.move(60_000);
+    await runOnce(inst, { kind: "message", text: "Notes" });
+    const said = await db.select().from(schema.messages).where(eq(schema.messages.conversationId, convo!.id));
+    expect(said.map((m) => `${m.role}: ${m.content}`)).toEqual([
+      'assistant: When it ran, the safety check stopped "Update scoring memory": Remembering scores is outside what this agent is for. Should I take that step out? Say "take it out", or tell me why it belongs and I\'ll change the steps.',
+    ]);
+  });
+
+  it("never asks the maker about a renter's run: what a renter's job saw is theirs", async () => {
+    rt.guardVerdict = (request) => (request.includes("memory.set") ? { verdict: "block", reason: "Outside its purpose." } : { verdict: "allow", reason: "It fits." });
+    const p = await publishedAgent(db, maker, { definition: scorer(), code: CODE });
+    const [convo] = await db.insert(schema.conversations).values({ userId: maker.id, title: "Scorer" }).returning();
+    await db.update(schema.agents).set({ sourceConversationId: convo!.id }).where(eq(schema.agents.id, p.agent.id));
+    const renter = await addUser(db, "renter");
+    const inst = await installed(rt, renter, p, { settings: {} });
+    await runOnce(inst, { kind: "message", text: "Tide" });
+    expect(await db.select().from(schema.messages).where(eq(schema.messages.conversationId, convo!.id))).toEqual([]);
+  });
+
   it("still fails when what it stopped is the job itself", async () => {
     rt.guardVerdict = (request) => (request.includes("telegram.send") ? { verdict: "block", reason: "It sends something odd." } : { verdict: "allow", reason: "It fits." });
     const inst = await ready();

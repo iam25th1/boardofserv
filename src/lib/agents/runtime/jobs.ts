@@ -1,6 +1,6 @@
 import "server-only";
-import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { agentInstallations, agentJobs, agentJobSteps, agentVersions, users, type AgentInstallation, type AgentJob } from "../../db/schema";
+import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { agentInstallations, agentJobs, agentJobSteps, agents, agentVersions, messages, users, type AgentInstallation, type AgentJob } from "../../db/schema";
 import type { AgentDefinition, AgentStep, DecisionStepDef } from "../definition";
 import type { BenchData } from "../types";
 import { askReason, readReason, type ReasonArgs, type Reasoned } from "../reason";
@@ -260,6 +260,25 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
   await log.flush();
   if (result.kind === "wait") return pauseForOwner(rt, job, worker, definition, state, result);
   await finish(rt, job, worker, state, result.kind === "end" ? endOf(result) : { retry: result.reason });
+  if (result.kind === "end") await askAboutBlocked(rt, installation, result.reason).catch((err: unknown) => rt.log(`jobs: the chat wasn't asked about a blocked step: ${err instanceof Error ? err.name : "unknown error"}`));
+}
+
+// The safety check stopped a step of the maker's own agent as it ran: a
+// plan issue. The chat the agent was made in asks them, once a step,
+// whether to take it out or say why it belongs (a reply changes the plan,
+// as any change in the chat does). A renter's runs never reach the maker's
+// chat: what a renter's job saw is theirs.
+const BLOCKED = /"([^"]+)" was stopped by the safety check: (.+?)(?: Everything else it was for was done\.)?$/;
+export async function askAboutBlocked(rt: Runtime, installation: AgentInstallation, reason: string): Promise<boolean> {
+  const m = BLOCKED.exec(reason);
+  if (!m) return false;
+  const [agent] = await rt.db.select({ owner: agents.ownerUserId, conversationId: agents.sourceConversationId }).from(agents).where(eq(agents.id, installation.agentId));
+  if (!agent?.conversationId || agent.owner !== installation.ownerUserId) return false;
+  const text = `When it ran, the safety check stopped "${m[1]}": ${m[2]!.replace(/\.?$/, ".")} Should I take that step out? Say "take it out", or tell me why it belongs and I'll change the steps.`;
+  const [last] = await rt.db.select({ content: messages.content }).from(messages).where(and(eq(messages.conversationId, agent.conversationId), eq(messages.role, "assistant"))).orderBy(desc(messages.createdAt)).limit(1);
+  if (last?.content === text) return false;
+  await rt.db.insert(messages).values({ conversationId: agent.conversationId, role: "assistant", content: text, createdAt: rt.now() });
+  return true;
 }
 
 function endOf(r: Extract<EngineResult, { kind: "end" }>): { status: "done" | "failed" | "cancelled"; reason: string; outcome?: "skipped" | "noted" } {

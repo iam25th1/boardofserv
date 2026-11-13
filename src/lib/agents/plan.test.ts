@@ -65,14 +65,16 @@ describe("planning", () => {
     const { fetchImpl, bodies, urls } = serv([RESTOCK_WIRE]);
     const r = await plan(fetchImpl);
     expect(r.definition?.name).toBe("Fabric restock");
-    expect(r.calls).toHaveLength(2);
-    expect(urls).toEqual(Array(2).fill("https://inference-api.openserv.ai/v1/chat/completions"));
+    // The outline, the details, and the guard's view of its actions.
+    expect(r.calls).toHaveLength(3);
+    expect(urls).toEqual(Array(3).fill("https://inference-api.openserv.ai/v1/chat/completions"));
     expect(config.providers.map((p) => p.id)).toEqual(["serv"]);
     expect(bodies.map((b) => b.response_format.json_schema)).toMatchObject([
       { name: "agent_outline", strict: true },
       { name: "agent_steps", strict: true },
+      { name: "purpose_check", strict: true },
     ]);
-    for (const b of bodies) {
+    for (const b of bodies.slice(0, 2)) {
       expect(b.messages[1]!.content).toContain("Asks you before: orders over 250 USDC");
       expect(b.messages[1]!.content).toContain("Maker: Restock my fabric shop");
     }
@@ -89,7 +91,7 @@ describe("planning", () => {
     const r = await plan(fetchImpl);
     expect(r.errors).toEqual([]);
     expect(r.definition?.steps.map((s) => s.kind)).toEqual(["code", "loop", "loop", "decision", "code", "code", "action", "action"]);
-    expect(bodies.map(schemaOf)).toEqual(["agent_outline", "agent_steps", "agent_steps"]);
+    expect(bodies.map(schemaOf)).toEqual(["agent_outline", "agent_steps", "agent_steps", "purpose_check"]);
     expect(STEPS_PER_CALL).toBe(6);
     expect(askedSteps(bodies[1]!.messages[1]!.content)).toEqual(["find_new", "each_submission", "each_requirement", "judge", "count_met", "make_updates"]);
     expect(askedSteps(bodies[2]!.messages[1]!.content)).toEqual(["write_status", "send"]);
@@ -103,7 +105,7 @@ describe("planning", () => {
     const { fetchImpl, bodies } = serv([RESTOCK_WIRE], [wrong]);
     const r = await plan(fetchImpl);
     expect(r.definition).not.toBeNull();
-    expect(bodies.map(schemaOf)).toEqual(["agent_outline", "agent_steps", "agent_steps"]);
+    expect(bodies.map(schemaOf)).toEqual(["agent_outline", "agent_steps", "agent_steps", "purpose_check"]);
     const again = bodies[2]!.messages[1]!.content;
     expect(askedSteps(again)).toEqual(["record"]);
     expect(again).toContain('- step "record" takes "pay_supplier", which is not a declared action');
@@ -113,7 +115,7 @@ describe("planning", () => {
     const { fetchImpl, bodies } = serv([{ ...RESTOCK_WIRE, triggers: [] }, RESTOCK_WIRE]);
     const r = await plan(fetchImpl);
     expect(r.definition).not.toBeNull();
-    expect(bodies.map(schemaOf)).toEqual(["agent_outline", "agent_steps", "agent_outline"]);
+    expect(bodies.map(schemaOf)).toEqual(["agent_outline", "agent_steps", "agent_outline", "purpose_check"]);
     expect(bodies[2]!.messages.at(-1)!.content).toMatch(/^That outline has problems:\n- triggers/);
     expect(bodies[2]!.messages.at(-1)!.content).toContain("Send the whole corrected outline.");
   });
@@ -124,7 +126,7 @@ describe("planning", () => {
     const { fetchImpl, bodies } = serv([RESTOCK_WIRE, RESTOCK_WIRE], [first, wrong()]);
     const r = await plan(fetchImpl);
     expect(r.definition).not.toBeNull();
-    expect(bodies.map(schemaOf)).toEqual(["agent_outline", "agent_steps", "agent_steps", "agent_outline", "agent_steps"]);
+    expect(bodies.map(schemaOf)).toEqual(["agent_outline", "agent_steps", "agent_steps", "agent_outline", "agent_steps", "purpose_check"]);
     expect(bodies[3]!.messages.at(-1)!.content).toContain('- step "record" takes "pay_supplier", which is not a declared action');
   });
 

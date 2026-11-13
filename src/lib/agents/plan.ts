@@ -8,6 +8,7 @@ import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAM
 import { TOOLS } from "./toolbox";
 import { planProblems } from "./planRules";
 import { askedFirst, askForMissing, askServToReason, columnsByName, fixSetup, repairPlan, type RawStep } from "./planRepairs";
+import { actingSteps, askPurpose, leaveOut, readPurpose } from "./purpose";
 import { rulesText } from "./lessonRules";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
 
@@ -317,6 +318,9 @@ export interface PlanResult {
   errors: string[];
   // Every call made, for the usage records.
   calls: JsonResult[];
+  // Steps left out because the safety guard would block them (purpose.ts),
+  // with its reason, for the maker to see.
+  dropped: { title: string; reason: string }[];
 }
 
 type Stage = "outline" | "details";
@@ -363,7 +367,19 @@ export async function planAgent(
       return null;
     }
   };
-  const done = (definition: AgentDefinition | null): PlanResult => ({ definition, answers, errors: definition ? [] : silent ? ["No model answered."] : errors, calls });
+  let dropped: PlanResult["dropped"] = [];
+  const done = (definition: AgentDefinition | null): PlanResult => ({ definition, answers, errors: definition ? [] : silent ? ["No model answered."] : errors, calls, dropped });
+  // The plan as the guard will see it running: a step it would block, left
+  // out (purpose.ts). Without an answer, the plan stays as it is.
+  const said = input.history.filter((m) => m.role === "user").map((m) => m.content);
+  const agreed = async (d: AgentDefinition): Promise<AgentDefinition> => {
+    if (!actingSteps(d).length) return d;
+    const call = await askPurpose(d, said, opts.config, { signal: opts.signal, fetchImpl: opts.fetchImpl });
+    calls.push(call);
+    const out = leaveOut(d, readPurpose(d, call));
+    dropped = out.dropped;
+    return out.definition;
+  };
 
   // Stage one: the outline.
   const outlineMessages: ChatMessage[] = [
@@ -409,7 +425,7 @@ export async function planAgent(
     // They are read off a plan that doesn't check out yet too, as far as it
     // goes, so a wrong kind of step goes back with everything else.
     const broken = rulesOf(checked.ok ? checked.definition : (joined as AgentDefinition));
-    if (checked.ok && !broken.length) return done(checked.definition);
+    if (checked.ok && !broken.length) return done(await agreed(checked.definition));
     errors = [...new Set([...(checked.ok ? [] : checked.errors), ...broken])];
     if (repairs >= MAX_REPAIRS) break;
     repairs += 1;
