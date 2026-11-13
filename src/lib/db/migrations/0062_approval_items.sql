@@ -1,0 +1,1 @@
+ALTER TABLE "agent_approvals" ADD COLUMN "items" jsonb;

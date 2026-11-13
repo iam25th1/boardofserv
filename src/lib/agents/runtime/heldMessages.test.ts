@@ -100,10 +100,8 @@ describe("a run's messages with links the owner never gave", () => {
     const [a] = asks;
     expect(a!.options.map((o) => o.label)).toEqual(["Yes to all", "No to all", "Pick one by one"]);
     expect(a!.question).toMatch(/^Send these 5 messages to you\?/);
-    for (const p of PROJECTS) {
-      expect(a!.question).toContain(`${p}: try the demo`);
-      expect(a!.question).toContain(`https://${p.toLowerCase().replace(/ /g, "-")}.example/demo`);
-    }
+    // Each message, in the order the run made it, with its link.
+    expect(a!.items).toEqual(PROJECTS.map((p) => ({ text: `${p}: try the demo at https://${p.toLowerCase().replace(/ /g, "-")}.example/demo`, links: [{ link: `https://${p.toLowerCase().replace(/ /g, "-")}.example/demo`, risky: false }] })));
     expect(a!.reason).toContain("you didn't give it");
     expect(a!.noAnswer).toBe("After 24 hours with no answer, none of them is sent.");
     // Not in the app's message box, and not in Telegram: only the question is.
@@ -120,7 +118,7 @@ describe("a run's messages with links the owner never gave", () => {
     await answer(rt, owner.id, a!.id, "Yes to all");
     await runOnce();
     expect(await jobOf(job.id)).toMatchObject({ status: "done" });
-    expect((await said(inst.id)).sort()).toEqual(PROJECTS.map((p) => `${p}: try the demo at https://${p.toLowerCase().replace(/ /g, "-")}.example/demo`).sort());
+    expect(await said(inst.id)).toEqual(PROJECTS.map((p) => `${p}: try the demo at https://${p.toLowerCase().replace(/ /g, "-")}.example/demo`));
     await deliverTelegram(rt);
     expect(rt.net.telegram("sendMessage").filter((m) => !m.reply_markup)).toHaveLength(5);
   });
@@ -153,11 +151,11 @@ describe("a run's messages with links the owner never gave", () => {
     const each = await pending();
     expect(each).toHaveLength(5);
     expect(each.every((x) => x.options.map((o) => o.label).join() === "Yes,No")).toBe(true);
-    for (const x of each) await answer(rt, owner.id, x.id, /Tidewatch|Lantern/.test(x.question) ? "Yes" : "No");
+    for (const x of each) await answer(rt, owner.id, x.id, /Tidewatch|Lantern/.test(x.items![0]!.text) ? "Yes" : "No");
     // Waiting until every one has its answer, then done.
     await runOnce();
     expect(await jobOf(job.id)).toMatchObject({ status: "done" });
-    expect((await said(inst.id)).map((t) => t.split(":")[0]).sort()).toEqual(["Lantern", "Tidewatch"]);
+    expect((await said(inst.id)).map((t) => t.split(":")[0])).toEqual(["Tidewatch", "Lantern"]);
   });
 
   it("go nowhere when the job is cancelled while it asks", async () => {

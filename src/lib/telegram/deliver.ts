@@ -1,7 +1,11 @@
 import "server-only";
 import { and, asc, eq, inArray, lt, ne, sql } from "drizzle-orm";
-import { agentApprovals, agentInstallations, agentMessages, agentVersions, reppoEvals, telegramLinkCodes, telegramPending, telegramUpdates, type AgentApproval } from "../db/schema";
+import { agentApprovals, agentInstallations, agentMessages, agentVersions, telegramLinkCodes, telegramPending, telegramUpdates, type AgentApproval } from "../db/schema";
 import type { AgentDefinition } from "../agents/definition";
+import type { ApprovalDTO } from "../types";
+import { approvalDTO } from "../agents/runtime/approvals";
+import { HELD_ALL } from "../agents/heldIds";
+import { opinionsFor, ROUTE_WORDS } from "../reppo/opinion";
 import type { Runtime } from "../agents/runtime/context";
 import { secretOf, touch } from "../connections/vault";
 import { clip, numberedParts, sendText, TelegramError, type InlineKeyboard } from "./api";
@@ -24,19 +28,59 @@ const holds = new Map<string, number>();
 
 export const answerData = (approvalId: string, index: number) => `a:${approvalId}:${index}`;
 
-// The question as its Telegram message: the agent, the question, why it
-// asks (for a payment, what its trust band allows), what each answer does,
-// and what happens with none.
-// When Reppo is giving a second opinion on it, that it is coming, and that
-// the answer decides either way.
-export function approvalText(a: Pick<AgentApproval, "question" | "options" | "noAnswer" | "stepId"> & { reason?: string | null }, d: AgentDefinition | null, opinion = false): string {
+type Opinion = NonNullable<ApprovalDTO["opinion"]>;
+type Items = NonNullable<ApprovalDTO["items"]>;
+
+// Reppo's second opinion in one line: its score, route and reason, or that
+// it isn't (yet) checked.
+export function reppoLine(o: Opinion): string {
+  if (o.state === "ready") return `Reppo: ${o.score === null ? "no score" : `${o.score} out of 100`}, ${o.route ? ROUTE_WORDS[o.route] : "no recommendation"}.${o.reason ? ` ${o.reason}` : ""}`;
+  if (o.state === "checking") return "Reppo: not checked yet. Its second opinion will show here when it comes.";
+  return "Reppo: not checked.";
+}
+
+const cut = (t: string, max: number) => (t.length > max ? `${t.slice(0, max - 3).trimEnd()}..."` : `${t}"`);
+
+// A held message on the question, with its links, each risky one flagged;
+// shorter when the whole question would be too long for one message.
+function itemLines(items: Items, room: number): string[] {
+  const one = items.length === 1;
+  const render = (textMax: number, shown: number) => [
+    ...items.slice(0, shown).flatMap((m, i) => [
+      `${one ? "" : `${i + 1}. `}"${cut(m.text, textMax)}`,
+      ...(m.links.length ? [`${one ? "" : "   "}Links: ${m.links.map((l) => `${l.link}${l.risky ? " (Reppo calls this risky)" : ""}`).join(", ")}`] : []),
+    ]),
+    ...(shown < items.length ? [`And ${items.length - shown} more: see them all in the app.`] : []),
+  ];
+  for (const textMax of [400, 120, 60]) {
+    const lines = render(textMax, items.length);
+    if (lines.join("\n").length <= room) return lines;
+  }
+  for (let shown = items.length - 1; shown > 0; shown--) {
+    const lines = render(60, shown);
+    if (lines.join("\n").length <= room) return lines;
+  }
+  return render(60, 1);
+}
+
+// The question as its Telegram message: the agent, the question (with the
+// messages it is about, when a run held some), why it asks (for a payment,
+// what its trust band allows), what each answer does, and what happens with
+// none. With Reppo: that its second opinion is coming (true), or, on the
+// question about held messages, the opinion itself or "not checked", and
+// that the answer decides either way.
+export function approvalText(a: Pick<AgentApproval, "question" | "options" | "noAnswer" | "stepId"> & { reason?: string | null; items?: Items | null }, d: AgentDefinition | null, opinion: boolean | Opinion = false): string {
   const step = d?.steps.find((s) => s.id === a.stepId)?.title;
-  const lines = [`${d?.name ?? "Your agent"}${step ? `, at "${step}"` : ""}, asks:`, "", a.question, ""];
-  if (a.reason) lines.push(`Why it asks: ${a.reason}`, "");
-  for (const o of a.options) lines.push(`${o.label}: ${o.effect}`);
-  lines.push(a.noAnswer);
-  if (opinion) lines.push("", "Reppo is still checking it for a second opinion, which will follow here. Your answer decides either way.");
-  return clip(lines.join("\n"));
+  const head = [`${d?.name ?? "Your agent"}${step ? `, at "${step}"` : ""}, asks:`, "", a.question, ""];
+  const tail: string[] = [];
+  if (a.reason) tail.push(`Why it asks: ${a.reason}`, "");
+  if (typeof opinion === "object") tail.push(reppoLine(opinion), "");
+  for (const o of a.options) tail.push(`${o.label}: ${o.effect}`);
+  tail.push(a.noAnswer);
+  if (opinion === true) tail.push("", "Reppo is still checking it for a second opinion, which will follow here. Your answer decides either way.");
+  if (typeof opinion === "object") tail.push("", "Your answer decides: Reppo never approves or blocks anything.");
+  const items = a.items?.length ? [...itemLines(a.items, 3_900 - [...head, ...tail].join("\n").length), ""] : [];
+  return clip([...head, ...items, ...tail].join("\n"));
 }
 
 // The same message once it is settled, without its buttons.
@@ -97,13 +141,21 @@ export async function deliverTelegram(rt: Runtime, limit = 20): Promise<number> 
     .where(and(eq(agentApprovals.tgState, "sent"), ne(agentApprovals.status, "pending")))
     .limit(limit);
   const outgoing = await rt.db.select().from(agentMessages).where(eq(agentMessages.tgState, "pending")).orderBy(asc(agentMessages.createdAt)).limit(limit);
-  // Questions Reppo is giving a second opinion on.
-  const opinions = asks.length
-    ? new Set(
-        (await rt.db.select({ id: reppoEvals.approvalId }).from(reppoEvals).where(and(eq(reppoEvals.kind, "action"), inArray(reppoEvals.approvalId, asks.map((a) => a.id))))).map((r) => r.id),
-      )
-    : new Set<string | null>();
-  const defs = await definitionsOf(rt, [...asks, ...toClose, ...outgoing].map((r) => r.installationId));
+  // Questions waiting there with news to show (Reppo's opinion came).
+  const toRefresh = await rt.db.select().from(agentApprovals).where(eq(agentApprovals.tgState, "refresh")).limit(limit);
+  // Reppo's second opinions on them.
+  const opinions = await opinionsFor(
+    rt,
+    [...asks, ...toRefresh].map((a) => a.id),
+  );
+  const defs = await definitionsOf(rt, [...asks, ...toClose, ...outgoing, ...toRefresh].map((r) => r.installationId));
+  // A question's text: on the one about held messages, Reppo's opinion
+  // itself, or "not checked".
+  const textOf = (a: AgentApproval) => {
+    const d = defs.get(a.installationId) ?? null;
+    const shown = approvalDTO(a, d, opinions.get(a.id) ?? null);
+    return approvalText({ ...a, items: shown.items }, d, a.stepId === HELD_ALL ? shown.opinion! : opinions.has(a.id));
+  };
   const owners = outgoing.length
     ? await rt.db
         .select({ id: agentInstallations.id, owner: agentInstallations.ownerUserId })
@@ -123,7 +175,7 @@ export async function deliverTelegram(rt: Runtime, limit = 20): Promise<number> 
       continue;
     }
     try {
-      const sent = await sendText<{ message_id: number }>(rt.services, "sendMessage", { chat_id: chat, text: approvalText(a, defs.get(a.installationId) ?? null, opinions.has(a.id)), reply_markup: { inline_keyboard: keyboard(a) } });
+      const sent = await sendText<{ message_id: number }>(rt.services, "sendMessage", { chat_id: chat, text: textOf(a), reply_markup: { inline_keyboard: keyboard(a) } });
       // Answered in the app while it was on its way: settle it next cycle.
       await rt.db.update(agentApprovals).set({ tgState: "sent", tgMessageId: sent.message_id }).where(eq(agentApprovals.id, a.id));
       await touch(rt, a.ownerUserId, "telegram");
@@ -135,6 +187,28 @@ export async function deliverTelegram(rt: Runtime, limit = 20): Promise<number> 
         .set({ tgAttempts: sql`${agentApprovals.tgAttempts} + 1`, tgState: a.tgAttempts + 1 >= MAX_ATTEMPTS ? "failed" : "pending" })
         .where(eq(agentApprovals.id, a.id));
       if (stop) return done;
+    }
+  }
+
+  // Questions still waiting with news: their message is brought up to date
+  // in place, buttons kept. One answered meanwhile is settled below.
+  for (const a of toRefresh) {
+    const chat = await chatOf(rt, a.ownerUserId);
+    if (a.status !== "pending" || chat === null || a.tgMessageId === null) {
+      await rt.db.update(agentApprovals).set({ tgState: "sent" }).where(eq(agentApprovals.id, a.id));
+      continue;
+    }
+    try {
+      await sendText(rt.services, "editMessageText", { chat_id: chat, message_id: a.tgMessageId, text: textOf(a), reply_markup: { inline_keyboard: keyboard(a) } });
+      await rt.db.update(agentApprovals).set({ tgState: "sent" }).where(eq(agentApprovals.id, a.id));
+      done += 1;
+    } catch (err) {
+      // Telegram says the message already reads that way, or is gone.
+      if (err instanceof TelegramError && err.status === 400) {
+        await rt.db.update(agentApprovals).set({ tgState: "sent" }).where(eq(agentApprovals.id, a.id));
+        continue;
+      }
+      if (failed(rt, err, "a question's update")) return done;
     }
   }
 

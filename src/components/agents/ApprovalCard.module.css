@@ -92,6 +92,44 @@
   color: var(--chalk-3);
 }
 
+/* The messages a run held, each with its links as plain text (never links
+   to follow), a risky one marked in chalk hand. */
+.items {
+  margin: 0;
+  padding-left: var(--s-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  font-size: var(--t-sm);
+  max-width: 64ch;
+}
+.items[data-one] {
+  list-style: none;
+  padding-left: 0;
+}
+.items li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.links {
+  font-size: var(--t-xs);
+  color: var(--chalk-2);
+  overflow-wrap: anywhere;
+}
+.link {
+  font-family: var(--font-mono, inherit);
+}
+.risky {
+  margin-left: var(--s-1);
+  white-space: nowrap;
+  font-family: var(--font-hand);
+  font-size: var(--t-hand-sm);
+  font-weight: normal;
+  color: var(--chalk);
+  border-bottom: 1px dashed var(--chalk-2);
+}
+
 /* What a payment's money is, under its question. */
 .money {
   font-size: var(--t-sm);

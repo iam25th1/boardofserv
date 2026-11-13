@@ -8,6 +8,7 @@ import type { ApprovalDTO } from "../types";
 import { queueEval } from "./evals";
 import { scrub } from "./redact";
 import { budgetRoom, reppoSettings } from "./sampling";
+import { HELD_ALL } from "../agents/heldIds";
 
 // Reppo's second opinion on an action already waiting for its renter's yes:
 // a payment, or something sent to a contact the renter never gave the
@@ -111,16 +112,21 @@ export function opinionText(stepTitle: string, e: Pick<ReppoEval, "score" | "rou
 
 // When a second opinion comes back: if its question still waits, the
 // renter hears it in their message box (and so in Telegram). Once they
-// have answered, it is only kept.
+// have answered, it is only kept. The question about a run's held messages
+// shows it itself: its Telegram message is brought up to date in place.
 export async function onOpinion(rt: Runtime, row: ReppoEval): Promise<void> {
   if (row.kind !== "action" || !row.approvalId) return;
   const [a] = await rt.db
-    .select({ status: agentApprovals.status, stepId: agentApprovals.stepId, installationId: agentApprovals.installationId, jobId: agentApprovals.jobId, definition: agentVersions.definition })
+    .select({ status: agentApprovals.status, stepId: agentApprovals.stepId, tgState: agentApprovals.tgState, installationId: agentApprovals.installationId, jobId: agentApprovals.jobId, definition: agentVersions.definition })
     .from(agentApprovals)
     .innerJoin(agentJobs, eq(agentJobs.id, agentApprovals.jobId))
     .innerJoin(agentVersions, eq(agentVersions.id, agentJobs.versionId))
     .where(eq(agentApprovals.id, row.approvalId));
   if (!a || a.status !== "pending") return;
+  if (a.stepId === HELD_ALL) {
+    if (a.tgState === "sent") await rt.db.update(agentApprovals).set({ tgState: "refresh" }).where(and(eq(agentApprovals.id, row.approvalId), eq(agentApprovals.tgState, "sent")));
+    return;
+  }
   const title = a.definition?.steps.find((s) => s.id === a.stepId)?.title ?? "a step";
   await rt.db.insert(agentMessages).values({ installationId: a.installationId, from: "agent", text: opinionText(title, row), jobId: a.jobId, tgState: "pending", createdAt: rt.now() });
 }

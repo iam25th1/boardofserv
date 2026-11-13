@@ -810,6 +810,9 @@ export const agentApprovals = pgTable(
     // Why the platform asks, in plain words, when it does.
     reason: text("reason"),
     options: jsonb("options").$type<{ label: string; effect: string }[]>().notNull(),
+    // About messages a run held (agents/runtime/held.ts): each one's words
+    // and its links, labelled for Reppo (risky once Reppo called it so).
+    items: jsonb("items").$type<{ text: string; links: { label: string; link: string; risky?: boolean }[] }[]>(),
     noAnswer: text("no_answer").notNull(),
     status: text("status", { enum: ["pending", "answered", "expired", "cancelled"] }).notNull().default("pending"),
     answer: text("answer"),
@@ -817,9 +820,10 @@ export const agentApprovals = pgTable(
     answeredAt: timestamp("answered_at", { withTimezone: true }),
     // The question in the owner's Telegram chat: "pending" until it is
     // sent there (with a button per answer), "sent" while it waits there,
-    // "closed" once that message shows how it ended, "none" when the owner
-    // has no Telegram linked, "failed" after giving up.
-    tgState: text("tg_state", { enum: ["pending", "sent", "closed", "none", "failed"] }),
+    // "refresh" when it waits there and has news to show (Reppo's second
+    // opinion came), "closed" once that message shows how it ended, "none"
+    // when the owner has no Telegram linked, "failed" after giving up.
+    tgState: text("tg_state", { enum: ["pending", "sent", "refresh", "closed", "none", "failed"] }),
     tgMessageId: integer("tg_message_id"),
     tgAttempts: integer("tg_attempts").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
