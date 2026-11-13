@@ -462,12 +462,14 @@ export function fixSetup(settings: { key: string; label?: string; type: unknown 
   return kept;
 }
 
-// askedFirst: the maker asked to be asked before it acts (unknown counts as
-// asked: nothing they want is taken out).
+// askedFirst: the maker asked to be asked before it acts. Unknown counts as
+// not asked: a message to the owner's own Telegram, or a write to their
+// own sheet, goes without asking unless they said to ask (a payment always
+// asks, by itself).
 export function repairPlan(steps: RawStep[], setup: Setup, o: { askedFirst?: boolean } = {}): void {
   dropSingleLoops(steps, setup);
   decideByValue(steps, setup);
-  dropUnaskedQuestions(steps, setup, o.askedFirst ?? true);
+  dropUnaskedQuestions(steps, setup, o.askedFirst ?? false);
   dropAllowanceChecks(steps, setup);
   buildArguments(steps, setup);
 }
@@ -475,13 +477,13 @@ export function repairPlan(steps: RawStep[], setup: Setup, o: { askedFirst?: boo
 // Whether the maker asked to be asked before it acts, in their own words
 // ("ask me first", "only if I say yes"; "it never needs to ask me" isn't),
 // or in what the interview kept they must be asked about. Without anything
-// they said, it counts as asked.
+// they said, it counts as not asked: asking first is off by default for
+// what an agent sends its own owner.
 const ASKS = /\bask(?:s|ing)? me\b|\bcheck with me\b|\bconfirm with me\b|\bmy (?:ok|okay|yes|approval|permission|go-?ahead)\b|\bif I say yes\b|\bwithout asking\b|\bbefore (?:it |you )?(?:sends?|pays?|writes?)\b/i;
 const NEVER = /\b(?:never|don't|do not|doesn't|does not|no need to|without needing to|won't)\b[^.]*\bask/i;
 const NOTHING = /^(?:nothing|none|no|never|n\/a|nothing at all)\b|\bnever (?:needs to )?asks?\b|\bno need\b/i;
 export function askedFirst(said: string[], asks?: string | null): boolean {
   if (asks?.trim() && !NOTHING.test(asks.trim())) return true;
-  if (!said.length) return true;
   return said.some((m) => m.split(/(?<=[.!?])\s+/).some((sentence) => ASKS.test(sentence) && !NEVER.test(sentence)));
 }
 

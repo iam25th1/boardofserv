@@ -261,14 +261,24 @@ describe("the journey in the chat", () => {
     expect(board.status, await board.clone().text()).toBe(200);
     expect(await listed()).toBe(1);
     expect(await installs()).toBe(0);
-    // Running for the maker: an installation in their time zone, and the
-    // listing as it was.
+    // A change the maker tries for themselves: a new draft, built and
+    // tested, that the board hasn't seen.
+    const [v1] = await db.select().from(schema.agentVersions).where(eq(schema.agentVersions.agentId, id));
+    const [v2] = await db
+      .insert(schema.agentVersions)
+      .values({ agentId: id, number: 2, state: "draft", definition: v1!.definition, code: v1!.code, bench: v1!.bench, testResult: v1!.testResult, buildState: "idle" })
+      .returning();
+    // Running for the maker: an installation in their time zone, on the new
+    // version, and the listing as it was: running never publishes.
     const ran = await golive.POST(json(`/api/agents/${id}/golive`, "POST", { how: "run" }), at(id));
     expect(ran.status).toBe(200);
     expect(await installs()).toBe(1);
     expect(await listed()).toBe(1);
     const [inst] = await db.select().from(schema.agentInstallations).where(eq(schema.agentInstallations.agentId, id));
     expect(inst!.timezone).toBe("Europe/London");
+    expect(inst!.versionId).toBe(v2!.id);
+    const [listing] = await db.select().from(schema.agentListings).where(eq(schema.agentListings.agentId, id));
+    expect(listing!.versionId).toBe(v1!.id);
   });
 
   it("never makes it before the job is clear, or for anyone else", async () => {

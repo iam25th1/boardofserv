@@ -75,7 +75,8 @@ describe("a question to the owner", () => {
     expect(askedFirst(["Every Friday, pay 0.5 USDC to Designer, and ask me on Telegram before paying."])).toBe(true);
     expect(askedFirst(["Check new rows every hour.", "It never needs to ask me anything."])).toBe(false);
     expect(askedFirst(["Message me when it drops below my target."])).toBe(false);
-    expect(askedFirst([], null)).toBe(true);
+    // Nothing said: asking first is off for what it sends its own owner.
+    expect(askedFirst([], null)).toBe(false);
     expect(askedFirst(["Check my stock."], "orders over 250 USDC")).toBe(true);
     expect(askedFirst(["Check my stock."], "nothing")).toBe(false);
   });

@@ -330,7 +330,7 @@ export async function planAgent(
   const config = { ...opts.config, firstTokenTimeoutMs: Number.isInteger(t) && t > 0 ? t : DEFAULT_PLAN_TIMEOUT_MS };
   let maxCalls = opts.maxCalls ?? MAX_PLAN_CALLS;
   // Whether the maker asked to be asked first, in their own words.
-  const asked = askedFirst(input.history.filter((m) => m.role === "user").map((m) => m.content), input.interview.asks);
+  const asked = askedFirst([...input.history.filter((m) => m.role === "user").map((m) => m.content), ...(input.feedback ? [input.feedback] : [])], input.interview.asks);
   const calls: JsonResult[] = [];
   const answers: string[] = [];
   const planText = planRequest(input);

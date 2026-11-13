@@ -38,7 +38,7 @@ describe("the self test", () => {
   it("passes the price watcher on its one product, and tells what it did", async () => {
     const d = definitionOf(PRICE_WIRE);
     // The plan as the planner wants it: the repairs leave it as it is.
-    expect(repaired(wireToDefinition(JSON.parse(JSON.stringify(PRICE_WIRE))))).toEqual(wireToDefinition(PRICE_WIRE));
+    expect(repaired(wireToDefinition(JSON.parse(JSON.stringify(PRICE_WIRE))), { askedFirst: true })).toEqual(wireToDefinition(PRICE_WIRE));
     const t = await selfTest({ definition: d, code: codeOf(d, PRICE_SOURCES), testResult: kept(d, priceBench(), { noun: "product", plural: "products", labels: ["Stone Kettle"] }) }, { serv: null });
     expect(t.result.problems).toEqual([]);
     expect(t.result.status).toBe("passed");
