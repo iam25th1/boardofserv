@@ -125,7 +125,7 @@ export const TOOLS: Record<ToolName, ToolInfo> = {
   "serv.reason": {
     summary: "Ask SERV Reasoning to judge or write something at run time (a score with its reasons, a reply, a line for the day), from the data given.",
     signature:
-      'tools.serv.reason({ task: string, data?: unknown, answer?: Record<string, "text" | "number" | "boolean" | "list"> }): Promise<Record<string, string | number | boolean | string[]>> // answers with exactly the fields named in answer ({ text } when none are named)',
+      'tools.serv.reason({ task: string, data?: unknown, answer?: { [field: string]: "text" | "number" | "boolean" | "list" } }): Promise<{ [field: string]: string | number | boolean | string[] }> // answer names the fields SERV answers with and the type of each: answer { score: "number", reasons: "text" } gives { score: 7, reasons: "..." }; with no answer it gives { text }',
     sideEffect: false,
     risk: "read",
   },
@@ -318,7 +318,9 @@ export class MockTools {
 
 // A dry run's stand-in for SERV's reasoning: the fields asked for, each of
 // its type, made from the data so two different items get different
-// answers (a number from 1 to 10). Never presented as SERV's own words.
+// answers (a number from 1 to 10), and text that carries what SERV was
+// given (so a summary written from the results still names every item).
+// Never presented as SERV's own words.
 export function standInReason(args: { task: string; data?: unknown; answer?: Record<string, ReasonType> }): Record<string, unknown> {
   const text = JSON.stringify(args.data ?? null);
   let h = 0x811c9dc5;
@@ -330,7 +332,7 @@ export function standInReason(args: { task: string; data?: unknown; answer?: Rec
       if (type === "number") return [k, n + 1];
       if (type === "boolean") return [k, n % 2 === 0];
       if (type === "list") return [k, [`Dry run: SERV gives ${k} here on a live run.`]];
-      return [k, `Dry run: SERV writes ${k} here on a live run.`];
+      return [k, `Dry run: SERV writes ${k} here on a live run, from ${text.slice(0, 1500)}`];
     }),
   );
 }
