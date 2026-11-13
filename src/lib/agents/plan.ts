@@ -7,7 +7,7 @@ import type { SketchDTO } from "../types";
 import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAMES, type AgentDefinition, type AgentStep } from "./definition";
 import { TOOLS } from "./toolbox";
 import { planProblems } from "./planRules";
-import { askedFirst, askForMissing, columnsByName, fixSetup, repairPlan, type RawStep } from "./planRepairs";
+import { askedFirst, askForMissing, askServToReason, columnsByName, fixSetup, repairPlan, type RawStep } from "./planRepairs";
 import { rulesText } from "./lessonRules";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
 
@@ -446,7 +446,8 @@ export async function planAgent(
 
 // SERV's plan with the repairs that have one meaning made (planRepairs.ts):
 // a loop over one value goes once, a plain comparison or the owner's yes
-// goes by a value, and every send, write or pay is handed what it sends.
+// goes by a value, every send, write or pay is handed what it sends, and a
+// judgement or words only a model can give are asked of SERV at run time.
 export function repaired(plan: unknown, o: { askedFirst?: boolean } = {}): unknown {
   const d = plan as { steps?: unknown; settings?: unknown; rules?: unknown; actions?: unknown };
   if (!Array.isArray(d?.steps)) return plan;
@@ -468,6 +469,8 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean } = {}): unkno
     },
     o,
   );
+  // Judgement or words only a model can give: SERV, at run time.
+  askServToReason(d.steps as RawStep[], d as { limits?: unknown });
   // An action no step takes any more (a question taken out) goes too.
   const taken = new Set(list(d.steps).flatMap((x) => (s(x.kind) === "action" ? [s(x.action)] : [])));
   const used = new Set(list(d.steps).flatMap((x) => (Array.isArray(x.tools) ? (x.tools as string[]) : [])));

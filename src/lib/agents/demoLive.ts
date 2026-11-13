@@ -12,6 +12,7 @@ import { MemorySheets } from "../google/memorySheets";
 import type { AgentDefinition, DecisionStepDef } from "./definition";
 import restock from "./examples/restock.json";
 import { SUPPLIERS_HTML } from "./examples/supplierPage";
+import { standInReason } from "./toolbox";
 import type { Decided } from "./runner";
 import { answer } from "./runtime/approvals";
 import { DEFAULT_CAPS, type Runtime } from "./runtime/context";
@@ -86,6 +87,8 @@ async function start(origin: string): Promise<Demo> {
     siteRefusal: async () => null,
     record: async () => {},
     decide: standIn,
+    // And for a code step's reasoning: the stand-in answer, labelled as one.
+    reason: async (_step, args) => ({ ok: true, result: standInReason(args), costUsd: 0, model: null }),
     // A stand-in for SERV's action guard, like the one for decisions.
     guard: async () => ({ verdict: "allow", reason: "The demo's stand-in check lets the example through." }),
     web: { allowOrigins: [origin] },

@@ -30,6 +30,8 @@ export function describeCall(tool: ToolName, args: unknown): string {
       return `Open ${clip(text(a.url), 200)}?`;
     case "web.search":
       return `Search the web for "${clip(text(a.query), 200)}"?`;
+    case "serv.reason":
+      return `Ask SERV: "${clip(text(a.task), 200)}"?`;
     default:
       return `Use ${tool}?`;
   }

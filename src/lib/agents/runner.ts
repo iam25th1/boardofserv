@@ -1,7 +1,9 @@
 import "server-only";
 import { completeJson, modelPrices, type ChatMessage, type JsonResult, type ModelConfig } from "../model";
 import { ANSWER_LIMITS } from "../modelLimits";
-import { loopChain, loopsOf, madeInside, MAX_EACH_ITEMS, MAX_LOOP_ITEMS, RUN_VALUES, type ActionStepDef, type AgentDefinition, type AgentStep, type DecisionStepDef, type LoopStepDef, type ToolName } from "./definition";
+import { loopChain, loopsOf, madeInside, MAX_EACH_ITEMS, MAX_LOOP_ITEMS, REASON_TOOL, RUN_VALUES, type ActionStepDef, type AgentDefinition, type AgentStep, type DecisionStepDef, type LoopStepDef, type ToolName } from "./definition";
+import { askReason, readReason, readReasonArgs, type ReasonArgs, type Reasoned } from "./reason";
+import { needsReasoning } from "./planRules";
 import { runInSandbox, DEFAULT_TIME_MS } from "./sandbox";
 import { DATA_RULE, wrapData } from "./untrusted";
 import { MockTools, ToolError, TOOL_ARGS, TOOLS } from "./toolbox";
@@ -15,7 +17,9 @@ export type { JournalEntry, RunEvent, RunState } from "./types";
 // memory and trigger, and follows the steps:
 //
 // - code: the step's approved code runs in the sandbox with its inputs and
-//   only its own tools.
+//   only its own tools. A judgement or words for people it makes, it asks
+//   SERV for (serv.reason), within the run's spend limit like a decision;
+//   one that must and made no such call fails rather than pass off a guess.
 // - decision: SERV decides, within the run's spend limit; on a dry run the
 //   bench's recorded answer is taken instead, and no model is called.
 // - action: the declared action's tool is called, with the step's first
@@ -162,6 +166,9 @@ export interface EngineOptions {
   tools: ToolHost;
   // untrusted: which of the inputs were made from web pages.
   decide: (step: DecisionStepDef, input: Record<string, unknown>, untrusted: string[]) => Promise<Decided>;
+  // SERV's reasoning for a code step (serv.reason) on a live run. A dry run
+  // has its tools answer instead, with a stand-in that costs nothing.
+  reason?: (step: AgentStep, args: ReasonArgs, untrusted: boolean) => Promise<Reasoned>;
   onEvent: (e: RunEvent) => void;
   // Saved after every step and every tool call (jobs).
   save?: (state: RunState) => Promise<void>;
@@ -296,12 +303,25 @@ function same(a: unknown, b: unknown): boolean {
 
 const DIVERGED = "It went a different way when it ran again, so it was stopped before anything could happen twice.";
 
+// A judgement or words for people made without SERV.
+const GUESSES = "It made its judgement or wrote its words without asking SERV, so it would only be a guess.";
+const GUESSES_WHY = "made its judgement or wrote its words without asking SERV, so its answer would only be a guess: SERV must make that call (serv.reason).";
+
+// Nothing in it: no value, an empty text, list or object.
+export function isEmpty(v: unknown): boolean {
+  if (v === null || v === undefined) return true;
+  if (typeof v === "string") return v.trim() === "";
+  if (Array.isArray(v)) return v.length === 0;
+  if (typeof v === "object") return Object.keys(v as object).length === 0;
+  return false;
+}
+
 type Invoked =
   | { kind: "ok"; result: unknown }
   | { kind: "error"; message: string; infra: boolean }
   | { kind: "paused"; ask: Ask }
   | { kind: "declined"; answer: string | null }
-  | { kind: "halted"; reason: string }
+  | { kind: "halted"; reason: string; cause?: EndCause }
   | { kind: "blocked"; reason: string }
   | { kind: "diverged" };
 
@@ -391,10 +411,14 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
     // before, else made now and written down.
     let cursor = 0;
     const fromOutside = new Set<string>();
+    // What the step's own reasoning calls cost, and which model answered.
+    let spent = 0;
+    let usedModel: string | null = null;
     const invoke = async (tool: ToolName, args: unknown): Promise<Invoked> => {
       const i = cursor++;
       if (OUTSIDE[tool]) fromOutside.add(OUTSIDE[tool]!);
       const prior = state.journal[i];
+      if (tool === REASON_TOOL && o.reason && !o.dryRun) return reasonCall(i, args, prior);
       if (prior && (prior.tool !== tool || !same(prior.args, args))) return { kind: "diverged" };
       const emit = (result: unknown, error: string | null) => o.onEvent({ type: "tool", stepId: step.id, tool, args, result, error });
       if (prior && !prior.waiting && (prior.result !== undefined || prior.error)) {
@@ -438,6 +462,54 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       }
     };
 
+    // A code step asking SERV (serv.reason) on a live run: made once, and
+    // answered from the journal after that; within the run's spend limit,
+    // the day's cap and the week's model budget, like a decision.
+    const reasonCall = async (i: number, args: unknown, prior: RunState["journal"][number] | undefined): Promise<Invoked> => {
+      const emit = (result: unknown, error: string | null) => o.onEvent({ type: "tool", stepId: step.id, tool: REASON_TOOL, args, result, error });
+      if (prior && prior.tool !== BUDGET && (prior.tool !== REASON_TOOL || !same(prior.args, args))) return { kind: "diverged" };
+      if (prior?.tool === REASON_TOOL && (prior.result !== undefined || prior.error)) {
+        emit(prior.result ?? null, prior.error ?? null);
+        return prior.error ? { kind: "error", message: prior.error, infra: false } : { kind: "ok", result: prior.result };
+      }
+      const fail = async (message: string, infra = false): Promise<Invoked> => {
+        state.journal[i] = { tool: REASON_TOOL, args, result: null, error: message, ...(infra ? { infra } : {}) };
+        await o.save?.(state);
+        emit(null, message);
+        return { kind: "error", message, infra };
+      };
+      const read = readReasonArgs(args);
+      if (!read.ok) return fail(read.error);
+      if (state.costUsd >= d.limits.maxSpendUsd) return { kind: "halted", reason: `It reached its spend limit of $${d.limits.maxSpendUsd}.`, cause: "limit" };
+      const no = (await o.canSpend?.()) ?? null;
+      if (no) return { kind: "halted", reason: no, cause: "limit" };
+      if (o.budget && !state.budgetOk) {
+        if (prior?.tool === BUDGET) {
+          if (!prior.approval || !isYesAnswer(prior.approval.answer)) {
+            return { kind: "halted", reason: `${prior.approval?.answer === null ? "No answer came in time" : "You said no"} to going over the weekly model budget, so the job stopped at "${step.title}".`, cause: "declined" };
+          }
+          state.budgetOk = true;
+        } else {
+          const b = await o.budget();
+          if (b && "stop" in b) return { kind: "halted", reason: b.stop, cause: "limit" };
+          if (b && "ask" in b) {
+            state.journal[i] = { tool: BUDGET, args: { step: step.id }, waiting: true };
+            await o.save?.(state);
+            return { kind: "paused", ask: { kind: "safety", question: b.ask.question, choices: ["Yes", "No"], reason: b.ask.reason } };
+          }
+        }
+      }
+      const r = await o.reason!(step, read.args, step.inputs.some((k) => untrusted.has(k)));
+      state.costUsd += r.costUsd;
+      spent += r.costUsd;
+      if (!r.ok) return fail(r.error, r.infra);
+      usedModel = r.model;
+      state.journal[i] = { tool: REASON_TOOL, args, result: r.result };
+      await o.save?.(state);
+      emit(r.result, null);
+      return { kind: "ok", result: r.result };
+    };
+
     // The prompt guard: a decision or code step's untrusted inputs are
     // screened before it runs, and the job waits for the renter when they
     // look like an attempt to give it instructions. The screen holds the
@@ -470,12 +542,23 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         done("failed", null, null, "Its code isn't approved yet.");
         return end("failed", "logic", `"${step.title}" has no approved code yet.`);
       }
+      // A step whose job is a judgement or words for people that doesn't
+      // ask SERV for them (a plan from before serv.reason) only guesses:
+      // it fails, with the reason, rather than pass a rule of thumb off as
+      // the model's call.
+      if (!step.tools.includes(REASON_TOOL) && needsReasoning(step)) {
+        done("failed", null, null, GUESSES);
+        return end("failed", "logic", `"${step.title}" ${GUESSES_WHY}`);
+      }
       const halt = new AbortController();
       let paused: { ask: Ask; index: number } | null = null;
       let halted: string | null = null;
+      let haltCause: EndCause = "stop";
       let blocked: string | null = null;
       let diverged = false;
       let infraFault = false;
+      // The step's calls to SERV that answered.
+      let reasoned = 0;
       const result = await runInSandbox(entry.source, input, {
         allowed: step.tools,
         timeMs: Math.min(DEFAULT_TIME_MS, left),
@@ -483,6 +566,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         call: async (tool, args) => {
           const index = cursor;
           const r = await invoke(tool, args);
+          if (r.kind === "ok" && tool === REASON_TOOL) reasoned += 1;
           if (r.kind === "ok") return r.result;
           if (r.kind === "declined") {
             // In code, a question nobody answered in time is a null answer.
@@ -494,8 +578,10 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
             throw new ToolError(tool, r.message);
           }
           if (r.kind === "paused") paused = { ask: r.ask, index };
-          else if (r.kind === "halted") halted = r.reason;
-          else if (r.kind === "blocked") blocked = r.reason;
+          else if (r.kind === "halted") {
+            halted = r.reason;
+            haltCause = r.cause ?? "stop";
+          } else if (r.kind === "blocked") blocked = r.reason;
           else diverged = true;
           halt.abort();
           return new Promise(() => {});
@@ -506,20 +592,20 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         return pause(p.ask, p.index);
       }
       if (halted) {
-        done("failed", null, null, halted);
-        return end("stopped", "stop", halted);
+        done("failed", null, null, halted, spent, usedModel);
+        return end("stopped", haltCause, halted);
       }
       if (blocked) {
-        done("failed", null, null, blocked);
+        done("failed", null, null, blocked, spent, usedModel);
         return end("failed", "blocked", `"${step.title}" was stopped by the safety check: ${blocked}`);
       }
       if (diverged) {
-        done("failed", null, null, DIVERGED);
+        done("failed", null, null, DIVERGED, spent, usedModel);
         return end("failed", "logic", `"${step.title}" failed: ${DIVERGED}`);
       }
       if (!result.ok) {
         const infra = infraFault || result.error === "The sandbox stopped it.";
-        done("failed", null, null, result.error);
+        done("failed", null, null, result.error, spent, usedModel);
         if (infra && o.retryInfra) return { kind: "retry", reason: `"${step.title}" failed: ${result.error}` };
         return end("failed", infra ? "infra" : "logic", `"${step.title}" failed: ${result.error}`);
       }
@@ -530,8 +616,15 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       }
       const missing = step.outputs.filter((k) => !(k in out));
       if (missing.length) {
-        done("failed", out, null, `It didn't return ${missing.join(", ")}.`);
+        done("failed", out, null, `It didn't return ${missing.join(", ")}.`, spent, usedModel);
         return end("failed", "logic", `"${step.title}" didn't return ${missing.join(", ")}.`);
+      }
+      // A step that must ask SERV and gave an answer without asking: its
+      // answer is a guess (a word count, a canned line), so it fails. With
+      // nothing to judge (every output empty) it had nothing to ask.
+      if (step.tools.includes(REASON_TOOL) && reasoned === 0 && !step.outputs.every((k) => isEmpty((out as Record<string, unknown>)[k]))) {
+        done("failed", pick(out as Record<string, unknown>, step.outputs), null, GUESSES, spent, usedModel);
+        return end("failed", "logic", `"${step.title}" ${GUESSES_WHY}`);
       }
       for (const k of step.outputs) if (!(RUN_VALUES as readonly string[]).includes(k)) state.bag[k] = (out as Record<string, unknown>)[k];
       // What a step makes from outside data, or from anything made from
@@ -548,7 +641,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       }
       state.untrusted = [...untrusted];
       state.sources = sources;
-      done("ok", pick(out as Record<string, unknown>, step.outputs), null, null);
+      done("ok", pick(out as Record<string, unknown>, step.outputs), null, null, spent, usedModel);
       next = step.next;
     } else if (step.kind === "decision" && step.from) {
       // Decided by a value a step before it made: no judgement, no call.
@@ -928,7 +1021,17 @@ export async function runAgent(o: RunOptions): Promise<Extract<RunEvent, { type:
     if (tool === "wallet.pay" && o.bench.approve === "no") throw new Declined("No");
     return mock.call(tool, args);
   };
-  const r = await runSteps({ definition: d, code: o.code, state, tools: { call: (_step, tool, args) => call(tool, args) }, decide, onEvent: o.onEvent, signal: o.signal, dryRun: o.dryRun });
+  // A live run on the bench asks SERV for a code step's reasoning too.
+  const serv = o.serv;
+  const reason =
+    !o.dryRun && serv
+      ? async (_step: AgentStep, args: ReasonArgs): Promise<Reasoned> => {
+          const call = await askReason(args, serv, { signal: o.signal, fetchImpl: o.fetchImpl });
+          await o.record?.(call);
+          return readReason(args, call);
+        }
+      : undefined;
+  const r = await runSteps({ definition: d, code: o.code, state, tools: { call: (_step, tool, args) => call(tool, args) }, decide, reason, onEvent: o.onEvent, signal: o.signal, dryRun: o.dryRun });
   // The bench's mocks never wait and nothing is retried: every run ends.
   const ended = r.kind === "end" ? r : { status: "failed" as const, reason: r.kind === "retry" ? r.reason : "It stopped to wait, which the bench can't do." };
   const e = { type: "end" as const, status: ended.status, reason: ended.reason, steps: state.steps, ms: state.ms, costUsd: state.costUsd, memory: mock.memory, sheets: mock.sheets };

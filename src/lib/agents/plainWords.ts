@@ -112,6 +112,8 @@ function didWith(e: Extract<RunEvent, { type: "tool" }>): string | null {
       return `paid ${typeof a.amountUsdc === "number" ? a.amountUsdc : "some"} test USDC to ${quoted(a.to, 40)}`;
     case "memory.set":
       return "noted where it got to, for next time";
+    case "serv.reason":
+      return "asked SERV";
     default:
       return null;
   }

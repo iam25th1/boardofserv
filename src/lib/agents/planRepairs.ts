@@ -1,4 +1,5 @@
-import { loopChain, loopsOf } from "./definition";
+import { loopChain, loopsOf, REASON_TOOL, type CodeStepDef } from "./definition";
+import { needsReasoning } from "./planRules";
 
 // Repairs to a plan as SERV answers it, each with only one meaning, made
 // before the plan is checked (plan.ts, wireToDefinition), so a slip SERV
@@ -483,3 +484,29 @@ export function askedFirst(said: string[], asks?: string | null): boolean {
   if (!said.length) return true;
   return said.some((m) => m.split(/(?<=[.!?])\s+/).some((sentence) => ASKS.test(sentence) && !NEVER.test(sentence)));
 }
+
+// A step whose job is a judgement or words only a model can give (a score
+// with its reasons, a reply, a line for the day: planRules.ts) asks SERV
+// for them at run time with serv.reason, and the run has room to pay for
+// that: a plan that says it never spends on models gets the floor.
+export const REASONING_SPEND_FLOOR_USD = 0.1;
+const REASON_NOTE = " It asks SERV for this with tools.serv.reason (what to judge or write, the values, the fields it answers) and uses SERV's answer, never a rule of thumb or a canned line.";
+export function askServToReason(steps: RawStep[], plan: { limits?: unknown }): void {
+  let reasons = false;
+  for (const st of steps) {
+    if (st.kind !== "code") continue;
+    const tools = Array.isArray(st.tools) ? st.tools : [];
+    if (tools.includes(REASON_TOOL)) {
+      reasons = true;
+      continue;
+    }
+    const description = typeof st.description === "string" ? st.description : "";
+    if (!needsReasoning({ ...(st as unknown as CodeStepDef), kind: "code", description, title: st.title ?? st.id, tools: [] })) continue;
+    st.tools = [...tools, REASON_TOOL];
+    st.description = `${description.trim().slice(0, 800 - REASON_NOTE.length)}${REASON_NOTE}`;
+    reasons = true;
+  }
+  const limits = plan.limits && typeof plan.limits === "object" ? (plan.limits as { maxSpendUsd?: unknown }) : null;
+  if (reasons && limits && !(Number(limits.maxSpendUsd) >= REASONING_SPEND_FLOOR_USD)) limits.maxSpendUsd = REASONING_SPEND_FLOOR_USD;
+}
+

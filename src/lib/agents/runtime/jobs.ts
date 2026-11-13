@@ -1,7 +1,8 @@
 import "server-only";
 import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { agentInstallations, agentJobs, agentJobSteps, agentVersions, users, type AgentInstallation, type AgentJob } from "../../db/schema";
-import type { AgentDefinition, DecisionStepDef } from "../definition";
+import type { AgentDefinition, AgentStep, DecisionStepDef } from "../definition";
+import { askReason, readReason, type ReasonArgs, type Reasoned } from "../reason";
 import { askServ, readDecision, runSteps, startState, typedRules, type Decided, type EngineResult, type RunEvent, type RunState } from "../runner";
 import { FEE_SHORT, holdJobFee } from "../../market/charges";
 import { pauseForOwner } from "./approvals";
@@ -168,6 +169,16 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
     return readDecision(step, call, step.each && Array.isArray(input[step.each]) ? (input[step.each] as unknown[]).length : 0);
   };
   const scope: Scope = { installationId: installation.id, jobId: job.id, agentId: installation.agentId, ownerUserId: installation.ownerUserId };
+  // A code step's own call to SERV (serv.reason): recorded and metered like
+  // a decision.
+  const reason = async (step: AgentStep, args: ReasonArgs): Promise<Reasoned> => {
+    if (rt.reason) return rt.reason(step, args);
+    if (!serv) return { ok: false, error: "SERV isn't set up here, so it couldn't ask SERV.", costUsd: 0, infra: true };
+    const call = await askReason(args, serv.config, { fetchImpl: rt.fetchImpl });
+    await rt.record(owner, call, serv.ownKey, "agent_decision");
+    await meter(rt, scope, "decision", call, serv.ownKey);
+    return readReason(args, call);
+  };
 
   let result: EngineResult;
   try {
@@ -177,6 +188,7 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
       state,
       tools: new JobTools(rt, installation, definition, job, owner),
       decide,
+      reason,
       onEvent: log.on,
       save,
       // Before each step: stopped by its owner, or its installation paused
@@ -192,7 +204,7 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
       // Before each model call: the installation's daily cap, then the
       // site's (this spend counts towards it like any other).
       canSpend: async () => {
-        if (rt.decide) return null;
+        if (rt.decide || rt.reason) return null;
         await log.flush();
         const cap = Number(installation.dailySpendUsd);
         if ((await spendToday(rt, installation.id)) >= cap) return `It reached its daily spend limit of $${cap >= 0.01 ? cap.toFixed(2) : Number(cap.toFixed(6))} for today.`;
@@ -201,7 +213,7 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
       // The week's model budget before each decision: over it, the renter
       // is asked; a free agent out of its allowance pauses until Monday.
       budget: async () => {
-        if (rt.decide || !serv) return null;
+        if (rt.decide || rt.reason || !serv) return null;
         const gate = await budgetGate(rt, installation, serv.ownKey);
         if (gate.kind === "ok") return null;
         if (gate.kind === "ask") return { ask: { question: gate.question, reason: gate.reason } };

@@ -68,20 +68,27 @@ export const MOTIVATION_WIRE = {
   memory: [],
   actions: [action("send_line", "telegram.send", "Send you the day's line")],
   steps: [
-    step({ id: "pick_line", title: "Pick the day's line", kind: "code", inputs: ["trigger"], outputs: ["message"], next: "send", description: "Pick one of a list of short motivational lines by the day of the year, so each day has its own. Return message as telegram.send's arguments." }),
+    step({ id: "pick_line", title: "Write the day's line", kind: "code", inputs: ["trigger"], outputs: ["message"], next: "send", tools: ["serv.reason"], description: "Ask SERV with serv.reason to write one short motivational line for today, with answer { line: text }. Return message as telegram.send's arguments, { text: line }." }),
     step({ id: "send", title: "Send the line", kind: "action", action: "send_line", inputs: ["message"], next: "" }),
   ],
-  limits: { maxSteps: 5, maxRunSeconds: 30, maxSpendUsd: 0.01 },
+  limits: { maxSteps: 5, maxRunSeconds: 30, maxSpendUsd: 0.1 },
   approvalHours: 24,
 };
 
 export const MOTIVATION_SOURCES: Record<string, string> = {
-  pick_line: `async function run(input) {
+  pick_line: `async function run(input, tools) {
+  const r = await tools.serv.reason({ task: "Write one short motivational line for today.", answer: { line: "text" } });
+  return { message: { text: r.line } };
+}`,
+};
+
+// The line as it was before serv.reason: picked from a canned list, which
+// only stands in for the model's writing.
+export const CANNED_MOTIVATION_SOURCE = `async function run(input) {
   const lines = ["Small steps every day add up.", "Start where you are. Use what you have.", "Done is better than perfect."];
   const day = Math.floor(Date.now() / 86400000);
   return { message: { text: lines[day % lines.length] } };
-}`,
-};
+}`;
 
 export const SALES_WIRE = {
   name: "Daily sales total",

@@ -116,6 +116,7 @@ const TOOL_VERBS: Record<string, string> = {
   "memory.get": "look up where it got to",
   "memory.set": "note where it got to",
   "wallet.pay": "pay",
+  "serv.reason": "ask SERV",
 };
 const toolEvents = (events: RunEvent[], tool: string) => events.filter((e): e is ToolEvent => e.type === "tool" && e.tool === tool && !e.error);
 

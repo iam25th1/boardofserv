@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { definitionOf, codeOf, MOTIVATION_SOURCES, MOTIVATION_WIRE, PRICE_SOURCES, PRICE_WIRE, priceBench, SALES_SOURCES, SALES_WIRE, salesBench } from "@/test/suiteFixtures";
+import { definitionOf, codeOf, CANNED_MOTIVATION_SOURCE, MOTIVATION_SOURCES, MOTIVATION_WIRE, PRICE_SOURCES, PRICE_WIRE, priceBench, SALES_SOURCES, SALES_WIRE, salesBench } from "@/test/suiteFixtures";
 import { NESTED_HACKATHON_WIRE } from "@/test/hackathonFixture";
 import type { BenchData, TestResult } from "./types";
 import { readSample, sampleCount, samplePrompt } from "./sample";
@@ -64,11 +64,20 @@ describe("the self test", () => {
     expect(t.result.problems[0]!.text).toBe('"Read the price" couldn\'t read the page on the sample product, so it went on with nothing.');
   });
 
-  it("passes the morning line: one message is not a summary of anything", async () => {
+  it("passes the morning line: one message is not a summary of anything, and SERV writes it", async () => {
     const d = definitionOf(MOTIVATION_WIRE);
     const t = await selfTest({ definition: d, code: codeOf(d, MOTIVATION_SOURCES), testResult: kept(d, { ...priceBench(), settings: {}, pages: {}, telegram: { answers: [] } }, { noun: "message", plural: "messages", labels: ["Monday"] }) }, { serv: null });
     expect(t.result.status).toBe("passed");
-    expect(t.result.story).toMatch(/^Passed\. It sent you ".+" on Telegram\.$/);
+    expect(t.result.story).toMatch(/^Passed\. It asked SERV and sent you ".+" on Telegram\.$/);
+    expect(t.events.some((e) => e.type === "tool" && e.tool === "serv.reason")).toBe(true);
+  });
+
+  it("fails a line picked from a canned list: words for people come from SERV, never a stand-in", async () => {
+    const d = definitionOf(MOTIVATION_WIRE);
+    const t = await selfTest({ definition: d, code: codeOf(d, { pick_line: CANNED_MOTIVATION_SOURCE }), testResult: kept(d, { ...priceBench(), settings: {}, pages: {}, telegram: { answers: [] } }, { noun: "message", plural: "messages", labels: ["Monday"] }) }, { serv: null });
+    expect(t.result.status).toBe("failed");
+    expect(t.end.reason).toContain("without asking SERV");
+    expect(t.events.some((e) => e.type === "tool" && e.tool === "telegram.send")).toBe(false);
   });
 
   it("passes the sales totals without a second run: totalling the day again is its job", async () => {
