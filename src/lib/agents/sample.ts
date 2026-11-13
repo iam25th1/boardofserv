@@ -150,7 +150,15 @@ export function readSample(d: AgentDefinition, content: string | null): Sample |
   bench.telegram.answers = texts(w.answers).slice(0, 20);
   for (const rule of d.rules) bench.rules[rule.key] = rule.value;
   const count = sampleCount(d);
-  const labels = texts(w.labels).slice(0, count);
+  let labels = texts(w.labels).slice(0, count);
+  // Names that don't fit (a setting's key, too few): the items' names from
+  // the rows the sample gave, rather than throw the whole sample away.
+  if (labels.length !== count) {
+    const rows = Object.values(bench.sheets).find((r) => r.length >= count);
+    const nameOf = (r: Record<string, unknown>) => Object.values(r).map((v) => String(v ?? "").trim()).find((v) => v && !/^\d+(?:\.\d+)?$/.test(v) && v.length <= 80);
+    const named = rows ? rows.slice(0, count).map(nameOf).filter((x): x is string => Boolean(x)) : [];
+    if (named.length === count) labels = named;
+  }
   const noun = text(w.noun, 40).toLowerCase();
   if (labels.length !== count || !noun) return null;
   const plain = Object.fromEntries((w.steps ?? []).flatMap((x) => (d.steps.some((st) => st.id === text(x.id, 40)) && text(x.plain, 200) ? [[text(x.id, 40), text(x.plain, 200)]] : [])));

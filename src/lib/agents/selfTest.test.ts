@@ -41,6 +41,12 @@ describe("a sample's sheets", () => {
     const fitted = fitSample(d, readSample(d, JSON.stringify(answer))!);
     expect(fitted.bench.settings.sales_sheet).toBe("Sales");
   });
+
+  it("keeps a sample whose names don't fit, naming its items from its own rows", () => {
+    const d = definitionOf(NESTED_HACKATHON_WIRE);
+    const answer = { noun: "submission", plural: "submissions", labels: ["submissions_sheet"], settings: [], sheets: [{ sheet: "Submissions", columns: ["Row", "Title", "Status"], rows: [{ cells: ["1", "Tide", ""] }, { cells: ["2", "Notes", ""] }, { cells: ["3", "Garden", ""] }] }], pages: [], searches: [], answers: [], steps: [] };
+    expect(readSample(d, JSON.stringify(answer))?.items.labels).toEqual(["Tide", "Notes", "Garden"]);
+  });
 });
 
 describe("the self test", () => {
