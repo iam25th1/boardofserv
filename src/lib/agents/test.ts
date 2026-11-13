@@ -4,6 +4,7 @@ import { loopsOf, type AgentDefinition, type ToolName } from "./definition";
 import { storyOf, toldAs } from "./plainWords";
 import { plain } from "./plainView";
 import { hollow, runAgent } from "./runner";
+import { runMisfits } from "./shapes";
 import { goesThroughList, makeSample, sampleRequest, type Sample } from "./sample";
 import type { BenchData, CheckId, RunEvent, StepCode, TestResult } from "./types";
 
@@ -165,6 +166,7 @@ export function keepsPlace(d: AgentDefinition): boolean {
 export function checksFor(d: AgentDefinition): CheckId[] {
   const out: CheckId[] = ["ran", "tool_error"];
   if (d.steps.some((s) => s.kind === "code" && s.tools.some((t) => READS.includes(t)))) out.push("read_nothing");
+  if (d.steps.some((s) => s.kind === "code" && s.shapes && Object.keys(s.shapes).length)) out.push("shape");
   const tools = new Set([...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))]);
   if (d.actions.some((a) => a.tool !== "memory.set")) out.push("did_job");
   const many = goesThroughList(d);
@@ -214,6 +216,10 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   if (job && checks.has("did_job")) {
     problems.push({ step: d.steps.find((s) => s.kind === "action" && s.action === job.id)?.id ?? null, text: `On its sample it didn't ${lowerFirst(plain(job.description)).replace(/\.$/, "")}: it found nothing to do in data made for it to work on.`, check: "did_job" });
   }
+
+  // What passes between steps: each output in the shape its plan says.
+  const misfit = checks.has("shape") ? runMisfits(d, first.events) : null;
+  if (misfit) problems.push({ step: misfit.step, text: misfit.text, check: "shape" });
 
   // What it read: a step that reads a page, a sheet or a search and got
   // nothing back, on a sample made for it, either went on with nothing or

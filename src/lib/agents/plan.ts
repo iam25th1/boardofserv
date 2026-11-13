@@ -188,6 +188,14 @@ export function wireToDefinition(w: Wire): unknown {
   const steps = arr(w.steps).map((x) => {
     const st = x as Wire;
     const base = { id: s(st.id), title: s(st.title), ...(s(st.plain) ? { plain: s(st.plain).slice(0, 200) } : {}), inputs: arr(st.inputs).map(s), outputs: arr(st.outputs).map(s) };
+    // Each output's shape: in the outputs' order on the wire, by name in a
+    // plan already read.
+    const shapes = Array.isArray(st.shapes)
+      ? Object.fromEntries(base.outputs.flatMap((o, i) => (s(arr(st.shapes)[i]) ? [[o, s(arr(st.shapes)[i]).slice(0, 300)]] : [])))
+      : st.shapes && typeof st.shapes === "object"
+        ? Object.fromEntries(Object.entries(st.shapes as Record<string, unknown>).flatMap(([k, v]) => (base.outputs.includes(k) && s(v) ? [[k, s(v).slice(0, 300)]] : [])))
+        : {};
+    if (Object.keys(shapes).length) Object.assign(base, { shapes });
     if (st.kind === "decision") {
       return {
         ...base,

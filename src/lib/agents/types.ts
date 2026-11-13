@@ -62,7 +62,9 @@ export interface TestResult {
 // reads; run again, it skips what it did; told no, it does nothing.
 // read_nothing: a step that reads (a page, a sheet, a search) read nothing
 // on a sample made for it, and went on with nothing or made up the rest.
-export type CheckId = "ran" | "tool_error" | "did_job" | "summary" | "write_back" | "second_run" | "said_no" | "read_nothing";
+// shape: a step made a value in a different shape from the one its plan
+// says, so the step after it can't read it.
+export type CheckId = "ran" | "tool_error" | "did_job" | "summary" | "write_back" | "second_run" | "said_no" | "read_nothing" | "shape";
 
 // What went wrong, as the build found it, with everything there is to act
 // on: where (the stage and the step), what happened, what was expected, and

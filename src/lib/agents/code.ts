@@ -101,7 +101,8 @@ export function codeRequest(step: CodeStepDef, d: AgentDefinition): string {
     if (from?.kind === "decision" && from.outputs[0] === name && loopsOf(d).inside.get(from.id)) {
       return `the verdict of the step "${from.title}" (${from.prompt}): { outcome: ${from.outcomes.map((o) => `"${o.id}"`).join(" | ")}, label: string, reason: string }`;
     }
-    return from ? `from the step "${from.title}"${from.kind === "code" ? `: ${from.description}` : ""}` : "a value from an earlier step";
+    const shaped = from?.shapes?.[name] ? `, shaped ${from.shapes[name]}` : "";
+    return from ? `from the step "${from.title}"${from.kind === "code" ? `: ${from.description}` : ""}${shaped}` : "a value from an earlier step";
   };
   const shapes = argShapes(step, d);
   return [
@@ -113,6 +114,7 @@ export function codeRequest(step: CodeStepDef, d: AgentDefinition): string {
     ...(step.inputs.length ? step.inputs.map((i) => `- ${i}: ${holds(i)}`) : ["- (nothing)"]),
     "",
     `Return: { ${step.outputs.join(", ") || "nothing"} }`,
+    ...step.outputs.filter((o) => step.shapes?.[o]).map((o) => `- ${o} is shaped ${step.shapes![o]}: exactly those fields, so the steps after it can read them.`),
     ...shapes,
     "",
     "Tools it may call:",

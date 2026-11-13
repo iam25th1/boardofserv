@@ -142,7 +142,16 @@ export const Action = z.object({
 
 // plain: the step in one sentence for someone who has never seen code, as
 // the agent's page shows it with details off (no names of values or tools).
-const stepBase = { id: key, title: text(80), plain: z.string().trim().max(200).optional(), inputs: z.array(key).max(12), outputs: z.array(key).max(12) };
+// shapes: the shape of each output, as the plan says it (shapes.ts), which
+// what reads it is checked against: "{ name, score: number, reasons }[]".
+const stepBase = {
+  id: key,
+  title: text(80),
+  plain: z.string().trim().max(200).optional(),
+  inputs: z.array(key).max(12),
+  outputs: z.array(key).max(12),
+  shapes: z.record(key, z.string().trim().min(1).max(300)).optional(),
+};
 
 export const CodeStep = z.object({
   ...stepBase,
@@ -592,5 +601,5 @@ export function stepContract(step: AgentStep): string {
 // A short fingerprint of what a code step must do: when it is unchanged, the
 // step's code can stay.
 export function codeSpec(step: CodeStepDef): string {
-  return JSON.stringify([step.description, step.inputs, step.outputs, [...step.tools].sort()]);
+  return JSON.stringify([step.description, step.inputs, step.outputs, [...step.tools].sort(), ...(step.shapes && Object.keys(step.shapes).length ? [step.shapes] : [])]);
 }

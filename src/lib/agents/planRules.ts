@@ -1,4 +1,5 @@
 import { nextOf, REASON_TOOL, type AgentDefinition, type AgentStep } from "./definition";
+import { shapeProblems } from "./shapes";
 
 // The planner's rules beyond the format (definition.ts checks the format):
 // a plan that breaks one goes back to SERV with the reason, like any plan
@@ -128,5 +129,7 @@ export function planProblems(d: AgentDefinition): string[] {
   const saves = d.actions.some((a) => a.tool === "memory.set") || d.steps.some((s) => s.kind === "code" && s.tools.includes("memory.set"));
   const reader = d.memory.length && !saves ? d.steps.find((s) => s.kind === "code" && (s.inputs.includes("memory") || s.tools.includes("memory.get"))) : undefined;
   if (reader) out.push(`step "${reader.id}" reads its place from memory, but no step saves it, so every run would start again from the beginning: save the new position in a step at the end (memory.set), reading memory first and keeping the larger, or take only rows whose result column is still empty and keep no position.`);
+  // What passes between steps fits what reads it (shapes.ts).
+  out.push(...shapeProblems(d));
   return [...new Set(out)];
 }
