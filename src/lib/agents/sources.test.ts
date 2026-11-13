@@ -66,5 +66,9 @@ describe("a step that tries to read one", () => {
     });
     if (!c.ok) throw new Error(c.errors.join("; "));
     expect(planProblems(c.definition)).toEqual([expect.stringContaining('code step "read" says it reads ("Read Typeform submission") but has no tool that reads')]);
+    expect(planProblems(c.definition)[0]).toContain("typeform.read for a Typeform form");
+    // With typeform.read it reads the form: nothing to put right.
+    const read = { ...c.definition, steps: c.definition.steps.map((s) => (s.id === "read" && s.kind === "code" ? { ...s, tools: ["typeform.read" as const] } : s)) };
+    expect(planProblems(read)).toEqual([]);
   });
 });

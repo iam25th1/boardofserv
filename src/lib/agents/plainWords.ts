@@ -94,6 +94,10 @@ function didWith(e: Extract<RunEvent, { type: "tool" }>): string | null {
       return r.status === 200 ? "read the page" : "tried the page, which didn't answer";
     case "web.search":
       return "searched the web";
+    case "typeform.read": {
+      const n = Array.isArray(r.responses) ? r.responses.length : null;
+      return n === null ? "read your form" : `read ${n} new ${n === 1 ? "response" : "responses"} to your form`;
+    }
     case "telegram.ask": {
       const answer = typeof r.answer === "string" && r.answer.trim() ? `you answered ${quoted(r.answer, 30)}` : "no answer came";
       return `asked you on Telegram ${quoted(a.question)} (${answer})`;

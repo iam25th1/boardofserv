@@ -236,6 +236,7 @@ const OUTSIDE: Partial<Record<ToolName, string>> = {
   "web.search": "a web search",
   "sheets.read": "a sheet",
   "memory.get": "its memory",
+  "typeform.read": "a form's responses",
 };
 
 function pick(bag: Record<string, unknown>, names: readonly string[]): Record<string, unknown> {

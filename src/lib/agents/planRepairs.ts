@@ -276,7 +276,7 @@ export function mayBeEmpty(steps: RawStep[], id: string): boolean {
       if (seen.has(st.id)) continue;
       seen.add(st.id);
       if (st.kind === "loop" || (st.kind === "decision" && st.each)) return true;
-      if (st.kind === "code" && (st.tools ?? []).some((t) => t === "sheets.read" || t === "web.search" || t === "memory.get")) return true;
+      if (st.kind === "code" && (st.tools ?? []).some((t) => t === "sheets.read" || t === "web.search" || t === "memory.get" || t === "typeform.read")) return true;
     }
     at = at.filter((x) => x.kind !== "decision" || x.each);
     if (seen.size > steps.length) break;

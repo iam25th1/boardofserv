@@ -101,6 +101,10 @@ describe("an agent reading its owner's Typeform form", () => {
     expect(form.paths).toContain("/forms/FakeForm01/responses?page_size=200&completed=true&sort=submitted_at,asc");
     const seen = await db.select().from(schema.agentSeenItems).where(eq(schema.agentSeenItems.installationId, inst.id));
     expect(seen.map((s) => `${s.itemId}:${s.state}`).sort()).toEqual(["resp1:done", "resp2:done", "resp3:done", "resp4:done", "resp5:done", "resp6:done"]);
+    // Anyone can fill in a form: what it read, and what was made from it,
+    // is untrusted data, kept with where it came from.
+    expect(first.state!.untrusted).toEqual(expect.arrayContaining(["submissions", "results", "message"]));
+    expect(first.state!.sources?.submissions).toEqual(["a form's responses"]);
 
     // Run again: nothing new, nothing judged, nothing sent.
     const second = await runOnce(inst);

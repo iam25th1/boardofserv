@@ -118,6 +118,7 @@ const TOOL_VERBS: Record<string, string> = {
   "telegram.send": "message you",
   "telegram.ask": "ask you",
   "memory.get": "look up where it got to",
+  "typeform.read": "read your form's responses",
   "memory.set": "note where it got to",
   "wallet.pay": "pay",
   "serv.reason": "ask SERV",
