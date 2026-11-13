@@ -199,6 +199,8 @@ export interface EngineOptions {
   // A dry run on the bench: decisions cost nothing, so no spend limit.
   dryRun?: boolean;
   signal?: AbortSignal;
+  // The run's time zone: code's local time is in it (sandbox.ts).
+  timeZone?: string | null;
 }
 
 // A rule's value as code sees it: numbers as numbers, lists as arrays.
@@ -588,6 +590,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         allowed: step.tools,
         timeMs: Math.min(DEFAULT_TIME_MS, left),
         signal: halt.signal,
+        timeZone: o.timeZone,
         call: async (tool, args) => {
           const index = cursor;
           const r = await invoke(tool, args);
@@ -1051,6 +1054,8 @@ export interface RunOptions {
   fetchImpl?: typeof fetch;
   // Each decision's model call, for the usage records.
   record?: (call: JsonResult) => Promise<void>;
+  // Whose time it is: the maker's time zone on the bench.
+  timeZone?: string | null;
 }
 
 export async function runAgent(o: RunOptions): Promise<Extract<RunEvent, { type: "end" }>> {
@@ -1104,7 +1109,7 @@ export async function runAgent(o: RunOptions): Promise<Extract<RunEvent, { type:
           return readReason(args, call);
         }
       : undefined;
-  const r = await runSteps({ definition: d, code: o.code, state, tools: { call: (_step, tool, args) => call(tool, args) }, decide, reason, onEvent: o.onEvent, signal: o.signal, dryRun: o.dryRun });
+  const r = await runSteps({ definition: d, code: o.code, state, tools: { call: (_step, tool, args) => call(tool, args) }, decide, reason, onEvent: o.onEvent, signal: o.signal, dryRun: o.dryRun, timeZone: o.timeZone });
   // The bench's mocks never wait and nothing is retried: every run ends.
   const ended = r.kind === "end" ? r : { status: "failed" as const, cause: "logic" as const, reason: r.kind === "retry" ? r.reason : "It stopped to wait, which the bench can't do." };
   const outcome = ended.cause === "skipped" || ended.cause === "noted" ? { outcome: ended.cause } : {};

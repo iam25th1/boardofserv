@@ -247,6 +247,8 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
       },
       maxVisits: rateLimits().stepVisits,
       retryInfra: true,
+      // Its code's local time is its owner's, as they set it up.
+      timeZone: installation.timezone,
     });
   } catch (err) {
     await log.flush();

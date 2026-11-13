@@ -40,6 +40,7 @@ export async function POST(req: Request, route: { params: Promise<{ id: string }
         kind: "manual",
         record: (call, kind) => recordAgentCall(ctx!, kind === "sample" ? "agent_plan" : "agent_decision", call),
         signal: req.signal,
+        timeZone: who.user.timezone,
       },
     );
     await setTestResult(version.id, tested.result);

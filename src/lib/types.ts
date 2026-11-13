@@ -50,6 +50,8 @@ export interface AccountDTO {
   // The agent page opens with everything shown (step graph, code, test
   // bench, versions), not the plain view.
   agentDetails?: boolean;
+  // Their time zone, as their browser last gave it (null until one has).
+  timezone?: string | null;
 }
 
 // The agent sketch for one conversation, as the server stores and sends it.

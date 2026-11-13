@@ -67,6 +67,7 @@ export async function POST(req: Request, route: { params: Promise<{ id: string }
           signal: controller.signal,
           onEvent: send,
           record: ctx ? (call) => recordAgentCall(ctx, "agent_decision", call) : undefined,
+          timeZone: who.user.timezone,
         });
       } catch (err) {
         console.error(`agents: a bench run stopped: ${errorText(err, "unknown error")}`);

@@ -414,6 +414,13 @@
       "when": 1794584762762,
       "tag": "0058_agent_job_outcome",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794585617741,
+      "tag": "0059_user_timezone",
+      "breakpoints": true
     }
   ]
 }

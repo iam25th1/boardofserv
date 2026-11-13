@@ -186,6 +186,7 @@ export function useApi() {
         json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/fix`, { method: "POST", body: JSON.stringify({ step }) }).then((d) => d.agent),
       // "Show details" on the agent page, kept for this maker.
       setAgentDetails: (on: boolean) => json<{ agentDetails: boolean }>("/api/account/details", { method: "PUT", body: JSON.stringify({ on }) }).then((d) => d.agentDetails),
+      setTimezone: (timezone: string) => json<{ timezone: string }>("/api/account/timezone", { method: "PUT", body: JSON.stringify({ timezone }) }),
       // "Test it": one run on sample data made from the plan, as a story.
       testAgent: (id: string, o: { journey?: boolean } = {}) =>
         json<{ test: TestResult; agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/test`, { method: "POST", ...(o.journey ? { body: JSON.stringify({ journey: true }) } : {}) }),

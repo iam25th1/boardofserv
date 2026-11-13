@@ -71,6 +71,8 @@ export interface BuildContext {
   // Rules learned from earlier builds, for the planner, Dolphin and the
   // fixer (lessons.ts).
   lessons?: string[];
+  // The maker's time zone, as their browser gave it: a test's local time.
+  timeZone?: string | null;
 }
 
 // The context a job runs in: its draft, and the rules learned so far.
@@ -257,7 +259,7 @@ async function testDraft(versionId: string, ctx: BuildContext, settle: Settle, o
     await settle.onTest?.();
     const tested = await selfTest(
       { definition: now.definition, code: now.code, testResult: now.testResult },
-      { serv: ctx.serv, record: (call) => recordAgentCall(ctx, "agent_plan", call), sampleNote: o.sampleNote },
+      { serv: ctx.serv, record: (call) => recordAgentCall(ctx, "agent_plan", call), sampleNote: o.sampleNote, timeZone: ctx.timeZone },
     );
     const plain = tested.plain ?? {};
     const definition = Object.keys(plain).length ? { ...now.definition, steps: now.definition.steps.map((s) => (plain[s.id] && !s.plain ? { ...s, plain: plain[s.id] } : s)) } : undefined;

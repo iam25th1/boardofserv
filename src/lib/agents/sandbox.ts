@@ -3,6 +3,7 @@ import { newQuickJSWASMModuleFromVariant, shouldInterruptAfterDeadline, type Qui
 import variant from "@jitl/quickjs-wasmfile-release-sync";
 import type { ToolName } from "./definition";
 import { gate, ToolError } from "./toolbox";
+import { knownZone, ZONED_DATE, zoneOffsetMinutes } from "./timeZone";
 import { errorText } from "../db/errors";
 
 // The sandbox a code step runs in: QuickJS compiled to WebAssembly, one
@@ -42,6 +43,9 @@ export interface SandboxOptions {
   // the owner halts it, and the step runs again from the start once the
   // answer is in (its tool calls replayed, not repeated).
   signal?: AbortSignal;
+  // The run's time zone (timeZone.ts): the code's local time is in it,
+  // UTC when none is given, never the server's.
+  timeZone?: string | null;
 }
 
 // What a QuickJS error says, in plain words.
@@ -136,6 +140,29 @@ export async function runInSandbox(source: string, input: unknown, opts: Sandbox
     });
     vm.setProp(vm.global, "__bridge", bridge);
     bridge.dispose();
+    // Local time in the run's zone: the zone's offset at a moment, asked of
+    // the host (numbers only cross), kept by the hour.
+    const zone = knownZone(opts.timeZone);
+    const offsets = new Map<number, number>();
+    const tzOffset = vm.newFunction("__tzOffset", (msH: QuickJSHandle) => {
+      const ms = vm.typeof(msH) === "number" ? vm.getNumber(msH) : NaN;
+      if (!Number.isFinite(ms)) return vm.newNumber(0);
+      const hour = Math.floor(ms / 3_600_000);
+      if (!offsets.has(hour)) offsets.set(hour, zoneOffsetMinutes(zone, ms));
+      return vm.newNumber(offsets.get(hour)!);
+    });
+    vm.setProp(vm.global, "__tzOffset", tzOffset);
+    tzOffset.dispose();
+    const zoneH = vm.newString(zone);
+    vm.setProp(vm.global, "__tzName", zoneH);
+    zoneH.dispose();
+    const zoned = vm.evalCode(ZONED_DATE);
+    if (zoned.error) {
+      const why = explain(vm.dump(zoned.error), timeMs);
+      zoned.error.dispose();
+      return { ok: false, error: why, ms: ms() };
+    }
+    zoned.value.dispose();
     const inputH = vm.newString(inputJson);
     vm.setProp(vm.global, "__input", inputH);
     inputH.dispose();

@@ -14,7 +14,7 @@ vi.mock("@/lib/privy-config", () => ({ privyAppId: () => "app-id-for-the-shell-t
 vi.mock("@privy-io/react-auth", () => ({ usePrivy: () => ({ ready: true, authenticated: net.signedIn, logout: async () => {} }) }));
 vi.mock("next/navigation", () => ({ usePathname: () => net.path }));
 vi.mock("@/lib/useApi", () => {
-  const client = { getAccount: async () => net.account, countApprovals: async () => 0 };
+  const client = { getAccount: async () => net.account, countApprovals: async () => 0, setTimezone: async (timezone: string) => ({ timezone }) };
   return { useApi: () => client };
 });
 

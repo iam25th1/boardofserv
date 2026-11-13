@@ -11,7 +11,7 @@ export function buildContext(user: User, conversationId: string | null): BuildCo
   const config = modelConfig(process.env, { servKey: servKeyOf(user) });
   const serv = servOnly(config);
   if (!serv.providers.length) return null;
-  return { userId: user.id, conversationId, ownKey: Boolean(config.ownKey), serv };
+  return { userId: user.id, conversationId, ownKey: Boolean(config.ownKey), serv, timeZone: user.timezone };
 }
 
 export const NOT_AVAILABLE = "Building agents isn't available right now. Try again in a few minutes.";

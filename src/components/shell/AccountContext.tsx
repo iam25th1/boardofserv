@@ -44,6 +44,21 @@ function WithPrivy({ children }: { children: React.ReactNode }) {
     if (!ready) return;
     void refresh();
   }, [ready, refresh]);
+  // The browser's time zone is the account's: saved whenever it differs,
+  // so agents' times and tests go by it, never the server's.
+  useEffect(() => {
+    if (!account) return;
+    const zone = browserZone();
+    if (zone && zone !== account.timezone) void api.setTimezone(zone).then(() => setAccount((a) => (a ? { ...a, timezone: zone } : a)), () => undefined);
+  }, [account, api]);
   const value = useMemo(() => ({ account, signedIn, refresh, setAccount: setAccount as AccountState["setAccount"] }), [account, signedIn, refresh]);
   return <AccountCtx.Provider value={value}>{children}</AccountCtx.Provider>;
+}
+
+function browserZone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
 }

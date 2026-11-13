@@ -33,6 +33,8 @@ export interface TestOptions {
   fetchImpl?: typeof fetch;
   // What the last sample lacked (the fixer): a new one is made with it.
   sampleNote?: string | null;
+  // The maker's time zone: the test's local time.
+  timeZone?: string | null;
 }
 
 export interface Tested {
@@ -72,6 +74,7 @@ export async function testVersion(v: { definition: AgentDefinition; code: Record
     fetchImpl: o.fetchImpl,
     onEvent: (e) => events.push(e),
     record: (call) => o.record?.(call, "decision") ?? Promise.resolve(),
+    timeZone: o.timeZone,
   });
   const problems: TestResult["problems"] = [];
   const sampled = sample.items.labels.length === 1 ? `sample ${sample.items.noun}` : `sample ${sample.items.plural}`;
@@ -244,6 +247,7 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
       dryRun: true,
       signal: o.signal,
       onEvent: (e) => again.push(e),
+      timeZone: o.timeZone,
     });
     const before = updatedRows(first.events);
     const twice = [...updatedRows(again)].some((r) => before.has(r));
@@ -263,7 +267,7 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   if (checks.has("said_no")) {
     noRun = [];
     const no = { ...first.bench, telegram: { answers: first.bench.telegram.answers.map(() => "No").concat(["No", "No", "No"]) }, approve: "no" as const };
-    await runAgent({ definition: d, code: v.code, bench: no, dryRun: true, signal: o.signal, onEvent: (e) => noRun!.push(e) });
+    await runAgent({ definition: d, code: v.code, bench: no, dryRun: true, signal: o.signal, onEvent: (e) => noRun!.push(e), timeZone: o.timeZone });
     const said = noRun.findIndex((e) => e.type === "tool" && ((e.tool === "telegram.ask" && /^\s*no\b/i.test(String((e.result as { answer?: unknown } | null)?.answer ?? ""))) || (e.tool === "wallet.pay" && Boolean(e.error))));
     const after = said < 0 ? undefined : noRun.slice(said + 1).find((e): e is ToolEvent => e.type === "tool" && !e.error && ["wallet.pay", "telegram.send", "sheets.write", "sheets.update"].includes(e.tool));
     if (after) problems.push({ step: after.stepId, text: `When you say no, it still ${TOOL_DID[after.tool] ?? "goes on"}.`, check: "said_no" });

@@ -47,6 +47,10 @@ export const users = pgTable(
     // The agent page shows everything (the step graph, code, test bench and
     // versions) rather than the plain view: the maker's own choice, kept.
     agentDetails: boolean("agent_details").notNull().default(false),
+    // Their time zone, as their browser gives it (an IANA name), saved
+    // whenever it changes: what their agents' times and tests go by. Null
+    // until a browser has said, and then UTC, never the server's.
+    timezone: text("timezone"),
     access: text("access", { enum: ["waiting", "approved", "rejected"] }).notNull().default("waiting"),
     accessDecidedBy: uuid("access_decided_by").references((): AnyPgColumn => users.id),
     accessDecidedAt: timestamp("access_decided_at", { withTimezone: true }),

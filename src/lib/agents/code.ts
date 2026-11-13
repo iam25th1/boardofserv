@@ -41,6 +41,7 @@ export const CODE_PROMPT = [
   "Keep it short, and handle missing or odd values without throwing where you can.",
   "When serv.reason is listed, every judgement or piece of writing the step makes (a score and its reasons, a reply, a line for the day) comes from SERV: call tools.serv.reason({ task, data, answer }) for it (once per item), and return what SERV answered. Never work it out yourself with word counts, lengths, keyword lists or canned text.",
   "Text it writes for people never uses em dashes: use a colon or a comma.",
+  "Dates and times are the owner's: new Date() and its local methods (getDate, getHours, toLocaleDateString) are in their time zone. For today's date use those, never toISOString().slice(0, 10), which is UTC.",
 ].join("\n");
 
 // The review's rules go in the request, not the system message: live, a
