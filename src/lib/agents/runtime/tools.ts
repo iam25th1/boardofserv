@@ -14,6 +14,7 @@ import type { AgentAudit } from "../../db/schema";
 import type { Risk } from "../toolbox";
 import { unknownContacts } from "../untrusted";
 import { outboundRoom, pauseFor, takeAction } from "./rates";
+import { knownTo } from "./held";
 import { MAX_MEMORY_BYTES, memoryProblem, MockTools, TOOL_ARGS, ToolError } from "../toolbox";
 import { emptyBench } from "../types";
 import type { Runtime } from "./context";
@@ -76,8 +77,7 @@ export class JobTools implements ToolHost {
   // What the renter gave it themselves: their answers, rules and, for a job
   // they started with a message, that message.
   private known(): string {
-    const trigger = this.job?.trigger as { kind?: string; text?: string } | undefined;
-    return JSON.stringify([this.installation.settings, this.installation.rules, trigger?.kind === "message" ? trigger.text ?? "" : ""]);
+    return knownTo(this.installation, this.job);
   }
 
   // Its limits: actions in a job, messages to its renter in an hour. Past
@@ -353,6 +353,16 @@ export class JobTools implements ToolHost {
         throw new Blocked(g.reason);
       }
       if (g.verdict === "ask") why.push(g.fallback ? g.reason : `Safety check: ${g.reason}`);
+      // A message to the owner that would ask only for the links it
+      // carries is held, unsent, to be asked about with the run's other
+      // messages once the run ends (held.ts): one question, not one each.
+      if (tool === "telegram.send" && this.job && !over && strange.length && why.length === 1) {
+        const parsed = TOOL_ARGS["telegram.send"].safeParse(args);
+        if (!parsed.success) throw new ToolError(tool, "telegram.send was called wrongly: it takes { text }.");
+        await this.rt.db.insert(agentMessages).values({ installationId: this.installation.id, from: "agent", text: fixDashes(parsed.data.text), jobId: this.job.id, tgState: "held", createdAt: this.rt.now() });
+        await this.logged(step, tool, risk, what, { outcome: "asked", guard: g, reason: `Kept to ask you once, with the run's other messages, when the run ends: ${lowerFirst(why[0]!)}` });
+        return { sent: false, held: true };
+      }
       if (over || why.length) {
         const kind = why.length ? "safety" : "over_limit";
         // A payment's question always says what its band allows.
