@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { palette } from "@/design/palette";
 import manifest from "@/app/manifest";
+import robots from "@/app/robots";
 
 // What browsers and crawlers ask for besides the pages: the icons, the web
 // manifest, robots.txt and the sitemap with the board's agents.
@@ -68,5 +69,13 @@ describe("the web manifest", () => {
     // A mask may cut anything outside the middle 80%: the maskable one is
     // full slate to its edges, and its corners are as opaque as its middle.
     expect(png("public/brand/icon-maskable-512.png")[25]).toBe(2);
+  });
+});
+
+describe("robots.txt", () => {
+  it("opens the public pages and the board, and closes the API and the rest of the app", () => {
+    const r = robots();
+    expect(r.rules).toEqual({ userAgent: "*", allow: ["/", "/app/board"], disallow: ["/api/", "/app/"] });
+    expect(r.sitemap).toBe("https://boardofserv.25th.dev/sitemap.xml");
   });
 });

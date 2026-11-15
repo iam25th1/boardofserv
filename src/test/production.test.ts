@@ -311,6 +311,7 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
     ["/favicon.ico", "image/x-icon"],
     ["/apple-icon.png", "image/png"],
     ["/manifest.webmanifest", "application/manifest+json"],
+    ["/robots.txt", "text/plain"],
     ["/brand/icon-192.png", "image/png"],
     ["/brand/icon-512.png", "image/png"],
     ["/brand/icon-maskable-512.png", "image/png"],
@@ -328,6 +329,14 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
       expect(html, path).toMatch(/<link rel="apple-touch-icon" href="\/apple-icon\.png[^"]*"[^>]*sizes="180x180"/);
       expect(html, path).toContain('<link rel="manifest" href="/manifest.webmanifest"');
     }
+  });
+
+  it("serves robots.txt, closing the API and the signed-in app but not the board", async () => {
+    const robots = await (await fetch(`${base}/robots.txt`)).text();
+    expect(robots).toContain("Disallow: /api/");
+    expect(robots).toContain("Disallow: /app/");
+    expect(robots).toContain("Allow: /app/board");
+    expect(robots).toContain("Sitemap: https://boardofserv.25th.dev/sitemap.xml");
   });
 });
 
