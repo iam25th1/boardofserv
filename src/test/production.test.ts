@@ -305,6 +305,52 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
     expect((await fetch(`${base}/brand/logo-120.png`)).status).toBe(200);
     expect((await fetch(`${base}/_next/image?url=%2Fbrand%2Flogo-120.png&w=64&q=75`)).status).toBe(404);
   });
+
+  it.each([
+    ["/icon.svg", "image/svg+xml"],
+    ["/favicon.ico", "image/x-icon"],
+    ["/apple-icon.png", "image/png"],
+    ["/manifest.webmanifest", "application/manifest+json"],
+    ["/robots.txt", "text/plain"],
+    ["/sitemap.xml", "application/xml"],
+    ["/brand/icon-192.png", "image/png"],
+    ["/brand/icon-512.png", "image/png"],
+    ["/brand/icon-maskable-512.png", "image/png"],
+  ])("serves %s as %s", async (path, type) => {
+    const res = await fetch(`${base}${path}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain(type);
+  });
+
+  it("points every page at the icons and the manifest", async () => {
+    for (const path of ["/", "/login", "/app/board"]) {
+      const html = await (await fetch(`${base}${path}`)).text();
+      expect(html, path).toMatch(/<link rel="icon" href="\/favicon\.ico[^"]*"[^>]*sizes="32x32"/);
+      expect(html, path).toMatch(/<link rel="icon" href="\/icon\.svg[^"]*"[^>]*type="image\/svg\+xml"/);
+      expect(html, path).toMatch(/<link rel="apple-touch-icon" href="\/apple-icon\.png[^"]*"[^>]*sizes="180x180"/);
+      expect(html, path).toContain('<link rel="manifest" href="/manifest.webmanifest"');
+    }
+  });
+
+  it("serves robots.txt, closing the API and the signed-in app but not the board", async () => {
+    const robots = await (await fetch(`${base}/robots.txt`)).text();
+    expect(robots).toContain("Disallow: /api/");
+    expect(robots).toContain("Disallow: /app/");
+    expect(robots).toContain("Allow: /app/board");
+    expect(robots).toContain("Sitemap: https://boardofserv.25th.dev/sitemap.xml");
+  });
+
+  it("serves a sitemap of the public pages when there's no database", async () => {
+    const sitemap = await (await fetch(`${base}/sitemap.xml`)).text();
+    expect(sitemap).toContain("<loc>https://boardofserv.25th.dev/everything</loc>");
+    expect(sitemap).toContain("<loc>https://boardofserv.25th.dev/app/board</loc>");
+    expect(sitemap).not.toContain("/app/board/agents/");
+  });
+
+  it("gives the sign-in page and the board their own titles", async () => {
+    expect(await (await fetch(`${base}/login`)).text()).toContain("<title>Sign in</title>");
+    expect(await (await fetch(`${base}/app/board`)).text()).toContain("<title>The board</title>");
+  });
 });
 
 function freePort(): Promise<number> {

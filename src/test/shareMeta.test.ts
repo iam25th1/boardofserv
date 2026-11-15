@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { PGlite } from "@electric-sql/pglite";
 import type { PgliteDatabase } from "drizzle-orm/pglite";
 import * as schema from "@/lib/db/schema";
-import { addUser, testDb } from "./helperDb";
+import { addHelper, addUser, testDb } from "./helperDb";
 import { publishedAgent } from "./runtimeFixtures";
 
 // What a shared link shows: the front page and the public pages with the
@@ -28,6 +28,9 @@ let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
 let pages: Record<string, Meta>;
 let generateMetadata: (props: { params: Promise<{ id: string }> }) => Promise<unknown>;
+let helperMetadata: (props: { params: Promise<{ slug: string }> }) => Promise<unknown>;
+// The client pages, whose layouts carry their titles.
+let clientPages: Record<string, Meta>;
 // The pages and the agent page's layout are loaded once, here, with time to
 // spare: compiling them can take more than a test's five seconds when the
 // whole suite runs at once (it did, once, in phase 9's runs).
@@ -36,6 +39,11 @@ beforeAll(async () => {
   state.db = db;
   pages = Object.fromEntries(await Promise.all(PAGES.map(async ([path]) => [path, ((await import(`@/app/${path}/page`)) as { metadata: Meta }).metadata] as const)));
   ({ generateMetadata } = await import("@/app/app/board/agents/[id]/layout"));
+  ({ generateMetadata: helperMetadata } = await import("@/app/h/[slug]/layout"));
+  clientPages = {
+    login: ((await import("@/app/login/layout")) as { metadata: Meta }).metadata,
+    board: ((await import("@/app/app/board/layout")) as { metadata: Meta }).metadata,
+  };
 }, 60_000);
 afterAll(async () => client.close());
 
@@ -79,6 +87,37 @@ describe("share cards", () => {
     expect(m.openGraph?.images?.[0]?.url).toBe("/brand/share-card.png");
     for (const id of ["00000000-0000-0000-0000-000000000000", "not-an-id", "'; drop table agents; --"]) {
       expect(((await generateMetadata({ params: Promise.resolve({ id }) })) as Meta).title, id).toBe("An agent on boardofserv");
+    }
+  });
+
+  it("are on the sign-in page and the board, which are client pages", () => {
+    for (const [name, title, path] of [
+      ["login", "Sign in", "/login"],
+      ["board", "The board", "/app/board"],
+    ] as const) {
+      const metadata = clientPages[name]!;
+      expect(metadata.title, name).toBe(title);
+      expect(metadata.openGraph?.title, name).toBe(title);
+      expect(metadata.openGraph, name).toMatchObject({ url: path });
+      expect(String(metadata.description), name).toMatch(/^[^\n]{20,200}$/);
+      expect(metadata.openGraph?.images?.[0]?.url, name).toBe("/brand/share-card.png");
+      expect(JSON.stringify(metadata), name).not.toContain(String.fromCharCode(0x2014));
+    }
+  });
+
+  it("show a helper's own name and what it does, and the board's words for one that's gone", async () => {
+    const maker = await addUser(db, "share.helper", "share_helper");
+    await addHelper(db, maker, { slug: "blurb-writer", name: "Blurb writer", description: "Writes a two line blurb for a product." });
+    await addHelper(db, maker, { slug: "gone-helper", name: "Gone helper", unpublishedAt: new Date() });
+    const m = (await helperMetadata({ params: Promise.resolve({ slug: "blurb-writer" }) })) as Meta;
+    expect(m.title).toBe("Blurb writer on boardofserv");
+    expect(m.description).toBe("Writes a two line blurb for a product. A beta, on test USDC.");
+    expect(m.openGraph).toMatchObject({ url: "/h/blurb-writer" });
+    expect(m.openGraph?.images?.[0]?.url).toBe("/brand/share-card.png");
+    // Never the helper's instructions.
+    expect(JSON.stringify(m)).not.toContain("friendly two line blurb");
+    for (const slug of ["gone-helper", "no-such-helper"]) {
+      expect(((await helperMetadata({ params: Promise.resolve({ slug }) })) as Meta).title, slug).toBe("A helper on boardofserv");
     }
   });
 
