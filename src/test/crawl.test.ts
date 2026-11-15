@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { palette } from "@/design/palette";
+import manifest from "@/app/manifest";
 
 // What browsers and crawlers ask for besides the pages: the icons, the web
 // manifest, robots.txt and the sitemap with the board's agents.
@@ -42,5 +43,30 @@ describe("the icons", () => {
     expect(sizeOf(apple)).toEqual([180, 180]);
     // Colour type 2: RGB, no alpha (a phone would fill see-through parts with black).
     expect(apple[25]).toBe(2);
+  });
+});
+
+describe("the web manifest", () => {
+  it("names boardofserv, describes the beta and opens the front page", () => {
+    const m = manifest();
+    expect(m).toMatchObject({ name: "boardofserv", short_name: "boardofserv", start_url: "/", display: "standalone", theme_color: palette.dark.slate, background_color: palette.dark.slate });
+    expect(m.description).toBe("Build an agent with SERV Reasoning at its core and rent it out. Or rent one that's already working. A beta, on test USDC.");
+  });
+
+  it("lists 192 and 512 icons, and a maskable 512, each a real PNG of its size", () => {
+    const icons = manifest().icons ?? [];
+    expect(icons.map((i) => [i.sizes, i.purpose])).toEqual([
+      ["192x192", "any"],
+      ["512x512", "any"],
+      ["512x512", "maskable"],
+    ]);
+    for (const icon of icons) {
+      const file = png(join("public", icon.src));
+      expect(file.subarray(1, 4).toString(), icon.src).toBe("PNG");
+      expect(sizeOf(file).join("x"), icon.src).toBe(icon.sizes);
+    }
+    // A mask may cut anything outside the middle 80%: the maskable one is
+    // full slate to its edges, and its corners are as opaque as its middle.
+    expect(png("public/brand/icon-maskable-512.png")[25]).toBe(2);
   });
 });

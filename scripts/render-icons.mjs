@@ -3,7 +3,11 @@
 // - src/app/favicon.ico: src/app/icon.svg at 32 and 16 pixels.
 // - src/app/apple-icon.png: 180 by 180, the mark on slate with room around
 //   it (the phone rounds the corners itself).
-// The apple icon uses the header's own mark (components/chat/Wordmark.tsx),
+// - public/brand/icon-192.png and icon-512.png: the mark on a rounded slate
+//   tile, for the web manifest.
+// - public/brand/icon-maskable-512.png: full slate, the mark well inside the
+//   safe circle (the middle 80%) that any launcher's mask keeps.
+// The big ones use the header's own mark (components/chat/Wordmark.tsx),
 // crisp, without the chalk filter; the colours are the dark theme's slate
 // and chalk (src/design/palette.ts).
 //
@@ -24,8 +28,8 @@ const MARK = `<g fill="none" stroke="${CHALK}" stroke-width="1.8" stroke-linecap
   <path d="M9 23h8" />
 </g>`;
 
-// The mark centred on a size-pixel square, `width` of it wide, on full
-// slate (or a tile with rounded corners).
+// The mark centred on a size-pixel square, `width` of it wide: on a tile
+// with rounded corners, or on full slate.
 function bigIcon(size, { width, rounded }) {
   const scale = (size * width) / 23.8;
   const x = size / 2 - 13 * scale;
@@ -67,5 +71,8 @@ async function render(svg, size) {
 const small = readFileSync(join(ROOT, "src/app/icon.svg"), "utf8");
 writeFileSync(join(ROOT, "src/app/favicon.ico"), ico([{ size: 32, png: await render(small, 32) }, { size: 16, png: await render(small, 16) }]));
 writeFileSync(join(ROOT, "src/app/apple-icon.png"), await render(bigIcon(180, { width: 0.58, rounded: false }), 180));
+writeFileSync(join(ROOT, "public/brand/icon-192.png"), await render(bigIcon(192, { width: 0.62, rounded: true }), 192));
+writeFileSync(join(ROOT, "public/brand/icon-512.png"), await render(bigIcon(512, { width: 0.62, rounded: true }), 512));
+writeFileSync(join(ROOT, "public/brand/icon-maskable-512.png"), await render(bigIcon(512, { width: 0.5, rounded: false }), 512));
 
 await browser.close();
