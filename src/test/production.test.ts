@@ -307,7 +307,8 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
   });
 
   it.each([
-    ["/icon.svg", "image/svg+xml"],
+    ["/icon1.png", "image/png"],
+    ["/icon2.png", "image/png"],
     ["/favicon.ico", "image/x-icon"],
     ["/apple-icon.png", "image/png"],
     ["/manifest.webmanifest", "application/manifest+json"],
@@ -326,7 +327,10 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
     for (const path of ["/", "/login", "/app/board"]) {
       const html = await (await fetch(`${base}${path}`)).text();
       expect(html, path).toMatch(/<link rel="icon" href="\/favicon\.ico[^"]*"[^>]*sizes="32x32"/);
-      expect(html, path).toMatch(/<link rel="icon" href="\/icon\.svg[^"]*"[^>]*type="image\/svg\+xml"/);
+      expect(html, path).toMatch(/<link rel="icon" href="\/icon1\.png[^"]*" sizes="32x32" type="image\/png"/);
+      expect(html, path).toMatch(/<link rel="icon" href="\/icon2\.png[^"]*" sizes="192x192" type="image\/png"/);
+      // No SVG tab icon: Safari can stick on one instead of falling back.
+      expect(html, path).not.toMatch(/<link rel="icon"[^>]*svg/);
       expect(html, path).toMatch(/<link rel="apple-touch-icon" href="\/apple-icon\.png[^"]*"[^>]*sizes="180x180"/);
       expect(html, path).toContain('<link rel="manifest" href="/manifest.webmanifest"');
     }
