@@ -312,6 +312,7 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
     ["/apple-icon.png", "image/png"],
     ["/manifest.webmanifest", "application/manifest+json"],
     ["/robots.txt", "text/plain"],
+    ["/sitemap.xml", "application/xml"],
     ["/brand/icon-192.png", "image/png"],
     ["/brand/icon-512.png", "image/png"],
     ["/brand/icon-maskable-512.png", "image/png"],
@@ -337,6 +338,13 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
     expect(robots).toContain("Disallow: /app/");
     expect(robots).toContain("Allow: /app/board");
     expect(robots).toContain("Sitemap: https://boardofserv.25th.dev/sitemap.xml");
+  });
+
+  it("serves a sitemap of the public pages when there's no database", async () => {
+    const sitemap = await (await fetch(`${base}/sitemap.xml`)).text();
+    expect(sitemap).toContain("<loc>https://boardofserv.25th.dev/everything</loc>");
+    expect(sitemap).toContain("<loc>https://boardofserv.25th.dev/app/board</loc>");
+    expect(sitemap).not.toContain("/app/board/agents/");
   });
 });
 

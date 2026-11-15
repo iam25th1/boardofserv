@@ -88,6 +88,10 @@ function listingDTO(r: Row, renters: number, quality: QualityDTO = NO_QUALITY(),
 const notFrozen = () =>
   sql`not exists (select 1 from ${freezes} f where f.lifted_at is null and ((f.kind = 'agent' and f.target_id = ${agents.id}) or (f.kind = 'version' and f.target_id = ${agentListings.versionId}) or (f.kind = 'maker' and f.target_id = ${agents.ownerUserId})))`;
 
+// What puts an agent on the board: listed, its listed version published,
+// not stopped, through SERV's screen, and nothing of it frozen.
+const onBoard = () => [eq(agentListings.listed, true), eq(agentVersions.state, "published"), isNull(agents.stoppedAt), eq(agentListings.screen, "ok"), notFrozen()];
+
 const select = (rt: Runtime) =>
   rt.db
     .select({ listing: agentListings, name: agents.name, definition: agentVersions.definition, version: agentVersions.number, maker: users.handle, makerId: users.id })
@@ -102,11 +106,7 @@ export async function boardAgents(rt: Runtime, f: BoardFilters = {}): Promise<Ag
   const rows = (await select(rt)
     .where(
       and(
-        eq(agentListings.listed, true),
-        eq(agentVersions.state, "published"),
-        isNull(agents.stoppedAt),
-        eq(agentListings.screen, "ok"),
-        notFrozen(),
+        ...onBoard(),
         q ? or(ilike(agents.name, `%${q}%`), sql`${agentVersions.definition} -> 'job' ->> 'does' ilike ${`%${q}%`}`) : undefined,
         f.min !== undefined && f.min !== null ? gte(agentListings.weeklyPrice, f.min.toString()) : undefined,
         f.max !== undefined && f.max !== null ? lte(agentListings.weeklyPrice, f.max.toString()) : undefined,
@@ -137,7 +137,7 @@ export async function boardAgents(rt: Runtime, f: BoardFilters = {}): Promise<Ag
 // An agent's own page, for anyone, or null when it isn't on the board.
 export async function agentPage(rt: Runtime, agentId: string, viewerId: string | null = null): Promise<AgentPageDTO | null> {
   if (!/^[0-9a-f-]{36}$/i.test(agentId)) return null;
-  const [row] = (await select(rt).where(and(eq(agentListings.agentId, agentId), eq(agentListings.listed, true), eq(agentVersions.state, "published"), isNull(agents.stoppedAt), eq(agentListings.screen, "ok"), notFrozen()))) as Row[];
+  const [row] = (await select(rt).where(and(eq(agentListings.agentId, agentId), ...onBoard()))) as Row[];
   if (!row?.definition) return null;
   const d = row.definition;
   const renters = (await renterCounts(rt, [row])).get(agentId) ?? 0;
@@ -170,6 +170,19 @@ export async function agentPage(rt: Runtime, agentId: string, viewerId: string |
     mine: viewerId !== null && viewerId === row.makerId,
     rentalId: viewerId ? await rentalIdOf(rt, agentId, viewerId) : null,
   };
+}
+
+// Every agent on the board, for the sitemap: its id and when its listing
+// last changed, newest first (a sitemap holds at most 50,000).
+export async function boardAgentIds(rt: Runtime): Promise<{ id: string; updatedAt: Date }[]> {
+  return rt.db
+    .select({ id: agentListings.agentId, updatedAt: agentListings.updatedAt })
+    .from(agentListings)
+    .innerJoin(agents, eq(agents.id, agentListings.agentId))
+    .innerJoin(agentVersions, eq(agentVersions.id, agentListings.versionId))
+    .where(and(...onBoard()))
+    .orderBy(desc(agentListings.createdAt))
+    .limit(50_000);
 }
 
 async function rentalIdOf(rt: Runtime, agentId: string, renterUserId: string): Promise<string | null> {

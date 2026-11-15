@@ -1,17 +1,39 @@
 // @vitest-environment node
-import { describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { PGlite } from "@electric-sql/pglite";
+import type { PgliteDatabase } from "drizzle-orm/pglite";
+import * as schema from "@/lib/db/schema";
 import { palette } from "@/design/palette";
 import manifest from "@/app/manifest";
 import robots from "@/app/robots";
+import { addUser, testDb } from "./helperDb";
+import { publishedAgent } from "./runtimeFixtures";
 
 // What browsers and crawlers ask for besides the pages: the icons, the web
 // manifest, robots.txt and the sitemap with the board's agents.
 
+const state = vi.hoisted(() => ({ db: null as unknown }));
+vi.mock("@/lib/db", () => ({ db: new Proxy({}, { get: (_, key) => Reflect.get(state.db as object, key) }) }));
+
 const ROOT = process.cwd();
 const png = (path: string) => readFileSync(join(ROOT, path));
 const sizeOf = (file: Buffer) => [file.readUInt32BE(16), file.readUInt32BE(20)];
+
+let client: PGlite;
+let db: PgliteDatabase<typeof schema>;
+let sitemap: () => Promise<{ url: string; lastModified?: string | Date }[]>;
+beforeAll(async () => {
+  ({ client, db } = await testDb());
+  state.db = db;
+  ({ default: sitemap } = await import("@/app/sitemap"));
+}, 60_000);
+afterEach(() => {
+  state.db = db;
+  vi.useRealTimers();
+});
+afterAll(async () => client.close());
 
 describe("the icons", () => {
   it("draw the mark in the dark theme's chalk on its slate", () => {
@@ -77,5 +99,40 @@ describe("robots.txt", () => {
     const r = robots();
     expect(r.rules).toEqual({ userAgent: "*", allow: ["/", "/app/board"], disallow: ["/api/", "/app/"] });
     expect(r.sitemap).toBe("https://boardofserv.25th.dev/sitemap.xml");
+  });
+});
+
+describe("the sitemap", () => {
+  it("lists the public pages and every agent on the board, and nothing off it", async () => {
+    const maker = await addUser(db, "sitemap.maker", "sitemap_maker");
+    const listed = await publishedAgent(db, maker);
+    const unlisted = await publishedAgent(db, maker);
+    await db.insert(schema.agentListings).values([
+      { agentId: listed.agent.id, versionId: listed.version.id, listed: true },
+      { agentId: unlisted.agent.id, versionId: unlisted.version.id, listed: false },
+    ]);
+    const urls = (await sitemap()).map((e) => e.url);
+    expect(urls.slice(0, 8)).toEqual(["/", "/everything", "/about", "/app/board", "/support", "/terms", "/privacy", "/login"].map((p) => `https://boardofserv.25th.dev${p}`));
+    expect(urls).toContain(`https://boardofserv.25th.dev/app/board/agents/${listed.agent.id}`);
+    expect(urls.join(" ")).not.toContain(unlisted.agent.id);
+    expect((await sitemap()).find((e) => e.url.endsWith(listed.agent.id))?.lastModified).toBeInstanceOf(Date);
+  });
+
+  it("has the public pages alone when the database can't answer", async () => {
+    state.db = {
+      select: () => {
+        throw new Error("connect ECONNREFUSED 127.0.0.1:5433");
+      },
+    };
+    expect((await sitemap()).map((e) => e.url)).toHaveLength(8);
+  });
+
+  it("has the public pages alone when the database takes too long", async () => {
+    vi.useFakeTimers();
+    const never: unknown = new Proxy(() => undefined, { get: (_, key) => (key === "then" ? () => undefined : () => never) });
+    state.db = never;
+    const answer = sitemap();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect((await answer).map((e) => e.url)).toHaveLength(8);
   });
 });
