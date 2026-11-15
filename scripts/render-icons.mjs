@@ -1,6 +1,11 @@
 // Renders the app's icons with Playwright's Chromium (the browser the e2e
 // tests already use), so each is drawn as a browser draws the SVG:
-// - src/app/favicon.ico: src/app/icon.svg at 32 and 16 pixels.
+// - src/app/favicon.ico: the tab icon's drawing (docs/brand/icon.svg) at
+//   32 and 16 pixels.
+// - src/app/icon1.png and icon2.png: the same drawing at 32 and 192 pixels,
+//   which Next links as PNG icons with their sizes. They are what Safari
+//   uses in its tabs; no SVG icon is served, since Safari doesn't reliably
+//   use one and can stick on it instead of falling back.
 // - src/app/apple-icon.png: 180 by 180, the mark on slate with room around
 //   it (the phone rounds the corners itself).
 // - public/brand/icon-192.png and icon-512.png: the mark on a rounded slate
@@ -68,8 +73,10 @@ async function render(svg, size) {
   return page.screenshot({ omitBackground: true, clip: { x: 0, y: 0, width: size, height: size } });
 }
 
-const small = readFileSync(join(ROOT, "src/app/icon.svg"), "utf8");
+const small = readFileSync(join(ROOT, "docs/brand/icon.svg"), "utf8");
 writeFileSync(join(ROOT, "src/app/favicon.ico"), ico([{ size: 32, png: await render(small, 32) }, { size: 16, png: await render(small, 16) }]));
+writeFileSync(join(ROOT, "src/app/icon1.png"), await render(small, 32));
+writeFileSync(join(ROOT, "src/app/icon2.png"), await render(small, 192));
 writeFileSync(join(ROOT, "src/app/apple-icon.png"), await render(bigIcon(180, { width: 0.58, rounded: false }), 180));
 writeFileSync(join(ROOT, "public/brand/icon-192.png"), await render(bigIcon(192, { width: 0.62, rounded: true }), 192));
 writeFileSync(join(ROOT, "public/brand/icon-512.png"), await render(bigIcon(512, { width: 0.62, rounded: true }), 512));

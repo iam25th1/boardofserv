@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PGlite } from "@electric-sql/pglite";
 import type { PgliteDatabase } from "drizzle-orm/pglite";
@@ -37,10 +37,16 @@ afterAll(async () => client.close());
 
 describe("the icons", () => {
   it("draw the mark in the dark theme's chalk on its slate", () => {
-    const svg = readFileSync(join(ROOT, "src/app/icon.svg"), "utf8");
+    const svg = readFileSync(join(ROOT, "docs/brand/icon.svg"), "utf8");
     expect(svg).toContain(`fill="${palette.dark.slate}"`);
     expect(svg).toContain(`stroke="${palette.dark.chalk}"`);
     expect(svg).toMatch(/viewBox="0 0 32 32"/);
+  });
+
+  it("are PNGs in the tab, never an SVG (Safari can stick on one)", () => {
+    expect(existsSync(join(ROOT, "src/app/icon.svg"))).toBe(false);
+    expect(sizeOf(png("src/app/icon1.png"))).toEqual([32, 32]);
+    expect(sizeOf(png("src/app/icon2.png"))).toEqual([192, 192]);
   });
 
   it("have a 32 by 32 favicon.ico, with a 16 by 16 beside it", () => {
