@@ -305,6 +305,25 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
     expect((await fetch(`${base}/brand/logo-120.png`)).status).toBe(200);
     expect((await fetch(`${base}/_next/image?url=%2Fbrand%2Flogo-120.png&w=64&q=75`)).status).toBe(404);
   });
+
+  it.each([
+    ["/icon.svg", "image/svg+xml"],
+    ["/favicon.ico", "image/x-icon"],
+    ["/apple-icon.png", "image/png"],
+  ])("serves %s as %s", async (path, type) => {
+    const res = await fetch(`${base}${path}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain(type);
+  });
+
+  it("points every page at the icons", async () => {
+    for (const path of ["/", "/login", "/app/board"]) {
+      const html = await (await fetch(`${base}${path}`)).text();
+      expect(html, path).toMatch(/<link rel="icon" href="\/favicon\.ico[^"]*"[^>]*sizes="32x32"/);
+      expect(html, path).toMatch(/<link rel="icon" href="\/icon\.svg[^"]*"[^>]*type="image\/svg\+xml"/);
+      expect(html, path).toMatch(/<link rel="apple-touch-icon" href="\/apple-icon\.png[^"]*"[^>]*sizes="180x180"/);
+    }
+  });
 });
 
 function freePort(): Promise<number> {
