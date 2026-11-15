@@ -346,6 +346,11 @@ describe.runIf(process.env.CHECK_BUILD === "1")("the production server", () => {
     expect(sitemap).toContain("<loc>https://boardofserv.25th.dev/app/board</loc>");
     expect(sitemap).not.toContain("/app/board/agents/");
   });
+
+  it("gives the sign-in page and the board their own titles", async () => {
+    expect(await (await fetch(`${base}/login`)).text()).toContain("<title>Sign in</title>");
+    expect(await (await fetch(`${base}/app/board`)).text()).toContain("<title>The board</title>");
+  });
 });
 
 function freePort(): Promise<number> {
