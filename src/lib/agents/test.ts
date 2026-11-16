@@ -5,7 +5,7 @@ import { storyOf, toldAs } from "./plainWords";
 import { plain } from "./plainView";
 import { hollow, runAgent } from "./runner";
 import { runMisfits } from "./shapes";
-import { goesThroughList, makeSample, sampleRequest, type Sample } from "./sample";
+import { goesThroughList, keyedToCalls, makeSample, sampleRequest, type Sample } from "./sample";
 import type { BenchData, CheckId, RunEvent, StepCode, TestResult } from "./types";
 import { OUTSIDE_TOOLS, TOOLS } from "./toolbox";
 
@@ -65,6 +65,9 @@ export async function testVersion(v: { definition: AgentDefinition; code: Record
     if (made.call) await o.record?.(made.call, "sample");
     sample = made.sample;
   }
+  // Its stand-ins keyed by the calls the code really makes on the sample's
+  // own settings.
+  sample = { ...sample, bench: (await keyedToCalls(d, v.code, sample.bench, o.timeZone)).bench };
   const events: RunEvent[] = [];
   const end = await runAgent({
     definition: d,

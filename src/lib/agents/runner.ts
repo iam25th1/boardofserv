@@ -1101,6 +1101,9 @@ export interface RunOptions {
   record?: (call: JsonResult) => Promise<void>;
   // Whose time it is: the maker's time zone on the bench.
   timeZone?: string | null;
+  // The calls to a page or a service the bench had nothing for, by their
+  // exact key, added to as it runs (sample.ts keys the sample by them).
+  missed?: string[];
 }
 
 export async function runAgent(o: RunOptions): Promise<Extract<RunEvent, { type: "end" }>> {
@@ -1159,6 +1162,7 @@ export async function runAgent(o: RunOptions): Promise<Extract<RunEvent, { type:
   const ended = r.kind === "end" ? r : { status: "failed" as const, cause: "logic" as const, reason: r.kind === "retry" ? r.reason : "It stopped to wait, which the bench can't do." };
   const outcome = ended.cause === "skipped" || ended.cause === "noted" ? { outcome: ended.cause } : {};
   const e = { type: "end" as const, status: ended.status, reason: ended.reason, steps: state.steps, ms: state.ms, costUsd: state.costUsd, memory: mock.memory, sheets: mock.sheets, ...outcome };
+  o.missed?.push(...mock.missed);
   o.onEvent(e);
   return e;
 }
