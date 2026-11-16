@@ -232,10 +232,12 @@ describe("planning an agent from its conversation", () => {
     const after = await builderOf(a.id);
     // The fixer's change went to the planner, as what the maker said.
     const outlines = seen.filter((x) => x.schema === "agent_outline");
-    expect(outlines.at(-1)!.body.messages[1]!.content).toContain("Also: Add a schedule: every morning at eight.");
-    // One plain sentence, never the checker's own reasons.
-    expect(after.agent).toMatchObject({ buildState: "failed", buildNote: "I couldn't work out steps that fit together for this job." });
-    expect(after.agent.heal).toMatchObject({ gaveUp: "I couldn't work out steps that fit together for this job." });
+    expect(outlines.some((o) => o.body.messages[1]!.content.includes("Also: Add a schedule: every morning at eight."))).toBe(true);
+    // One plain sentence, never the checker's own reasons, once it has
+    // tried three times from a fresh plan.
+    const GAVE_UP = "I couldn't work out steps that fit together for this job. I tried 3 different ways.";
+    expect(after.agent).toMatchObject({ buildState: "failed", buildNote: GAVE_UP });
+    expect(after.agent.heal).toMatchObject({ gaveUp: GAVE_UP, tries: 3 });
     expect(after.definition).toBeNull();
     // The checker's reasons are kept, as a diagnosis.
     const heal = (await draftOf(a.id))!.heal!;
@@ -317,12 +319,15 @@ describe("the builder", () => {
     const res = await buildRoute.POST(json(`/api/agents/${id}/build`, "POST"), { params: Promise.resolve({ id }) });
     expect(res.status).toBe(202);
     await jobFor(draft.id);
-    // No code was written: the fixer read why the plan didn't check out.
-    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).not.toContain("dolphin");
-    expect(seen[0]!.schema).toBe("agent_fix");
-    const heal = (await draftOf(id))!.heal!;
-    expect(heal.rounds.at(-1)!.diagnosis).toMatchObject({ stage: "plan" });
-    expect(heal.rounds.at(-1)!.diagnosis.evidence.errors.join(" ")).toMatch(/"nowhere", which no step outputs/);
+    // No code was written for it: the fixer read why the plan didn't check
+    // out, and code was written only for the fresh plan after it.
+    const order = seen.map((s) => (s.to === "serv" ? s.schema : s.to));
+    expect(order[0]).toBe("agent_fix");
+    expect(order.indexOf("dolphin")).toBeGreaterThan(order.indexOf("agent_outline"));
+    const after = (await draftOf(id))!;
+    expect(JSON.stringify(after.definition)).not.toContain("nowhere");
+    const planned = after.heal!.rounds.find((r) => r.diagnosis.stage === "plan")!;
+    expect(planned.diagnosis.evidence.errors.join(" ")).toMatch(/"nowhere", which no step outputs/);
   });
 
   it("publishes nothing the code review blocks or couldn't read, and says what to fix", async () => {
@@ -464,24 +469,31 @@ describe("a self test that fails", () => {
     expect(heal.rounds[0]!.lesson).toEqual({ kind: "wrong_value", text: "A step only returns what its job makes." });
   });
 
-  it("goes round again when a repair doesn't fix it, and gives up with one plain sentence after its rounds", async () => {
-    plans = [broken, broken, broken, broken];
-    fixes = [CHANGE, CHANGE, CHANGE];
+  it("goes round again when a repair doesn't fix it, tries twice more from a fresh plan, and gives up with one plain sentence after the third", async () => {
+    // Each try: its plan, and three repairs that change it.
+    plans = Array.from({ length: 12 }, () => broken);
+    fixes = Array.from({ length: 9 }, () => CHANGE);
     const { id } = await built();
     const after = await builderOf(id);
     expect(after.agent.buildState).toBe("idle");
     expect(after.agent.test).toMatchObject({ status: "failed" });
-    expect(seen.filter((s) => s.schema === "agent_fix")).toHaveLength(3);
-    expect(after.agent.heal!.gaveUp).toMatch(/^I couldn't get step \d, "[^"]+", to work on its sample\.$/);
+    expect(seen.filter((s) => s.schema === "agent_fix")).toHaveLength(9);
+    // Each fresh try asked first for a tested recipe, then planned.
+    expect(seen.filter((s) => s.schema === "agent_recipe")).toHaveLength(3);
+    expect(after.agent.heal!.gaveUp).toMatch(/^I couldn't get step \d, "[^"]+", to work on its sample\. I tried 3 different ways\.$/);
+    // The maker saw which try it was on, then how it ended: not each fix.
+    expect(after.agent.heal!.lines.map((l) => l.text)).toEqual(["Trying another way, 3 of 3.", after.agent.heal!.gaveUp]);
     expect(after.agent.heal!.lines.at(-1)).toMatchObject({ text: after.agent.heal!.gaveUp, tone: "stopped" });
     // Every round is kept, with what failed in each.
     const heal = (await draftOf(id))!.heal!;
-    expect(heal.rounds.map((r) => [r.diagnosis.stage, r.verdict, r.outcome])).toEqual([
+    expect(heal.tries).toBe(3);
+    const round = [
       ["test", "plan", "failed"],
       ["test", "plan", "failed"],
       ["test", "plan", "failed"],
       ["test", null, "pending"],
-    ]);
+    ];
+    expect(heal.rounds.map((r) => [r.diagnosis.stage, r.verdict, r.outcome])).toEqual([...round, ...round, ...round]);
     expect(heal.rounds[0]!.diagnosis).toMatchObject({ step: { id: "compare" }, failure: `${SENTENCE} It didn't return notes.`, evidence: { check: "ran" } });
     expect(heal.rounds[0]!.diagnosis.evidence.trace.join("\n")).toContain("compare failed");
   });
@@ -522,12 +534,26 @@ describe("a self test that fails", () => {
 
   it("stops at the build's model budget, whatever rounds are left", async () => {
     vi.stubEnv("AGENT_BUILD_COST_USD", "0.0001");
-    plans = [broken];
+    plans = [broken, broken, broken];
     fixes = [CHANGE];
     const { id } = await built();
     const after = await builderOf(id);
     expect(seen.some((s) => s.schema === "agent_fix")).toBe(false);
-    expect(after.agent.heal!.gaveUp).toBeTruthy();
+    expect(after.agent.heal!.gaveUp).toMatch(/I tried 3 different ways\.$/);
     vi.stubEnv("AGENT_BUILD_COST_USD", "");
+  });
+
+  it("tries again from a fresh plan when its repairs run out, and the maker sees only which try it is on", async () => {
+    plans = [broken, broken, broken, broken, RESTOCK_WIRE];
+    fixes = [CHANGE, CHANGE, CHANGE];
+    const { id } = await built();
+    const after = await builderOf(id);
+    expect(after.agent.buildState).toBe("idle");
+    expect(after.agent.test).toMatchObject({ status: "passed" });
+    expect(after.agent.heal).toMatchObject({ gaveUp: null, tries: 2, lines: [{ text: "Trying another way, 2 of 3.", tone: "working" }] });
+    // The fresh try kept nothing of the failed one's code: each step was
+    // written again.
+    const fresh = seen.map((s) => s.schema).lastIndexOf("agent_recipe");
+    expect(seen.slice(fresh).filter((s) => s.to === "dolphin")).toHaveLength(2);
   });
 });

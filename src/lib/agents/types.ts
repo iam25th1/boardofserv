@@ -133,6 +133,9 @@ export interface HealLog {
   gaveUp?: string | null;
   // What this build's model calls have cost so far, in US dollars.
   costUsd?: number;
+  // Which try this is, each from a fresh plan (build.ts BUILD_TRIES): 1
+  // unless a try before it failed.
+  tries?: number;
 }
 
 export function emptyHeal(): HealLog {

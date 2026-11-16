@@ -118,7 +118,7 @@ export interface AgentSummaryDTO {
   // How this build is healing itself, in plain lines; a question for the
   // maker (and the chat message that asks it); and the one sentence it
   // ends with when it gives up.
-  heal?: { lines: { text: string; tone: "working" | "fixed" | "asked" | "stopped"; at: string }[]; question: { text: string; choices: string[]; messageId: string | null } | null; gaveUp: string | null } | null;
+  heal?: { lines: { text: string; tone: "working" | "fixed" | "asked" | "stopped"; at: string }[]; question: { text: string; choices: string[]; messageId: string | null } | null; gaveUp: string | null; tries?: number } | null;
 }
 
 // Everything the agent's own builder shows its maker: the definition, each

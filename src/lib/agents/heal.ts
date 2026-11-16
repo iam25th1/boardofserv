@@ -16,22 +16,35 @@ import { emptyHeal, type Diagnosis, type HealLog, type HealRound } from "./types
 // How far one build may go healing itself: repair rounds, and what all of
 // its model calls may cost, which grows with the agent's size. Both can be
 // set (AGENT_HEAL_ROUNDS, AGENT_BUILD_COST_USD).
-export function healLimits(d: Pick<AgentDefinition, "steps"> | null, env: Record<string, string | undefined> = process.env): { rounds: number; costUsd: number } {
+export function healLimits(d: Pick<AgentDefinition, "steps"> | null, env: Record<string, string | undefined> = process.env): { rounds: number; costUsd: number; tries: number } {
   const r = Number(env.AGENT_HEAL_ROUNDS);
   const c = Number(env.AGENT_BUILD_COST_USD);
+  const t = Number(env.AGENT_BUILD_TRIES);
   const steps = d?.steps.length ?? 8;
   return {
     rounds: env.AGENT_HEAL_ROUNDS?.trim() && Number.isInteger(r) && r >= 0 ? r : 3,
     costUsd: env.AGENT_BUILD_COST_USD?.trim() && Number.isFinite(c) && c > 0 ? c : Math.round((0.3 + 0.03 * steps) * 100) / 100,
+    // Tries from a fresh plan before it says what went wrong (build.ts).
+    tries: env.AGENT_BUILD_TRIES?.trim() && Number.isInteger(t) && t >= 1 ? t : BUILD_TRIES,
   };
 }
+
+// The tries a build gets, each from a fresh plan, before it says what went
+// wrong: a beginner gets one try, so the failures in between are its own
+// to get past (PR #9 built one sentence twelve times and only four went
+// live, each failure a different plan).
+export const BUILD_TRIES = 3;
+
+// The one line the maker sees while it tries again.
+export const TRIES_MARK = "Trying another way";
+export const triesLine = (n: number, of: number) => `${TRIES_MARK}, ${n} of ${of}.`;
 
 // A new build starts a fresh page of the log: its lines, question and
 // giving up are this build's alone; every round before stays, for the
 // details view.
 export function freshBuild(log: HealLog | null | undefined): HealLog {
   const l = log ?? emptyHeal();
-  return { ...l, lines: [], question: null, gaveUp: null, since: l.rounds.length, costUsd: 0 };
+  return { ...l, lines: [], question: null, gaveUp: null, since: l.rounds.length, costUsd: 0, tries: 1 };
 }
 
 // The rounds this build has acted on (a diagnosis waiting is not one yet).

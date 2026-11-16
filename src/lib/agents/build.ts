@@ -20,7 +20,7 @@ import { errorText } from "../db/errors";
 import { recordAttempts } from "../modelAttempts";
 import { codeDiagnosis, planDiagnosis, testDiagnosis, withDiagnosis } from "./diagnosis";
 import { askFixer, type FixVerdict } from "./fixer";
-import { argsVerdict, escalated, toCatalogVerdict, foundLine, freshBuild, gaveUpLine, healLimits, repairLine, roundsUsed, withLine, withRound } from "./heal";
+import { argsVerdict, escalated, toCatalogVerdict, foundLine, freshBuild, gaveUpLine, healLimits, repairLine, roundsUsed, TRIES_MARK, triesLine, withLine, withRound } from "./heal";
 import { weakens } from "./guarded";
 import { learn, recurringRules } from "./lessons";
 
@@ -393,7 +393,7 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
     const dx = diagnosis ?? log.rounds.at(-1)?.diagnosis ?? (answer ? planDiagnosis([], v.definition) : null);
     if (!dx) return;
     const planning = !v.definition;
-    if (!answer && (roundsUsed(log) >= limits.rounds || (log.costUsd ?? 0) >= limits.costUsd)) return giveUp(versionId, dx, v.definition, Boolean(planning));
+    if (!answer && (roundsUsed(log) >= limits.rounds || (log.costUsd ?? 0) >= limits.costUsd)) return giveUp(versionId, dx, v.definition, Boolean(planning), undefined, { ctx: c, settle, after });
     await updateDraft(versionId, { buildState: "fixing", buildNote: null });
 
     // SERV or Dolphin not answering isn't something to fix: the step is
@@ -438,7 +438,7 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
     }
     if (!verdict) {
       await healOf(versionId, (l) => withRound(l, { verdict: null, why: "The fixer couldn't say what was wrong.", outcome: "failed" }));
-      return giveUp(versionId, dx, v.definition, planning);
+      return giveUp(versionId, dx, v.definition, planning, undefined, { ctx: c, settle, after });
     }
     // The sample and the code's real calls not matching, named a second
     // time on this build, is a code or settings fix (heal.ts).
@@ -577,12 +577,52 @@ const INFRA = /couldn't review it just now|didn't answer|isn't set up here/i;
 const RETRIED = "Written again as it was: SERV or Dolphin didn't answer.";
 const NOT_ANSWERING = "SERV isn't answering just now, so it stopped part way. Try again in a few minutes.";
 
-// Out of rounds or budget: one plain sentence of what it couldn't do, for
-// the card to show with its two choices.
-async function giveUp(versionId: string, dx: Diagnosis, d: AgentDefinition | null, planning: boolean, said?: string): Promise<void> {
-  const text = said ?? gaveUpLine(dx, d);
+// Out of rounds or budget: another try from a fresh plan, quietly, while
+// it has tries left and the build failed while planning or building (not
+// once it was set up to go live); after the last, one plain sentence of
+// what it couldn't do, for the card to show with its two choices.
+// again: where to try again from, when trying again is right (never when
+// SERV isn't answering: another plan won't help).
+async function giveUp(versionId: string, dx: Diagnosis, d: AgentDefinition | null, planning: boolean, said?: string, again?: { ctx: BuildContext; settle: Settle; after?: PlanOptions }): Promise<void> {
+  const tries = (await versionById(versionId))?.heal?.tries ?? 1;
+  const of = healLimits(d).tries;
+  if (again && dx.stage !== "live" && tries < of && !again.ctx.signal?.aborted) return tryAgain(versionId, tries + 1, of, d, again.ctx, again.settle, again.after);
+  const text = said ?? `${gaveUpLine(dx, d)}${tries > 1 ? ` I tried ${tries} different ways.` : ""}`;
   await healOf(versionId, (l) => withLine({ ...l, gaveUp: text }, text, "stopped"));
   await updateDraft(versionId, { buildState: planning ? "failed" : "idle", buildNote: planning ? text : null });
+}
+
+// Another try, from a fresh plan of what the maker said (never the recipe
+// that just failed), with a fresh page of the log that says only which try
+// it is. Planning in the chat stops at the steps as it would (after); a
+// build already under way goes on to build and test them.
+async function tryAgain(versionId: string, n: number, of: number, failed: AgentDefinition | null, ctx: BuildContext, settle: Settle, after?: PlanOptions): Promise<void> {
+  const v = await versionById(versionId);
+  if (!v) return;
+  await setHeal(versionId, { ...freshBuild(v.heal), tries: n, lines: [{ text: triesLine(n, of), tone: "working", at: new Date().toISOString() }] });
+  await updateDraft(versionId, { buildState: "planning", buildNote: null });
+  const input = await planInputFor(ctx.conversationId, null, "");
+  // Without the maker's conversation, what the failed plan was for.
+  if (!ctx.conversationId && failed) input.interview = { ...input.interview, name: failed.name, does: failed.job.does };
+  const plan = await planAgent(input, { config: ctx.serv, signal: ctx.signal ?? new AbortController().signal, lessons: ctx.lessons, avoid: failed?.recipe?.id ?? null });
+  if (ctx.signal?.aborted) return;
+  for (const call of plan.calls) await recordAgentCall(ctx, "agent_plan", call);
+  await leftOut(versionId, plan.dropped);
+  if (!plan.definition) {
+    const dx = planDiagnosis(plan.errors, null);
+    await diagnosed(versionId, dx);
+    await updateDraft(versionId, { definition: null, code: {}, testResult: null });
+    if (!plan.calls.some((c) => c.content)) return giveUp(versionId, dx, null, true, NOT_ANSWERING);
+    return heal(versionId, ctx, settle, { diagnosis: dx }, input, after);
+  }
+  // Fresh: nothing of the failed try's code is kept.
+  await updateDraft(versionId, { definition: plan.definition, code: plan.code ?? {}, testResult: null });
+  await after?.planned?.(failed, plan.definition, null);
+  const stop = typeof after?.stop === "function" ? after.stop(null, plan.definition) : Boolean(after?.stop);
+  if (stop) return void (await updateDraft(versionId, { buildState: "idle", buildNote: null }));
+  await updateDraft(versionId, { buildState: "writing" });
+  const outcome = await writeAndTest(versionId, plan.definition, ctx, settle);
+  return settleBuild(versionId, ctx, settle, outcome);
 }
 
 // The maker answered the fixer's question: the build goes on with it, in
@@ -783,7 +823,9 @@ export function summaryOf(agent: Agent, version: AgentVersion): AgentSummaryDTO 
     plain: plainSteps(version.definition),
     setup: version.definition ? { ...setupShapeOf(version.definition), given: givenAnswers(version.definition) } : null,
     does: version.definition?.job.does ?? null,
-    heal: heal ? { lines: heal.lines.map(({ text, tone, at }) => ({ text, tone, at })), question: heal.question ? { text: heal.question.text, choices: heal.question.choices, messageId: heal.question.messageId ?? null } : null, gaveUp: heal.gaveUp ?? null } : null,
+    // On a later try the maker sees which try it is, and how it ends, not
+    // each thing it fixes on the way.
+    heal: heal ? { lines: heal.lines.filter((l) => (heal.tries ?? 1) === 1 || l.tone !== "working" || l.text.startsWith(TRIES_MARK)).map(({ text, tone, at }) => ({ text, tone, at })), question: heal.question ? { text: heal.question.text, choices: heal.question.choices, messageId: heal.question.messageId ?? null } : null, gaveUp: heal.gaveUp ?? null, ...((heal.tries ?? 1) > 1 ? { tries: heal.tries } : {}) } : null,
   };
 }
 

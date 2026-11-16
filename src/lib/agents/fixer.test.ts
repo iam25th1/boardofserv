@@ -51,11 +51,12 @@ describe("the fixer", () => {
 });
 
 describe("healing's bookkeeping", () => {
-  it("has three rounds and a model budget that grows with the agent, both settable", () => {
-    expect(healLimits({ steps: new Array(7) }, {})).toEqual({ rounds: 3, costUsd: 0.51 });
-    expect(healLimits({ steps: new Array(20) }, {})).toEqual({ rounds: 3, costUsd: 0.9 });
-    expect(healLimits(null, { AGENT_HEAL_ROUNDS: "5", AGENT_BUILD_COST_USD: "2" })).toEqual({ rounds: 5, costUsd: 2 });
+  it("has three rounds, a model budget that grows with the agent and three tries, all settable", () => {
+    expect(healLimits({ steps: new Array(7) }, {})).toEqual({ rounds: 3, costUsd: 0.51, tries: 3 });
+    expect(healLimits({ steps: new Array(20) }, {})).toEqual({ rounds: 3, costUsd: 0.9, tries: 3 });
+    expect(healLimits(null, { AGENT_HEAL_ROUNDS: "5", AGENT_BUILD_COST_USD: "2", AGENT_BUILD_TRIES: "1" })).toEqual({ rounds: 5, costUsd: 2, tries: 1 });
     expect(healLimits(null, { AGENT_HEAL_ROUNDS: "0" }).rounds).toBe(0);
+    expect(healLimits(null, { AGENT_BUILD_TRIES: "0" }).tries).toBe(3);
   });
 
   it("counts only this build's rounds that were acted on", () => {
