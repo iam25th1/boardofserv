@@ -4,6 +4,7 @@ import { completeJson, DOLPHIN_LABEL, modelConfig, type ChatMessage, type JsonRe
 import { ANSWER_LIMITS } from "../modelLimits";
 import { ARGS_TOOLS, checkDefinition, loopsOf, REASON_TOOL, RUN_VALUES, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
 import { targetProblem, writtenTarget } from "./targets";
+import { argMismatches, mismatchProblem } from "./argKinds";
 import { CATALOG } from "../connections/catalog";
 import { OUTSIDE_TOOLS, TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
@@ -221,6 +222,9 @@ export function checkCode(source: string, step: CodeStepDef, d?: AgentDefinition
     const tool = fetched.tools[0] as ToolName;
     return `It fetches ${fetched.name}'s API with web.fetch: read it with ${tool} instead, its tool here, which needs no address: ${TOOLS[tool].signature}`;
   }
+  // A tool given the wrong kind of value (an id where a date goes).
+  const wrong = argMismatches(source, { memory: d?.memory });
+  if (wrong.length) return mismatchProblem(wrong[0]!);
   if (d) {
     const target = writtenTarget(source, step, d);
     if (target) return targetProblem(target, step.inputs.includes("settings"));

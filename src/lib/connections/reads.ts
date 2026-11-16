@@ -39,6 +39,16 @@ export const fieldName = (title: string) =>
     .replace(/^_+|_+$/g, "")
     .slice(0, 60) || "field";
 
+// A date as the services take one: ISO 8601, a day or a moment.
+const ISO = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/i;
+export function isDateText(v: string): boolean {
+  return ISO.test(v.trim()) && Number.isFinite(Date.parse(v.trim()));
+}
+// "Only what came after" takes a date, never an id (a commit's sha): the
+// type check says so, whatever the code sends (agents/argKinds.ts reads the
+// code for it before it ever runs).
+const SINCE = z.string().max(40).refine(isDateText, "takes a date (ISO 8601, like 2026-11-16T09:00:00Z), not an id or a sha");
+
 const REPO = z.string().regex(/^[\w.-]+\/[\w.-]+$/, "a repository is owner/name, like vercel/next.js");
 const repoPath = (repo: string) => repo.split("/").map(encodeURIComponent).join("/");
 
@@ -49,14 +59,14 @@ const github: TypedRead = {
     op: z.enum(["commits", "pulls", "issues", "pull", "commit"]),
     repo: REPO,
     number: z.number().int().min(1).optional(),
-    sha: z.string().regex(/^[0-9a-f]{7,40}$/i).optional(),
+    sha: z.string().regex(/^[0-9a-f]{7,40}$/i, "is a commit's id (7 to 40 hex characters), not a date").optional(),
     state: z.enum(["open", "closed", "all"]).optional(),
-    since: z.string().max(40).optional(),
+    since: SINCE.optional(),
     limit: LIMIT,
   }),
   summary: "Read a GitHub repository (owner/name; public ones need no key): its commits, pull requests or issues, or one pull request's or commit's changed files with their patches.",
   signature:
-    'tools.github.read({ op: "commits" | "pulls" | "issues" | "pull" | "commit", repo: string, number?: number, sha?: string, state?: "open" | "closed" | "all", since?: string, limit?: number }): Promise<{ items: Array<Record<string, string | number | boolean | null>> }> // commits: { sha, message, author, date, url }; pulls: { number, title, author, state, draft, created_at, merged_at, url, body }; issues: { number, title, author, state, labels, created_at, url, body }; pull (number) and commit (sha): its changed files { filename, status, additions, deletions, patch }',
+    'tools.github.read({ op: "commits" | "pulls" | "issues" | "pull" | "commit", repo: string, number?: number, sha?: string, state?: "open" | "closed" | "all", since?: string, limit?: number }): Promise<{ items: Array<Record<string, string | number | boolean | null>> }> // commits: { sha, message, author, date, url }; pulls: { number, title, author, state, draft, created_at, merged_at, url, body }; issues: { number, title, author, state, labels, created_at, url, body }; pull (number) and commit (sha): its changed files { filename, status, additions, deletions, patch }; since is a date (ISO 8601, like 2026-11-16T09:00:00Z), only what came after it, never a sha or an id',
   outside: "a GitHub repository",
   verb: "read GitHub",
   request: (a: { op: string; repo: string; number?: number; sha?: string; state?: string; since?: string; limit?: number }) => {
@@ -193,7 +203,7 @@ const linear: TypedRead = {
 const shopify: TypedRead = {
   tool: "shopify.read",
   service: "shopify",
-  args: z.object({ op: z.enum(["orders", "products", "customers"]), status: z.string().max(20).optional(), since: z.string().max(40).optional(), limit: LIMIT }),
+  args: z.object({ op: z.enum(["orders", "products", "customers"]), status: z.string().max(20).optional(), since: SINCE.optional(), limit: LIMIT }),
   summary: "Read the owner's Shopify store: its orders, products or customers.",
   signature:
     'tools.shopify.read({ op: "orders" | "products" | "customers", status?: string, since?: string, limit?: number }): Promise<{ items: Array<Record<string, string | number | null>> }> // orders: { id, name, created_at, total, currency, paid, fulfilled, customer, items }; products: { id, title, status, vendor, price, inventory }; customers: { id, name, orders, spent }',

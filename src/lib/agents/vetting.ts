@@ -2,6 +2,7 @@ import "server-only";
 import { completeJson, type ChatMessage, type JsonResult, type ModelConfig } from "../model";
 import { TOOL_NAMES, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
 import { TOOLS } from "./toolbox";
+import { argMismatches, mismatchFinding } from "./argKinds";
 import type { StepCode } from "./types";
 
 // The code review before publishing: every version of an agent is read as
@@ -81,10 +82,14 @@ const PLAIN: { test: RegExp; severity: Severity; finding: string }[] = [
   { test: /tools\s*\.\s*web\s*\.\s*fetch\s*\(\s*\{\s*url\s*:\s*["'`]https?:/, severity: "warning", finding: "It fetches a fixed web address rather than one from its settings or inputs." },
 ];
 
-// The plain checks on one step's code.
-export function plainFindings(step: CodeStepDef, source: string): Finding[] {
+// The plain checks on one step's code. With the agent's memory and every
+// step's code, a tool given the wrong kind of value too (an id where a
+// date goes, traced through what the agent remembers): blocking, since it
+// breaks every run that reaches it.
+export function plainFindings(step: CodeStepDef, source: string, agent?: { memory: readonly { key: string; description?: string }[]; sources: string[] }): Finding[] {
   const out: Finding[] = [];
   for (const p of PLAIN) if (p.test.test(source)) out.push({ step: step.title, severity: p.severity, finding: p.finding });
+  for (const m of argMismatches(source, agent ?? {})) out.push({ step: step.title, severity: "blocking", finding: mismatchFinding(m) });
   return out;
 }
 
@@ -217,7 +222,8 @@ export async function reviewVersion(
   // log: the server's log, for findings dropped for going against a rule.
   opts: { now: Date; fetchImpl?: typeof fetch; record?: (call: JsonResult) => Promise<void>; log?: (line: string) => void },
 ): Promise<VersionReview> {
-  const local = d.steps.flatMap((s) => (s.kind === "code" ? plainFindings(s, code[s.id]?.source ?? "") : []));
+  const sources = Object.values(code).map((c) => c.source ?? "");
+  const local = d.steps.flatMap((s) => (s.kind === "code" ? plainFindings(s, code[s.id]?.source ?? "", { memory: d.memory, sources }) : []));
   const at = opts.now.toISOString();
   if (!serv) return { status: local.some((f) => f.severity === "blocking") ? "blocked" : "unreviewed", findings: local, by: "local", model: null, reviewedAt: at };
   const messages: ChatMessage[] = [

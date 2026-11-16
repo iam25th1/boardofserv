@@ -306,7 +306,7 @@ export class MockTools {
   async call(tool: ToolName, rawArgs: unknown): Promise<unknown> {
     const parsed = TOOL_ARGS[tool].safeParse(rawArgs, { error: keepRequired });
     if (!parsed.success) {
-      const why = parsed.error.issues.map((i) => `${i.path.join(".") || "arguments"} ${i.message.toLowerCase()}`).join("; ");
+      const why = parsed.error.issues.map((i) => `${i.path.join(".") || "arguments"} ${i.message.charAt(0).toLowerCase()}${i.message.slice(1)}`).join("; ");
       this.calls.push({ tool, args: rawArgs, result: null, error: why });
       throw new ToolError(tool, `${tool} was called wrongly: ${why}`);
     }

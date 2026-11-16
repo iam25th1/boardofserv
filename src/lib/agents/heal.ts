@@ -1,4 +1,6 @@
 import type { AgentDefinition, CodeStepDef } from "./definition";
+import { argMismatches, mismatchProblem } from "./argKinds";
+import type { StepCode } from "./types";
 import type { FixVerdict } from "./fixer";
 import { OUTSIDE_TOOLS } from "./toolbox";
 import { catalogFetched } from "./planRepairs";
@@ -146,4 +148,21 @@ export function toCatalogVerdict(verdict: FixVerdict, d: AgentDefinition, failed
   if (!fetching || !e) return verdict;
   const tool = e.tools[0] ?? "service.request";
   return { ...verdict, verdict: "plan_wrong", step: fetching.id, change: `Step "${fetching.id}" reads ${e.name} with ${tool}${tool === "service.request" ? ` (connection "${e.id}", listed in services)` : ""} instead of web.fetch, with what it reads (the coins, the repositories) from a setting. Nothing else changes.` };
+}
+
+// A step whose code gives a tool the wrong kind of value (an id where
+// GitHub's since takes a date) is fixed one way, with no fixer to ask: its
+// code is written again, told what it passed and what goes there. The step
+// it failed at first, then any other.
+const ARG_NOTE = "Pass each tool's arguments the kind of value they take: a date where it takes a date (ISO 8601), never a commit's sha or an item's id.";
+export function argsVerdict(d: AgentDefinition, code: Record<string, StepCode>, failedAt: string | null): FixVerdict | null {
+  const steps = d.steps.filter((s): s is CodeStepDef => s.kind === "code");
+  const sources = steps.map((s) => code[s.id]?.source ?? "");
+  for (const s of [...steps.filter((x) => x.id === failedAt), ...steps.filter((x) => x.id !== failedAt)]) {
+    const wrong = argMismatches(code[s.id]?.source ?? "", { memory: d.memory, sources });
+    if (!wrong.length) continue;
+    const spec = s.description.includes(ARG_NOTE) ? s.description : `${s.description} ${ARG_NOTE}`;
+    return { verdict: "code_wrong", step: s.id, why: mismatchProblem(wrong[0]!), spec: spec.slice(0, 800), change: "", sample: "", question: "", choices: [], lesson: "Give each tool argument the kind of value it takes: a date where it takes a date, never an id or a sha.", kind: "wrong_value" };
+  }
+  return null;
 }

@@ -596,7 +596,7 @@ export class JobTools implements ToolHost {
   // owner's switch on. What comes back is the service's data, untrusted.
   private async service(tool: ToolName, args: unknown): Promise<unknown> {
     const parsed = TOOL_ARGS[tool].safeParse(args);
-    if (!parsed.success) throw new ToolError(tool, `${tool} was called wrongly: ${parsed.error.issues.map((i) => `${i.path.join(".") || "arguments"} ${i.message.toLowerCase()}`).join("; ")}.`);
+    if (!parsed.success) throw new ToolError(tool, `${tool} was called wrongly: ${parsed.error.issues.map((i) => `${i.path.join(".") || "arguments"} ${i.message.charAt(0).toLowerCase()}${i.message.slice(1)}`).join("; ")}.`);
     const typed = typedRead(tool);
     const a = parsed.data as { connection?: string; path?: string; query?: Record<string, string | number | boolean>; body?: unknown; url?: string; method?: "POST" | "PUT" | "PATCH" | "DELETE" };
     const entry = entryOf(typed ? typed.service : (a.connection ?? ""));
