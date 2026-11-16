@@ -286,6 +286,61 @@ function decode(body: Buffer, type: string): string {
   }
 }
 
+// One request to a service's API through a connection (connections/
+// request.ts): any method, the connection's own headers, to a checked
+// address only, as web.fetch's are. It never follows a redirect: the
+// caller decides whether the place it was sent to is one the connection
+// may reach. Its body comes back as bytes, cut at maxBytes.
+export interface Answered {
+  status: number;
+  headers: Record<string, string>;
+  body: Buffer;
+  cut: boolean;
+}
+
+export function guardedRequest(raw: string, init: { method: string; headers: Record<string, string>; body?: string | null }, policy: WebPolicy = {}): Promise<Answered> {
+  const { url, allowed } = checkUrl(raw, policy);
+  if (url.protocol !== "https:" && !allowed) return Promise.reject(new WebRefused("Services are reached over https only."));
+  const max = policy.maxBytes ?? WEB_FETCH_MAX_BYTES;
+  const timeoutMs = policy.timeoutMs ?? WEB_FETCH_TIMEOUT_MS;
+  const slow = new WebUnreachable(`The service took too long (over ${Math.round(timeoutMs / 1000)} seconds).`);
+  return new Promise<Answered>((resolve, reject) => {
+    const send = url.protocol === "https:" ? https.request : http.request;
+    const timer = setTimeout(() => req.destroy(slow), timeoutMs);
+    const done = <T,>(fn: (v: T) => void) => (v: T) => {
+      clearTimeout(timer);
+      fn(v);
+    };
+    resolve = done(resolve);
+    reject = done(reject);
+    const req = send(url, { method: init.method, ...(allowed ? {} : { lookup: checkedLookup(policy) }), headers: { "user-agent": "boardofserv-agent/1", "accept-encoding": "gzip, deflate, br", ...init.headers } }, (res) => {
+      const headers = Object.fromEntries(Object.entries(res.headers).map(([k, v]) => [k, Array.isArray(v) ? v.join(", ") : String(v ?? "")]));
+      const encoding = String(res.headers["content-encoding"] ?? "").toLowerCase();
+      const stream = encoding === "gzip" ? res.pipe(zlib.createGunzip()) : encoding === "deflate" ? res.pipe(zlib.createInflate()) : encoding === "br" ? res.pipe(zlib.createBrotliDecompress()) : res;
+      const chunks: Buffer[] = [];
+      let size = 0;
+      let cut = false;
+      stream.on("data", (c: Buffer) => {
+        if (cut) return;
+        size += c.length;
+        if (size > max) {
+          chunks.push(c.subarray(0, c.length - (size - max)));
+          cut = true;
+          res.destroy();
+          resolve({ status: res.statusCode ?? 0, headers, body: Buffer.concat(chunks), cut });
+          return;
+        }
+        chunks.push(c);
+      });
+      stream.on("end", () => !cut && resolve({ status: res.statusCode ?? 0, headers, body: Buffer.concat(chunks), cut }));
+      stream.on("error", () => !cut && reject(new WebUnreachable("The service's answer broke off.")));
+    });
+    req.on("error", (err) => reject(err instanceof WebRefused || err instanceof WebUnreachable ? err : new WebUnreachable("The service couldn't be reached.")));
+    if (init.body !== undefined && init.body !== null) req.write(init.body);
+    req.end();
+  });
+}
+
 // One page: its status and text, or a WebRefused or WebUnreachable.
 export async function fetchPage(raw: string, policy: WebPolicy = {}): Promise<{ status: number; text: string }> {
   const deadline = Date.now() + (policy.timeoutMs ?? WEB_FETCH_TIMEOUT_MS);

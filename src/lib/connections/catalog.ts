@@ -46,9 +46,10 @@ export interface Field {
 }
 
 // Where a call's secret goes: a header (with its prefix), the query
-// string, HTTP basic auth (the account and the key), or the address
-// itself (a webhook, a key in the path).
-export type Placement = { in: "header"; name: string; prefix?: string; value?: string } | { in: "query"; name: string } | { in: "basic"; user: string; password: string } | { in: "url" };
+// string, HTTP basic auth (user names the field that is the user, and the
+// key is the password), or the address itself (a webhook's, or a key in
+// the base's path).
+export type Placement = { in: "header"; name: string; prefix?: string } | { in: "query"; name: string } | { in: "basic"; user: string } | { in: "url" };
 
 // The cheap call that checks a connection when it is saved, and the field
 // of its answer that names the account ("Connected as X"). label is a

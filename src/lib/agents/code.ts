@@ -153,6 +153,10 @@ const REACHES = [
   [/\beval\s*\(|\bnew\s+Function\b|\bFunction\s*\(/, "it builds code at run time"],
   [/__proto__|\.constructor\b|\bReflect\.|\bProxy\b/, "it plays with prototypes"],
   [/\bset(?:Timeout|Interval|Immediate)\s*\(/, "it uses timers"],
+  // A key never goes in code: the server adds a connection's own when a
+  // call names the connection.
+  [/["'`]?\b(?:authorization|x-api-key|api[_-]?key|apikey|access[_-]?token|private-token|x-shopify-access-token)\b["'`]?\s*:/i, "it handles a key itself (the server adds the connection's key to each call)"],
+  [/["'`]Bearer\s/, "it handles a key itself (the server adds the connection's key to each call)"],
 ] as const;
 
 // The plain checks, before SERV sees it: null when it passes, else why not.
