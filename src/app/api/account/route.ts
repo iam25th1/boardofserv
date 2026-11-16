@@ -46,7 +46,8 @@ export async function GET(req: Request) {
     paused: own ? false : await siteLimitReached(),
     // The agent page shows everything, not the plain view.
     agentDetails: user.agentDetails,
-    // Their time zone, as their browser last gave it.
+    // Their time zone: their browser's, or the one they chose.
     timezone: user.timezone,
+    timezoneChosen: user.timezoneChosen,
   });
 }

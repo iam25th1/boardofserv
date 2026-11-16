@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { agentApprovals, agentInstallations, agentJobs, agents, agentTriggers, agentVersions, rentals, type Agent, type AgentInstallation, type AgentVersion, type SheetGrant } from "../../db/schema";
 import { GoogleRevoked, GoogleUnavailable } from "../../google/oauth";
 import { isSheetAnswer, parseSheetLink, sheetLink } from "../../google/sheetLink";
@@ -213,6 +213,23 @@ export async function switchVersion(rt: Runtime, l: Loaded): Promise<void> {
   const [row] = await rt.db.update(agentInstallations).set({ versionId: newer.id, updatedAt: now }).where(eq(agentInstallations.id, l.installation.id)).returning();
   await rt.db.delete(agentTriggers).where(eq(agentTriggers.installationId, l.installation.id));
   if (row!.live && row!.status === "active") await setUpTriggers(rt, row!, newer.definition);
+}
+
+// An owner's time zone, wherever their agents run: every copy of theirs
+// that isn't stopped goes by it, its schedules set again from now in it.
+export async function followZone(rt: Runtime, ownerUserId: string, timezone: string): Promise<number> {
+  const moved = await rt.db
+    .update(agentInstallations)
+    .set({ timezone, updatedAt: rt.now() })
+    .where(and(eq(agentInstallations.ownerUserId, ownerUserId), ne(agentInstallations.status, "stopped"), ne(agentInstallations.timezone, timezone)))
+    .returning();
+  for (const row of moved) {
+    const l = await loadInstallation(rt, row.id);
+    if (!l) continue;
+    await rt.db.delete(agentTriggers).where(eq(agentTriggers.installationId, row.id));
+    if (row.live && row.status === "active") await setUpTriggers(rt, row, l.definition);
+  }
+  return moved.length;
 }
 
 // What its owner sees of an installation.

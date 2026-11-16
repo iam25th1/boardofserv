@@ -20,6 +20,11 @@ interface Props {
   // Without these the SERV key shows but can't be changed.
   onSaveServKey?: (key: string) => Promise<void>;
   onRemoveServKey?: () => Promise<void>;
+  // Without it the time zone shows but can't be changed. chosen: picked
+  // here (true), or back to following the browser (false).
+  onSaveTimezone?: (timezone: string, chosen: boolean) => Promise<void>;
+  // The browser's own zone, to say when it differs (read in the browser).
+  browserZone?: string | null;
   startOpen?: boolean;
 }
 
@@ -35,7 +40,7 @@ const CREDIT_TEXT: Record<CreditState, string> = {
 // ring and its @handle beside it. The ring follows the agents popover's
 // language: solid when all is well, dashed when something is waiting on you
 // (a linked OpenServ account low on credit).
-export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, onSaveHandle, onSaveServKey, onRemoveServKey, startOpen }: Props) {
+export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, onSaveHandle, onSaveServKey, onRemoveServKey, onSaveTimezone, browserZone, startOpen }: Props) {
   const [open, setOpen] = useState(Boolean(startOpen));
   const { shown, ref: panel } = usePresence<HTMLDivElement>(open);
   const wrap = useRef<HTMLDivElement>(null);
@@ -113,6 +118,8 @@ export function AccountMenu({ account, onSignOut, onOpenShortcuts, checkHandle, 
           {account && <HandleSection handle={account.handle} chosen={account.handleChosen} check={checkHandle} onSave={onSaveHandle} />}
 
           {account && <ServKeySection servKey={account.servKey ?? null} onSave={onSaveServKey} onRemove={onRemoveServKey} />}
+
+          {account && <TimeZoneSection zone={account.timezone ?? null} chosen={Boolean(account.timezoneChosen)} browser={browserZone ?? null} onSave={onSaveTimezone} />}
 
           {/* An account linked before the SERV key replaced linking still shows. */}
           {account?.linked && (
@@ -325,6 +332,106 @@ function ServKeySection({
         </Button>
       </div>
     </form>
+  );
+}
+
+// Every time zone the browser knows, by its name.
+function allZones(current: string | null): string[] {
+  let zones: string[] = [];
+  try {
+    zones = (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone") ?? [];
+  } catch {
+    zones = [];
+  }
+  return [...new Set([...(current ? [current] : []), "UTC", ...zones])];
+}
+
+// "Time zone": what the owner's agents' times and runs go by. Their
+// browser's until they choose one here, which then stays; when the browser
+// says otherwise, it says so, with a way to take the browser's.
+function TimeZoneSection({ zone, chosen, browser, onSave }: { zone: string | null; chosen: boolean; browser: string | null; onSave?: (timezone: string, chosen: boolean) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(zone ?? browser ?? "UTC");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const selectId = useId();
+  const save = async (timezone: string, pick: boolean) => {
+    if (!onSave || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave(timezone, pick);
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "It could not be saved. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const differs = Boolean(browser && zone && browser !== zone);
+  return (
+    <div className={styles.section}>
+      <label className={styles.label} htmlFor={editing ? selectId : undefined}>
+        Time zone
+      </label>
+      {editing && onSave ? (
+        <form
+          className={styles.handleEdit}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save(draft, true);
+          }}
+        >
+          <select id={selectId} className={styles.zone} value={draft} onChange={(e) => setDraft(e.target.value)} disabled={busy}>
+            {allZones(zone).map((z) => (
+              <option key={z} value={z}>
+                {z.replace(/_/g, " ")}
+              </option>
+            ))}
+          </select>
+          <div className={styles.handleActions}>
+            <Button size="sm" variant="ghost" type="button" onClick={() => setEditing(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button size="sm" type="submit" disabled={busy}>
+              {busy ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <div className={styles.handleRow}>
+          <p className={styles.value}>{zone ? zone.replace(/_/g, " ") : "Not set yet"}</p>
+          {onSave && (
+            <button
+              type="button"
+              className={styles.change}
+              onClick={() => {
+                setDraft(zone ?? browser ?? "UTC");
+                setEditing(true);
+              }}
+            >
+              Change zone
+            </button>
+          )}
+        </div>
+      )}
+      <p className={styles.hint}>{chosen ? "You chose it. Your agents' times and runs go by it." : "From your browser. Your agents' times and runs go by it."}</p>
+      {differs && !editing && (
+        <p className={styles.hint}>
+          Your browser says {browser!.replace(/_/g, " ")}.{" "}
+          {onSave && (
+            <button type="button" className={styles.change} onClick={() => void save(browser!, false)} disabled={busy}>
+              Use it
+            </button>
+          )}
+        </p>
+      )}
+      {error && (
+        <p className={styles.keyError} role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 

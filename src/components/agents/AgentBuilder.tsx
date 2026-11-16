@@ -13,6 +13,8 @@ import { SetupFlow, type SetupApi } from "./SetupFlow";
 import { StepDiagram, type NodeState } from "./StepDiagram";
 import { HealHistory } from "./HealHistory";
 import styles from "./AgentBuilder.module.css";
+import { useOwnerZone } from "@/components/shell/AccountContext";
+import { inZone } from "@/lib/ownerTime";
 
 // An agent's builder, for its maker: the steps as a diagram and a list (a
 // code step's code included), the test bench, and fixing behaviour by
@@ -87,6 +89,7 @@ const KIND_WORD = { code: "Code", decision: "Decision", action: "Action", loop: 
 const CODE_WORD = { queued: "waiting to be written", writing: "being written", reviewing: "being reviewed", approved: "approved", needs_attention: "needs your attention" } as const;
 
 export function AgentBuilder({ initial, api, children }: { initial: AgentBuilderDTO; api: BuilderApi; children?: React.ReactNode }) {
+  const zone = useOwnerZone();
   const [data, setData] = useState(initial);
   const [texts, setTexts] = useState(() => textsOf(initial.bench));
   const [bad, setBad] = useState<SectionKey | null>(null);
@@ -402,7 +405,7 @@ export function AgentBuilder({ initial, api, children }: { initial: AgentBuilder
                 <li key={v.number}>
                   <strong>Version {v.number}</strong>
                   <span className={styles.meta}>
-                    {v.state === "published" && v.publishedAt ? `published ${new Date(v.publishedAt).toLocaleString()}, in testing` : `draft, started ${new Date(v.createdAt).toLocaleString()}`}
+                    {v.state === "published" && v.publishedAt ? `published ${inZone(v.publishedAt, zone)}, in testing` : `draft, started ${inZone(v.createdAt, zone)}`}
                   </span>
                 </li>
               ))}

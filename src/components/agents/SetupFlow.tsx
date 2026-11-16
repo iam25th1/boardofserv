@@ -16,6 +16,7 @@ import { SheetField, type SheetInfo } from "./SheetField";
 import styles from "./SetupFlow.module.css";
 import { entryOf } from "@/lib/connections/catalog";
 import Link from "next/link";
+import { useOwnerZone } from "@/components/shell/AccountContext";
 
 // Setting an agent up to run for real, as a short guided flow:
 //
@@ -58,14 +59,6 @@ interface Saved {
   installationId: string | null;
 }
 
-function browserZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
-
 const asText = (v: unknown): string => (v === undefined || v === null ? "" : Array.isArray(v) ? v.join(", ") : String(v));
 
 function load(key: string): Saved | null {
@@ -106,6 +99,8 @@ export function SetupFlow({
   onCancel?: () => void;
 }) {
   const key = `bos-setup:${agentId}`;
+  // Its runs go by the owner's own time zone.
+  const zone = useOwnerZone();
   const needs = d.needs;
   const plainSettings = d.settings.filter((s) => s.type !== "sheet");
   const sheetSettings = d.settings.filter((s) => s.type === "sheet");
@@ -125,7 +120,7 @@ export function SetupFlow({
   const fresh = (): InstallAnswers => ({
     settings: Object.fromEntries(d.settings.map((s) => [s.key, s.type === "boolean" ? Boolean(defaults[s.key]) : s.type === "sheet" ? null : asText(defaults[s.key])])),
     rules: Object.fromEntries(d.rules.map((r) => [r.key, r.value])),
-    timezone: browserZone(),
+    timezone: zone,
     schedule:
       schedule?.kind === "schedule"
         ? {

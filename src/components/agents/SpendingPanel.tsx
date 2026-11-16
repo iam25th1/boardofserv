@@ -8,6 +8,8 @@ import { CANT_PULL_BACK, DISPUTE_REASON_WORDS, NOTE_MAX, NOTE_MIN, REASONS_FOR, 
 import type { DisputableDTO, DisputeDTO, ReceiptDTO, SpendingDTO } from "@/lib/types";
 import { moneyNote } from "@/lib/moneyWords";
 import styles from "./SpendingPanel.module.css";
+import { useOwnerZone } from "@/components/shell/AccountContext";
+import { inZone } from "@/lib/ownerTime";
 
 // What an agent may spend, for its renter: the allowance it pays from
 // (topped up from their balance, taken back any time), what it may pay
@@ -29,7 +31,7 @@ export interface SpendingApi {
 
 const usdc = (minor: string | bigint, d = 6) => `${formatAmount(BigInt(minor), d)} USDC`;
 const short = (a: string) => `${a.slice(0, 6)}...${a.slice(-4)}`;
-const when = (iso: string) => new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const when = (iso: string, zone: string) => inZone(iso, zone, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const key = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `k${Date.now()}${Math.random().toString(36).slice(2, 10)}`);
 
 const RECEIPT_STATUS: Record<ReceiptDTO["status"], string> = { held: "held", broadcast: "sending", confirmed: "paid", failed: "failed, nothing paid" };
@@ -285,6 +287,7 @@ function Warning({ text }: { text: string }) {
 }
 
 function Receipts({ receipts, canDispute, onDispute }: { receipts: ReceiptDTO[]; canDispute: (r: ReceiptDTO) => boolean; onDispute: (r: ReceiptDTO) => void }) {
+  const zone = useOwnerZone();
   return (
     <div className={styles.block}>
       <h3>Receipts</h3>
@@ -299,7 +302,7 @@ function Receipts({ receipts, canDispute, onDispute }: { receipts: ReceiptDTO[];
                 <span>to {r.payee.label}</span>
                 <span className={styles.chip}>{RECEIPT_STATUS[r.status]}</span>
                 <time className={styles.quiet} dateTime={r.settledAt ?? r.createdAt}>
-                  {when(r.settledAt ?? r.createdAt)}
+                  {when(r.settledAt ?? r.createdAt, zone)}
                 </time>
               </div>
               <dl className={styles.facts}>
@@ -315,7 +318,7 @@ function Receipts({ receipts, canDispute, onDispute }: { receipts: ReceiptDTO[];
                 )}
                 <div>
                   <dt>Approved by</dt>
-                  <dd>{r.approval.by === "renter" ? `you${r.approval.at ? `, ${when(r.approval.at)}` : ""}` : r.approval.by === "rules" ? "your limits, without asking" : "nobody yet"}</dd>
+                  <dd>{r.approval.by === "renter" ? `you${r.approval.at ? `, ${when(r.approval.at, zone)}` : ""}` : r.approval.by === "rules" ? "your limits, without asking" : "nobody yet"}</dd>
                 </div>
                 {r.guard.verdict && (
                   <div>

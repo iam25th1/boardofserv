@@ -7,6 +7,8 @@ import { Button } from "@/components/ui";
 import type { ApprovalDTO } from "@/lib/types";
 import styles from "./ApprovalCard.module.css";
 import { moneyNote } from "@/lib/moneyWords";
+import { useOwnerZone } from "@/components/shell/AccountContext";
+import { inZone } from "@/lib/ownerTime";
 
 // One question a job waits on: what it asks, an answer button for each
 // option with what happens then, and what happens with no answer. Once
@@ -23,6 +25,7 @@ const ENDED: Record<Exclude<ApprovalDTO["status"], "pending">, string> = {
 };
 
 export function ApprovalCard({ approval, onAnswer, jobHref }: { approval: ApprovalDTO; onAnswer: (answer: string) => Promise<void>; jobHref?: string }) {
+  const zone = useOwnerZone();
   const [busy, setBusy] = useState<string | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const a = approval;
@@ -104,7 +107,7 @@ export function ApprovalCard({ approval, onAnswer, jobHref }: { approval: Approv
       )}
       {pending && (
         <p className={styles.meta}>
-          {a.noAnswer} It waits until {new Date(a.expiresAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}.
+          {a.noAnswer} It waits until {inZone(a.expiresAt, zone, { weekday: "short", hour: "numeric", minute: "2-digit" })}.
         </p>
       )}
       {said && (

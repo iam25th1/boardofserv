@@ -14,6 +14,8 @@ import { jobWord } from "@/lib/jobWords";
 import type { AgentSummaryDTO, ConnectionDTO, InstallationDTO, SketchDTO } from "@/lib/types";
 import styles from "./Journey.module.css";
 import { entryOf } from "@/lib/connections/catalog";
+import { useOwnerZone } from "@/components/shell/AccountContext";
+import { inZone } from "@/lib/ownerTime";
 
 // The cards of the journey in the chat (lib/journey.ts), one per stage as
 // it happens: what the maker described, the steps, the build, the test,
@@ -539,14 +541,6 @@ function TryCard({ card, latest, agent, api }: Props) {
 
 const asText = (v: unknown): string => (v === undefined || v === null ? "" : Array.isArray(v) ? v.join(", ") : String(v));
 
-function browserZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
-
 // What Connect has typed so far, kept in this tab so the way to Google and
 // back picks up where it was.
 function keptDraft(key: string): ConnectAnswers | null {
@@ -572,16 +566,18 @@ function keepDraft(key: string, a: ConnectAnswers | null): void {
 function ConnectCard({ card, latest, agent, conversationId, api }: Props) {
   const setup = agent?.setup ?? null;
   const key = `bos-connect:${agent?.id ?? "none"}`;
+  // Its runs go by the owner's own time zone.
+  const zone = useOwnerZone();
   const fresh = useMemo<ConnectAnswers>(
     () => ({
       settings: Object.fromEntries((setup?.settings ?? []).map((s) => [s.key, s.type === "sheet" ? null : s.type === "boolean" ? false : (setup?.given[s.key] ?? "")])),
       rules: Object.fromEntries((setup?.rules ?? []).map((r) => [r.key, r.value])),
-      timezone: browserZone(),
+      timezone: zone,
       schedule: null,
       // Who it pays: by the name the maker gave while describing it.
       payee: setup?.spends ? { label: (setup.payee ? setup.given[setup.payee] : "") ?? "", address: "" } : null,
     }),
-    [setup],
+    [setup, zone],
   );
   const [answers, setAnswers] = useState<ConnectAnswers>(fresh);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -780,13 +776,8 @@ function ConnectCard({ card, latest, agent, conversationId, api }: Props) {
   );
 }
 
-function when(iso: string | null): string | null {
-  if (!iso) return null;
-  try {
-    return new Date(iso).toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return iso;
-  }
+function when(iso: string | null, zone: string): string | null {
+  return iso ? inZone(iso, zone, { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : null;
 }
 
 // 6 Go live: run it for the maker, or put it on the board; then how it is
@@ -799,6 +790,7 @@ function LiveCard({ card, latest, agent, api }: Props) {
   const [installation, setInstallation] = useState<InstallationDTO | null>(null);
   const installationId = card.live?.installationId ?? null;
   const listed = Boolean(card.live?.listed);
+  const zone = useOwnerZone();
   useEffect(() => {
     if (installationId) void api.installation(installationId).then(setInstallation, () => undefined);
   }, [api, installationId]);
@@ -821,7 +813,7 @@ function LiveCard({ card, latest, agent, api }: Props) {
             <>
               <p>
                 {installation.runs.join(" ")}
-                {installation.nextRunAt ? ` Next run: ${when(installation.nextRunAt)}.` : ""}
+                {installation.nextRunAt ? ` Next run: ${when(installation.nextRunAt, zone)}.` : ""}
               </p>
               {installation.allowanceWarning && <p className={styles.problem}>{installation.allowanceWarning}</p>}
               {lastRun && (

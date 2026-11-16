@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { signIn, signedIn, withConversations } from "./session";
+import { ACCOUNT, signIn, signedIn, withConversations } from "./session";
 import { FIRST_VISIT } from "./warm";
 
 // The account menu, signed in, in Chromium and WebKit at desktop and phone
@@ -77,14 +77,14 @@ test("Change opens the handle field, and Escape puts it back", async ({ page }) 
   await page.goto("/app/board");
   await signedIn(page);
   const panel = await openMenu(page);
-  const change = panel.getByRole("button", { name: "Change" });
+  const change = panel.getByRole("button", { name: "Change", exact: true });
   expect(await onTop(change)).toBe(true);
   await press(page, change);
   const field = panel.getByRole("textbox", { name: "Your handle" });
   await expect(field).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(field).toBeHidden();
-  await expect(panel.getByRole("button", { name: "Change" })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Change", exact: true })).toBeVisible();
 });
 
 test("Use your own SERV key opens the key field", async ({ page }) => {
@@ -135,7 +135,8 @@ test.describe("by keyboard", () => {
     await button.focus();
     await page.keyboard.press("Enter");
     await expect(button).toHaveAttribute("aria-expanded", "true");
-    const order = ["Change", "Use your own SERV key", ...LINKS.map((l) => l.name), "Keyboard shortcuts", "Sign out"];
+    // The handle's Change, the SERV key, the time zone's, the links.
+    const order = ["Change", "Use your own SERV key", "Change zone", ...LINKS.map((l) => l.name), "Keyboard shortcuts", "Sign out"];
     for (const name of order) {
       await page.keyboard.press(tab);
       await expect(page.locator(":focus")).toHaveAccessibleName(name);
@@ -156,5 +157,34 @@ test.describe("by keyboard", () => {
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL("/app/agents", FIRST_VISIT);
     await expect(button).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+// The time zone the owner's agents go by: shown in the menu, with the
+// browser's when it differs, and chosen there. The browser here is set to
+// Los Angeles, as the live owner's computer was.
+test.describe("the time zone", () => {
+  test.use({ timezoneId: "America/Los_Angeles" });
+
+  test("shows the zone the agents go by, says when the browser differs, and keeps a chosen one", async ({ page, context }) => {
+    let saved: { timezone: string; chosen?: boolean } | null = null;
+    await context.route("**/api/account", (route) => (route.request().method() === "GET" ? route.fulfill({ json: { ...ACCOUNT, timezone: "Asia/Tokyo", timezoneChosen: true } }) : route.fallback()));
+    await context.route("**/api/account/timezone", async (route) => {
+      saved = route.request().postDataJSON() as { timezone: string; chosen?: boolean };
+      await route.fulfill({ json: { timezone: saved.timezone, chosen: saved.chosen ?? false } });
+    });
+    await page.goto("/app/chat");
+    await signedIn(page);
+    const panel = await openMenu(page);
+    await expect(panel.getByText("Asia/Tokyo", { exact: true })).toBeVisible();
+    await expect(panel.getByText("You chose it. Your agents' times and runs go by it.")).toBeVisible();
+    await expect(panel.getByText(/Your browser says America\/Los Angeles\./)).toBeVisible();
+    // A chosen zone isn't moved by the browser on its own.
+    expect(saved).toBeNull();
+    await press(page, panel.getByRole("button", { name: "Change zone" }));
+    await panel.getByLabel("Time zone").selectOption("Europe/Berlin");
+    await press(page, panel.getByRole("button", { name: "Save" }));
+    await expect.poll(() => saved).toEqual({ timezone: "Europe/Berlin", chosen: true });
+    await expect(panel.getByText("Europe/Berlin", { exact: true })).toBeVisible();
   });
 });

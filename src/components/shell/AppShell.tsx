@@ -10,7 +10,7 @@ import { ThemeToggle } from "@/components/chat/ThemeToggle";
 import { Wordmark } from "@/components/chat/Wordmark";
 import { privyAppId } from "@/lib/privy-config";
 import { useApi } from "@/lib/useApi";
-import { AccountProvider, useShellAccount } from "./AccountContext";
+import { AccountProvider, browserZone, useShellAccount } from "./AccountContext";
 import styles from "./AppShell.module.css";
 import { BetaTag } from "./BetaTag";
 
@@ -152,6 +152,12 @@ function AccountButton({ path }: { path: string }) {
         await api.removeServKey();
         await refresh();
         toast.show({ title: "Your SERV key is removed" });
+      }}
+      browserZone={browserZone()}
+      onSaveTimezone={async (timezone, chosen) => {
+        const saved = await api.setTimezone(timezone, chosen);
+        setAccount((a) => a && { ...a, timezone: saved.timezone, timezoneChosen: saved.chosen });
+        toast.show({ title: `Your agents go by ${saved.timezone.replace(/_/g, " ")} now` });
       }}
     />
   );

@@ -5,6 +5,8 @@ import { formatAmount } from "@/lib/money";
 import type { AuditEntryDTO, AuditPageDTO } from "@/lib/types";
 import { LevelMark } from "./SafetyPanel";
 import styles from "./AuditLog.module.css";
+import { useOwnerZone } from "@/components/shell/AccountContext";
+import { inZone } from "@/lib/ownerTime";
 
 // The audit log of guarded actions, newest first: each thing an agent
 // changed, sent or spent (or tried to), what SERV's check said and why,
@@ -37,7 +39,7 @@ function approved(e: AuditEntryDTO, view: AuditView): string | null {
   return null;
 }
 
-const when = (iso: string) => new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const when = (iso: string, zone: string) => inZone(iso, zone, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const usdc = (minor: string, d: number) => `${formatAmount(BigInt(minor), d)} USDC`;
 
 export function AuditLog({ load, view, title = "Audit log" }: { load: (before?: string | null) => Promise<AuditPageDTO>; view: AuditView; title?: string }) {
@@ -105,6 +107,7 @@ export function AuditLog({ load, view, title = "Audit log" }: { load: (before?: 
 }
 
 function Entry({ e, view }: { e: AuditEntryDTO; view: AuditView }) {
+  const zone = useOwnerZone();
   const by = approved(e, view);
   // Why it asked, less what SERV's check already said.
   const why = e.reason && e.guardReason ? e.reason.replace(`Safety check: ${e.guardReason}`, "").replace(e.guardReason, "").trim() : e.reason;
@@ -116,7 +119,7 @@ function Entry({ e, view }: { e: AuditEntryDTO; view: AuditView }) {
         <strong>{e.step}</strong>
         <span className={styles.chip}>{OUTCOME[e.outcome][view]}</span>
         <time dateTime={e.at} className={styles.when}>
-          {when(e.at)}
+          {when(e.at, zone)}
         </time>
       </div>
       {(view === "admin" || view === "maker") && (
