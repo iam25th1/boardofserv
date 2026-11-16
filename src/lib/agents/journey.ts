@@ -3,7 +3,8 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "../db";
 import { conversations, messages, type Agent, type AgentVersion, type Message, type User } from "../db/schema";
 import type { CardSnapshot, JourneyCard, PlainLine, Stage } from "../journey";
-import { loadSketch } from "../sketchStore";
+import { loadNeeds, loadSketch } from "../sketchStore";
+import { needNotes, settled } from "./needs";
 import { describedEnough } from "../sketchFields";
 import { refusal } from "../spend";
 import type { AgentSummaryDTO } from "../types";
@@ -123,6 +124,8 @@ export async function offerMakeIt(conversationId: string): Promise<Message | nul
   if (cards.some((m) => m.card?.stage !== "describe")) return null;
   const sketch = await loadSketch(conversationId);
   if (!describedEnough(sketch)) return null;
+  // Not while something it can't run without is still being asked.
+  if (!settled(await loadNeeds(conversationId))) return null;
   if (cards.length) await db.delete(messages).where(inArray(messages.id, cards.map((m) => m.id)));
   const [row] = await db.insert(messages).values({ conversationId, role: "assistant", content: "I have what I need to make it.", card: { stage: "describe" } }).returning();
   return row!;
@@ -213,6 +216,8 @@ export type Moved = { agent: AgentSummaryDTO } | Refused;
 export async function makeIt(user: User, conversationId: string, feedback: string | null = null): Promise<Moved> {
   const sketch = await loadSketch(conversationId);
   if (!describedEnough(sketch)) return { refused: { status: 400, error: "Tell me a little more about the job first." } };
+  const needs = await loadNeeds(conversationId);
+  if (!settled(needs)) return { refused: { status: 400, error: "Answer the question above first: the steps are made from it." } };
   const ctx = buildContext(user, conversationId);
   if (!ctx) return { refused: { status: 503, error: NOT_AVAILABLE } };
   const no = await refusal(user.id, { ownKey: ctx.ownKey });
@@ -237,7 +242,7 @@ export async function makeIt(user: User, conversationId: string, feedback: strin
   const { agent, draft } = existing ? { agent: existing, draft: await editableDraft(existing.id) } : await createAgent({ ownerUserId: user.id, conversationId, name: await nameOfNew(user.id, sketch!.name ?? "Unnamed agent") });
   if (jobFor(draft.id)) return { refused: { status: 409, error: BUSY } };
   if ((await cardsIn(conversationId)).at(-1)?.card?.stage !== "steps") await addCard(conversationId, { stage: "steps", agentId: agent.id }, "Working out the steps.");
-  startPlan(draft, { interview: sketch!, history, feedback, notes }, ctx, "plan", {
+  startPlan(draft, { interview: sketch!, history, feedback, notes: [...notes, ...needNotes(needs)], services: needs?.services }, ctx, "plan", {
     stop: true,
     planned: async (_before, after) => {
       if (after) await setStepsWords(conversationId, after);

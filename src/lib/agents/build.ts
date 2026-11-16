@@ -3,7 +3,8 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { meterPlatform, platformRoom } from "./metering";
 import { messages, replyUsage, type Agent, type AgentVersion } from "../db/schema";
-import { loadSketch } from "../sketchStore";
+import { loadNeeds, loadSketch } from "../sketchStore";
+import { needNotes } from "./needs";
 import { describeFailures, modelPrices, type JsonResult, type ModelConfig } from "../model";
 import type { AgentSummaryDTO } from "../types";
 import { dolphinProvider, writeStep } from "./code";
@@ -245,7 +246,9 @@ export async function planInputFor(conversationId: string | null, current: Agent
     ? await db.select({ role: messages.role, content: messages.content }).from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt))
     : [];
   const interview = sketch ?? { name: current?.name ?? null, kind: "agent" as const, watches: null, when: null, how: null, tells: null, takes: null, does: null, gives: null, asking: null, live: false };
-  return { interview, history, current, feedback: feedback || null };
+  // What the maker answered before it was planned holds for every change.
+  const needs = conversationId ? await loadNeeds(conversationId) : null;
+  return { interview, history, current, feedback: feedback || null, notes: needNotes(needs), services: needs?.services };
 }
 
 // How a build goes on once its code is written. heal: false leaves a

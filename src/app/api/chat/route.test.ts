@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle, type PgliteDatabase } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
@@ -31,6 +31,8 @@ const calls: Body[] = [];
 // status for a failed plan), then the reply's chunks.
 let nextReply: string[] | number = [];
 let nextSketch: string | number = "";
+// What listing a clear job's needs answers (needs.ts); "{}" lists none.
+let nextNeeds = "{}";
 
 // SERV's stream shape: one delta per chunk, usage at the end, then [DONE].
 function servStream(chunks: string[]): Response {
@@ -84,7 +86,7 @@ async function turn(content: string, conversationId?: string): Promise<Turn> {
     shown: events.filter((e) => e.event === "delta").map((e) => e.data.text).join(""),
     sketch: events.find((e) => e.event === "sketch")?.data as Turn["sketch"],
     choices: events.find((e) => e.event === "reply_end")?.data.choices as string[] | undefined,
-    conversationId: (events.find((e) => e.event === "meta" || e.event === "sketch") ?? events.find((e) => e.data.conversationId))!.data.conversationId as string,
+    conversationId: ((events.find((e) => e.event === "meta" || e.event === "sketch") ?? events.find((e) => e.data.conversationId))?.data.conversationId as string | undefined) ?? conversationId!,
   };
 }
 
@@ -105,6 +107,7 @@ beforeAll(async () => {
   vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body)) as Body;
     calls.push(body);
+    if ((body.response_format as { json_schema?: { name?: string } } | undefined)?.json_schema?.name === "agent_needs") return servJson(nextNeeds);
     if (!body.stream) return servJson(nextSketch);
     return typeof nextReply === "number" ? new Response("{}", { status: nextReply }) : servStream(nextReply);
   });
@@ -318,8 +321,9 @@ describe("an agent's interview", () => {
     const done = await turn("The Stock sheet: reorder what's low, and ask me before orders over 250 USDC", t.conversationId);
     // What comes next is the chat's own sentence, never the model's (an
     // echo of the prompt is what SERV's gateway filter cut off live).
-    expect(calls.at(-1)!.messages[0]!.content).toContain("Ask nothing, and say nothing about what comes next.");
-    expect(calls.at(-1)!.messages[0]!.content).not.toContain("Make it");
+    const replied = calls.filter((c) => c.stream).at(-1)!;
+    expect(replied.messages[0]!.content).toContain("Ask nothing, and say nothing about what comes next.");
+    expect(replied.messages[0]!.content).not.toContain("Make it");
     expect(done.shown).toBe("Every morning at eight it checks the Stock sheet and orders what is low. I have what I need: press Make it below to see its steps.");
     const card = done.events.find((e) => e.event === "card")?.data as { message: { card: { stage: string }; content: string } };
     expect(card.message).toMatchObject({ card: { stage: "describe" }, content: "I have what I need to make it." });
@@ -329,6 +333,49 @@ describe("an agent's interview", () => {
     await POST(new Request("http://localhost/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ conversationId: t.conversationId, regenerate: true }) })).then((r) => r.text());
     const rows = await state.db.select().from(schema.messages).where(eq(schema.messages.conversationId, t.conversationId)).orderBy(schema.messages.createdAt);
     expect(rows.map((m) => m.card?.stage ?? m.role)).toEqual(["user", "assistant", "user", "assistant", "describe"]);
+  });
+});
+
+describe("what a clear job needs", () => {
+  afterEach(() => {
+    nextNeeds = "{}";
+  });
+
+  it("is asked one question at a time, each with a default to tap, before Make it, with no model writing the asks", async () => {
+    nextSketch = extraction({ name: "GitHub Code Verifier", kind: "agent", wakes: "every day", handles: "checks code quality", asking: "none" });
+    nextReply = ["It checks code on GitHub and verifies its quality."];
+    nextNeeds = JSON.stringify({
+      needs: [
+        { key: "repos", question: "Which repositories should it check?", choices: ["I'll give it at setup", "My public repos"], given: "" },
+        { key: "results_to", question: "Where should it send what it finds?", choices: ["Telegram", "Discord"], given: "" },
+      ],
+      services: ["github"],
+      unlisted: [],
+    });
+    const first = await turn("i would like a mini agent that checks githubs and verifies code, work, quality.");
+    expect(first.shown).toBe("It checks code on GitHub and verifies its quality.\n\nBefore I make it, I need two things from you. Which repositories should it check?");
+    expect(first.choices).toEqual(["I'll give it at setup", "My public repos"]);
+    expect(first.events.some((e) => e.event === "card")).toBe(false);
+    const before = calls.length;
+    const second = await turn("vercel/next.js", first.conversationId);
+    expect(second.shown).toBe("Where should it send what it finds?");
+    expect(second.choices).toEqual(["Telegram", "Discord"]);
+    // Discord, which isn't connected: asked, with one tap to connect it and
+    // come back to this chat.
+    const third = await turn("Discord", first.conversationId);
+    expect(third.shown).toBe(`It uses Discord, which isn't connected yet. Connect it now and come back here, or when you set it up.\n\n[Connect Discord](/app/connections?connect=discord&back=${encodeURIComponent(`/app/chat?c=${first.conversationId}`)})`);
+    expect(third.events.some((e) => e.event === "card")).toBe(false);
+    const last = await turn("Later, when I set it up", first.conversationId);
+    expect(last.shown).toBe("Thanks. I have what I need: press Make it below to see its steps.");
+    expect((last.events.find((e) => e.event === "card")?.data as { message: { card: { stage: string } } }).message.card).toEqual({ stage: "describe" });
+    // The answers took no model call.
+    expect(calls.length).toBe(before);
+    const row = await sketchRow(first.conversationId);
+    expect(row!.needs!.items.map((i) => [i.key, i.answer])).toEqual([
+      ["repos", "vercel/next.js"],
+      ["results_to", "Discord"],
+      ["connect_discord", "Later, when I set it up"],
+    ]);
   });
 });
 

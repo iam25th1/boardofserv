@@ -648,10 +648,10 @@ export function entryOf(id: string): ServiceEntry | null {
 export const CONNECTABLE_IDS = CATALOG.filter((e) => e.auth !== "none").map((e) => e.id);
 
 // Whether an agent that uses it needs its owner to connect it first: a
-// service with nothing to connect, or whose key is only for more (a
-// public repository needs none), doesn't.
+// service with nothing to connect, or whose only field is a key for more
+// (a public repository needs none), doesn't.
 export function needsConnecting(e: ServiceEntry): boolean {
-  return e.auth !== "none" && !e.fields.some((f) => f.secret && f.optional);
+  return e.auth !== "none" && (e.fields.length === 0 || e.fields.some((f) => !f.optional));
 }
 
 // The service a typed tool reads, if it is one of the catalog's.

@@ -8,7 +8,7 @@ import { conversations, messages, replyUsage, type Message } from "@/lib/db/sche
 import { contextFor, CUT_OFF_SUFFIX, modelConfig, streamReply, userError, type ChatMessage, type JsonResult, type ReplyResult } from "@/lib/model";
 import { mergeSketch, SketchSplitter } from "@/lib/sketchBlock";
 import { planTurn } from "@/lib/sketchPlan";
-import { loadSketch, saveSketch } from "@/lib/sketchStore";
+import { loadNeeds, loadSketch, saveNeeds, saveSketch } from "@/lib/sketchStore";
 import { servKeyOf } from "@/lib/servKey";
 import { refusal } from "@/lib/spend";
 import { replySystemPrompt, type TurnPlan } from "@/lib/systemPrompt";
@@ -19,7 +19,8 @@ import { answer, changeSteps, offerMakeIt } from "@/lib/agents/journey";
 import { honestReply, MAKE_IT_NEXT, wholeSentences } from "@/lib/replyClaims";
 import { describedEnough } from "@/lib/sketchFields";
 import { sourceAsk, unreadableIn } from "@/lib/agents/sources";
-import { hasConnection } from "@/lib/connections/vault";
+import { connectionsOf, hasConnection } from "@/lib/connections/vault";
+import { answerItem, askText, listNeeds, openItem } from "@/lib/agents/needs";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 
 export const runtime = "nodejs";
@@ -79,6 +80,8 @@ export async function POST(req: Request) {
     if (target && target.conversationId === cid) {
       await db.update(messages).set({ content }).where(eq(messages.id, editMessageId));
       await db.delete(messages).where(and(eq(messages.conversationId, cid), gt(messages.createdAt, target.createdAt)));
+      // What the job needs is asked again from what it says now.
+      await saveNeeds(cid, null);
     }
   } else if (regenerate) {
     // The last reply goes, with a Make it card under it (it comes again
@@ -162,6 +165,31 @@ export async function POST(req: Request) {
         if (open) ctrl.close();
         return;
       }
+      // The maker answering what the job needs (needs.ts): their answer is
+      // kept, and the next one asked, or Make it offered once each is
+      // answered or taken at its default. No model writes the reply.
+      const needs = !planned && content && !regenerate && !editMessageId ? await loadNeeds(cid) : null;
+      if (needs?.asked && openItem(needs)) {
+        const connected = await connectedTo(user.id);
+        const next = answerItem(needs, said, connected);
+        const nextItem = openItem(next);
+        const asking = nextItem ? { ...next, asked: nextItem.key } : next;
+        await saveNeeds(cid, asking);
+        const text = nextItem ? askText(next, nextItem, cid, false) : `Thanks. ${MAKE_IT_NEXT}`;
+        send("delta", { text });
+        const [saved] = await db.insert(messages).values({ conversationId: cid, role: "assistant", content: text }).returning();
+        await db.update(conversations).set({ updatedAt: new Date() }).where(eq(conversations.id, cid));
+        send("reply_end", { messageId: saved?.id, source: null, label: null, choices: nextItem?.choices ?? [] });
+        if (!nextItem) {
+          const offered = await offerMakeIt(cid);
+          if (offered) send("card", { conversationId: cid, message: { id: offered.id, role: offered.role, content: offered.content, card: offered.card, createdAt: offered.createdAt.toISOString() } });
+        }
+        await finishUsage(usageId, null, null, null, ownKey, "ok");
+        send("done", { messageId: saved?.id, source: null, label: null });
+        if (open) ctrl.close();
+        return;
+      }
+
       // First the plan: the sketch from what the person just said, and what the
       // reply asks next with the answers shown as buttons. If it fails or does
       // not validate, the reply runs on the stored sketch with no buttons.
@@ -260,16 +288,34 @@ export async function POST(req: Request) {
         show(dashes.push(rest) + dashes.finish());
       }
 
+      // The job is clear: what it can't run without is listed once (one
+      // SERV call), and the first of it asked under the reply.
+      let needAsk: { text: string; choices: string[] } | null = null;
+      if (held && !planned && describedEnough(sketch) && (full.trim() || result?.cutOff)) {
+        let listed = await loadNeeds(cid);
+        if (!listed) {
+          const connected = await connectedTo(user.id);
+          const job = (["wakes", "looks", "handles", "finish", "asks"] as const).flatMap((k) => (sketch?.[k] ? [`${k}: ${sketch[k]}`] : [])).join("\n");
+          const made = await listNeeds(job, history.filter((m) => m.role === "user").map((m) => m.content), connected, { config, signal: controller.signal });
+          await recordAttempts(db as never, made.call.attempts, { ownKey });
+          // No answer: nothing more is asked, as before.
+          listed = made.needs ?? { items: [], services: [], asked: null, at: new Date().toISOString() };
+        }
+        const first = openItem(listed);
+        await saveNeeds(cid, first ? { ...listed, asked: first.key } : listed);
+        if (first) needAsk = { text: askText(listed, first, cid, true), choices: first.choices };
+      }
       if (held && (full.trim() || result?.cutOff)) {
-        const fallback = planned ? "The cards below show where it is and what you can do next." : describedEnough(sketch) ? MAKE_IT_NEXT : "Tell me a little more about the job.";
+        const fallback = planned ? "The cards below show where it is and what you can do next." : describedEnough(sketch) && !needAsk ? MAKE_IT_NEXT : "Tell me a little more about the job.";
         // Cut off part way (SERV's content filter, a broken stream): only
         // its whole sentences, then what is true now. Never half a sentence.
         const whole = result?.cutOff ? wholeSentences(full) : full;
         full = honestReply(whole, fallback);
         // What comes next is said here, never by the model (echoing the
-        // prompt's own words is what SERV's gateway filter cuts off).
-        const next = !planned && describedEnough(sketch) ? MAKE_IT_NEXT : result?.cutOff ? fallback : null;
-        if (next && full !== fallback && !full.includes(next)) full = `${full} ${next}`;
+        // prompt's own words is what SERV's gateway filter cuts off): what
+        // the job still needs, or Make it.
+        const next = !planned && describedEnough(sketch) ? (needAsk?.text ?? MAKE_IT_NEXT) : result?.cutOff ? fallback : null;
+        if (next && full !== fallback && !full.includes(next)) full = `${full}${needAsk ? "\n\n" : " "}${next}`;
         send("delta", { text: full });
       }
       if (!full.trim()) {
@@ -289,8 +335,8 @@ export async function POST(req: Request) {
       // The reply is finished and saved: the browser unlocks the composer and
       // shows the plan's answers under it. Once the job is described well
       // enough to make, Make it comes under the reply, as a card.
-      send("reply_end", { messageId: saved?.id, source, label, choices: turnPlan?.choices ?? [] });
-      if (sketch?.kind === "agent" && !planned) {
+      send("reply_end", { messageId: saved?.id, source, label, choices: needAsk?.choices ?? turnPlan?.choices ?? [] });
+      if (sketch?.kind === "agent" && !planned && !needAsk) {
         const offered = await offerMakeIt(cid);
         if (offered) send("card", { conversationId: cid, message: { id: offered.id, role: offered.role, content: offered.content, card: offered.card, createdAt: offered.createdAt.toISOString() } });
       }
@@ -365,4 +411,9 @@ function changeReply(moved: Awaited<ReturnType<typeof changeSteps>>, change: str
   const what = change.replace(/\s+/g, " ").trim().replace(/[.!?]+$/, "");
   if ("refused" in moved) return `${moved.refused.error} Nothing has changed.`;
   return `Changing the steps: ${what}. They show below when they're ready, with what changed.`;
+}
+
+// The services an owner has connected, by id.
+async function connectedTo(userId: string): Promise<Set<string>> {
+  return new Set((await connectionsOf(serverRuntime(), userId)).map((c) => c.provider));
 }

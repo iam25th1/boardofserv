@@ -4,6 +4,7 @@ import { db } from "./db";
 import { agentSketches, type AgentSketchRow } from "./db/schema";
 import { fieldsOf } from "./sketchFields";
 import type { SketchDTO } from "./types";
+import type { JobNeeds } from "./agents/needs";
 
 // The stored agent sketch for a conversation.
 
@@ -38,4 +39,15 @@ export async function saveSketch(conversationId: string, sketch: SketchDTO): Pro
     .insert(agentSketches)
     .values({ conversationId, ...fields, updatedAt: new Date() })
     .onConflictDoUpdate({ target: agentSketches.conversationId, set: { ...fields, updatedAt: new Date() } });
+}
+
+// What the job can't run without, asked before it is planned
+// (agents/needs.ts), or null before it is listed.
+export async function loadNeeds(conversationId: string): Promise<JobNeeds | null> {
+  const row = await db.query.agentSketches.findFirst({ where: eq(agentSketches.conversationId, conversationId), columns: { needs: true } });
+  return row?.needs ?? null;
+}
+
+export async function saveNeeds(conversationId: string, needs: JobNeeds | null): Promise<void> {
+  await db.update(agentSketches).set({ needs, updatedAt: new Date() }).where(eq(agentSketches.conversationId, conversationId));
 }

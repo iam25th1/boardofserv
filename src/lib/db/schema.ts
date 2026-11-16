@@ -3,6 +3,7 @@ import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, n
 import type { AgentDefinition } from "../agents/definition";
 import type { BenchData, HealLog, RunState, StepCode, TestResult } from "../agents/types";
 import type { JourneyCard } from "../journey";
+import type { JobNeeds } from "../agents/needs";
 import { CONNECTABLE_IDS } from "../connections/catalog";
 import { CURRENCIES } from "../money";
 import { DISPUTE_REASONS } from "../spending/disputeWords";
@@ -180,6 +181,10 @@ export const agentSketches = pgTable("agent_sketches", {
   live: boolean("live").notNull().default(false),
   // The maker picked the kind on the dock; the plan leaves it alone from then on.
   kindChosen: boolean("kind_chosen").notNull().default(false),
+  // What the job can't run without, asked before it is planned
+  // (agents/needs.ts): each question with its answer, the services it
+  // needs, and which one the chat is asking now.
+  needs: jsonb("needs").$type<JobNeeds>(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
