@@ -130,6 +130,17 @@ describe("planning", () => {
     expect(bodies[3]!.messages.at(-1)!.content).toContain('- step "record" takes "pay_supplier", which is not a declared action');
   });
 
+  it("reads a step SERV gave no inputs as \"\" as one with none", () => {
+    // Live, a step that only reads memory came with inputs [""], and the
+    // plan never checked out.
+    const wire = structuredClone(RESTOCK_WIRE) as unknown as { steps: { inputs: string[]; outputs: string[] }[] };
+    wire.steps[0]!.inputs = ["", ...wire.steps[0]!.inputs];
+    wire.steps[0]!.outputs = [...wire.steps[0]!.outputs, ""];
+    const d = wireToDefinition(wire as never) as { steps: { inputs: string[]; outputs: string[] }[] };
+    expect(d.steps[0]!.inputs).toEqual(RESTOCK_WIRE.steps[0]!.inputs);
+    expect(d.steps[0]!.outputs).toEqual(RESTOCK_WIRE.steps[0]!.outputs);
+  });
+
   it("reads which stage a reason is about", () => {
     const outline = outlineOf(NESTED_HACKATHON_WIRE);
     const args = (id: string) => `step "${id}" takes write_results (sheets.update), so its first input must be sheets.update's arguments, made by a code step before it`;

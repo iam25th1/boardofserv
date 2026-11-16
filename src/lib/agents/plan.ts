@@ -191,7 +191,7 @@ function nextIds(step: unknown): string[] {
 export function wireToDefinition(w: Wire): unknown {
   const steps = arr(w.steps).map((x) => {
     const st = x as Wire;
-    const base = { id: s(st.id), title: s(st.title), ...(s(st.plain) ? { plain: s(st.plain).slice(0, 200) } : {}), inputs: arr(st.inputs).map(s), outputs: arr(st.outputs).map(s) };
+    const base = { id: s(st.id), title: s(st.title), ...(s(st.plain) ? { plain: s(st.plain).slice(0, 200) } : {}), inputs: arr(st.inputs).map(s).filter(Boolean), outputs: arr(st.outputs).map(s).filter(Boolean) };
     // Each output's shape: in the outputs' order on the wire, by name in a
     // plan already read.
     const shapes = Array.isArray(st.shapes)

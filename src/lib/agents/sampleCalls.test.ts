@@ -108,3 +108,20 @@ describe("a mismatch the fixer names twice", () => {
     expect(escalated(bad, [round("The sample must include a mock response from web.fetch that returns the actual price.")], d, "send")).toBe(bad);
   });
 });
+
+describe("a sample's commits", () => {
+  // Live, SERV's sample gave commits shas like a1b2c3d4e5f6g7h8i9j0..., which
+  // GitHub (and its stand-in) refuses, so code that read each commit's
+  // changes failed on its own sample.
+  it("have ids a service takes, the same each time, so each commit's own read works on them", async () => {
+    const { readSample } = await import("./sample");
+    const fake = "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6";
+    const commits = { items: [{ sha: fake, message: "Add authentication", date: "2026-11-16T14:30:00Z" }, { sha: "4d5e6f7", message: "Fix pooling", date: "2026-11-16T10:15:00Z" }] };
+    const content = JSON.stringify({ noun: "commit", plural: "commits", labels: ["Add authentication"], settings: [{ key: "repos", value: "acme/widgets" }], sheets: [], pages: [], searches: [], answers: [], calls: [{ tool: "github.read", args: JSON.stringify({ op: "commits", repo: "acme/widgets" }), data: JSON.stringify(commits) }] });
+    const sample = readSample(d, content)!;
+    const got = sample.bench.calls![callKey("github.read", { op: "commits", repo: "acme/widgets" })] as typeof commits;
+    expect(got.items[0]!.sha).toMatch(/^[0-9a-f]{40}$/);
+    expect(got.items[1]!.sha).toBe("4d5e6f7");
+    expect((readSample(d, content)!.bench.calls![callKey("github.read", { op: "commits", repo: "acme/widgets" })] as typeof commits).items[0]!.sha).toBe(got.items[0]!.sha);
+  });
+});

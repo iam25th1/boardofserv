@@ -220,6 +220,11 @@ export interface RunState {
   // Judgements a model made in this run (SERV's reasoning, a decision): a
   // run that judged and found nothing to say still says so, all clear.
   judged?: number;
+  // It sent its owner a message in this run.
+  told?: boolean;
+  // A comparison ended the run, by design (the price isn't low yet): no
+  // all-clear follows.
+  quiet?: boolean;
   // The run ended with messages held for the owner's yes (runtime/held.ts):
   // how it ended, and their answers so far.
   release?: HeldRelease;

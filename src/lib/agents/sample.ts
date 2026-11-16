@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { completeJson, type ChatMessage, type JsonResult, type ModelConfig } from "../model";
 import { ANSWER_LIMITS } from "../modelLimits";
 import { payeeSetting, type AgentDefinition } from "./definition";
@@ -161,8 +162,8 @@ export function readSample(d: AgentDefinition, content: string | null): Sample |
     const tool = text(c.tool, 40);
     if (!isToolName(tool) || !(tool === "service.request" || typedRead(tool))) continue;
     try {
-      const args = JSON.parse(text(c.args, 3000)) as unknown;
-      const data = JSON.parse(text(c.data, 50_000)) as unknown;
+      const args = realShas(JSON.parse(text(c.args, 3000)) as unknown);
+      const data = realShas(JSON.parse(text(c.data, 50_000)) as unknown);
       (bench.calls ??= {})[callKey(tool, args)] = data;
     } catch {
       // A call it couldn't write as JSON: the dry pass keys what's missing.
@@ -286,6 +287,18 @@ export async function makeSample(d: AgentDefinition, serv: ModelConfig | null, o
   const config = { ...serv, firstTokenTimeoutMs: Math.max(serv.firstTokenTimeoutMs, 60_000) };
   const call = await completeJson(messages, { config, purpose: "agent_sample", schema: SAMPLE_SCHEMA, maxTokens: ANSWER_LIMITS.agent_sample, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
   return { sample: fitSample(d, readSample(d, call.content) ?? plainSample(d)), call };
+}
+
+// A sample's commits with ids a service would take: a made-up sha that
+// isn't hex ("a1b2c3...g7h8") becomes one, the same each time, so the
+// code's own reads of each commit (by its sha) work on the sample too.
+const HEX_SHA = /^[0-9a-f]{7,40}$/i;
+export function realShas(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(realShas);
+  if (!v || typeof v !== "object") return v;
+  return Object.fromEntries(
+    Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, (k === "sha" || /_sha$/.test(k)) && typeof x === "string" && x && !HEX_SHA.test(x) ? createHash("sha1").update(x).digest("hex") : realShas(x)]),
+  );
 }
 
 // The services it reads and the shape each read answers in, for the

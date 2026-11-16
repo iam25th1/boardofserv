@@ -322,9 +322,15 @@ function emptyMessage(step: ActionStepDef, input: Record<string, unknown>): bool
   return v === null || v === undefined || (typeof text === "string" ? !text.trim() : typeof v === "object" && text === undefined && Object.keys(v as object).length === 0);
 }
 
-// The short message a run that judged and found nothing sends.
+// A decision about whether there is anything new to look at, not about
+// what was found: its "no" ends a run quietly.
+const NOTHING_NEW = /\b(?:any(?:thing)? new|new (?:commits?|items?|rows?|changes?|posts?|responses?|orders?|pull requests?|issues?)|(?:has|have) (?:it |anything |they )?changed|any changes|changes since|since (?:the )?last|already (?:checked|seen|judged))\b/i;
+
+// The short message a run that judged and found nothing sends. An agent
+// made to speak up only when something happens (an alert: "tell me when
+// the price drops below my target") stays quiet instead.
 export const ALL_CLEAR = (name: string) => `All clear: ${name} checked and found nothing wrong.`;
-const ONLY_WHEN = /only (?:when|if)[^.]*(?:found|finds|wrong|problems?|issues?|violations?|errors?|fails?|failing|changes?|new|low|over|under|above|below|drops?|rises?)|(?:stay|stays|keep|keeps|remain|remains) (?:quiet|silent)|nothing (?:is )?sent/i;
+const ONLY_WHEN = /\bonly (?:when|if)\b[^.]*\b(?:found|finds|wrong|problems?|issues?|violations?|errors?|fails?|failing|changes?|new|low|over|under|above|below|drops?|rises?)\b|\b(?:stay|stays|keep|keeps|remain|remains) (?:quiet|silent)\b|\bnothing (?:is )?sent\b|\b(?:alert|alerts|tell|tells|notify|notifies|ping|pings|warn|warns|message|messages|let)\s+(?:me|you|the owner|its owner|them)\b[^.]*\bwhen(?:ever)?\b|\bwhen(?:ever)?\b[^.]*\b(?:drops?|falls?|rises?|goes|gets|climbs?|dips?)\s+(?:below|above|under|over|to|past)\b/i;
 // Whether the steps say to tell the owner only when something is found.
 function onlyWhenFound(d: AgentDefinition, step: ActionStepDef): boolean {
   const words = [d.job.does, d.job.done, ...d.steps.filter((s) => s.kind === "code" && s.outputs.includes(step.inputs[0] ?? "")).map((s) => (s.kind === "code" ? s.description : ""))].join(" ");
@@ -473,6 +479,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         // It did something the owner can see: a side step failing after
         // this leaves the job done, with a note.
         if (SIDE_EFFECT_TOOLS.includes(tool)) state.acted = true;
+        if (tool === "telegram.send") state.told = true;
         state.journal[i] = { tool, args, result: result ?? null, ...(prior?.approval ? { approval: prior.approval } : {}) };
         await o.save?.(state);
         emit(result, null);
@@ -729,6 +736,9 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       }
       if (step.outputs[0] && loops.inside.get(step.id)) state.bag[step.outputs[0]] = { outcome: way.id, label: way.label, reason: "" };
       done("ok", { outcome: way.id, label: way.label }, way.id, null);
+      // A comparison that ends the run (the price isn't low yet) ends it
+      // quietly: nothing was found to say, by design.
+      if (way.next === null && !loops.inside.get(step.id)) state.quiet = true;
       next = way.next;
     } else if (step.kind === "decision") {
       if (!o.dryRun && state.costUsd >= d.limits.maxSpendUsd) {
@@ -807,6 +817,8 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
           taint(step.outputs[0], sourcesOf(step.inputs.filter((k) => untrusted.has(k))));
         }
         done("ok", { outcome: outcome.id, label: outcome.label }, outcome.id, r.note, r.costUsd, r.model);
+        // Nothing new to look at, decided: the run ends quietly.
+        if (outcome.next === null && !loops.inside.get(step.id) && NOTHING_NEW.test(`${step.title} ${step.prompt}`)) state.quiet = true;
         next = outcome.next;
       }
     } else if (step.kind === "loop") {
@@ -857,7 +869,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       // A message with nothing in it after a judgement that ran (SERV
       // looked and found nothing wrong) is an all-clear, never silence;
       // unless the steps say to tell the owner only when something is found.
-      const allClear = action.tool === "telegram.send" && (state.judged ?? 0) > 0 && emptyMessage(step, input) && !onlyWhenFound(d, step) ? ALL_CLEAR(d.name) : null;
+      const allClear = action.tool === "telegram.send" && (state.judged ?? 0) > 0 && !state.quiet && emptyMessage(step, input) && !onlyWhenFound(d, step) ? ALL_CLEAR(d.name) : null;
       if (allClear) input[step.inputs[0]!] = { text: allClear };
       else if (nothingToDo(step, input) || (action.tool === "telegram.send" && emptyMessage(step, input))) {
         if (step.outputs[0]) state.bag[step.outputs[0]] = null;
@@ -922,6 +934,25 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
     state.resumed = false;
     flush();
     await o.save?.(state);
+  }
+  // A run that judged something and told its owner nothing (a judgement
+  // found nothing wrong and the run ended there) says so: a short
+  // all-clear, never silence; unless its steps say to tell them only when
+  // something is found.
+  const say = d.actions.find((a) => a.tool === "telegram.send");
+  const sender = say ? d.steps.find((s): s is ActionStepDef => s.kind === "action" && s.action === say.id) : undefined;
+  if (sender && !state.told && !state.quiet && (state.judged ?? 0) > 0 && !state.notes?.length && !onlyWhenFound(d, sender)) {
+    const args = { text: ALL_CLEAR(d.name) };
+    state.told = true;
+    await o.save?.(state);
+    try {
+      const result = await o.tools.call(sender, "telegram.send", args, undefined, { inputs: {}, untrusted: [], callKey: `${state.steps}:all-clear` });
+      state.acted = true;
+      o.onEvent({ type: "tool", stepId: sender.id, tool: "telegram.send", args, result: result ?? null, error: null });
+    } catch (err) {
+      // Held for a yes or refused: the run itself still did its work.
+      o.onEvent({ type: "tool", stepId: sender.id, tool: "telegram.send", args, result: null, error: errorText(err, "It couldn't send the all-clear.") });
+    }
   }
   // A side step didn't go through: done with a note when the run did what
   // it was for, and failed when it did nothing else.

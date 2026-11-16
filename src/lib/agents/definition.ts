@@ -177,7 +177,8 @@ export const CodeStep = z.object({
   ...stepBase,
   kind: z.literal("code"),
   // What the code must do, in plain words: the brief Dolphin writes from.
-  description: text(800),
+  // SERV's own words and the platform's notes added to them (planRepairs).
+  description: text(1400),
   tools: z.array(z.enum(TOOL_NAMES)).max(9),
   next: key.nullable(),
 });

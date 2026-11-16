@@ -63,7 +63,7 @@ const CHECKER: SuiteRequest = {
   knows: [
     [/when should it run|how often/i, "Every hour"],
     [/repositor|which repo|github/i, REPO],
-    [/where|send|tell|results go|report/i, "Telegram"],
+    [/where should|where do|send (?:it|the|them)|results go|how should it tell/i, "Telegram"],
     [/\bask\b|approv|permission|confirm|before/i, "It never needs to ask me anything first."],
   ],
   otherwise: "Judge the quality of each new commit and tell me what it found.",

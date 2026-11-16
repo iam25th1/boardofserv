@@ -10,7 +10,7 @@ import { forgetPublicReads } from "../connections/publicReads";
 import { checkCode } from "./code";
 import { checkDefinition, type AgentDefinition, type CodeStepDef } from "./definition";
 import { repaired } from "./plan";
-import { DATE_CURSOR, eachItemNote, firstRunNote } from "./planRepairs";
+import { DATE_CURSOR, diffsNote, eachItemNote, firstRunNote } from "./planRepairs";
 import { feedArgs, feedItems, JobTools } from "./runtime/tools";
 
 // The first run judges the latest 5 items (or those of the last 24 hours,
@@ -36,8 +36,30 @@ describe("a plan that reads new items", () => {
     expect(judge.description).toContain(eachItemNote("last_check_date"));
     expect(judge.tools).toEqual(["github.read", "serv.reason", "memory.set"]);
     expect(code(d, "save_last_check").description).toMatch(/is the newest item's date \(ISO 8601\), never its sha or id\.$/);
+    expect(judge.description).toContain(diffsNote());
     // Repaired again, it reads the same.
     expect(repair(d)).toEqual(d);
+  });
+
+  it("judges each item on its changes: a judging step that only had the titles reads them", () => {
+    // Live, the planned checker scored commits from their messages alone.
+    const base = checkerDefinition();
+    const titles: AgentDefinition = { ...base, steps: base.steps.map((s) => (s.id === "analyze_quality" && s.kind === "code" ? { ...s, inputs: ["commits"], tools: ["serv.reason"], description: "For each commit, ask serv.reason to judge its quality from its message. Return violations and quality_summary." } : s)) };
+    const d = repair(titles);
+    const judge = code(d, "analyze_quality");
+    expect(judge.tools).toEqual(["serv.reason", "memory.set", "github.read"]);
+    expect(judge.inputs).toEqual(["commits", "memory", "settings"]);
+    expect(judge.description).toContain(diffsNote());
+    const fromTitles = `async function run(input, tools) {
+  const violations = [];
+  for (const c of (input.commits || []).slice().reverse()) {
+    const r = await tools.serv.reason({ task: "Judge this commit.", data: { message: c.message }, answer: { violations: "list" } });
+    violations.push(...r.violations);
+    await tools.memory.set({ key: "last_check_date", value: c.date });
+  }
+  return { violations, quality_summary: { files_checked: 0, violations_total: violations.length } };
+}`;
+    expect(checkCode(fromTitles, judge, d)).toMatch(/^It judges the items without reading their changes/);
   });
 
   it("turns a place kept as a sha into the item's date, everywhere the plan names it", () => {
@@ -45,7 +67,7 @@ describe("a plan that reads new items", () => {
     expect(d.memory).toEqual([{ key: "last_commit_date", type: "text", description: DATE_CURSOR }]);
     expect(JSON.stringify(d.steps)).not.toContain("last_commit_sha");
     expect(code(d, "fetch_commits").description).toContain("memory.last_commit_date");
-    expect(code(d, "fetch_commits").description).toContain("given to github.read as since (that date, never a sha or an id)");
+    expect(code(d, "fetch_commits").description).toContain("given to github.read as since (a date, never a sha or an id)");
   });
 
   it("gets a place, a date, when it judges what it reads and kept none", () => {
@@ -56,6 +78,47 @@ describe("a plan that reads new items", () => {
     expect(code(d, "fetch_commits").inputs).toEqual(["settings", "memory"]);
     expect(code(d, "fetch_commits").description).toContain(firstRunNote("last_item_date"));
     expect(code(d, "analyze_quality").description).toContain(eachItemNote("last_item_date"));
+  });
+
+  it("keeps its place in the step that reads, when a step of its own looked it up first", () => {
+    // Live: a step read the last commit from memory, the reading step got
+    // it as an input, and its place was saved only after an issue was sent,
+    // so a clean run never saved it.
+    const base = checkerDefinition({ memory: { key: "last_checked_commit", type: "text", description: "The last commit checked" } });
+    const lookedUp: AgentDefinition = {
+      ...base,
+      steps: [
+        { id: "read_last_commit", kind: "code", title: "Read the last commit checked", description: "Read memory.last_checked_commit with memory.get and return last_commit.", inputs: ["memory"], outputs: ["last_commit"], tools: ["memory.get"], next: "fetch_commits" },
+        ...base.steps.map((s) =>
+          s.id === "fetch_commits" && s.kind === "code"
+            ? { ...s, inputs: ["last_commit", "settings"], description: "Read the commits of settings.github_repo after last_commit with github.read, with each commit's changed files and patches. Return commits." }
+            : s.id === "analyze_quality" && s.kind === "code"
+              ? { ...s, tools: ["serv.reason"] as CodeStepDef["tools"], inputs: ["commits"] }
+              : s,
+        ),
+      ],
+    };
+    const d = repair(lookedUp);
+    expect(d.memory).toEqual([{ key: "last_checked_commit", type: "text", description: DATE_CURSOR }]);
+    expect(code(d, "fetch_commits").inputs).toEqual(["last_commit", "settings", "memory"]);
+    expect(code(d, "fetch_commits").description).toContain(firstRunNote("last_checked_commit"));
+    const judge = code(d, "analyze_quality");
+    expect(judge.description).toContain(eachItemNote("last_checked_commit"));
+    // It has the changes already: it isn't told to read them again.
+    expect(judge.tools).toEqual(["serv.reason", "memory.set"]);
+    expect(judge.description).not.toContain(diffsNote());
+  });
+
+  it("goes item by item only through a list: a step that judges a summary of what was read has none", () => {
+    // Live, a plan read a repository's metrics as one object and judged them.
+    const base = checkerDefinition();
+    const metrics: AgentDefinition = {
+      ...base,
+      steps: base.steps.map((s) => (s.id === "fetch_commits" && s.kind === "code" ? { ...s, outputs: ["commits"], shapes: { commits: "{ files_changed: number, commits: number }" } } : s)),
+    };
+    const d = repair(metrics);
+    expect(code(d, "fetch_commits").description).toContain(firstRunNote("last_check_date"));
+    expect(code(d, "analyze_quality").description).not.toContain("right after each item");
   });
 
   it("leaves a plan alone that only counts what it reads", () => {

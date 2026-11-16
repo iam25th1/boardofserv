@@ -684,10 +684,24 @@ const ID_KEY = /(?:^|_)(?:sha|id|hash)$|[a-z0-9](?:Sha|Id|Hash)$/;
 const DATE_SAID = /\b(?:date|time|timestamp|iso)\b/i;
 export const DATE_CURSOR = "The date (ISO 8601) of the newest item it has judged, so the next run reads only what came after it.";
 export const firstRunNote = (key: string) =>
-  `On the first run (memory.${key} empty) it reads the latest ${NEW_PER_RUN} from the last 24 hours, whichever is fewer; after that only what came after memory.${key}, given to github.read as since (that date, never a sha or an id), at most ${NEW_PER_RUN} a run.`;
-export const eachItemNote = (key: string) =>
-  `It judges the items one at a time, oldest first (GitHub lists the newest first), with one serv.reason call for each item (that item's changed files and patches together), and right after each item is judged it saves that item's date with tools.memory.set({ key: "${key}", value: the item's date }), so a run that stops part way never judges it again.`;
-export const EACH_ITEM_MARK = "right after each item is judged it saves that item's date";
+  `First run (memory.${key} empty): the latest ${NEW_PER_RUN} from the last 24 hours, whichever is fewer; after that only what came after memory.${key}, given to github.read as since (a date, never a sha or an id), ${NEW_PER_RUN} at most.`;
+export const EACH_ITEM_MARK = "right after each item it saves that item's date";
+export const eachItemNote = (key: string) => `One item at a time, oldest first (GitHub lists the newest first), one serv.reason call each; ${EACH_ITEM_MARK}: tools.memory.set({ key: "${key}", value: the item's date }).`;
+// A repository's items are judged on their changes, not their titles.
+export const DIFFS_MARK = "reads its changed files with github.read";
+export const diffsNote = () => `For each item it ${DIFFS_MARK} (op "commit" with the sha, or op "pull" with the number; the repository from settings) and gives them to serv.reason.`;
+
+// A note of the platform's added to a step's words, within a description's
+// room: SERV's own words give way at a sentence's end when both won't fit.
+const DESCRIPTION_MAX = 1400;
+function noted(text: string | undefined, note: string): string {
+  const base = (text ?? "").trim();
+  if (base.length + note.length + 1 <= DESCRIPTION_MAX) return `${base} ${note}`.trim();
+  const room = DESCRIPTION_MAX - note.length - 1;
+  const cut = base.slice(0, room);
+  const end = cut.lastIndexOf(". ");
+  return `${end > room / 2 ? cut.slice(0, end + 1) : cut.trimEnd()} ${note}`;
+}
 
 export function keepPlaceByDate<M extends { key: string; type?: unknown; description?: string }>(steps: RawStep[], memory: M[]): M[] {
   const feed = steps.find((s) => s.kind === "code" && (s.tools ?? []).some((t) => FEEDS.includes(t)));
@@ -698,9 +712,13 @@ export function keepPlaceByDate<M extends { key: string; type?: unknown; descrip
     memory = [{ key: "last_item_date", type: "text", description: DATE_CURSOR } as unknown as M];
     feed.inputs = [...feed.inputs.filter((k) => k !== "memory"), "memory"];
   }
-  const reading = steps.find((s) => s.kind === "code" && (s.tools ?? []).some((t) => FEEDS.includes(t)) && s.inputs.includes("memory"));
+  // The step that reads the feed keeps the place itself, reading it from
+  // memory even when the plan had a step of its own look it up first.
+  const reading = steps.find((s) => s.kind === "code" && (s.tools ?? []).some((t) => FEEDS.includes(t)) && s.inputs.includes("memory")) ?? (memory.length ? feed : undefined);
   if (!reading || !memory.length) return memory;
-  const said = `${reading.description ?? ""} ${reading.title}`;
+  if (!reading.inputs.includes("memory")) reading.inputs = [...reading.inputs, "memory"];
+  const lookups = steps.filter((st) => st !== reading && st.outputs.some((o) => reading.inputs.includes(o)) && ((st.tools ?? []).includes("memory.get") || st.inputs.includes("memory")));
+  const said = [reading, ...lookups].map((st) => `${st.description ?? ""} ${st.title}`).join(" ");
   const field = memory.find((m) => said.includes(`memory.${m.key}`)) ?? memory.find((m) => new RegExp(`\\b${escapeRe(m.key)}\\b`).test(said)) ?? (memory.length === 1 ? memory[0] : undefined);
   if (!field) return memory;
   let key = field.key;
@@ -717,19 +735,29 @@ export function keepPlaceByDate<M extends { key: string; type?: unknown; descrip
     key = next;
   }
   const out = memory.map((m) => (m === field ? { ...m, key, type: "text", description: DATE_SAID.test(m.description ?? "") && m.key === key ? m.description : DATE_CURSOR } : m));
-  if (!(reading.description ?? "").includes("the latest 5 from the last 24 hours")) reading.description = `${reading.description ?? ""} ${firstRunNote(key)}`.trim();
+  if (!(reading.description ?? "").includes(`the latest ${NEW_PER_RUN} from the last 24 hours`)) reading.description = noted(reading.description, firstRunNote(key));
   // What saves its place says it saves a date.
   for (const st of steps) {
     if (st === reading || st.kind !== "code" || !(st.tools ?? []).includes("memory.set")) continue;
-    if (!(st.description ?? "").includes(EACH_ITEM_MARK) && !/never its sha or id/.test(st.description ?? "")) st.description = `${st.description ?? ""} What it saves in memory.${key} is the newest item's date (ISO 8601), never its sha or id.`.trim();
+    if (!(st.description ?? "").includes(EACH_ITEM_MARK) && !/never its sha or id/.test(st.description ?? "")) st.description = noted(st.description, `What it saves in memory.${key} is the newest item's date (ISO 8601), never its sha or id.`);
   }
   // The step that judges what was read: one item at a time, its place
-  // saved after each.
+  // saved after each. Only for a list of items: a reading step that sums
+  // them up (a repository's metrics) has none to go through.
+  const shapes = (reading as unknown as { shapes?: Record<string, unknown> }).shapes ?? {};
+  const items = reading.outputs.filter((k) => typeof shapes[k] !== "string" || /\[\]\s*$/.test(String(shapes[k]).trim()));
   for (const st of steps) {
-    if (st.kind !== "code" || !(st.tools ?? []).includes(REASON_TOOL) || !st.inputs.some((k) => reading.outputs.includes(k))) continue;
-    if (!(st.description ?? "").includes(EACH_ITEM_MARK)) st.description = `${st.description ?? ""} ${eachItemNote(key)}`.trim();
+    if (st.kind !== "code" || !(st.tools ?? []).includes(REASON_TOOL) || !st.inputs.some((k) => items.includes(k))) continue;
+    if (!(st.description ?? "").includes(EACH_ITEM_MARK)) st.description = noted(st.description, eachItemNote(key));
     if (!(st.tools ?? []).includes("memory.set")) st.tools = [...(st.tools ?? []), "memory.set"];
     if (!st.inputs.includes("memory")) st.inputs = [...st.inputs, "memory"];
+    // Its items' changes, read one at a time: what it judges (unless the
+    // reading step reads them already).
+    if ((reading.tools ?? []).includes("github.read") && !/changed files|patch|\bdiffs?\b|op\s*[:=]?\s*["']?commit["']?(?!s)|op\s*[:=]?\s*["']?pull["']?(?!s)/i.test(reading.description ?? "")) {
+      if (!(st.description ?? "").includes(DIFFS_MARK)) st.description = noted(st.description, diffsNote());
+      if (!(st.tools ?? []).includes("github.read")) st.tools = [...(st.tools ?? []), "github.read"];
+      if (!st.inputs.includes("settings")) st.inputs = [...st.inputs, "settings"];
+    }
   }
   return out;
 }
@@ -806,7 +834,32 @@ export function dropMadeUp(plan: { settings?: unknown; rules?: unknown; steps?: 
       if (typeof st.prompt === "string" && st.prompt) st.prompt = strip(st.prompt);
     }
   }
+  // A metric nothing it reads can measure (a test coverage score from a
+  // commit's changes) goes from what the steps return and judge, and from
+  // the answers that name it.
+  for (const st of steps) {
+    for (const f of ["description", "prompt"] as const) if (typeof st[f] === "string") st[f] = withoutUnmeasured(st[f] as string);
+    const shaped = st as unknown as { shapes?: Record<string, string> };
+    if (shaped.shapes) shaped.shapes = Object.fromEntries(Object.entries(shaped.shapes).map(([k, v]) => [k, typeof v === "string" ? v.replace(/\s*[a-z_]*coverage[a-z_]*\s*:\s*[^,}]+,?/gi, "").replace(/,\s*}/g, " }") : v]));
+  }
+  for (const st of settings) {
+    if (typeof st.given === "string" && st.given) st.given = withoutUnmeasured(st.given);
+    if (typeof st.help === "string" && st.help) st.help = withoutUnmeasured(st.help);
+  }
   // An answer that names no value is no answer.
   for (const st of settings) if (typeof st.given === "string" && st.given && PLACEHOLDER_ANSWER.test(st.given.trim())) st.given = "";
   return { dropped: [...dropped, ...unmeasured].map((x) => String(x.key)), asked: asked.map((r) => String(r.key)) };
+}
+
+// Words with a metric nothing it reads can measure taken out: "a score for
+// maintainability and test coverage" reads "a score for maintainability".
+const COVERAGE = "(?:(?:unit |integration )?test|code)[ _]coverage(?:[ _](?:score|percent(?:age)?|ratio|level))?[a-z_]*(?:\\s*\\([^)]*\\))?";
+export function withoutUnmeasured(text: string): string {
+  return text
+    .replace(new RegExp(`,\\s*(?:and\\s+)?${COVERAGE}`, "gi"), "")
+    .replace(new RegExp(`\\s+(?:and|or)\\s+${COVERAGE}`, "gi"), "")
+    .replace(new RegExp(`${COVERAGE}\\s*(?:,\\s*|\\s+(?:and|or)\\s+)`, "gi"), "")
+    .replace(/\(\s*e\.g\.,?\s*\)/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }

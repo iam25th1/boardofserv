@@ -162,7 +162,7 @@ export function argsVerdict(d: AgentDefinition, code: Record<string, StepCode>, 
     const wrong = argMismatches(code[s.id]?.source ?? "", { memory: d.memory, sources });
     if (!wrong.length) continue;
     const spec = s.description.includes(ARG_NOTE) ? s.description : `${s.description} ${ARG_NOTE}`;
-    return { verdict: "code_wrong", step: s.id, why: mismatchProblem(wrong[0]!), spec: spec.slice(0, 800), change: "", sample: "", question: "", choices: [], lesson: "Give each tool argument the kind of value it takes: a date where it takes a date, never an id or a sha.", kind: "wrong_value" };
+    return { verdict: "code_wrong", step: s.id, why: mismatchProblem(wrong[0]!), spec: spec.slice(0, 1400), change: "", sample: "", question: "", choices: [], lesson: "Give each tool argument the kind of value it takes: a date where it takes a date, never an id or a sha.", kind: "wrong_value" };
   }
   return null;
 }

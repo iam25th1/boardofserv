@@ -6,7 +6,7 @@ import { ARGS_TOOLS, checkDefinition, loopsOf, REASON_TOOL, RUN_VALUES, type Age
 import { targetProblem, writtenTarget } from "./targets";
 import { argMismatches, mismatchProblem } from "./argKinds";
 import { callsOf, loopsAround, loopSpans } from "./codeShape";
-import { EACH_ITEM_MARK } from "./planRepairs";
+import { DIFFS_MARK, EACH_ITEM_MARK } from "./planRepairs";
 import { CATALOG } from "../connections/catalog";
 import { OUTSIDE_TOOLS, TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
@@ -233,6 +233,10 @@ export function checkCode(source: string, step: CodeStepDef, d?: AgentDefinition
   const loops = loopSpans(source);
   if (callsOf(source, REASON_TOOL).some((at) => loopsAround(loops, at).length >= 2)) {
     return "It asks SERV once for every part of every item (a loop inside a loop): ask once per item, with all of that item's parts (its changed files and their patches) together in data, so a run of 5 items makes 5 calls.";
+  }
+  // A step told to judge each item on its changes reads them.
+  if (step.description.includes(DIFFS_MARK) && !(callsOf(source, "github.read").length && /\bop\s*:\s*["'`](?:commit|pull)["'`]/.test(source))) {
+    return 'It judges the items without reading their changes: for each item read its changed files with tools.github.read (op "commit" with its sha, or op "pull" with its number, and the repository from input.settings) and give them to serv.reason.';
   }
   // A step told to keep its place item by item saves each item's date in
   // the loop that judges it, so a run that stops part way never judges it

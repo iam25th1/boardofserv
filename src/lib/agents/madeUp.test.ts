@@ -5,6 +5,7 @@ import { checkDefinition, type AgentDefinition } from "./definition";
 import { needNotes, type JobNeeds } from "./needs";
 import { repaired } from "./plan";
 import { outlinePrompt } from "./planStages";
+import { withoutUnmeasured } from "./planRepairs";
 
 // No made-up settings. Live, the GitHub checker came with rules its owner
 // never gave: "Check cyclomatic complexity" on, "Minimum test coverage
@@ -66,6 +67,17 @@ describe("a rule the maker never gave", () => {
 
   it("is never asked for by the planner", () => {
     expect(outlinePrompt(15, "github.read")).toContain("never a threshold, a percentage or a check of your own, and never one that nothing it reads can measure (test coverage from a commit's changes)");
+  });
+});
+
+describe("a metric nothing it reads can measure", () => {
+  it("goes from what the steps judge and return, and from the answer that named it", () => {
+    // As the live checker was planned.
+    expect(withoutUnmeasured("For each commit, analyze code quality against the quality_standards (Industry standards including maintainability and test coverage). Return a list with each commit's sha, message, author, maintainability_score (0-100), test_coverage_score (0-100), and issues. Use serv.reason to score maintainability and test coverage.")).toBe(
+      "For each commit, analyze code quality against the quality_standards (Industry standards including maintainability). Return a list with each commit's sha, message, author, maintainability_score (0-100), and issues. Use serv.reason to score maintainability.",
+    );
+    expect(withoutUnmeasured("Industry standards (e.g., maintainability, test coverage)")).toBe("Industry standards (e.g., maintainability)");
+    expect(withoutUnmeasured("Judge readability and naming.")).toBe("Judge readability and naming.");
   });
 });
 

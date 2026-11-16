@@ -4,6 +4,7 @@ import { modelConfig } from "@/lib/model";
 import { checkerDefinition, V3_FETCH, V3_MESSAGE, V3_SAVE } from "@/test/githubChecker";
 import { callKey } from "../connections/reads";
 import { servOnly } from "./build";
+import { checkDefinition, type AgentDefinition } from "./definition";
 import { ALL_CLEAR, judgedValue, runAgent } from "./runner";
 import { emptyBench, type BenchData, type RunEvent, type StepCode } from "./types";
 
@@ -103,5 +104,59 @@ describe("nothing new to look at", () => {
     expect(end).toMatchObject({ status: "done", outcome: "skipped", reason: 'Skipped, empty input: "Analyze code quality" had nothing to work on (commits was empty), so nothing was sent.' });
     expect(sent).toEqual([]);
     expect(calls).toEqual([]);
+  });
+});
+
+describe("a run a judgement ended", () => {
+  // Live: "Were any issues found?" said no and ended the run, and its owner
+  // heard nothing.
+  const decided = (does?: string): AgentDefinition => {
+    const d = checkerDefinition();
+    const c = checkDefinition({
+      ...d,
+      ...(does ? { job: { ...d.job, does } } : {}),
+      steps: d.steps.map((s) =>
+        s.id === "analyze_quality"
+          ? { ...s, next: "any_found" }
+          : s.id === "save_last_check"
+            ? { ...s, next: null }
+            : s,
+      ).concat([{ id: "any_found", kind: "decision", title: "Were any problems found?", prompt: "Were any code quality problems found in the commits?", inputs: ["violations"], outputs: [], outcomes: [{ id: "yes", label: "Yes", next: "make_send_report_action" }, { id: "no", label: "No", next: null }] } as never]),
+    });
+    if (!c.ok) throw new Error(c.errors.join("; "));
+    return c.definition;
+  };
+  const runDecided = async (d: AgentDefinition) => {
+    const events: RunEvent[] = [];
+    const end = await runAgent({
+      definition: d,
+      code: { fetch_commits: ok(V3_FETCH), analyze_quality: ok(JUDGE), make_send_report_action: ok(V3_MESSAGE), save_last_check: ok(V3_SAVE) },
+      bench: { ...bench(commits), decisions: { any_found: "no" } },
+      dryRun: true,
+      onEvent: (e) => events.push(e),
+    });
+    return { end, sent: events.filter((e): e is Extract<RunEvent, { type: "tool" }> => e.type === "tool" && e.tool === "telegram.send").map((e) => (e.args as { text: string }).text) };
+  };
+
+  it("still tells its owner, with a short all-clear", async () => {
+    const { end, sent } = await runDecided(decided());
+    expect(end.status).toBe("done");
+    expect(sent).toEqual([ALL_CLEAR("GitHub code quality checker")]);
+  });
+
+  it("stays quiet when a decision found nothing new to look at", async () => {
+    const d = decided();
+    const nothingNew: AgentDefinition = { ...d, steps: d.steps.map((s) => (s.id === "any_found" && s.kind === "decision" ? { ...s, title: "Any new commits?", prompt: "Are there any new commits since the last check?" } : s)) };
+    expect((await runDecided(nothingNew)).sent).toEqual([]);
+    // A judgement about the changes themselves isn't one.
+    const aboutChanges: AgentDefinition = { ...d, steps: d.steps.map((s) => (s.id === "any_found" && s.kind === "decision" ? { ...s, title: "Do the changes need work?", prompt: "Do the changes in these commits have quality problems?" } : s)) };
+    expect((await runDecided(aboutChanges)).sent).toEqual([ALL_CLEAR("GitHub code quality checker")]);
+  });
+
+  it("stays quiet when it was made to tell only when something is found, as an alert is", async () => {
+    for (const does of ["Checks new commits and messages the owner only when it finds problems.", "Alerts me when a new commit breaks the build.", "Tells the owner when the price drops below their target."]) {
+      const { sent } = await runDecided(decided(does));
+      expect(sent, does).toEqual([]);
+    }
   });
 });
