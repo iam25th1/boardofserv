@@ -217,6 +217,9 @@ export interface RunState {
   notes?: string[];
   // It sent, wrote or paid something in this run.
   acted?: boolean;
+  // Judgements a model made in this run (SERV's reasoning, a decision): a
+  // run that judged and found nothing to say still says so, all clear.
+  judged?: number;
   // The run ended with messages held for the owner's yes (runtime/held.ts):
   // how it ended, and their answers so far.
   release?: HeldRelease;

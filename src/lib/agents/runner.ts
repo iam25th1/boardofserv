@@ -309,6 +309,23 @@ export function nothingToDo(step: ActionStepDef, input: Record<string, unknown>)
   return Array.isArray(list) && list.length === 0;
 }
 
+// A message to the owner with nothing in it: none made, or empty text.
+function emptyMessage(step: ActionStepDef, input: Record<string, unknown>): boolean {
+  if (!step.inputs[0]) return false;
+  const v = input[step.inputs[0]];
+  const text = typeof v === "string" ? v : v && typeof v === "object" ? (v as { text?: unknown }).text : null;
+  return v === null || v === undefined || (typeof text === "string" ? !text.trim() : typeof v === "object" && text === undefined && Object.keys(v as object).length === 0);
+}
+
+// The short message a run that judged and found nothing sends.
+export const ALL_CLEAR = (name: string) => `All clear: ${name} checked and found nothing wrong.`;
+const ONLY_WHEN = /only (?:when|if)[^.]*(?:found|finds|wrong|problems?|issues?|violations?|errors?|fails?|failing|changes?|new|low|over|under|above|below|drops?|rises?)|(?:stay|stays|keep|keeps|remain|remains) (?:quiet|silent)|nothing (?:is )?sent/i;
+// Whether the steps say to tell the owner only when something is found.
+function onlyWhenFound(d: AgentDefinition, step: ActionStepDef): boolean {
+  const words = [d.job.does, d.job.done, ...d.steps.filter((s) => s.kind === "code" && s.outputs.includes(step.inputs[0] ?? "")).map((s) => (s.kind === "code" ? s.description : ""))].join(" ");
+  return ONLY_WHEN.test(words);
+}
+
 // Arguments compared for a replay: the same call, whatever the key order.
 function same(a: unknown, b: unknown): boolean {
   const norm = (v: unknown): unknown =>
@@ -555,8 +572,11 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
     }
 
     // A step that judges or writes, at the top of the run, with nothing to
-    // work on: the run is skipped there, and nothing is sent.
-    const hollowInput = judgesOrWrites(step) && !loops.inside.get(step.id) ? dataInputs(d, step).find((k) => thin(input[k])) : undefined;
+    // work on: the run is skipped there, and nothing is sent. Only what it
+    // was to look at counts (what was read, what came in): a judgement's
+    // own result, empty, means nothing was found, and the step goes on to
+    // say so.
+    const hollowInput = judgesOrWrites(step) && !loops.inside.get(step.id) ? dataInputs(d, step).find((k) => !judgedValue(d, k) && thin(input[k])) : undefined;
     if (hollowInput) {
       done("ok", null, null, "Skipped: empty input.");
       return end("done", "skipped", `Skipped, empty input: "${step.title}" had nothing to work on (${hollowInput.replace(/_/g, " ")} was empty), so nothing was sent.`);
@@ -603,7 +623,10 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         call: async (tool, args) => {
           const index = cursor;
           const r = await invoke(tool, args);
-          if (r.kind === "ok" && tool === REASON_TOOL) reasoned += 1;
+          if (r.kind === "ok" && tool === REASON_TOOL) {
+            reasoned += 1;
+            state.judged = (state.judged ?? 0) + 1;
+          }
           if (r.kind === "ok") return r.result;
           if (r.kind === "declined") {
             // In code, a question nobody answered in time is a null answer.
@@ -749,6 +772,8 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         if (r.infra && o.retryInfra) return { kind: "retry", reason: r.reason };
         return end("failed", r.infra ? "infra" : "logic", r.reason);
       }
+      // A judgement made (an empty list needed none).
+      if (!listed || listed.length) state.judged = (state.judged ?? 0) + 1;
       if (step.each) {
         const verdicts = r.verdicts ?? [];
         if (step.outputs[0]) {
@@ -815,7 +840,12 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       // Nothing to do: the code step before it left its input empty (no new
       // rows, nothing to report), so it is skipped and the run goes on. This
       // is how code, not a decision, says there was nothing to go through.
-      if (nothingToDo(step, input)) {
+      // A message with nothing in it after a judgement that ran (SERV
+      // looked and found nothing wrong) is an all-clear, never silence;
+      // unless the steps say to tell the owner only when something is found.
+      const allClear = action.tool === "telegram.send" && (state.judged ?? 0) > 0 && emptyMessage(step, input) && !onlyWhenFound(d, step) ? ALL_CLEAR(d.name) : null;
+      if (allClear) input[step.inputs[0]!] = { text: allClear };
+      else if (nothingToDo(step, input) || (action.tool === "telegram.send" && emptyMessage(step, input))) {
         if (step.outputs[0]) state.bag[step.outputs[0]] = null;
         done("ok", null, null, "Nothing to do, so it was skipped.");
         state.at = passOn(step.next);
@@ -902,6 +932,27 @@ function judgesOrWrites(step: AgentStep): boolean {
 function dataInputs(d: AgentDefinition, step: AgentStep): string[] {
   const messages = d.triggers.some((t) => t.kind === "message");
   return step.inputs.filter((k) => k !== "settings" && k !== "rules" && k !== "memory" && (k !== "trigger" || messages));
+}
+
+// A value a judgement made, or one made from such a value: what a model
+// decided, what a code step that asks SERV returned, what a loop gathered
+// from them, what code counted or summed from them. Empty, it means
+// nothing was found, never that there was nothing to look at.
+export function judgedValue(d: AgentDefinition, key: string, seen = new Set<string>()): boolean {
+  if (seen.has(key)) return false;
+  seen.add(key);
+  const maker = d.steps.find((s) => s.outputs.includes(key));
+  if (!maker) return false;
+  if (maker.kind === "decision") return true;
+  if (maker.kind === "loop") {
+    const g = maker.gather.find((x) => x.into === key);
+    return Boolean(g && judgedValue(d, g.from, seen));
+  }
+  if (maker.kind !== "code") return false;
+  if (maker.tools.includes(REASON_TOOL) || needsReasoning(maker)) return true;
+  // Code that only works on what was judged (a count, a summary of it).
+  const made = maker.inputs.filter((k) => !(RUN_VALUES as readonly string[]).includes(k));
+  return !maker.tools.some((t) => t !== "memory.get") && made.length > 0 && made.every((k) => judgedValue(d, k, seen));
 }
 
 // Keys that say where a value came from or which one it is, not what it
