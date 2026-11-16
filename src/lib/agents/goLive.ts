@@ -11,7 +11,7 @@ import { PayeeRefused, savePayee } from "../spending/payees";
 import type { InstallationDTO, MakerListingDTO } from "../types";
 import { REVIEW_BLOCKED, REVIEW_DOWN, vetVersion } from "./publish";
 import type { Runtime } from "./runtime/context";
-import { install, installationDTO, InstallRefused, loadInstallation } from "./runtime/installations";
+import { installationDTO, InstallRefused, loadInstallation, runOwnCopy } from "./runtime/installations";
 import { draftOf, publishDraft, updateDraft, versionsOf } from "./store";
 import { liveDiagnosis } from "./diagnosis";
 import { learnFromLive } from "./lessons";
@@ -68,7 +68,8 @@ export async function publishedFor(rt: Runtime, user: User, agent: Agent, o: { o
 export async function runForMaker(rt: Runtime, user: User, agent: Agent, answers: ConnectAnswers): Promise<InstallationDTO> {
   const version = await publishedFor(rt, user, agent, { offer: false });
   try {
-    const row = await install(rt, { ownerUserId: user.id, agent, version, answers: { settings: answers.settings, rules: answers.rules, timezone: answers.timezone, schedule: answers.schedule ?? null }, live: true });
+    // Their copy running now takes it over, never a second one beside it.
+    const { installation: row } = await runOwnCopy(rt, { ownerUserId: user.id, agent, version, answers: { settings: answers.settings, rules: answers.rules, timezone: answers.timezone, schedule: answers.schedule ?? null }, live: true });
     if (answers.payee) await savePayee(rt, user, row.id, answers.payee);
     const loaded = await loadInstallation(rt, row.id);
     return installationDTO(rt, loaded!);

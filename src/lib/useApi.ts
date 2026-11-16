@@ -186,6 +186,8 @@ export function useApi() {
         json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}/control`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.installation),
       // Switch the owner's own copy to the newest version of its agent.
       switchVersion: (id: string) => json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}/version`, { method: "POST" }).then((d) => d.installation),
+      // Stop the owner's other copies of their agent, keeping this one.
+      stopOtherCopies: (id: string) => json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}/others`, { method: "POST" }).then((d) => d.installation),
       listAgentMessages: (id: string) => json<{ messages: AgentMessageDTO[] }>(`/api/installations/${encodeURIComponent(id)}/messages`).then((d) => d.messages),
       messageAgent: (id: string, text: string) =>
         json<{ message: AgentMessageDTO }>(`/api/installations/${encodeURIComponent(id)}/messages`, { method: "POST", body: JSON.stringify({ text }) }).then((d) => d.message),

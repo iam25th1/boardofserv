@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
 import { Page } from "@/components/shell/Page";
 import { YourAgentsNav } from "@/components/shell/SubNav";
-import { Controls, Glance, NewerVersion } from "@/components/agents/InstallationControls";
+import { Controls, Glance, NewerVersion, OtherCopies } from "@/components/agents/InstallationControls";
 import { privyAppId } from "@/lib/privy-config";
 import type { InstallationDTO } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
@@ -51,6 +51,8 @@ function List() {
       </p>
     );
   }
+  // Other copies of an agent are offered to stop on its newest copy only.
+  const first = new Set(list.filter((i, n) => list.findIndex((x) => x.agentId === i.agentId && x.status !== "stopped") === n).map((i) => i.id));
   return (
     <ul className={styles.list} ref={listRef}>
       {list.map((i) => (
@@ -73,6 +75,15 @@ function List() {
               setList((all) => all?.map((x) => (x.id === next.id ? next : x)) ?? null);
             }}
           />
+          {first.has(i.id) && (
+            <OtherCopies
+              data={i}
+              onStop={async () => {
+                await api.stopOtherCopies(i.id);
+                setList(await api.listInstallations());
+              }}
+            />
+          )}
           <Glance data={i} />
           <Controls
             data={i}

@@ -217,6 +217,8 @@ export interface InstallationDTO {
   // changed, and why switching needs setting it up again (null when its
   // answers carry over). Null when it runs the newest.
   newer?: { version: number; line: string; breaking: string | null } | null;
+  // How many other copies of the owner's own agent run beside this one.
+  others?: number;
 }
 
 export interface BudgetDTO {

@@ -98,7 +98,7 @@ export function NewerVersion({ data, onSwitch }: { data: InstallationDTO; onSwit
       </p>
       {newer.breaking ? (
         <p className={styles.why}>
-          {newer.breaking} <Link href={`/app/agents/${data.agentId}?setup=1`}>Set version {newer.version} up</Link>, then stop this one.
+          {newer.breaking} <Link href={`/app/agents/${data.agentId}?setup=1`}>Set version {newer.version} up</Link>: this copy takes it over.
         </p>
       ) : (
         <Button size="sm" onClick={() => void go()} disabled={busy}>
@@ -110,6 +110,62 @@ export function NewerVersion({ data, onSwitch }: { data: InstallationDTO; onSwit
           {said}
         </span>
       )}
+    </div>
+  );
+}
+
+// Other copies of the owner's own agent running beside this one, each doing
+// the same job (from before Run it for real took over the running copy):
+// an offer to stop them, this one going on.
+export function OtherCopies({ data, onStop }: { data: InstallationDTO; onStop: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [confirm, setConfirm] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  const n = data.others ?? 0;
+  if (!n || data.status === "stopped") return null;
+  const stop = async () => {
+    setBusy(true);
+    setSaid(null);
+    try {
+      await onStop();
+    } catch (err) {
+      setSaid(err instanceof Error ? err.message : "That didn't work. Try again.");
+    } finally {
+      setBusy(false);
+      setConfirm(false);
+    }
+  };
+  const copies = n === 1 ? "copy" : "copies";
+  return (
+    <div className={styles.newer} role="status">
+      <p>
+        <strong>{n === 1 ? "Another copy of this agent runs" : `${n} other copies of this agent run`} beside this one,</strong> doing the same job: you may get the same message more than once.
+      </p>
+      <Button size="sm" variant="ghost" onClick={() => setConfirm(true)} disabled={busy}>
+        Stop the other {copies}
+      </Button>
+      {said && (
+        <span className={styles.said} role="alert">
+          {said}
+        </span>
+      )}
+      <Dialog
+        open={confirm}
+        onClose={() => setConfirm(false)}
+        title={`Stop the other ${copies} for good?`}
+        actions={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setConfirm(false)}>
+              Keep them
+            </Button>
+            <Button variant="danger" size="sm" onClick={() => void stop()} disabled={busy}>
+              {busy ? "Stopping..." : `Stop ${n === 1 ? "it" : "them"}`}
+            </Button>
+          </>
+        }
+      >
+        <p>This one goes on as it is. What the others did stays in their history, and nothing of them runs again.</p>
+      </Dialog>
     </div>
   );
 }

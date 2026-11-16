@@ -47,6 +47,7 @@ function Detail({ id }: { id: string }) {
       send: (text) => api.messageAgent(id, text),
       control: (action) => api.controlInstallation(id, action),
       switchVersion: () => api.switchVersion(id),
+      stopOthers: () => api.stopOtherCopies(id),
       setPolicy: (body) => api.setPolicy(id, body),
       setBudget: (modelBudget) => api.setModelBudget(id, modelBudget),
       audit: (before) => api.installationAudit(id, before),
