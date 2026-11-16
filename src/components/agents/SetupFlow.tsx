@@ -31,7 +31,7 @@ import styles from "./SetupFlow.module.css";
 // is simply there.
 
 export interface SetupApi {
-  connections: () => Promise<{ connections: ConnectionDTO[]; available: Record<"telegram" | "google", boolean> & { typeform?: boolean } }>;
+  connections: () => Promise<{ connections: ConnectionDTO[]; available: Record<string, boolean> }>;
   telegramCode: () => Promise<LinkCode>;
   googleStart: (returnTo: string) => Promise<{ url: string }>;
   // Connect Typeform with a pasted personal token (absent: not offered here).

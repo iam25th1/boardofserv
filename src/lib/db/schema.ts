@@ -3,6 +3,7 @@ import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, n
 import type { AgentDefinition } from "../agents/definition";
 import type { BenchData, HealLog, RunState, StepCode, TestResult } from "../agents/types";
 import type { JourneyCard } from "../journey";
+import { CONNECTABLE_IDS } from "../connections/catalog";
 import { CURRENCIES } from "../money";
 import { DISPUTE_REASONS } from "../spending/disputeWords";
 
@@ -910,14 +911,15 @@ export const agentSeenItems = pgTable(
 );
 
 // The connection vault: each owner's links to outside services, one per
-// service. The secret (a Telegram chat, Google tokens) is AES-256-GCM
+// service, each a service of the catalog (connections/catalog.ts). The
+// secret (a Telegram chat, Google tokens, a pasted key) is AES-256-GCM
 // ciphertext only (crypto.ts), decrypted on the server for the one call
 // that needs it: never readable by agent code, makers, logs or responses.
 // label is what the owner sees ("@name", an email address). lookup is a
 // keyed hash for finding a Telegram chat's owner without decrypting every
 // row; a chat links to one owner at a time.
-export const CONNECTION_PROVIDERS = ["telegram", "google", "typeform"] as const;
-export type ConnectionProvider = (typeof CONNECTION_PROVIDERS)[number];
+export const CONNECTION_PROVIDERS = CONNECTABLE_IDS;
+export type ConnectionProvider = string;
 export const connections = pgTable(
   "connections",
   {
@@ -925,7 +927,7 @@ export const connections = pgTable(
     ownerUserId: uuid("owner_user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    provider: text("provider", { enum: CONNECTION_PROVIDERS }).notNull(),
+    provider: text("provider").notNull(),
     label: text("label").notNull(),
     secretEncrypted: text("secret_encrypted").notNull(),
     lookup: text("lookup"),
@@ -936,7 +938,7 @@ export const connections = pgTable(
   (t) => ({
     onePerService: uniqueIndex("connections_owner_provider_idx").on(t.ownerUserId, t.provider),
     byLookup: uniqueIndex("connections_lookup_idx").on(t.provider, t.lookup),
-    knownProvider: check("connections_provider", sql`${t.provider} in ('telegram', 'google', 'typeform')`),
+    knownProvider: check("connections_provider", sql`${t.provider} in (${sql.raw(CONNECTION_PROVIDERS.map((p) => `'${p}'`).join(", "))})`),
   }),
 );
 

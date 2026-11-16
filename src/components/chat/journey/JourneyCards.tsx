@@ -35,7 +35,7 @@ export interface JourneyApi {
   simpler: () => Promise<void>;
   describeAgain: () => void;
   installation: (id: string) => Promise<InstallationDTO>;
-  connections: () => Promise<{ connections: ConnectionDTO[]; available: Record<"telegram" | "google", boolean> & { typeform?: boolean } }>;
+  connections: () => Promise<{ connections: ConnectionDTO[]; available: Record<string, boolean> }>;
   telegramCode: () => Promise<LinkCode>;
   googleStart: (returnTo: string) => Promise<{ url: string }>;
   // Connect Typeform with a pasted personal token (absent: not offered here).

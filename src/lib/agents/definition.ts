@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { minIntervalMinutes } from "./interval";
 import { keepRequired } from "../zodErrors";
+import { serviceName } from "../connections/catalog";
 
 // The agent format: one versioned definition of an agent a maker builds and
 // renters run. It is plain data, checked here with zod, stored in
@@ -264,14 +265,30 @@ export function spends(a: { tool: ToolName; amountColumn?: string }): boolean {
 
 // The connections an agent needs its owner to have: Telegram for an agent
 // that messages or asks its owner or takes their messages, Google for one
-// that reads or writes sheets, Typeform for one that reads a form's answers.
-export function connectionsNeeded(d: AgentDefinition): { telegram: boolean; google: boolean; typeform: boolean } {
+// that reads or writes sheets, Typeform for one that reads a form's
+// answers, and every other service of the catalog it reaches that has
+// something to connect (services, by id).
+export interface Needs {
+  telegram: boolean;
+  google: boolean;
+  typeform: boolean;
+  services: string[];
+}
+
+export function connectionsNeeded(d: AgentDefinition): Needs {
   const tools = new Set<ToolName>([...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))]);
   return {
     telegram: tools.has("telegram.send") || tools.has("telegram.ask") || d.triggers.some((t) => t.kind === "message"),
     google: tools.has("sheets.read") || tools.has("sheets.write") || tools.has("sheets.update") || d.settings.some((s) => s.type === "sheet"),
     typeform: tools.has("typeform.read"),
+    services: [],
   };
+}
+
+// Every service an agent needs connected, by id: Telegram, Google and
+// Typeform first, in that order, then the rest.
+export function neededIds(n: Pick<Needs, "telegram" | "google" | "typeform"> & { services?: string[] }): string[] {
+  return [...(n.telegram ? ["telegram"] : []), ...(n.google ? ["google"] : []), ...(n.typeform ? ["typeform"] : []), ...(n.services ?? [])];
 }
 
 // The setting that names who it pays, for an agent that pays a saved payee
@@ -288,7 +305,7 @@ export function payeeSetting(d: Pick<AgentDefinition, "settings" | "actions">): 
 // code steps' descriptions and the decisions' prompts).
 // payee: the setting whose answer is the name of the payee it pays, when
 // it pays one by name (asked with who it pays, not on its own).
-export type SetupShape = Pick<AgentDefinition, "name" | "settings" | "rules" | "triggers"> & { needs: { telegram: boolean; google: boolean; typeform?: boolean }; spends?: boolean; payee?: string | null };
+export type SetupShape = Pick<AgentDefinition, "name" | "settings" | "rules" | "triggers"> & { needs: { telegram: boolean; google: boolean; typeform?: boolean; services?: string[] }; spends?: boolean; payee?: string | null };
 
 export function setupShapeOf(d: AgentDefinition): SetupShape {
   const settings = d.settings.map(({ given: _given, ...rest }) => rest);
@@ -318,6 +335,8 @@ export function breakingChange(from: AgentDefinition, to: AgentDefinition): stri
   if (now.telegram && !was.telegram) return "It needs your Telegram now.";
   if (now.google && !was.google) return "It needs your Google Sheets now.";
   if (now.typeform && !was.typeform) return "It needs your Typeform now.";
+  const service = now.services.find((x) => !was.services.includes(x));
+  if (service) return `It needs your ${serviceName(service)} now.`;
   return null;
 }
 

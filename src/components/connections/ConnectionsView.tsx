@@ -51,7 +51,7 @@ export function ConnectionsView({ api, connect }: { api: ConnectionsApi; connect
           <ServiceCard
             provider={p}
             connection={data.connections.find((c) => c.provider === p) ?? null}
-            available={data.available[p]}
+            available={Boolean(data.available[p])}
             connect={connect?.[p]?.(refresh)}
             onDisconnect={async () => {
               const r = await api.disconnect(p);

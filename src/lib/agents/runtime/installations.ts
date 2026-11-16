@@ -5,8 +5,9 @@ import { GoogleRevoked, GoogleUnavailable } from "../../google/oauth";
 import { isSheetAnswer, parseSheetLink, sheetLink } from "../../google/sheetLink";
 import { SheetRefused, sheetInfo } from "../../google/sheets";
 import type { InstallationDTO } from "../../types";
-import { hasConnection, SERVICE_NAME } from "../../connections/vault";
-import { connectionsNeeded, type AgentDefinition } from "../definition";
+import { hasConnection } from "../../connections/vault";
+import { serviceName } from "../../connections/catalog";
+import { connectionsNeeded, neededIds, type AgentDefinition } from "../definition";
 import { describeTriggers } from "../schedule";
 import { checkAnswers, type InstallAnswers } from "../settingsForm";
 import { emptyBench } from "../types";
@@ -55,7 +56,7 @@ export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agen
   if (why) throw new InstallRefused(why);
   const d = o.version.definition!;
   const missing = await missingConnections(rt, o.ownerUserId, d);
-  if (missing.length) throw new InstallRefused(`${missing.map((p) => (p === "telegram" ? "Link Telegram" : p === "google" ? "Connect Google" : "Connect Typeform")).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
+  if (missing.length) throw new InstallRefused(`${missing.map((p) => (p === "telegram" ? "Link Telegram" : `Connect ${serviceName(p)}`)).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
   const checked = checkAnswers(d, o.answers);
   if (!checked.ok) throw new InstallRefused("Some answers need another look.", checked.errors);
   const { settings, sheets } = await grantSheets(rt, o.ownerUserId, d, checked.settings);
@@ -238,11 +239,10 @@ export async function setPolicy(rt: Runtime, l: Loaded, policy: SafetyPolicy): P
     .where(eq(agentInstallations.id, l.installation.id));
 }
 
-// The connections this agent needs that its owner hasn't made.
-export async function missingConnections(rt: Runtime, ownerUserId: string, d: AgentDefinition): Promise<("telegram" | "google" | "typeform")[]> {
-  const needs = connectionsNeeded(d);
-  const missing: ("telegram" | "google" | "typeform")[] = [];
-  for (const p of ["telegram", "google", "typeform"] as const) if (needs[p] && !(await hasConnection(rt, ownerUserId, p))) missing.push(p);
+// The connections this agent needs that its owner hasn't made, by id.
+export async function missingConnections(rt: Runtime, ownerUserId: string, d: AgentDefinition): Promise<string[]> {
+  const missing: string[] = [];
+  for (const p of neededIds(connectionsNeeded(d))) if (!(await hasConnection(rt, ownerUserId, p))) missing.push(p);
   return missing;
 }
 
@@ -278,13 +278,13 @@ export async function control(rt: Runtime, l: Loaded, action: Control): Promise<
   }
   if (action === "test") {
     const missing = await missingConnections(rt, i.ownerUserId, d);
-    if (missing.length) throw new ControlRefused(`Connect ${missing.map((p) => SERVICE_NAME[p]).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
+    if (missing.length) throw new ControlRefused(`Connect ${missing.map(serviceName).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
     await enqueue(rt, i, { kind: "test" });
     return;
   }
   if (action === "golive") {
     const missing = await missingConnections(rt, i.ownerUserId, d);
-    if (missing.length) throw new ControlRefused(`Connect ${missing.map((p) => SERVICE_NAME[p]).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
+    if (missing.length) throw new ControlRefused(`Connect ${missing.map(serviceName).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
     const [row] = await rt.db.update(agentInstallations).set({ live: true, updatedAt: now }).where(and(here, eq(agentInstallations.live, false))).returning();
     if (row) await setUpTriggers(rt, row, d);
     return;
@@ -302,7 +302,7 @@ export async function control(rt: Runtime, l: Loaded, action: Control): Promise<
     const [unpaid] = await rt.db.select({ id: rentals.id }).from(rentals).where(and(eq(rentals.installationId, i.id), eq(rentals.status, "unpaid")));
     if (unpaid) throw new ControlRefused("This week's rent isn't paid. Top up your wallet, then resume it from Rented: that pays the week.");
     const missing = await missingConnections(rt, i.ownerUserId, d);
-    if (missing.length) throw new ControlRefused(`Connect ${missing.map((p) => SERVICE_NAME[p]).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
+    if (missing.length) throw new ControlRefused(`Connect ${missing.map(serviceName).join(" and ")} first, on Connections: this agent needs ${missing.length > 1 ? "them" : "it"}.`);
     const [row] = await rt.db.update(agentInstallations).set({ status: "active", pausedReason: null, updatedAt: now }).where(here).returning();
     if (row!.live) await setUpTriggers(rt, row!, d);
     return;
