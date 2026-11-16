@@ -10,7 +10,7 @@ import { modelConfig } from "../model";
 import type { CodeStepDef } from "./definition";
 import { runInSandbox } from "./sandbox";
 import { JobTools } from "./runtime/tools";
-import { plainFindings, plainWords, readReview, reviewVersion, REVIEW_SCHEMA, withoutCode } from "./vetting";
+import { brokenRule, plainFindings, plainWords, readReview, reviewVersion, REVIEW_SCHEMA, withoutCode } from "./vetting";
 
 // The code review before publishing, and the sandbox it backs up: code
 // that reaches outside its tools, hides what it does or never ends is
@@ -155,5 +155,60 @@ describe("the review's request", () => {
     const { reviewRequest } = await import("./vetting");
     const text = reviewRequest(restockDefinition(), RESTOCK_CODE);
     expect(text).toContain("serv.reason, which asks SERV Reasoning to judge or write");
+  });
+
+  it("carries the platform's rules and its tool catalog, with the arguments of the tools the agent uses", async () => {
+    const { reviewRequest, REVIEW_PROMPT, PLATFORM_RULES } = await import("./vetting");
+    const { TOOL_NAMES } = await import("./definition");
+    const text = reviewRequest(restockDefinition(), RESTOCK_CODE);
+    for (const r of PLATFORM_RULES) expect(text).toContain(`- ${r.rule}`);
+    expect(text).toContain("That is the platform's rule for every step that judges or writes, whatever it judges, code included.");
+    for (const t of TOOL_NAMES) expect(text).toContain(`- ${t}: `);
+    expect(text).toContain("- tools.sheets.read({ sheet: string })");
+    expect(REVIEW_PROMPT).toContain("an id or a sha where a date goes");
+    expect(REVIEW_PROMPT).toContain("blocking for anything unsafe or deceptive and for a tool called with the wrong kind of value");
+  });
+});
+
+describe("a finding that goes against the platform's rules", () => {
+  const d = restockDefinition();
+  const code = RESTOCK_CODE as unknown as Record<string, import("./types").StepCode>;
+  const serv = servOnly(modelConfig({ SERV_API_KEY: "test-serv" }));
+  const now = new Date("2026-11-16T20:05:00Z");
+  const answering = (findings: unknown): typeof fetch =>
+    (async () => Response.json({ choices: [{ message: { content: JSON.stringify({ findings }) } }], usage: { prompt_tokens: 2000, completion_tokens: 50 } })) as unknown as typeof fetch;
+  const title = d.steps[0]!.title;
+
+  it("is dropped and logged: judging code with serv.reason is the platform's rule", async () => {
+    const lines: string[] = [];
+    const said = "serv.reason is a reasoning tool, not a code analysis tool, so it can't be trusted to find violations.";
+    const review = await reviewVersion(d, code, serv, { now, fetchImpl: answering([{ step: title, severity: "blocking", finding: said }]), log: (l) => lines.push(l) });
+    expect(review).toMatchObject({ status: "passed", findings: [], by: "serv" });
+    expect(review.dropped).toEqual([{ step: title, severity: "blocking", finding: said, rule: "serv.reason" }]);
+    expect(lines).toEqual([`review: dropped a blocking finding on "${d.name}" that goes against the platform's serv.reason rule: ${said}`]);
+  });
+
+  it("is dropped for reads with no action and calls with no key in the code, which the platform means", () => {
+    for (const [said, rule] of [
+      ["Using SERV to judge code is the wrong tool for static analysis.", "serv.reason"],
+      ["It reads the repository with github.read without a declared action.", "reads"],
+      ["It calls GitHub without an API key, so private repositories would fail.", "keys"],
+    ] as const) {
+      expect(brokenRule(said), said).toBe(rule);
+    }
+  });
+
+  it("keeps real problems, the ones that name serv.reason or actions included", async () => {
+    for (const said of [
+      "It sends the owner a Telegram message without a declared action.",
+      "The step calls serv.reason in a loop over every file without a limit, which can spend the whole budget.",
+      "It passes a commit's sha where GitHub's since takes a date, so every later read fails.",
+      "It sends the stock list to an address the purpose doesn't need.",
+    ]) {
+      expect(brokenRule(said), said).toBeNull();
+      const review = await reviewVersion(d, code, serv, { now, fetchImpl: answering([{ step: title, severity: "blocking", finding: said }]) });
+      expect(review.status, said).toBe("blocked");
+      expect(review.dropped).toBeUndefined();
+    }
   });
 });
