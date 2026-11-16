@@ -2,7 +2,7 @@ import "server-only";
 import { Script } from "node:vm";
 import { completeJson, DOLPHIN_LABEL, modelConfig, type ChatMessage, type JsonResult, type ModelConfig, type Provider } from "../model";
 import { ANSWER_LIMITS } from "../modelLimits";
-import { ARGS_TOOLS, loopsOf, REASON_TOOL, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
+import { ARGS_TOOLS, checkDefinition, loopsOf, REASON_TOOL, RUN_VALUES, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
 import { targetProblem, writtenTarget } from "./targets";
 import { OUTSIDE_TOOLS, TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
@@ -161,8 +161,45 @@ const REACHES = [
   [/["'`]Bearer\s/, "it handles a key itself (the server adds the connection's key to each call)"],
 ] as const;
 
+// The inputs a function reads: input.x, input["x"], and { x } = input.
+export function inputsRead(source: string): string[] {
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:"'`\\])\/\/[^\n]*/g, "$1");
+  const found = new Set<string>();
+  for (const m of code.matchAll(/\binput\s*(?:\?\.|\.)\s*([A-Za-z_$][\w$]*)/g)) found.add(m[1]!);
+  for (const m of code.matchAll(/\binput\s*(?:\?\.)?\[\s*["'`]([A-Za-z_$][\w$]*)["'`]\s*\]/g)) found.add(m[1]!);
+  for (const m of code.matchAll(/\{([^{}]*)\}\s*=\s*input\b/g)) {
+    for (const part of m[1]!.split(",")) {
+      const k = part.trim().split(/[\s:=]/)[0];
+      if (k && /^[A-Za-z_$][\w$]*$/.test(k)) found.add(k);
+    }
+  }
+  return [...found];
+}
+
+// What the code reads that the step doesn't list, declared from upstream:
+// a value always there (settings, rules, memory, trigger) or one a step
+// before it makes on every way to it, so the plan still checks out. The
+// rest it reads would be inventions.
+export function fitInputs(step: CodeStepDef, source: string, d: AgentDefinition): { inputs: string[]; invented: string[] } {
+  const read = inputsRead(source).filter((k) => !step.inputs.includes(k));
+  const inputs = [...step.inputs];
+  const invented: string[] = [];
+  for (const k of read) {
+    const made = (RUN_VALUES as readonly string[]).includes(k) || d.steps.some((s) => s.id !== step.id && (s.outputs.includes(k) || (s.kind === "loop" && s.item === k)));
+    if (!made) {
+      invented.push(k);
+      continue;
+    }
+    const trial = { ...d, steps: d.steps.map((s) => (s.id === step.id ? { ...s, inputs: [...inputs, k] } : s)) };
+    if (checkDefinition(trial).ok) inputs.push(k);
+    else invented.push(k);
+  }
+  return { inputs, invented };
+}
+
 // The plain checks, before SERV sees it: null when it passes, else why not.
-// With the agent's plan, also no target written into the code (targets.ts).
+// With the agent's plan, also no target written into the code (targets.ts)
+// and no input the step isn't given.
 export function checkCode(source: string, step: CodeStepDef, d?: AgentDefinition): string | null {
   try {
     // Parsed, never run: node:vm compiles the text without executing it.
@@ -180,6 +217,8 @@ export function checkCode(source: string, step: CodeStepDef, d?: AgentDefinition
   if (d) {
     const target = writtenTarget(source, step, d);
     if (target) return targetProblem(target, step.inputs.includes("settings"));
+    const invented = inputsRead(source).filter((k) => !step.inputs.includes(k));
+    if (invented.length) return `It reads ${invented.map((k) => `input.${k}`).join(", ")}, which this step isn't given (it gets ${step.inputs.join(", ") || "nothing"}): read only those.`;
   }
   return null;
 }
@@ -419,11 +458,12 @@ export async function writeStep(
       continue;
     }
     source = code;
-    // The list is made to match the code before anything checks it. A
-    // target written in: the step reads the settings it should come from,
-    // and is written again from them.
+    // The lists are made to match the code before anything checks it: its
+    // tools, and what it reads that a step before it makes (declared, not
+    // written again). A target written in: the step reads the settings it
+    // should come from, and is written again from them.
     const tools = fitTools(step, code);
-    const fittedInputs = [...current.inputs];
+    const fittedInputs = fitInputs(current, code, d).inputs;
     const target = writtenTarget(code, current, d);
     if (target && !fittedInputs.includes("settings")) fittedInputs.push("settings");
     if (target?.from?.startsWith("rules.") && !fittedInputs.includes("rules")) fittedInputs.push("rules");

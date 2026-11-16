@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { modelConfig, type Provider } from "@/lib/model";
 import { servOnly } from "./build";
-import { checkCode, writeStep } from "./code";
+import { checkCode, fitInputs, writeStep } from "./code";
 import { checkDefinition, codeSpec, type AgentDefinition, type CodeStepDef } from "./definition";
 import { writtenTarget } from "./targets";
 
@@ -74,6 +74,23 @@ describe("a target written into the code", () => {
     expect(checkCode(OCTOCAT, step, d)).toBe('It writes the address "https://api.github.com/repos/${owner}/${repo}/commits?per_page=10" into the code, so every owner would get the same one whatever they answered: read it from settings.repos (Repositories), which this step now reads.');
     // Without the plan, the check is as it was.
     expect(checkCode(OCTOCAT, step)).toBeNull();
+  });
+});
+
+describe("what a step's code reads", () => {
+  const d = plan();
+  const judge = d.steps[1] as CodeStepDef;
+
+  it("is declared from upstream when a step before it makes it, never written again for it", () => {
+    const source = "async function run(input, tools) { const { commits } = input; const s = input.settings.repos; const r = await tools.serv.reason({ task: \"Score them\", data: commits }); return { message: String(commits.length + s.length) + r.text }; }";
+    expect(fitInputs(judge, source, d)).toEqual({ inputs: ["commits", "rules", "settings"], invented: [] });
+    expect(checkCode(source, { ...judge, inputs: ["commits", "rules", "settings"] }, d)).toBeNull();
+  });
+
+  it("is an invention when nothing makes it, and fails the check", () => {
+    const source = "async function run(input, tools) { if (input.skip) return { message: null }; const r = await tools.serv.reason({ task: \"Score them\", data: input.commits }); return { message: r.text }; }";
+    expect(fitInputs(judge, source, d).invented).toEqual(["skip"]);
+    expect(checkCode(source, judge, d)).toBe("It reads input.skip, which this step isn't given (it gets commits, rules): read only those.");
   });
 });
 

@@ -8,7 +8,7 @@ import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAM
 import { TOOLS } from "./toolbox";
 import { typeformLinkIn } from "../typeform/api";
 import { planProblems } from "./planRules";
-import { askedFirst, askForForm, askForMissing, askForSheet, askServToReason, columnsByName, fixSetup, keepRowNumbers, repairPlan, type RawStep } from "./planRepairs";
+import { askedFirst, askForForm, askForMissing, askForSheet, askServToReason, columnsByName, dropUnasked, fixSetup, keepRowNumbers, mergeSameActions, repairPlan, type RawStep } from "./planRepairs";
 import { actingSteps, askPurpose, leaveOut, readPurpose } from "./purpose";
 import { rulesText } from "./lessonRules";
 import { servicesPrompt } from "./servicesPrompt";
@@ -364,6 +364,9 @@ export async function planAgent(
   const asked = askedFirst([...input.history.filter((m) => m.role === "user").map((m) => m.content), ...(input.feedback ? [input.feedback] : [])], input.interview.asks);
   // The Typeform form the maker named, if they named one.
   const formLink = typeformLinkIn([...input.history.filter((m) => m.role === "user").map((m) => m.content), JSON.stringify(input.interview)].join("\n"));
+  // Everything the maker said, for what they asked for (planRepairs.ts
+  // dropUnasked).
+  const saidAll = [...input.history.filter((m) => m.role === "user").map((m) => m.content), ...Object.values(input.interview).filter((v): v is string => typeof v === "string"), input.feedback ?? "", ...(input.notes ?? [])].join("\n");
   const calls: JsonResult[] = [];
   const answers: string[] = [];
   const planText = planRequest(input);
@@ -450,7 +453,7 @@ export async function planAgent(
       if (!chunk || !(await detail(chunk))) break;
       continue;
     }
-    const joined = repaired(wireToDefinition(joinPlan(outline, details)), { askedFirst: asked, formLink });
+    const joined = repaired(wireToDefinition(joinPlan(outline, details)), { askedFirst: asked, formLink, said: saidAll });
     const checked = checkDefinition(joined);
     // A plan in the format still has to keep the planner's rules
     // (planRules.ts): judgement in decisions, counting in code, no loops.
@@ -496,7 +499,9 @@ export async function planAgent(
 // a loop over one value goes once, a plain comparison or the owner's yes
 // goes by a value, every send, write or pay is handed what it sends, and a
 // judgement or words only a model can give are asked of SERV at run time.
-export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: string | null } = {}): unknown {
+// said: what the maker said, the interview and their answers, for what
+// they asked for and what they didn't.
+export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: string | null; said?: string } = {}): unknown {
   const d = plan as { steps?: unknown; settings?: unknown; rules?: unknown; actions?: unknown };
   if (!Array.isArray(d?.steps)) return plan;
   const list = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
@@ -523,6 +528,16 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: st
     },
     o,
   );
+  // One step for one action, whichever way the run went; and nothing the
+  // maker never asked for (a log sheet, memory nothing reads), on every
+  // plan, a change or a fix included.
+  mergeSameActions(d.steps as RawStep[]);
+  if (o.said !== undefined) {
+    const out = dropUnasked(d.steps as RawStep[], { settings: list(d.settings).map((x) => ({ key: s(x.key), type: x.type })), rules: [], actions: list(d.actions).map((x) => ({ id: s(x.id), tool: x.tool })), memory: list((d as { memory?: unknown }).memory).map((x) => ({ key: s(x.key) })) }, o.said);
+    if (out.memory) (d as { memory?: unknown }).memory = [];
+    const sheets = list(d.steps).some((x) => Array.isArray(x.tools) && (x.tools as string[]).some((t) => t.startsWith("sheets."))) || list(d.actions).some((a) => String(a.tool).startsWith("sheets.") && !out.actions.includes(s(a.id)));
+    if (out.actions.length && !sheets && Array.isArray(d.settings)) (d as { settings: unknown }).settings = list(d.settings).filter((x) => x.type !== "sheet" || list(d.steps).some((st) => JSON.stringify(st).includes(s(x.key))));
+  }
   // Judgement or words only a model can give: SERV, at run time.
   askServToReason(d.steps as RawStep[], d as { limits?: unknown });
   // Rows written back keep their numbers from the read on.

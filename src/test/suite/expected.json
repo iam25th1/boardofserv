@@ -116,7 +116,7 @@
       "11. Deliver the summary message to the chat platform",
       "12. Record which submissions have been processed to avoid rechecking them"
     ],
-    "story": "3 submissions checked: 3 rejected, summary sent.",
+    "story": "3 submissions checked: 3 passed, summary sent.",
     "questions": 0
   }
 ]
