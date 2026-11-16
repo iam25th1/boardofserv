@@ -5,6 +5,8 @@ import { ANSWER_LIMITS } from "../modelLimits";
 import { ARGS_TOOLS, checkDefinition, loopsOf, REASON_TOOL, RUN_VALUES, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
 import { targetProblem, writtenTarget } from "./targets";
 import { argMismatches, mismatchProblem } from "./argKinds";
+import { callsOf, loopsAround, loopSpans } from "./codeShape";
+import { EACH_ITEM_MARK } from "./planRepairs";
 import { CATALOG } from "../connections/catalog";
 import { OUTSIDE_TOOLS, TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
@@ -225,6 +227,17 @@ export function checkCode(source: string, step: CodeStepDef, d?: AgentDefinition
   // A tool given the wrong kind of value (an id where a date goes).
   const wrong = argMismatches(source, { memory: d?.memory });
   if (wrong.length) return mismatchProblem(wrong[0]!);
+  // A step told to keep its place item by item saves each item's date in
+  // the loop that judges it, so a run that stops part way never judges it
+  // again.
+  if (step.description.includes(EACH_ITEM_MARK)) {
+    const spans = loopSpans(source);
+    const items = callsOf(source, REASON_TOOL).flatMap((at) => loopsAround(spans, at).slice(0, 1));
+    const saved = callsOf(source, "memory.set");
+    if (!items.length || !saved.some((at) => items.some(([a, b]) => a < at && at < b))) {
+      return "It doesn't save its place item by item: go through the items one at a time, oldest first, and right after each item's serv.reason call save that item's date with tools.memory.set, inside the loop, so a run that stops part way never judges it again.";
+    }
+  }
   if (d) {
     const target = writtenTarget(source, step, d);
     if (target) return targetProblem(target, step.inputs.includes("settings"));

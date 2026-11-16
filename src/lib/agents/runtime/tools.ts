@@ -37,6 +37,7 @@ import { allowance, cachedRead, keepRead, limited, LOW_PUBLIC_READS, noteAllowan
 import { parseFeed } from "../../connections/feed";
 import { formIdOf, formResponses, TypeformError } from "../../typeform/api";
 import { sourceProblem, sourceRefusal } from "../sources";
+import { NEW_PER_RUN } from "../planRepairs";
 import { errorText } from "../../db/errors";
 
 // A job's tools (and a value check's, with no job). Sheets are real: the
@@ -70,6 +71,25 @@ export function writesIn(kind: "graphql" | "jsonrpc", body: unknown): string | n
   const calls = Array.isArray(body) ? body : [body];
   const methods = calls.map((c) => String((c as { method?: unknown } | null)?.method ?? ""));
   return methods.every((m) => /^(?:eth_|alchemy_|net_|web3_)/.test(m) && !/send|sign|submit|install|uninstall|personal_/i.test(m)) ? null : "service.request only reads the chain: a call that sends or signs is never made.";
+}
+
+// A job of an agent that keeps its place (it declares memory) or judges
+// what it reads (it asks SERV) reads new items from a feed (a repository's
+// commits, pull requests or issues) a few a run: with no since (its first
+// run) the latest NEW_PER_RUN from the last 24 hours, whichever is fewer;
+// with since, the oldest NEW_PER_RUN that came after it (so the next run,
+// from the newest of those, misses none). Listed newest first, as GitHub
+// lists them.
+const FEED_OPS = ["commits", "pulls", "issues"];
+export function feedArgs(tool: ToolName, args: Record<string, unknown>, keepsPlace: boolean): Record<string, unknown> | null {
+  if (!keepsPlace || tool !== "github.read" || !FEED_OPS.includes(String(args.op))) return null;
+  return typeof args.since === "string" && args.since ? { ...args, limit: 100 } : { ...args, limit: Math.min(Number(args.limit ?? NEW_PER_RUN), NEW_PER_RUN) };
+}
+export function feedItems<T extends Record<string, unknown>>(items: T[], o: { since: string | null; now: number }): T[] {
+  const at = (x: T) => Date.parse(String(x.date ?? x.created_at ?? ""));
+  if (!o.since) return items.filter((x) => at(x) >= o.now - 24 * 3_600_000).slice(0, NEW_PER_RUN);
+  const since = Date.parse(o.since);
+  return items.filter((x) => at(x) > since).slice(-NEW_PER_RUN);
 }
 
 // A write through a connection whose owner switched writing off.
@@ -615,7 +635,11 @@ export class JobTools implements ToolHost {
     // told to connect GitHub.
     const shared = !secret && entry.id === "github" && tool !== "service.send";
     const now = this.rt.now().getTime();
-    const readKey = callKey(tool, parsed.data);
+    // New items from a feed, a few a run, for a job that keeps its place.
+    const capped = this.definition.memory.length > 0 || this.definition.steps.some((st) => st.kind === "decision" || (st.kind === "code" && st.tools.includes("serv.reason")));
+    const feed = this.job ? feedArgs(tool, parsed.data as Record<string, unknown>, capped) : null;
+    const asked = feed ?? parsed.data;
+    const readKey = callKey(tool, asked);
     const kept = shared ? cachedRead(readKey, now) : null;
     if (shared && !kept) {
       const a = allowance(now);
@@ -627,7 +651,7 @@ export class JobTools implements ToolHost {
     const limit = this.rt.services.caps.serviceCalls ?? DEFAULT_SERVICE_CALLS;
     if (!kept && !(await this.take(`service:${entry.id}`, limit))) throw new ToolError(tool, `It reached its limit of ${limit} ${entry.name} calls today.`);
     let call: ServiceCall;
-    if (typed) call = typed.request(parsed.data as never);
+    if (typed) call = typed.request(asked as never);
     else if (tool === "service.request") {
       const post = a.body !== undefined && a.body !== null && entry.postReads;
       if (a.body !== undefined && a.body !== null && !entry.postReads) throw new ToolError(tool, "service.request only reads (a GET): sending a body is a write, made with service.send.");
@@ -664,7 +688,10 @@ export class JobTools implements ToolHost {
     if (got.status === 429 || got.status >= 500) throw new InfraError(`${entry.name} ${got.status === 429 ? "is busy (too many calls just now)" : `answered ${got.status}`}; it tries again later.`);
     if (entry.id === "rss" && typeof got.data === "string") return { status: got.status, data: parseFeed(got.data) ?? got.data };
     if (!typed) return got;
-    if (got.status >= 200 && got.status < 300) return typed.shape(got.data, parsed.data as never);
+    if (got.status >= 200 && got.status < 300) {
+      const shaped = typed.shape(got.data, asked as never) as { items?: Record<string, unknown>[] };
+      return feed && Array.isArray(shaped.items) ? { ...shaped, items: feedItems(shaped.items, { since: typeof feed.since === "string" ? feed.since : null, now }) } : shaped;
+    }
     throw new ToolError(tool, got.status === 401 || got.status === 403 ? `${entry.name} turned the connection down (${got.status}): check its key on Connections, or that it may read this.` : got.status === 404 ? `${entry.name} has no such item (${got.status}): check what the agent was given.` : `${entry.name} answered ${got.status}.`);
   }
 

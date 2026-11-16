@@ -670,3 +670,66 @@ export function catalogFetched(words: string): ServiceEntry | null {
 }
 
 const escapeRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Reading only what is new from a feed (a repository's commits, pull
+// requests or issues): on its first run the latest few from the last day,
+// after that what came after a date it remembers, a few a run, and that
+// date saved right after each item is judged, so a run that stops part way
+// (its budget, its owner) never judges an item twice. A place kept as an
+// id (a commit's sha) becomes the item's date: GitHub's since takes a
+// date. The runtime keeps a job's feed reads to the same few (tools.ts).
+export const NEW_PER_RUN = 5;
+const FEEDS = ["github.read"];
+const ID_KEY = /(?:^|_)(?:sha|id|hash)$|[a-z0-9](?:Sha|Id|Hash)$/;
+const DATE_SAID = /\b(?:date|time|timestamp|iso)\b/i;
+export const DATE_CURSOR = "The date (ISO 8601) of the newest item it has judged, so the next run reads only what came after it.";
+export const firstRunNote = (key: string) =>
+  `On the first run (memory.${key} empty) it reads the latest ${NEW_PER_RUN} from the last 24 hours, whichever is fewer; after that only what came after memory.${key}, given to github.read as since (that date, never a sha or an id), at most ${NEW_PER_RUN} a run.`;
+export const eachItemNote = (key: string) =>
+  `It judges the items one at a time, oldest first (GitHub lists the newest first), with one serv.reason call for each item (that item's changed files and patches together), and right after each item is judged it saves that item's date with tools.memory.set({ key: "${key}", value: the item's date }), so a run that stops part way never judges it again.`;
+export const EACH_ITEM_MARK = "right after each item is judged it saves that item's date";
+
+export function keepPlaceByDate<M extends { key: string; type?: unknown; description?: string }>(steps: RawStep[], memory: M[]): M[] {
+  const feed = steps.find((s) => s.kind === "code" && (s.tools ?? []).some((t) => FEEDS.includes(t)));
+  // Items read from a feed and judged, with no place kept: one is kept, a
+  // date, so the next run reads only what came after.
+  const judges = (r: RawStep) => steps.some((st) => st.kind === "code" && (st.tools ?? []).includes(REASON_TOOL) && st.inputs.some((k) => r.outputs.includes(k)));
+  if (feed && !memory.length && judges(feed)) {
+    memory = [{ key: "last_item_date", type: "text", description: DATE_CURSOR } as unknown as M];
+    feed.inputs = [...feed.inputs.filter((k) => k !== "memory"), "memory"];
+  }
+  const reading = steps.find((s) => s.kind === "code" && (s.tools ?? []).some((t) => FEEDS.includes(t)) && s.inputs.includes("memory"));
+  if (!reading || !memory.length) return memory;
+  const said = `${reading.description ?? ""} ${reading.title}`;
+  const field = memory.find((m) => said.includes(`memory.${m.key}`)) ?? memory.find((m) => new RegExp(`\\b${escapeRe(m.key)}\\b`).test(said)) ?? (memory.length === 1 ? memory[0] : undefined);
+  if (!field) return memory;
+  let key = field.key;
+  // A sha or an id kept as its place: the item's date instead, everywhere.
+  if (ID_KEY.test(key) || (!DATE_SAID.test(field.description ?? "") && /\b(?:sha|hash|id)\b/i.test(field.description ?? ""))) {
+    const renamed = key.replace(/_?(?:sha|id|hash)$/i, "").replace(/(?:Sha|Id|Hash)$/, "");
+    const next = renamed ? `${renamed}_date` : "last_item_date";
+    const old = new RegExp(`\\b${escapeRe(key)}\\b`, "g");
+    for (const st of steps) {
+      const s = st as unknown as Record<string, unknown>;
+      for (const f of ["description", "title", "prompt", "plain"]) if (typeof s[f] === "string") s[f] = (s[f] as string).replace(old, next);
+      for (const f of ["inputs", "outputs"] as const) st[f] = st[f].map((x) => (x === key ? next : x));
+    }
+    key = next;
+  }
+  const out = memory.map((m) => (m === field ? { ...m, key, type: "text", description: DATE_SAID.test(m.description ?? "") && m.key === key ? m.description : DATE_CURSOR } : m));
+  if (!(reading.description ?? "").includes("the latest 5 from the last 24 hours")) reading.description = `${reading.description ?? ""} ${firstRunNote(key)}`.trim();
+  // What saves its place says it saves a date.
+  for (const st of steps) {
+    if (st === reading || st.kind !== "code" || !(st.tools ?? []).includes("memory.set")) continue;
+    if (!(st.description ?? "").includes(EACH_ITEM_MARK) && !/never its sha or id/.test(st.description ?? "")) st.description = `${st.description ?? ""} What it saves in memory.${key} is the newest item's date (ISO 8601), never its sha or id.`.trim();
+  }
+  // The step that judges what was read: one item at a time, its place
+  // saved after each.
+  for (const st of steps) {
+    if (st.kind !== "code" || !(st.tools ?? []).includes(REASON_TOOL) || !st.inputs.some((k) => reading.outputs.includes(k))) continue;
+    if (!(st.description ?? "").includes(EACH_ITEM_MARK)) st.description = `${st.description ?? ""} ${eachItemNote(key)}`.trim();
+    if (!(st.tools ?? []).includes("memory.set")) st.tools = [...(st.tools ?? []), "memory.set"];
+    if (!st.inputs.includes("memory")) st.inputs = [...st.inputs, "memory"];
+  }
+  return out;
+}

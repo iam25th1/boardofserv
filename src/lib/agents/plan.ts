@@ -8,7 +8,7 @@ import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAM
 import { TOOLS } from "./toolbox";
 import { typeformLinkIn } from "../typeform/api";
 import { planProblems } from "./planRules";
-import { askedFirst, askForForm, askForMissing, askForSheet, askServToReason, columnsByName, dropUnasked, fixSetup, keepRowNumbers, mergeSameActions, repairPlan, toCatalogTools, type RawStep } from "./planRepairs";
+import { askedFirst, askForForm, askForMissing, askForSheet, askServToReason, columnsByName, dropUnasked, fixSetup, keepPlaceByDate, keepRowNumbers, mergeSameActions, repairPlan, toCatalogTools, type RawStep } from "./planRepairs";
 import { actingSteps, askPurpose, leaveOut, readPurpose } from "./purpose";
 import { rulesText } from "./lessonRules";
 import { servicesPrompt } from "./servicesPrompt";
@@ -550,6 +550,10 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: st
   }
   // Judgement or words only a model can give: SERV, at run time.
   askServToReason(d.steps as RawStep[], d as { limits?: unknown });
+  // New items from a feed: a few a run, after a date it remembers, its
+  // place saved after each item.
+  const kept = d as { memory?: unknown };
+  if (Array.isArray(kept.memory)) kept.memory = keepPlaceByDate(d.steps as RawStep[], list(kept.memory) as { key: string; type?: unknown; description?: string }[]);
   // Rows written back keep their numbers from the read on.
   keepRowNumbers(d.steps as RawStep[], { actions: list(d.actions).map((x) => ({ id: s(x.id), tool: x.tool, description: s(x.description) })) });
   // A service of the catalog fetched with web.fetch: its own tool instead.
