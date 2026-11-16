@@ -19,8 +19,8 @@ export interface StepCode {
   rounds: number;
   note: string | null;
   // Who wrote it: Dolphin unless it failed twice on this step and SERV
-  // wrote it instead.
-  writer?: "dolphin" | "serv";
+  // wrote it instead; recipe for a tested recipe's own code (recipes/).
+  writer?: "dolphin" | "serv" | "recipe";
   // The step's tools as its code really calls them, when that differs from
   // the plan's list (code.ts fitTools): the plan is changed to match.
   tools?: ToolName[];

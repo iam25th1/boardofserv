@@ -11,6 +11,7 @@ import { dolphinProvider, writeStep } from "./code";
 import { codeSpec, givenAnswers, nextOf, setupShapeOf, type AgentDefinition, type CodeStepDef } from "./definition";
 import { stepDepths, stepLine, stepsInOrder } from "./plainView";
 import { planAgent, planCallCap, type PlanInput } from "./plan";
+import { recipeSample } from "./recipes";
 import { setHeal, setStepCode, updateDraft, versionById } from "./store";
 import { planFailure, problemOf } from "./plainWords";
 import { selfTest } from "./test";
@@ -314,7 +315,7 @@ async function testDraft(versionId: string, ctx: BuildContext, settle: Settle, o
     await settle.onTest?.();
     const tested = await selfTest(
       { definition: now.definition, code: now.code, testResult: now.testResult },
-      { serv: ctx.serv, record: (call) => recordAgentCall(ctx, "agent_plan", call), sampleNote: o.sampleNote, timeZone: ctx.timeZone, signal: ctx.signal },
+      { serv: ctx.serv, record: (call) => recordAgentCall(ctx, "agent_plan", call), sampleNote: o.sampleNote, timeZone: ctx.timeZone, signal: ctx.signal, sample: recipeSample(now.definition, now.code) },
     );
     const plain = tested.plain ?? {};
     const definition = Object.keys(plain).length ? { ...now.definition, steps: now.definition.steps.map((s) => (plain[s.id] && !s.plain ? { ...s, plain: plain[s.id] } : s)) } : undefined;
@@ -496,7 +497,7 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
       }
       if (planning) {
         // The plan came together: on as planning goes.
-        await updateDraft(versionId, { definition: plan.definition, code: carryCode(plan.definition, v.code), testResult: null });
+        await updateDraft(versionId, { definition: plan.definition, code: plan.code ?? carryCode(plan.definition, v.code), testResult: null });
         const fixed = await healOf(versionId, (l) => withLine(withRound(l, { outcome: "fixed" }), "Fixed.", "fixed"));
         await learned(fixed, ctx.userId);
         await after?.planned?.(null, plan.definition, null);
@@ -711,7 +712,7 @@ export function startPlan(version: AgentVersion, input: PlanInput, ctx: BuildCon
         return;
       }
       const stop = typeof o.stop === "function" ? o.stop(version.definition, plan.definition) : Boolean(o.stop);
-      const saved = await updateDraft(version.id, { definition: plan.definition, code: carryCode(plan.definition, version.code), buildState: stop ? "idle" : "writing", testResult: null });
+      const saved = await updateDraft(version.id, { definition: plan.definition, code: plan.code ?? carryCode(plan.definition, version.code), buildState: stop ? "idle" : "writing", testResult: null });
       await o.planned?.(version.definition, plan.definition, null);
       if (saved && !stop) await writeAllCode(saved, plan.definition, c, undefined, settle);
     } catch (err) {

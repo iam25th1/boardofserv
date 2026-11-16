@@ -130,7 +130,7 @@ export interface AgentBuilderDTO {
   conversationId: string | null;
   definition: AgentDefinition | null;
   // writer: who wrote it (SERV when Dolphin failed twice on the step).
-  code: Record<string, { status: CodeStatus; source: string | null; rounds: number; note: string | null; writer?: "dolphin" | "serv" }>;
+  code: Record<string, { status: CodeStatus; source: string | null; rounds: number; note: string | null; writer?: "dolphin" | "serv" | "recipe" }>;
   bench: BenchData;
   versions: { number: number; state: "draft" | "published"; createdAt: string; publishedAt: string | null }[];
   // The newest published version, which "Run it for real" installs: its
@@ -150,7 +150,7 @@ export interface AgentBuilderDTO {
 export interface VersionReviewDTO {
   status: "passed" | "blocked" | "unreviewed";
   findings: { step: string; severity: "blocking" | "warning"; finding: string }[];
-  by: "local" | "serv";
+  by: "local" | "serv" | "recipe";
   reviewedAt: string;
 }
 

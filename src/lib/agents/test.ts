@@ -37,6 +37,9 @@ export interface TestOptions {
   sampleNote?: string | null;
   // The maker's time zone: the test's local time.
   timeZone?: string | null;
+  // A sample made for it already (a tested recipe's own, recipes/): none
+  // is made up.
+  sample?: Sample | null;
 }
 
 export interface Tested {
@@ -59,7 +62,7 @@ function keptSample(d: AgentDefinition, last: TestResult | null | undefined): Sa
 
 export async function testVersion(v: { definition: AgentDefinition; code: Record<string, StepCode>; testResult?: TestResult | null }, o: TestOptions): Promise<Tested> {
   const d = v.definition;
-  let sample = o.sampleNote ? null : keptSample(d, v.testResult);
+  let sample = o.sampleNote ? null : (o.sample ?? keptSample(d, v.testResult));
   if (!sample) {
     const made = await makeSample(d, o.serv, { signal: o.signal, fetchImpl: o.fetchImpl, note: o.sampleNote });
     if (made.call) await o.record?.(made.call, "sample");

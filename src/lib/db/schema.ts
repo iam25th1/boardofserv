@@ -550,7 +550,7 @@ export const agentVersions = pgTable(
     bench: jsonb("bench").$type<BenchData>(),
     // The code review before publishing (agents/vetting.ts): its status and
     // findings in plain words, never code.
-    review: jsonb("review").$type<{ status: "passed" | "blocked" | "unreviewed"; findings: { step: string; severity: "blocking" | "warning"; finding: string }[]; by: "local" | "serv"; model: string | null; reviewedAt: string }>(),
+    review: jsonb("review").$type<{ status: "passed" | "blocked" | "unreviewed"; findings: { step: string; severity: "blocking" | "warning"; finding: string }[]; by: "local" | "serv" | "recipe"; model: string | null; reviewedAt: string }>(),
     buildState: text("build_state", { enum: ["idle", "planning", "writing", "fixing", "failed"] }).notNull().default("idle"),
     buildNote: text("build_note"),
     // The last test of this version, in plain words (agents/test.ts).

@@ -69,6 +69,10 @@ const reasonsIn = (text: string) =>
 // Whether a code step's job needs SERV at run time: its brief (or, for a
 // short brief, its title) asks for a judgement or words only a model can
 // give.
+// A reading step whose place the runtime keeps (runtime/tools.ts), as its
+// description says (planRepairs.ts firstRunNote).
+export const KEEPS_PLACE = /and keeps memory\.([a-z][a-z0-9_]*) itself/;
+
 export function needsReasoning(step: AgentStep): boolean {
   if (step.kind !== "code") return false;
   // Filling in the maker's own template is the maker's words.
@@ -146,7 +150,9 @@ export function planProblems(d: AgentDefinition): string[] {
   }
   // Reading a position from memory that no step ever saves.
   const saves = d.actions.some((a) => a.tool === "memory.set") || d.steps.some((s) => s.kind === "code" && s.tools.includes("memory.set"));
-  const reader = d.memory.length && !saves ? d.steps.find((s) => s.kind === "code" && (s.inputs.includes("memory") || s.tools.includes("memory.get"))) : undefined;
+  // A feed's place the runtime keeps itself (planRepairs.ts firstRunNote)
+  // is saved after each item judged, with no step of its own.
+  const reader = d.memory.length && !saves ? d.steps.find((s) => s.kind === "code" && (s.inputs.includes("memory") || s.tools.includes("memory.get")) && !KEEPS_PLACE.test(s.description)) : undefined;
   if (reader) out.push(`step "${reader.id}" reads its place from memory, but no step saves it, so every run would start again from the beginning: save the new position in a step at the end (memory.set), reading memory first and keeping the larger, or take only rows whose result column is still empty and keep no position.`);
   // What passes between steps fits what reads it (shapes.ts).
   out.push(...shapeProblems(d));

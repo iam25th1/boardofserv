@@ -4,6 +4,7 @@ import { TOOL_NAMES, type AgentDefinition, type CodeStepDef, type ToolName } fro
 import { TOOLS } from "./toolbox";
 import { argMismatches, mismatchFinding } from "./argKinds";
 import type { StepCode } from "./types";
+import { matchesRecipe } from "./recipes";
 
 // The code review before publishing: every version of an agent is read as
 // a whole before it can be published or offered to renters as an update.
@@ -28,8 +29,9 @@ export interface Finding {
 export interface VersionReview {
   status: "passed" | "blocked" | "unreviewed";
   findings: Finding[];
-  // Who read it: the plain checks alone (SERV couldn't), or SERV too.
-  by: "local" | "serv";
+  // Who read it: the plain checks alone (SERV couldn't), SERV too, or the
+  // plain checks on a tested recipe's own code, which SERV needn't read.
+  by: "local" | "serv" | "recipe";
   model: string | null;
   reviewedAt: string;
   // SERV's findings that went against a rule of the platform, left out,
@@ -237,6 +239,9 @@ export async function reviewVersion(
   const sources = Object.values(code).map((c) => c.source ?? "");
   const local = d.steps.flatMap((s) => (s.kind === "code" ? plainFindings(s, code[s.id]?.source ?? "", { memory: d.memory, sources }) : []));
   const at = opts.now.toISOString();
+  // A tested recipe's own code, unchanged (recipes/): reviewed when the
+  // recipe was, so the plain checks are enough.
+  if (matchesRecipe(d, code)) return { status: local.some((f) => f.severity === "blocking") ? "blocked" : "passed", findings: local, by: "recipe", model: null, reviewedAt: at };
   if (!serv) return { status: local.some((f) => f.severity === "blocking") ? "blocked" : "unreviewed", findings: local, by: "local", model: null, reviewedAt: at };
   const messages: ChatMessage[] = [
     { role: "system", content: REVIEW_PROMPT },

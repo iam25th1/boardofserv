@@ -459,6 +459,11 @@ function StepItem({ step, d, code }: { step: AgentStep; d: AgentDefinition; code
               written by SERV
             </p>
           )}
+          {code?.writer === "recipe" && (
+            <p className={styles.writer} title="This step comes from a tested recipe: the same code every agent built from it runs, checked when the recipe was.">
+              from a tested recipe
+            </p>
+          )}
           {code?.source && (
             <>
               <button type="button" className={styles.toggle} onClick={() => setOpen((v) => !v)} aria-expanded={open}>

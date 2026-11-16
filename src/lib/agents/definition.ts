@@ -268,6 +268,9 @@ const Shape = z.object({
   limits: Limits,
   // How long the owner has to answer before it counts as no answer.
   approvalHours: z.number().int().min(1).max(168).optional(),
+  // The tested recipe it was built from (recipes/), when it was: its steps,
+  // tools and code are the recipe's.
+  recipe: z.object({ id: key, variant: z.string().max(40) }).optional(),
 });
 
 export const DEFAULT_APPROVAL_HOURS = 24;

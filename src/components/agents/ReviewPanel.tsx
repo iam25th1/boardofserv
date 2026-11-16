@@ -33,10 +33,10 @@ export function ReviewPanel({ review, fixHint }: { review: VersionReviewDTO; fix
           ))}
         </ol>
       ) : (
-        <p className={styles.quiet}>{review.status === "passed" ? "SERV read every code step against what the agent is for and found nothing to fix." : "No findings."}</p>
+        <p className={styles.quiet}>{review.status === "passed" ? (review.by === "recipe" ? "Its steps are a tested recipe's, and the plain checks found nothing to fix." : "SERV read every code step against what the agent is for and found nothing to fix.") : "No findings."}</p>
       )}
       <p className={styles.quiet}>
-        {review.by === "serv" ? "Read by SERV and the plain checks" : "Plain checks only: SERV couldn't read it"}, {new Date(review.reviewedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}.
+        {review.by === "serv" ? "Read by SERV and the plain checks" : review.by === "recipe" ? "A tested recipe's code, with the plain checks" : "Plain checks only: SERV couldn't read it"}, {new Date(review.reviewedAt).toLocaleString(undefined, { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}.
         {fixHint && review.status === "blocked" ? " Say what to change below and SERV changes the plan; the steps that change are written again." : ""}
       </p>
     </section>

@@ -57,7 +57,8 @@ function serv(plans: (Record<string, unknown> | number)[], details: (Record<stri
 }
 
 const config = servOnly(modelConfig({ SERV_API_KEY: "test-serv", DOLPHIN_API_KEY: "test-dolphin" }));
-const plan = (fetchImpl: typeof fetch) => planAgent({ interview, history: [{ role: "user", content: "Restock my fabric shop" }] }, { config, signal: new AbortController().signal, fetchImpl });
+// Planning from scratch (a recipe is picked first otherwise: recipes/).
+const plan = (fetchImpl: typeof fetch) => planAgent({ interview, history: [{ role: "user", content: "Restock my fabric shop" }] }, { config, signal: new AbortController().signal, fetchImpl, recipes: false });
 const schemaOf = (b: { response_format: { json_schema: { name: string } } }) => b.response_format.json_schema.name;
 
 describe("planning", () => {
@@ -222,5 +223,73 @@ describe("reading SERV's answer", () => {
     expect(d.steps.find((s) => s.id === "find_low")!.inputs).toEqual(["settings"]);
     // Named in the words: the bag is added.
     expect(d.steps.find((s) => s.id === "check_total")!.inputs).toEqual(["order", "rules"]);
+  });
+});
+
+describe("planning from a tested recipe", () => {
+  const said = "i would like a mini agent that checks githubs and verifies code, work, quality.";
+  const checker: SketchDTO = { ...interview, name: "Code checker", wakes: "every hour", looks: "iam25th1/boardofserv", handles: "judges each new commit", finish: "each new commit judged", asks: null, setup: null, remembers: null };
+  const history = [
+    { role: "user" as const, content: said },
+    { role: "assistant" as const, content: "Which repository should it check?" },
+    { role: "user" as const, content: "iam25th1/boardofserv" },
+  ];
+  const pick = (over: Record<string, unknown> = {}) => ({
+    recipe: "watch",
+    variant: "commits",
+    name: "Code checker",
+    does: "Checks each new commit in your repository and tells you about its quality.",
+    done: "Each new commit judged and you told.",
+    task: "Judge the code, the work and the quality of this commit's changes.",
+    given: [{ key: "github_repo", value: "iam25th1/boardofserv" }],
+    trigger: { kind: "schedule", every: "hours", interval: 1, at: "", days: "", description: "Every hour" },
+    ...over,
+  });
+  // SERV picking with the given answer, at its steadiest; planning from
+  // scratch on the restock plan when it says none.
+  const answering = (answer: Record<string, unknown>) => {
+    const sent: { name: string; temperature?: number }[] = [];
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as { temperature?: number; response_format: { json_schema: { name: string } } } & Parameters<typeof planAnswer>[1];
+      const name = body.response_format.json_schema.name;
+      sent.push({ name, temperature: body.temperature });
+      const content = name === "agent_recipe" ? answer : planAnswer(RESTOCK_WIRE, body);
+      return Response.json({ choices: [{ message: { content: JSON.stringify(content) } }], usage: { prompt_tokens: 10, completion_tokens: 10 } });
+    }) as typeof fetch;
+    return { fetchImpl, sent };
+  };
+
+  it("takes the recipe SERV picks, with its tested code, in one call at temperature 0", async () => {
+    const s = answering(pick());
+    const plan = await planAgent({ interview: checker, history }, { config, signal: new AbortController().signal, fetchImpl: s.fetchImpl });
+    expect(s.sent).toEqual([{ name: "agent_recipe", temperature: 0 }]);
+    const d = plan.definition!;
+    expect(d.recipe).toEqual({ id: "watch", variant: "commits" });
+    expect(d.steps.map((x) => x.id)).toEqual(["read_items", "judge_items", "write_message", "send"]);
+    expect(d.settings[0]).toMatchObject({ key: "github_repo", given: "iam25th1/boardofserv" });
+    expect(d.triggers[0]).toMatchObject({ kind: "schedule", every: "hours", interval: 1 });
+    expect(Object.values(plan.code!).every((c) => c.status === "approved" && c.writer === "recipe")).toBe(true);
+    expect(plan.code!.judge_items!.source).toContain("Judge the code, the work and the quality");
+  });
+
+  it("plans from scratch when SERV says none fits", async () => {
+    const s = answering(pick({ recipe: "none" }));
+    const plan = await planAgent({ interview, history: [{ role: "user", content: "Restock my fabric shop" }] }, { config, signal: new AbortController().signal, fetchImpl: s.fetchImpl });
+    expect(plan.definition?.recipe).toBeUndefined();
+    expect(plan.code).toBeUndefined();
+    expect(s.sent.map((x) => x.name).slice(0, 3)).toEqual(["agent_recipe", "agent_outline", "agent_steps"]);
+  });
+
+  it("never starts from a repository the maker didn't name", async () => {
+    const s = answering(pick({ given: [{ key: "github_repo", value: "octocat/Hello-World" }] }));
+    const plan = await planAgent({ interview: checker, history }, { config, signal: new AbortController().signal, fetchImpl: s.fetchImpl });
+    expect(plan.definition!.settings[0]!.given).toBeUndefined();
+  });
+
+  it("plans from scratch when the maker asked to be asked first", async () => {
+    const s = answering(pick());
+    const plan = await planAgent({ interview: checker, history: [...history, { role: "user", content: "Ask me before you send anything." }] }, { config, signal: new AbortController().signal, fetchImpl: s.fetchImpl });
+    expect(plan.definition?.recipe).toBeUndefined();
+    expect(s.sent.map((x) => x.name)).toContain("agent_outline");
   });
 });
