@@ -27,7 +27,8 @@ beforeAll(async () => {
   ({ client, db } = await testDb());
   state.db = db;
   state.user = await addUser(db, "ana");
-  // SERV takes its time over the outline: it answers only when stopped.
+  // SERV takes its time over its first call (picking a recipe): it
+  // answers only when stopped.
   vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body)) as { response_format?: { json_schema?: { name?: string } } };
     asked.push(body.response_format?.json_schema?.name ?? "");
@@ -54,7 +55,7 @@ describe("Stop while the steps are worked out", () => {
     const ctx = { userId: user.id, conversationId: null, ownKey: false, serv: servOnly(modelConfig({ SERV_API_KEY: "test-serv" })) };
     expect(startPlan(draft, { interview, history: [{ role: "user", content: "Watch a price for me." }] }, ctx, "plan", { stop: true })).toBe(true);
     for (let i = 0; i < 50 && !asked.length; i++) await new Promise((r) => setTimeout(r, 10));
-    expect(asked).toEqual(["agent_outline"]);
+    expect(asked).toEqual(["agent_recipe"]);
     const res = await stop.POST(new Request(`http://localhost/api/agents/${agent.id}/stop`, { method: "POST" }), { params: Promise.resolve({ id: agent.id }) });
     const out = (await res.json()) as { stopped: boolean; agent: { buildState: string; buildNote: string | null } };
     expect(out.stopped).toBe(true);
@@ -63,7 +64,7 @@ describe("Stop while the steps are worked out", () => {
     expect(jobFor(draft.id)).toBeUndefined();
     // Nothing more was asked after the stop.
     await new Promise((r) => setTimeout(r, 50));
-    expect(asked).toEqual(["agent_outline"]);
+    expect(asked).toEqual(["agent_recipe"]);
     expect((await draftOf(agent.id))!.buildState).toBe("idle");
     // Stop with nothing running says so.
     const again = (await (await stop.POST(new Request(`http://localhost/api/agents/${agent.id}/stop`, { method: "POST" }), { params: Promise.resolve({ id: agent.id }) })).json()) as { stopped: boolean };

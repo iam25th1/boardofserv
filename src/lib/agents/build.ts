@@ -10,7 +10,7 @@ import type { AgentSummaryDTO } from "../types";
 import { dolphinProvider, writeStep } from "./code";
 import { codeSpec, givenAnswers, nextOf, setupShapeOf, type AgentDefinition, type CodeStepDef } from "./definition";
 import { stepDepths, stepLine, stepsInOrder } from "./plainView";
-import { planAgent, planCallCap, type PlanInput } from "./plan";
+import { planAgent, planCallCap, planChecks, type PlanInput } from "./plan";
 import { recipeSample } from "./recipes";
 import { setHeal, setStepCode, updateDraft, versionById } from "./store";
 import { planFailure, problemOf } from "./plainWords";
@@ -631,6 +631,14 @@ export function startHeal(version: AgentVersion, diagnosis: Diagnosis, ctx: Buil
 // it, healing what fails. The dock sees each step's progress as it goes.
 export async function writeAllCode(version: AgentVersion, definition: AgentDefinition, ctx: BuildContext, fetchImpl?: typeof fetch, settle: Settle = {}): Promise<void> {
   const c = await jobContext(ctx, version.id);
+  // The plan checked before any code is written: against its recipe, or
+  // the planner's rules. One that doesn't check out is planned again.
+  const problems = planChecks(definition, version.code);
+  if (problems.length) {
+    const dx = planDiagnosis(problems, definition);
+    await diagnosed(version.id, dx);
+    return heal(version.id, c, settle, { diagnosis: dx });
+  }
   const outcome = await writeAndTest(version.id, definition, c, settle, { fetchImpl });
   await settleBuild(version.id, c, settle, outcome);
 }

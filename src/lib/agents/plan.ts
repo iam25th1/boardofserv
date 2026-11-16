@@ -15,7 +15,7 @@ import { servicesPrompt } from "./servicesPrompt";
 import { servicesIn } from "../connections/catalog";
 import { typedRead } from "../connections/reads";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
-import { askRecipe, fromRecipe, keptRecipe, readPick } from "./recipes";
+import { askRecipe, fromRecipe, keptRecipe, matchesRecipe, readPick } from "./recipes";
 import type { StepCode } from "./types";
 
 // Planning: SERV turns the maker's interview (and the conversation behind
@@ -48,7 +48,9 @@ export const STEPS_PER_CALL = 6;
 // Each answer is a few thousand tokens at most, not streamed, so it gets
 // far longer than a reply's wait for its first token.
 const DEFAULT_PLAN_TIMEOUT_MS = 120_000;
-// A recipe is picked at SERV's steadiest: the same request, the same pick.
+// Planning asks for SERV's steadiest answer: left to its default, the same
+// sentence was planned a different way almost every time (PR #9's twelve
+// builds of one request).
 export const PLAN_TEMPERATURE = 0;
 
 type Wire = Record<string, unknown>;
@@ -403,6 +405,7 @@ export async function planAgent(
       maxTokens: ANSWER_LIMITS[outline ? "agent_outline" : "agent_steps"],
       signal: opts.signal,
       fetchImpl: opts.fetchImpl,
+      temperature: PLAN_TEMPERATURE,
     });
     calls.push(result);
     if (!result.content) {
@@ -439,6 +442,8 @@ export async function planAgent(
   if (!input.current && opts.recipes !== false) {
     const pick = await askRecipe(planText, config, { signal: opts.signal, fetchImpl: opts.fetchImpl, temperature: PLAN_TEMPERATURE, lessons: opts.lessons });
     calls.push(pick.call);
+    // Stopped while picking: nothing more is asked.
+    if (opts.signal.aborted) return done(null);
     maxCalls += 1;
     if (pick.answer) answers.push(pick.call.content ?? "");
     const picked = readPick(pick.answer, {
@@ -624,6 +629,16 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: st
 
 // The maker asking for it to start when something posts to it.
 const WEBHOOK_ASKED = /\bwebhooks?\b|\bposts? to (?:it|its address|the agent)\b|\bwhen another app posts\b|\bzapier\b|\bmake\.com\b|\bn8n\b|\bincoming (?:posts?|requests?)\b/i;
+
+// What keeps a plan from being built, checked before any code is written:
+// none for one that is still its tested recipe; for any other, the format
+// and the planner's rules (a plan changed since it was checked, or saved
+// before a rule was).
+export function planChecks(d: AgentDefinition, code: Record<string, StepCode>): string[] {
+  if (matchesRecipe(d, code)) return [];
+  const checked = checkDefinition(d);
+  return [...new Set([...(checked.ok ? [] : checked.errors), ...rulesOf(checked.ok ? checked.definition : d)])];
+}
 
 // The planner's rules, on a plan that may not check out yet: what can be
 // read off it, or nothing.

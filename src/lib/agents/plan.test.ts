@@ -4,7 +4,9 @@ import { modelConfig } from "@/lib/model";
 import type { SketchDTO } from "@/lib/types";
 import { RESTOCK_WIRE } from "@/test/agentFixtures";
 import { servOnly } from "./build";
-import { MAX_PLAN_CALLS, MAX_REPAIRS, planAgent, planRequest, STEPS_PER_CALL, wireToDefinition } from "./plan";
+import { MAX_PLAN_CALLS, MAX_REPAIRS, planAgent, planChecks, planRequest, STEPS_PER_CALL, wireToDefinition } from "./plan";
+import { fromRecipe, recipeById } from "./recipes";
+import type { AgentDefinition } from "./definition";
 import { blame, DETAIL_SCHEMA, detailChunks, OUTLINE_SCHEMA } from "./planStages";
 import { askedSteps, detailsOf, outlineOf, planAnswer } from "@/test/planAnswers";
 import { NESTED_HACKATHON_WIRE } from "@/test/hackathonFixture";
@@ -272,12 +274,13 @@ describe("planning from a tested recipe", () => {
     expect(plan.code!.judge_items!.source).toContain("Judge the code, the work and the quality");
   });
 
-  it("plans from scratch when SERV says none fits", async () => {
+  it("plans from scratch, at temperature 0, when SERV says none fits", async () => {
     const s = answering(pick({ recipe: "none" }));
     const plan = await planAgent({ interview, history: [{ role: "user", content: "Restock my fabric shop" }] }, { config, signal: new AbortController().signal, fetchImpl: s.fetchImpl });
     expect(plan.definition?.recipe).toBeUndefined();
     expect(plan.code).toBeUndefined();
     expect(s.sent.map((x) => x.name).slice(0, 3)).toEqual(["agent_recipe", "agent_outline", "agent_steps"]);
+    expect(s.sent.filter((x) => x.name.startsWith("agent_")).every((x) => x.temperature === 0)).toBe(true);
   });
 
   it("never starts from a repository the maker didn't name", async () => {
@@ -291,5 +294,23 @@ describe("planning from a tested recipe", () => {
     const plan = await planAgent({ interview: checker, history: [...history, { role: "user", content: "Ask me before you send anything." }] }, { config, signal: new AbortController().signal, fetchImpl: s.fetchImpl });
     expect(plan.definition?.recipe).toBeUndefined();
     expect(s.sent.map((x) => x.name)).toContain("agent_outline");
+  });
+});
+
+describe("the plan, checked before any code is written", () => {
+  const restock = wireToDefinition(RESTOCK_WIRE) as AgentDefinition;
+  const watch = recipeById("watch")!;
+  const built = fromRecipe(watch, { name: "Code checker", does: "Checks each new commit.", done: "Each new commit judged.", trigger: { kind: "schedule", every: "hours", interval: 1, at: null, description: "Every hour" }, variant: "commits", task: watch.task.byDefault("commits"), given: {} })!;
+
+  it("passes a plan that is still its recipe, and one that keeps the planner's rules", () => {
+    expect(planChecks(built.definition, built.code)).toEqual([]);
+    expect(planChecks(restock, {})).toEqual([]);
+  });
+
+  it("names what's wrong with one that doesn't: a step that loops back, a step reading what nothing makes", () => {
+    const looped = { ...restock, steps: restock.steps.map((s, i) => (i === restock.steps.length - 1 && "next" in s ? { ...s, next: restock.steps[0]!.id } : s)) } as AgentDefinition;
+    expect(planChecks(looped, {}).join(" ")).toMatch(/loops back/);
+    const unread = { ...restock, steps: restock.steps.map((s, i) => (i === 1 ? { ...s, inputs: [...s.inputs, "nowhere"] } : s)) } as AgentDefinition;
+    expect(planChecks(unread, {}).join(" ")).toMatch(/"nowhere", which no step outputs/);
   });
 });

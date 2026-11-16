@@ -8,7 +8,8 @@ import { addUser, testDb } from "@/test/helperDb";
 import { COMPARE_PLANNED as COMPARE, FIND_LOW, RESTOCK_PLANNED as RESTOCK_WIRE, restockBench } from "@/test/agentFixtures";
 import { planAnswer } from "@/test/planAnswers";
 import { jobFor } from "@/lib/agents/build";
-import { draftOf } from "@/lib/agents/store";
+import { draftOf, updateDraft } from "@/lib/agents/store";
+import type { AgentDefinition } from "@/lib/agents/definition";
 import type { AgentBuilderDTO, AgentSummaryDTO } from "@/lib/types";
 import * as agents from "./route";
 import * as agent from "./[id]/route";
@@ -17,6 +18,7 @@ import * as fix from "./[id]/fix/route";
 import * as bench from "./[id]/bench/route";
 import * as publish from "./[id]/publish/route";
 import * as testRoute from "./[id]/test/route";
+import * as buildRoute from "./[id]/build/route";
 import * as messagesRoute from "../conversations/[id]/messages/route";
 
 // Building an agent through the real routes, on the real migrations: SERV
@@ -183,15 +185,16 @@ describe("planning an agent from its conversation", () => {
       ["approved", "decision", null],
       ["record", "action", null],
     ]);
-    // SERV planned and reviewed; Dolphin only wrote code. Then SERV made the
-    // sample data for the plan's self test, which runs dry.
-    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_outline", "agent_steps", "purpose_check", "dolphin", "code_review", "dolphin", "code_review", "agent_sample"]);
+    // SERV found no tested recipe for it and planned it, and reviewed;
+    // Dolphin only wrote code. Then SERV made the sample data for the
+    // plan's self test, which runs dry.
+    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).toEqual(["agent_recipe", "agent_outline", "agent_steps", "purpose_check", "dolphin", "code_review", "dolphin", "code_review", "agent_sample"]);
     // The conversation shows the agent beside its sketch.
     const convo = await (await messagesRoute.GET(json(`/api/conversations/${conversationId}/messages`), { params: Promise.resolve({ id: conversationId }) })).json();
     expect(convo.agent).toMatchObject({ id: first.id, buildState: "idle" });
     // Every model call is in the usage records.
     const usage = await db.select({ kind: schema.replyUsage.kind, provider: schema.replyUsage.provider }).from(schema.replyUsage).where(eq(schema.replyUsage.userId, ana.id));
-    expect(usage.map((u) => `${u.kind}/${u.provider}`).sort()).toEqual(["agent_code/dolphin", "agent_code/dolphin", "agent_plan/serv", "agent_plan/serv", "agent_plan/serv", "agent_plan/serv", "agent_review/serv", "agent_review/serv"]);
+    expect(usage.map((u) => `${u.kind}/${u.provider}`).sort()).toEqual(["agent_code/dolphin", "agent_code/dolphin", "agent_plan/serv", "agent_plan/serv", "agent_plan/serv", "agent_plan/serv", "agent_plan/serv", "agent_review/serv", "agent_review/serv"]);
   });
 
   it("refuses an interview that isn't finished, someone else's conversation, and planning twice at once", async () => {
@@ -301,6 +304,25 @@ describe("the builder", () => {
     const after = await builderOf(id);
     expect(after.code.find_low!.status).toBe("approved");
     expect(after.code.compare!.status).toBe("approved");
+  });
+
+  it("checks the plan before writing any code: one that breaks the planner's rules is planned again, not built", async () => {
+    const { id } = await built();
+    const draft = (await draftOf(id))!;
+    const d = draft.definition as AgentDefinition;
+    // A plan changed since it was checked: a step reads what nothing makes.
+    const broken = { ...d, steps: d.steps.map((s) => (s.id === "compare" ? { ...s, inputs: [...s.inputs, "nowhere"] } : s)) } as AgentDefinition;
+    await updateDraft(draft.id, { definition: broken, code: {} });
+    seen.length = 0;
+    const res = await buildRoute.POST(json(`/api/agents/${id}/build`, "POST"), { params: Promise.resolve({ id }) });
+    expect(res.status).toBe(202);
+    await jobFor(draft.id);
+    // No code was written: the fixer read why the plan didn't check out.
+    expect(seen.map((s) => (s.to === "serv" ? s.schema : s.to))).not.toContain("dolphin");
+    expect(seen[0]!.schema).toBe("agent_fix");
+    const heal = (await draftOf(id))!.heal!;
+    expect(heal.rounds.at(-1)!.diagnosis).toMatchObject({ stage: "plan" });
+    expect(heal.rounds.at(-1)!.diagnosis.evidence.errors.join(" ")).toMatch(/"nowhere", which no step outputs/);
   });
 
   it("publishes nothing the code review blocks or couldn't read, and says what to fix", async () => {
