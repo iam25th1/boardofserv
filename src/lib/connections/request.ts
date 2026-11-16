@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { pageText, guardedRequest, WebRefused, WebUnreachable, type Answered, type WebPolicy } from "../agents/runtime/webFetch";
 import type { ServiceEntry } from "./catalog";
 
@@ -184,7 +185,7 @@ export function buildRequest(given: ServiceEntry, fields: Record<string, string>
   for (const [k, v] of Object.entries(call.query ?? {})) url.searchParams.set(k, String(v));
   const headers: Record<string, string> = { accept: "application/json", ...(entry.headers ?? {}) };
   const place = entry.place;
-  const secret = entry.fields.find((f) => f.secret)?.key;
+  const secret = entry.keyField ?? entry.fields.find((f) => f.secret)?.key;
   const key = secret ? (fields[secret] ?? "").trim() : "";
   if (place && key) {
     if (place.in === "header") headers[place.name] = `${place.prefix ?? ""}${key}`;
@@ -226,8 +227,53 @@ function readAnswer(a: Answered): unknown {
   return plain.length > MAX_ANSWER_TEXT ? `${plain.slice(0, MAX_ANSWER_TEXT)}\n[The answer was longer: only its start is here.]` : plain;
 }
 
+// Short-lived tokens a key was exchanged for (catalog exchange), by the
+// service's host and app, kept in this process until a minute before they
+// run out. Never stored, never handed back.
+const exchanged = new Map<string, { token: string; until: number }>();
+
+export function forgetExchanged(): void {
+  exchanged.clear();
+}
+
+async function exchangeToken(entry: ServiceEntry, fields: Record<string, string>, transport: Transport, now: number): Promise<string> {
+  const ex = entry.exchange!;
+  const host = hostsOf(entry, fields)[0];
+  if (!host) throw new ServiceRefused(`The connection's ${entry.name} address isn't one.`);
+  const fill = (v: string) => v.replace(/\{([a-z_]+)\}/g, (_, k: string) => (fields[k] ?? "").trim());
+  const key = `${entry.id}|${host}|${fill("{client_id}")}|${createHash("sha256").update(fields[ex.when] ?? "").digest("hex").slice(0, 16)}`;
+  const kept = exchanged.get(key);
+  if (kept && kept.until > now + 60_000) return kept.token;
+  const body = new URLSearchParams(Object.fromEntries(Object.entries(ex.body).map(([k, v]) => [k, fill(v)]))).toString();
+  const answered = await transport(`https://${host}${ex.path}`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body });
+  if (answered.status < 200 || answered.status >= 300) throw new ServiceRefused(`${entry.name} turned down the app's client ID and secret (it answered ${answered.status}): check them, and that the app is installed on the store.`);
+  let token = "";
+  let expires = 3600;
+  try {
+    const data = JSON.parse(answered.body.toString("utf8")) as Record<string, unknown>;
+    token = typeof data[ex.token] === "string" ? (data[ex.token] as string) : "";
+    expires = Number(data[ex.expires]) > 0 ? Number(data[ex.expires]) : expires;
+  } catch {
+    // No token in it: said below.
+  }
+  if (!token) throw new ServiceRefused(`${entry.name} gave no token for the app's client ID and secret.`);
+  exchanged.set(key, { token, until: now + expires * 1000 });
+  return token;
+}
+
 // One call, its redirects followed only within the connection's own hosts.
-export async function callService(entry: ServiceEntry, fields: Record<string, string>, call: ServiceCall, transport: Transport): Promise<ServiceAnswer> {
+export async function callService(entry: ServiceEntry, given: Record<string, string>, call: ServiceCall, transport: Transport, now = Date.now()): Promise<ServiceAnswer> {
+  let fields = given;
+  if (entry.exchange && entry.keyField && !given[entry.keyField] && given[entry.exchange.when]) {
+    try {
+      fields = { ...given, [entry.keyField]: await exchangeToken(entry, given, transport, now) };
+    } catch (err) {
+      const secrets = secretValues(entry, given);
+      if (err instanceof ServiceRefused) throw new ServiceRefused(redact(err.message, secrets));
+      if (err instanceof WebRefused) throw new ServiceRefused(redact(err.message, secrets));
+      throw new ServiceUnreachable(`${entry.name} couldn't be reached just now.`);
+    }
+  }
   const secrets = secretValues(entry, fields);
   const req = buildRequest(entry, fields, call);
   const hosts = hostsOf(entry, fields);

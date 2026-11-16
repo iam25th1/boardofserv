@@ -109,6 +109,17 @@ export interface ServiceEntry {
   postReads?: "graphql" | "jsonrpc";
   // Writes go form-encoded, not as JSON (Twilio).
   form?: boolean;
+  // The field that goes on each call, when it isn't the first secret one.
+  keyField?: string;
+  // Ways to connect it, each a set of fields that must all be given: one
+  // set is enough (an app's client ID and secret, or an older token).
+  oneOf?: string[][];
+  // A key exchanged for a short-lived token before calls, when the owner
+  // gave what it takes (when): a POST to path on the service's own host,
+  // form-encoded, its fields filled from the connection's; the answer's
+  // token field, good for its expires field's seconds. The token goes
+  // where keyField says.
+  exchange?: { when: string; path: string; body: Record<string, string>; token: string; expires: string };
   // Where in the service to paste an agent's own address, for it to post
   // there (an Incoming webhook): the place, in plain words.
   webhookHow?: string;
@@ -337,8 +348,10 @@ export const CATALOG: ServiceEntry[] = [
     hosts: ["gitlab.com"],
     place: { in: "header", name: "private-token" },
     check: { method: "GET", path: "/user", label: "username" },
-    keyUrl: "https://gitlab.com/-/user_settings/personal_access_tokens",
-    keyHow: "In GitLab, open Access tokens and make one with read_api (and api to write).",
+    // GitLab's docs give this address, with the token's name and scope
+    // filled in: a read-only token in one click.
+    keyUrl: "https://gitlab.com/-/user_settings/personal_access_tokens?name=boardofserv&scopes=read_api",
+    keyHow: "In GitLab, open your avatar, Edit profile, Access, Personal access tokens, and generate one with read_api (api to write). The link opens it with read_api picked.",
     reads: "Projects, commits, merge requests and issues (GET /projects/:id/...).",
     writes: "Opens issues and adds notes.",
     webhookHow: "In GitLab, open the project's Settings, then Webhooks, and press Add new webhook: paste it as the URL, tick the events to send, and press Add webhook.",
@@ -396,14 +409,21 @@ export const CATALOG: ServiceEntry[] = [
     aliases: ["shopify", "my shop", "store orders"],
     fields: [
       { key: "shop", label: "Shop name", secret: false, placeholder: "yourshop (from yourshop.myshopify.com)", pattern: "^[a-z0-9][a-z0-9-]{0,62}$", patternWhy: "The shop is the first part of its myshopify.com address: yourshop for yourshop.myshopify.com." },
-      { key: "token", label: "Admin API access token", secret: true, placeholder: "shpat_...", pattern: "^shpat_", patternWhy: "A Shopify Admin API access token starts with shpat_." },
+      { key: "client_id", label: "Client ID", secret: false, optional: true, pattern: "^[A-Za-z0-9_-]{8,100}$", patternWhy: "A Shopify app's Client ID is letters and digits, from the app's Settings in the Dev Dashboard." },
+      { key: "client_secret", label: "Client secret", secret: true, optional: true },
+      { key: "token", label: "Admin API access token (an app made before 2026)", secret: true, optional: true, placeholder: "shpat_...", pattern: "^shpat_", patternWhy: "A Shopify Admin API access token starts with shpat_." },
     ],
     base: "https://{shop}.myshopify.com/admin/api/2026-01",
     hosts: ["{shop}.myshopify.com"],
     place: { in: "header", name: "x-shopify-access-token" },
+    keyField: "token",
+    oneOf: [["client_id", "client_secret"], ["token"]],
+    // Apps made in the Dev Dashboard (every new one since January 2026)
+    // get a token for about a day with their client ID and secret.
+    exchange: { when: "client_secret", path: "/admin/oauth/access_token", body: { grant_type: "client_credentials", client_id: "{client_id}", client_secret: "{client_secret}" }, token: "access_token", expires: "expires_in" },
     check: { method: "GET", path: "/shop.json", label: "shop.name" },
     keyUrl: "https://help.shopify.com/en/manual/apps/app-types/custom-apps",
-    keyHow: "In your Shopify admin, open Settings, Apps, Develop apps, make an app with read_orders and read_products, install it and copy the Admin API access token.",
+    keyHow: "In your Shopify admin, open Settings, Apps, Develop apps, then Build apps in Dev Dashboard: create an app with read_orders, read_products and read_customers, install it on your store, and copy the Client ID and Client secret from its Settings. A custom app made in your admin before 2026 can give its Admin API access token instead.",
     reads: "Orders, products and customers.",
     writes: "Changes orders and products.",
     webhookHow: "In your Shopify admin, open Settings, then Notifications, Webhooks, and press Create webhook: pick the event, choose JSON, paste it as the URL and save.",
@@ -578,13 +598,15 @@ export const CATALOG: ServiceEntry[] = [
     category: "scheduling",
     auth: "bearer",
     aliases: ["hubspot", "crm"],
-    fields: [{ key: "token", label: "Private app token", secret: true, placeholder: "pat-..." }],
+    fields: [{ key: "token", label: "Service key", secret: true, placeholder: "pat-..." }],
     base: "https://api.hubapi.com",
     hosts: ["api.hubapi.com"],
     place: { in: "header", name: "authorization", prefix: "Bearer " },
-    check: { method: "GET", path: "/account-info/v3/details", label: "portalId" },
-    keyUrl: "https://developers.hubspot.com/docs/api/private-apps",
-    keyHow: "In HubSpot, open Settings, Integrations, Private apps, make one with the CRM scopes it needs and copy its token.",
+    // A key with only some CRM scopes may not read the account's details:
+    // it works, for what its scopes allow.
+    check: { method: "GET", path: "/account-info/v3/details", label: "portalId", accept: [{ status: 403, match: "MISSING_SCOPES", text: "a key for some of your CRM" }] },
+    keyUrl: "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/authentication/account-service-keys",
+    keyHow: "In HubSpot, open Development, then Keys, Service keys, and create one with the CRM scopes it needs (crm.objects.contacts.read to read contacts). A token from an older private app works too.",
     reads: "Contacts, companies and deals (GET /crm/v3/objects/contacts).",
     writes: "Creates and updates contacts and deals.",
     tools: [],

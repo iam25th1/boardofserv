@@ -43,6 +43,11 @@ export function readFields(e: ServiceEntry, given: Record<string, unknown>): Rec
     if (f.pattern && !new RegExp(f.pattern).test(v)) throw new ConnectRefused(f.patternWhy ?? `That doesn't look like a ${e.short ?? e.name} ${f.label.toLowerCase()}.`, 400);
     out[f.key] = v;
   }
+  // One of its ways to connect, given whole.
+  if (e.oneOf && !e.oneOf.some((set) => set.every((k) => out[k]))) {
+    const ways = e.oneOf.map((set) => set.map((k) => e.fields.find((f) => f.key === k)?.label ?? k).join(" and "));
+    throw new ConnectRefused(`Paste your ${e.short ?? e.name} ${ways.join(", or your ").replace(/ \(an app made before 2026\)/, " from an app made before 2026")}.`, 400);
+  }
   return out;
 }
 
