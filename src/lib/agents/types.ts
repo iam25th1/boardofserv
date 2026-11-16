@@ -171,6 +171,10 @@ export interface BenchData {
   approve?: "yes" | "no";
   // A Typeform form's responses, by the form's link (typeform.read).
   forms?: Record<string, ({ id: string; submittedAt: string } & Record<string, unknown>)[]>;
+  // What services answer, by the exact call (connections/reads.ts
+  // callKey): service.request's { status, data }, and each typed read's
+  // result.
+  calls?: Record<string, unknown>;
 }
 
 export function emptyBench(): BenchData {

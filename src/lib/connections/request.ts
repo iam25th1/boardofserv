@@ -84,6 +84,23 @@ function fill(template: string, fields: Record<string, string>): string {
   });
 }
 
+// A Custom API is the owner's own address and header: its base, host and
+// where its key goes come from what they gave when connecting it.
+function resolved(entry: ServiceEntry, fields: Record<string, string>): ServiceEntry {
+  if (entry.id !== "custom") return entry;
+  let host = "";
+  try {
+    const u = new URL((fields.base ?? "").trim());
+    if (u.protocol === "https:" && !u.username && !u.password) host = u.host;
+  } catch {
+    // No host: nothing can be reached.
+  }
+  const header = (fields.header ?? "").trim().toLowerCase() || "authorization";
+  if (!/^[a-z0-9-]{1,60}$/.test(header)) throw new ServiceRefused("The connection's header isn't a header's name.");
+  const prefix = (fields.prefix ?? "").trim();
+  return { ...entry, base: (fields.base ?? "").trim(), hosts: host ? [host] : [], place: { in: "header", name: header, prefix: prefix ? `${prefix} ` : header === "authorization" ? "Bearer " : "" } };
+}
+
 // The hosts a call through this connection may reach. "*" is any public
 // host (a feed's).
 export function hostsOf(entry: ServiceEntry, fields: Record<string, string>): string[] {
@@ -94,7 +111,9 @@ export function hostsOf(entry: ServiceEntry, fields: Record<string, string>): st
       return [];
     }
   }
-  return entry.hosts.map((h) => (h === "*" ? h : fill(h, fields)).toLowerCase());
+  const e = resolved(entry, fields);
+  if (entry.id === "custom") return e.hosts;
+  return e.hosts.map((h) => (h === "*" ? h : fill(h, fields)).toLowerCase());
 }
 
 const hostAllowed = (host: string, hosts: string[]) => hosts.includes("*") || hosts.includes(host.toLowerCase());
@@ -127,7 +146,8 @@ function redactDeep(value: unknown, secrets: string[]): unknown {
 
 // The request for one call: its address, method, headers and body, with
 // the secret where the catalog says it goes.
-export function buildRequest(entry: ServiceEntry, fields: Record<string, string>, call: ServiceCall): { url: URL; method: Method; headers: Record<string, string>; body: string | null } {
+export function buildRequest(given: ServiceEntry, fields: Record<string, string>, call: ServiceCall): { url: URL; method: Method; headers: Record<string, string>; body: string | null } {
+  const entry = resolved(given, fields);
   if (!(METHODS as readonly string[]).includes(call.method)) throw new ServiceRefused(`${call.method} isn't a method a connection takes.`);
   let url: URL;
   if (call.url) {
@@ -141,7 +161,7 @@ export function buildRequest(entry: ServiceEntry, fields: Record<string, string>
     const path = call.path ?? "";
     if (path && (!path.startsWith("/") || path.startsWith("//") || /:\/\/|\\/.test(path))) throw new ServiceRefused(`A path starts with "/" and stays under ${entry.name}'s own address.`);
     if (path.split(/[/?#]/).some((part) => part === ".." || part === ".")) throw new ServiceRefused("A path can't go up a level.");
-    const base = entry.auth === "webhook_url" ? (fields.url ?? "").trim() : fill(entry.base, fields);
+    const base = entry.auth === "webhook_url" || entry.id === "custom" ? entry.auth === "webhook_url" ? (fields.url ?? "").trim() : entry.base : fill(entry.base, fields);
     try {
       url = new URL(`${base.replace(/\/+$/, "")}${path}`);
     } catch {
@@ -150,7 +170,7 @@ export function buildRequest(entry: ServiceEntry, fields: Record<string, string>
   }
   if (url.username || url.password) throw new ServiceRefused("Addresses with a name or password in them can't be reached.");
   if (url.protocol !== "https:" && !entry.hosts.includes("*")) throw new ServiceRefused("Services are reached over https only.");
-  const hosts = hostsOf(entry, fields);
+  const hosts = hostsOf(given, fields);
   if (!hostAllowed(url.host, hosts)) throw new ServiceRefused(`${url.host} isn't one of ${entry.name}'s addresses, so nothing was sent.`);
   for (const [k, v] of Object.entries(call.query ?? {})) url.searchParams.set(k, String(v));
   const headers: Record<string, string> = { accept: "application/json", ...(entry.headers ?? {}) };

@@ -1,5 +1,7 @@
 import { loopsOf, type AgentDefinition } from "./definition";
 import type { RunEvent, TestResult } from "./types";
+import { serviceName } from "../connections/catalog";
+import { typedRead } from "../connections/reads";
 
 // What a maker reads about their agent when details are off: why a plan
 // didn't come together, what a test did, and what is wrong now, each in a
@@ -118,8 +120,17 @@ function didWith(e: Extract<RunEvent, { type: "tool" }>): string | null {
       return "noted where it got to, for next time";
     case "serv.reason":
       return "asked SERV";
-    default:
-      return null;
+    case "service.request":
+      return `read ${serviceName(String(a.connection ?? "a service"))}`;
+    case "service.send":
+      return `wrote to ${serviceName(String(a.connection ?? "a service"))}`;
+    default: {
+      // A typed read: what it read, and how many items came back.
+      const typed = typedRead(e.tool);
+      if (!typed) return null;
+      const items = Object.values(r).find(Array.isArray) as unknown[] | undefined;
+      return items ? `read ${items.length} ${items.length === 1 ? "item" : "items"} from ${typed.outside}` : `read ${typed.outside}`;
+    }
   }
 }
 

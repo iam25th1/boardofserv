@@ -196,6 +196,9 @@ export interface InstallationDTO {
   runs: string[];
   nextRunAt: string | null;
   takesMessages: boolean;
+  // Its private address, for an agent that starts on a post (its owner's
+  // alone: anyone with it can start a job).
+  hookUrl?: string | null;
   // Why its last value check failed, if it did.
   checkNote: string | null;
   // What the agent remembers for this owner (theirs alone).

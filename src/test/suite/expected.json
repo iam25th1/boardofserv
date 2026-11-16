@@ -19,21 +19,11 @@
   },
   {
     "id": "eth",
-    "stage": 3,
+    "stage": 1,
     "passed": false,
-    "rounds": 3,
-    "plan": [
-      "1. Fetch ETH price",
-      "2. Check if price below target: price below target or price at or above target",
-      "3. Work out: Check if message already sent",
-      "4. Check if message already sent: message not sent yet or message already sent",
-      "5. Send price alert",
-      "6. Prepare what it writes",
-      "7. Record that a message was sent for the current below-target period.",
-      "8. Prepare what it writes",
-      "9. Clear the message-sent flag so the agent can alert again on the next price drop below target."
-    ],
-    "story": "It tried the page, which didn't answer and asked SERV, then it stopped at \"...\".",
+    "rounds": 0,
+    "plan": [],
+    "story": null,
     "questions": 0
   },
   {

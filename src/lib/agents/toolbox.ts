@@ -4,6 +4,7 @@ import type { BenchData, SearchResult } from "./types";
 import { keepRequired } from "../zodErrors";
 import { sourceProblem, sourceRefusal } from "./sources";
 import { formIdOf } from "../typeform/api";
+import { callKey, TYPED_READS, typedRead } from "../connections/reads";
 
 // The kinds of field SERV can answer a reasoning call with.
 export const REASON_TYPES = ["text", "number", "boolean", "list"] as const;
@@ -20,7 +21,7 @@ const cell = z.union([z.string().max(2000), z.number(), z.boolean(), z.null()]);
 const row = z.record(z.string().max(80), cell);
 export type Row = z.infer<typeof row>;
 
-export const TOOL_ARGS = {
+const CORE_ARGS = {
   "sheets.read": z.object({ sheet: z.string().min(1).max(80) }),
   "sheets.write": z.object({ sheet: z.string().min(1).max(80), rows: z.array(row).max(500), mode: z.enum(["append", "replace"]).optional() }),
   // Rows already in the sheet, each by its number (row 1 is the header), and
@@ -45,6 +46,31 @@ export const TOOL_ARGS = {
       .refine((a) => Object.keys(a).length >= 1 && Object.keys(a).length <= 8, "name 1 to 8 fields")
       .optional(),
   }),
+  // A read through the owner's connection to a service of the catalog
+  // (connections/request.ts): a path under its address, or a whole address
+  // for a feed; the server adds the key.
+  "service.request": z.object({
+    connection: z.string().regex(/^[a-z][a-z0-9]{1,30}$/, "connection is a service's id, like github"),
+    path: z.string().max(1000).optional(),
+    query: z.record(z.string().max(60), z.union([z.string().max(1000), z.number(), z.boolean()])).optional(),
+    body: z.unknown().optional(),
+    url: z.string().url().max(2000).optional(),
+  }),
+  // A write through it: a declared action, with writing on for the
+  // connection.
+  "service.send": z.object({
+    connection: z.string().regex(/^[a-z][a-z0-9]{1,30}$/, "connection is a service's id, like discord"),
+    method: z.enum(["POST", "PUT", "PATCH", "DELETE"]).optional(),
+    path: z.string().max(1000).optional(),
+    query: z.record(z.string().max(60), z.union([z.string().max(1000), z.number(), z.boolean()])).optional(),
+    body: z.unknown().optional(),
+  }),
+};
+type TypedTool = Exclude<ToolName, keyof typeof CORE_ARGS>;
+
+export const TOOL_ARGS = {
+  ...CORE_ARGS,
+  ...(Object.fromEntries(TYPED_READS.map((t) => [t.tool, t.args])) as Record<TypedTool, z.ZodTypeAny>),
 } satisfies Record<ToolName, z.ZodTypeAny>;
 
 // How much harm a tool's call can do, fixed here for each tool rather than
@@ -61,14 +87,22 @@ export interface ToolInfo {
   signature: string;
   sideEffect: boolean;
   risk: Risk;
+  // For a tool that brings in data from outside the renter's settings:
+  // where it comes from ("a web page"), and what it does, after
+  // "couldn't" ("read the page"). Its data is untrusted (runner.ts) and a
+  // read that brings nothing back is a test's problem (test.ts).
+  outside?: string;
+  verb?: string;
 }
 
-export const TOOLS: Record<ToolName, ToolInfo> = {
+export const TOOLS = {
   "sheets.read": {
     summary: "Read every row of a sheet; each row has _row, its number in the sheet.",
     signature: "tools.sheets.read({ sheet: string }): Promise<{ rows: Array<Record<string, string | number | boolean | null> & { _row: number }> }>",
     sideEffect: false,
     risk: "read",
+    outside: "a sheet",
+    verb: "read your sheet",
   },
   "sheets.write": {
     summary: "Add rows to a sheet, or replace all of its rows.",
@@ -87,12 +121,16 @@ export const TOOLS: Record<ToolName, ToolInfo> = {
     signature: "tools.web.fetch({ url: string }): Promise<{ status: number, text: string }>",
     sideEffect: false,
     risk: "read",
+    outside: "a web page",
+    verb: "read the page",
   },
   "web.search": {
     summary: "Search the web.",
     signature: "tools.web.search({ query: string }): Promise<{ results: Array<{ title: string, url: string, snippet: string }> }>",
     sideEffect: false,
     risk: "read",
+    outside: "a web search",
+    verb: "search the web",
   },
   "telegram.send": {
     summary: "Send the owner a message.",
@@ -111,6 +149,8 @@ export const TOOLS: Record<ToolName, ToolInfo> = {
     signature: "tools.memory.get({ key: string }): Promise<{ value: unknown }>",
     sideEffect: false,
     risk: "read",
+    outside: "its memory",
+    verb: "look up where it got to",
   },
   "memory.set": {
     summary: "Remember a value for this renter, for the next job.",
@@ -130,6 +170,8 @@ export const TOOLS: Record<ToolName, ToolInfo> = {
       "tools.typeform.read({ form: string }): Promise<{ responses: Array<{ id: string, submittedAt: string, [field: string]: string | number | boolean | string[] | null }> }> // each answer at the top of its response, under its question's title in lower case with underscores: response.project_name for \"Project name\"; null when unanswered",
     sideEffect: false,
     risk: "read",
+    outside: "a form's responses",
+    verb: "read your form's responses",
   },
   // A model call: it changes nothing, but it is metered like a decision.
   "serv.reason": {
@@ -139,7 +181,26 @@ export const TOOLS: Record<ToolName, ToolInfo> = {
     sideEffect: false,
     risk: "read",
   },
-};
+  "service.request": {
+    summary: "Read from a service of the catalog through the owner's connection: a GET of a path under its address (a POST only for a GraphQL query or a JSON-RPC read), or a feed's whole address for rss. The server adds the key; never put one in code.",
+    signature:
+      'tools.service.request({ connection: string, path?: string, query?: Record<string, string | number | boolean>, body?: unknown, url?: string }): Promise<{ status: number, data: unknown }> // connection is the service\'s id (github, dexscreener, custom); data is its JSON answer, or for rss { items: Array<{ title, link, published, summary }> }',
+    sideEffect: false,
+    risk: "read",
+    outside: "a service",
+    verb: "reach the service",
+  },
+  "service.send": {
+    summary: "Write to a service of the catalog through the owner's connection (post a message, add a record), when they turned writing on for it. A declared action; the server adds the key.",
+    signature: 'tools.service.send({ connection: string, method?: "POST" | "PUT" | "PATCH" | "DELETE", path?: string, query?: Record<string, string | number | boolean>, body?: unknown }): Promise<{ status: number, data: unknown }>',
+    sideEffect: true,
+    risk: "write",
+  },
+  ...(Object.fromEntries(TYPED_READS.map((t) => [t.tool, { summary: t.summary, signature: t.signature, sideEffect: false, risk: "read" as const, outside: t.outside, verb: t.verb }])) as Record<TypedTool, ToolInfo>),
+} satisfies Record<ToolName, ToolInfo> as Record<ToolName, ToolInfo>;
+
+// The tools that bring in data from outside the renter's settings.
+export const OUTSIDE_TOOLS = (Object.keys(TOOLS) as ToolName[]).filter((t) => TOOLS[t].outside);
 
 // The declarations for these tools, one per line, for Dolphin's prompt.
 export function toolTypes(names: readonly ToolName[]): string {
@@ -212,6 +273,9 @@ export class MockTools {
   private data: BenchData;
   // Typeform responses already read in this run.
   private formsRead = new Set<string>();
+  // The calls to a service (or pages) the bench had nothing for, by their
+  // exact key: what a sample is keyed by (sample.ts).
+  readonly missed: string[] = [];
   private asked = 0;
   private paid = 0;
 
@@ -302,6 +366,7 @@ export class MockTools {
         const unreadable = sourceProblem(a.url);
         if (unreadable) throw new ToolError(tool, sourceRefusal(unreadable));
         const text = d.pages[a.url];
+        if (text === undefined) this.missed.push(callKey("web.fetch", { url: a.url }));
         return text === undefined ? { status: 404, text: "" } : { status: 200, text };
       }
       case "web.search": {
@@ -340,6 +405,10 @@ export class MockTools {
       }
       case "serv.reason":
         return standInReason(args as z.infer<(typeof TOOL_ARGS)["serv.reason"]>);
+      case "service.send":
+        // Nothing goes anywhere from the bench: it answers as a service
+        // that took it.
+        return { status: 200, data: { ok: true } };
       case "typeform.read": {
         // The bench's responses to the form, each once a run, as for real.
         const a = args as z.infer<(typeof TOOL_ARGS)["typeform.read"]>;
@@ -349,6 +418,17 @@ export class MockTools {
         for (const r of fresh) this.formsRead.add(r.id);
         return { responses: structuredClone(fresh) };
       }
+    }
+    // A service's answer, from the bench, to the exact call the code made.
+    if (tool === "service.request" || typedRead(tool)) {
+      const key = callKey(tool, args);
+      const answer = d.calls?.[key];
+      if (answer === undefined) {
+        this.missed.push(key);
+        if (tool === "service.request") return { status: 404, data: { message: "Not Found" } };
+        throw new ToolError(tool, "Nothing answers that call on the sample: it has no such item.");
+      }
+      return structuredClone(answer);
     }
     throw new ToolError(tool, `${tool} is not a tool.`);
   }
@@ -400,4 +480,5 @@ export const BenchSchema = z.object({
   payees: z.array(z.string().max(120)).max(20).optional(),
   approve: z.enum(["yes", "no"]).optional(),
   forms: z.record(z.string(), z.array(z.object({ id: z.string().max(100), submittedAt: z.string().max(40) }).catchall(z.unknown())).max(50)).optional(),
+  calls: z.record(z.string().max(3000), z.unknown()).optional(),
 }).refine((b) => json.safeParse(b).success, "The sample data is too large.");

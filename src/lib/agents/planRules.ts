@@ -1,5 +1,7 @@
 import { nextOf, REASON_TOOL, type AgentDefinition, type AgentStep } from "./definition";
 import { shapeProblems } from "./shapes";
+import { OUTSIDE_TOOLS } from "./toolbox";
+import { CATALOG } from "../connections/catalog";
 
 // The planner's rules beyond the format (definition.ts checks the format):
 // a plan that breaks one goes back to SERV with the reason, like any plan
@@ -77,13 +79,21 @@ export function needsReasoning(step: AgentStep): boolean {
 // A step that says it reads ("Read the submission") and is given nothing
 // to read and no tool to read with only makes up what it passes on.
 const SAYS_READS = /^(?:read|fetch|get|load|pull|collect|gather|download|import)\b/i;
-const READ_TOOLS = ["web.fetch", "sheets.read", "web.search", "memory.get", "typeform.read"];
+const READ_TOOLS: readonly string[] = OUTSIDE_TOOLS;
 
 export function planProblems(d: AgentDefinition): string[] {
   const out: string[] = [];
   for (const s of d.steps) {
     if (s.kind !== "code" || !SAYS_READS.test(s.title) || s.tools.some((t) => READ_TOOLS.includes(t))) continue;
     if (s.inputs.every((k) => k === "settings" || k === "rules")) out.push(`code step "${s.id}" says it reads ("${s.title}") but has no tool that reads and nothing given to it to read, so it could only make up what it passes on: list the tool it reads with (web.fetch for a public page, sheets.read for a sheet, typeform.read for a Typeform form). Any other form's link can't be read at all: its answers come from the sheet they go to, a setting of type sheet.`);
+  }
+  // A service of the catalog reached by fetching its API: its own tool
+  // reaches it, with the owner's connection.
+  for (const s of d.steps) {
+    if (s.kind !== "code" || !s.tools.includes("web.fetch")) continue;
+    const words = `${s.title} ${s.description}`;
+    const e = CATALOG.find((x) => x.auth !== "chat" && x.auth !== "oauth" && !x.hosts.includes("*") && (x.hosts.some((h) => !h.includes("{") && words.toLowerCase().includes(h)) || new RegExp(`\\b${x.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} API\\b`, "i").test(words)));
+    if (e) out.push(`code step "${s.id}" fetches ${e.name}'s API with web.fetch: reach ${e.name} with ${e.tools[0] ?? `service.request (connection "${e.id}")`} instead, which adds the owner's connection; list "${e.id}" in services${e.tools.length ? " only if it also uses service.request or service.send" : ""}.`);
   }
   // SERV for a plain comparison (is the price below the target?): code's
   // own work, never a model's.

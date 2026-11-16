@@ -35,7 +35,7 @@ export const BACKOFF_MS = [30_000, 120_000, 600_000];
 export const HEARTBEAT_MS = 20_000;
 export const STALE_MS = 120_000;
 
-export type JobTrigger = { kind: "schedule" | "check" | "message" | "manual" | "test"; [k: string]: unknown };
+export type JobTrigger = { kind: "schedule" | "check" | "message" | "webhook" | "manual" | "test"; [k: string]: unknown };
 
 // The running jobs in this process, each with its stop: Cancel aborts the
 // one it names, its model calls where they are (cancelJob).

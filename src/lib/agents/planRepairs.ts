@@ -1,6 +1,7 @@
 import { loopChain, loopsOf, REASON_TOOL, type CodeStepDef } from "./definition";
 import { needsReasoning } from "./planRules";
 import { parseShape, showShape } from "./shapes";
+import { OUTSIDE_TOOLS } from "./toolbox";
 
 // Repairs to a plan as SERV answers it, each with only one meaning, made
 // before the plan is checked (plan.ts, wireToDefinition), so a slip SERV
@@ -276,7 +277,7 @@ export function mayBeEmpty(steps: RawStep[], id: string): boolean {
       if (seen.has(st.id)) continue;
       seen.add(st.id);
       if (st.kind === "loop" || (st.kind === "decision" && st.each)) return true;
-      if (st.kind === "code" && (st.tools ?? []).some((t) => t === "sheets.read" || t === "web.search" || t === "memory.get" || t === "typeform.read")) return true;
+      if (st.kind === "code" && (st.tools ?? []).some((t) => t !== "web.fetch" && (OUTSIDE_TOOLS as readonly string[]).includes(t))) return true;
     }
     at = at.filter((x) => x.kind !== "decision" || x.each);
     if (seen.size > steps.length) break;

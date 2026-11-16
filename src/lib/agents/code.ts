@@ -3,7 +3,7 @@ import { Script } from "node:vm";
 import { completeJson, DOLPHIN_LABEL, modelConfig, type ChatMessage, type JsonResult, type ModelConfig, type Provider } from "../model";
 import { ANSWER_LIMITS } from "../modelLimits";
 import { ARGS_TOOLS, loopsOf, REASON_TOOL, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
-import { TOOLS } from "./toolbox";
+import { OUTSIDE_TOOLS, TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
 import type { StepCode } from "./types";
 import { rulesText } from "./lessonRules";
@@ -184,7 +184,7 @@ export function toolsCalled(source: string): string[] {
 
 // Tools that only look: listing one a step's code calls changes nothing it
 // may do, so the list takes it rather than the code being sent back.
-const LOOKS: readonly ToolName[] = ["sheets.read", "web.fetch", "web.search", "memory.get", "typeform.read", REASON_TOOL];
+const LOOKS: readonly ToolName[] = [...OUTSIDE_TOOLS, REASON_TOOL];
 
 // The step's tool list made to match its code: a listed tool the code never
 // calls comes off (SERV's review held steps for that), and a tool that only

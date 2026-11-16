@@ -449,6 +449,13 @@
       "when": 1794848288741,
       "tag": "0063_connection_writes",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1794849092890,
+      "tag": "0064_installation_hook",
+      "breakpoints": true
     }
   ]
 }

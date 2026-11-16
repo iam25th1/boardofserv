@@ -46,28 +46,38 @@ export function readFields(e: ServiceEntry, given: Record<string, unknown>): Rec
   return out;
 }
 
+const hostOf = (base: string | undefined) => {
+  try {
+    return new URL(base ?? "").host;
+  } catch {
+    return "your API";
+  }
+};
+
 // The check: who the key belongs to, or why it doesn't work.
 export async function checkKey(rt: Runtime, e: ServiceEntry, fields: Record<string, string>): Promise<string> {
   const name = e.short ?? e.name;
-  if (!e.check) return name;
+  // A Custom API is checked at the path its owner gave, if they gave one.
+  const check = e.id === "custom" ? (fields.check ? { method: "GET" as const, path: fields.check.startsWith("/") ? fields.check : `/${fields.check}`, text: hostOf(fields.base) } : null) : e.check;
+  if (!check) return e.id === "custom" ? `${name} (${hostOf(fields.base)})` : name;
   let got: { status: number; data: unknown };
   try {
-    got = await callService(e, fields, { method: e.check.method, path: e.check.path, query: e.check.query, body: e.check.body }, transportOf(rt));
+    got = await callService(e, fields, { method: check.method, path: check.path, query: check.query, body: check.body }, transportOf(rt));
   } catch (err) {
     if (err instanceof ServiceRefused) throw new ConnectRefused(`${err.message} Check what you pasted.`, 400);
     if (err instanceof ServiceUnreachable) throw new ConnectRefused(`${name} couldn't be reached just now. Try again in a minute.`, 503);
     throw err;
   }
   const body = JSON.stringify(got.data ?? "");
-  const accepted = e.check.accept?.find((a) => a.status === got.status && body.includes(a.match));
+  const accepted = check.accept?.find((a) => a.status === got.status && body.includes(a.match));
   if (accepted) return `${name} (${accepted.text})`;
   const turnedDown = `That ${nounOf(e)} didn't work with ${name}: check ${e.turnedDown ?? "it's the whole of it, or make a new one"}.`;
   if (got.status === 401 || got.status === 403 || got.status === 404 || got.status === 400) throw new ConnectRefused(turnedDown, 400);
   if (got.status === 429) throw new ConnectRefused(`${name} is busy just now. Try again in a minute.`, 503);
   if (got.status < 200 || got.status >= 300) throw new ConnectRefused(`${name} couldn't check it just now (it answered ${got.status}). Try again in a minute.`, 503);
-  if (e.check.failsWhen && body.includes(e.check.failsWhen)) throw new ConnectRefused(turnedDown, 400);
-  const who = e.check.label ? pick(got.data, e.check.label) : null;
-  return `${name} (${who ?? e.check.text ?? "connected"})`;
+  if (check.failsWhen && body.includes(check.failsWhen)) throw new ConnectRefused(turnedDown, 400);
+  const who = check.label ? pick(got.data, check.label) : null;
+  return `${name} (${who ?? check.text ?? "connected"})`;
 }
 
 // Connect a service: checked, then kept. Returns what the owner sees.

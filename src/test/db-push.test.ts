@@ -60,12 +60,16 @@ describe("the deploy's schema push", () => {
 describe("the checks the deploy keeps in step", () => {
   it("knows when the database's check allows other values, and makes it again in one statement", () => {
     const old = "CHECK ((provider = ANY (ARRAY['telegram'::text, 'google'::text])))";
-    const now = "CHECK ((provider = ANY (ARRAY['telegram'::text, 'google'::text, 'typeform'::text])))";
+    const now = `CHECK ((provider = ANY (ARRAY[${CONNECTION_PROVIDERS.map((p) => `'${p}'::text`).join(", ")}])))`;
     expect(checkMatches(old, CONNECTION_PROVIDERS)).toBe(false);
     expect(checkMatches(now, CONNECTION_PROVIDERS)).toBe(true);
     expect(checkMatches(null, CONNECTION_PROVIDERS)).toBe(false);
     expect(SYNCED_CHECKS.map((c) => c.name)).toEqual(["connections_provider"]);
-    expect(checkSql(SYNCED_CHECKS[0]!)).toBe(`ALTER TABLE "connections" DROP CONSTRAINT IF EXISTS "connections_provider", ADD CONSTRAINT "connections_provider" CHECK ("provider" in ('telegram', 'google', 'typeform'))`);
+    expect(checkSql(SYNCED_CHECKS[0]!)).toBe(`ALTER TABLE "connections" DROP CONSTRAINT IF EXISTS "connections_provider", ADD CONSTRAINT "connections_provider" CHECK ("provider" in (${CONNECTION_PROVIDERS.map((p) => `'${p}'`).join(", ")}))`);
+    // Every service of the catalog with something to connect, Telegram,
+    // Google and Typeform first, as before.
+    expect(CONNECTION_PROVIDERS.slice(0, 3)).toEqual(["telegram", "google", "typeform"]);
+    expect(CONNECTION_PROVIDERS).toContain("discord");
   });
 });
 

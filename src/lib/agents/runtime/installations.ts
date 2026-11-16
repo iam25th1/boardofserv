@@ -21,6 +21,7 @@ import { jobRoom, rateLimits } from "./rates";
 import { holdOn } from "../../safety/freeze";
 import { allowanceOf } from "../../spending/allowance";
 import { jobsOfInstallation, spendToday } from "./views";
+import { hookUrl } from "./hooks";
 
 // Installations: one owner's running copy of a published agent version.
 // Anyone can be an owner: for now a maker installs their own agent from the
@@ -210,6 +211,7 @@ export async function installationDTO(rt: Runtime, l: Loaded): Promise<Installat
     runs: describeTriggers(d, i.schedule),
     nextRunAt: i.status === "active" && i.live && next.length ? new Date(Math.min(...next)).toISOString() : null,
     takesMessages: d.triggers.some((t) => t.kind === "message"),
+    hookUrl: await hookUrl(rt, i, d),
     checkNote: failing?.note ?? null,
     memory: d.memory.map((m) => ({ key: m.key, description: m.description, value: i.memory[m.key] ?? null })),
     spendTodayUsd: await spendToday(rt, i.id),

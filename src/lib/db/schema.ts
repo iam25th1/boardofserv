@@ -612,12 +612,18 @@ export const agentInstallations = pgTable(
     // The renter's weekly model budget (USDC minor units), within the
     // platform's ceiling; none takes the maker's default.
     modelBudget: numeric("model_budget", { precision: 78, scale: 0 }),
+    // An agent that starts on a post (a webhook trigger): its private
+    // address's key, encrypted (shown to its owner alone), and a keyed hash
+    // of it to find the installation by (crypto.ts lookupHash).
+    hookSecret: text("hook_secret"),
+    hookLookup: text("hook_lookup"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     stoppedAt: timestamp("stopped_at", { withTimezone: true }),
   },
   (t) => ({
     byOwner: index("agent_installations_owner_idx").on(t.ownerUserId, t.createdAt),
+    byHook: uniqueIndex("agent_installations_hook_idx").on(t.hookLookup),
     byAgent: index("agent_installations_agent_idx").on(t.agentId),
     knownStatus: check("agent_installations_status", sql`${t.status} in ('active', 'paused', 'stopped')`),
     gap: check("agent_installations_gap", sql`${t.minGapMinutes} between 0 and 1440`),

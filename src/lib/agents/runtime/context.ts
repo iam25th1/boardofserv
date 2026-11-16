@@ -44,7 +44,7 @@ export interface Services {
   reppo: ReppoConfig | null;
   // Each installation's calls a day to Google Sheets and to web search,
   // and the whole site's searches a day.
-  caps: { sheetCalls: number; searches: number; siteSearches: number };
+  caps: { sheetCalls: number; searches: number; siteSearches: number; serviceCalls?: number };
   // How calls through an owner's connection go out (connections/
   // request.ts): the guarded transport unless a test answers them.
   transport?: Transport;
@@ -70,6 +70,7 @@ export function servicesFrom(env: Env = process.env): Services {
       sheetCalls: whole(env.AGENT_SHEET_CALLS_PER_DAY, DEFAULT_CAPS.sheetCalls),
       searches: whole(env.AGENT_SEARCHES_PER_DAY, DEFAULT_CAPS.searches),
       siteSearches: whole(env.SITE_SEARCHES_PER_DAY, DEFAULT_CAPS.siteSearches),
+      serviceCalls: whole(env.AGENT_SERVICE_CALLS_PER_DAY, 200),
     },
   };
 }

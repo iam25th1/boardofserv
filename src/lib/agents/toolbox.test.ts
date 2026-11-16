@@ -9,7 +9,7 @@ describe("the toolbox", () => {
   it("declares every tool, with a signature for Dolphin and whether it changes anything", () => {
     expect(Object.keys(TOOLS).sort()).toEqual([...TOOL_NAMES].sort());
     expect(TOOLS["telegram.ask"].signature).toBe("tools.telegram.ask({ question: string, choices?: string[] }): Promise<{ answer: string | null }>");
-    expect(TOOL_NAMES.filter((t) => TOOLS[t].sideEffect)).toEqual(["sheets.write", "sheets.update", "telegram.send", "telegram.ask", "wallet.pay"]);
+    expect(TOOL_NAMES.filter((t) => TOOLS[t].sideEffect)).toEqual(["sheets.write", "sheets.update", "telegram.send", "telegram.ask", "wallet.pay", "service.send"]);
     expect(toolTypes(["sheets.read", "memory.get"]).split("\n")).toHaveLength(2);
     expect(toolTypes([])).toMatch(/no tools/);
   });

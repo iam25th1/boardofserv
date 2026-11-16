@@ -11,6 +11,9 @@ import { planProblems } from "./planRules";
 import { askedFirst, askForForm, askForMissing, askForSheet, askServToReason, columnsByName, fixSetup, keepRowNumbers, repairPlan, type RawStep } from "./planRepairs";
 import { actingSteps, askPurpose, leaveOut, readPurpose } from "./purpose";
 import { rulesText } from "./lessonRules";
+import { servicesPrompt } from "./servicesPrompt";
+import { servicesIn } from "../connections/catalog";
+import { typedRead } from "../connections/reads";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
 
 // Planning: SERV turns the maker's interview (and the conversation behind
@@ -243,6 +246,7 @@ export function wireToDefinition(w: Wire): unknown {
     }
     if (t.kind === "check") return { kind: "check", everyMinutes: Math.round(n(t.everyMinutes)), watch: s(t.watch), when: s(t.when), ...(s(t.step) ? { step: s(t.step) } : {}) };
     if (t.kind === "message") return { kind: "message", from: "telegram", description: s(t.description) };
+    if (t.kind === "webhook") return { kind: "webhook", description: s(t.description) || "When something is posted to its address" };
     const every = t.every === "minutes" || t.every === "hours" || t.every === "week" ? t.every : t.every === "hour" ? "hours" : "day";
     // Every so many minutes comes as everyMinutes (interval reads the same).
     const interval = Math.round(n(t.interval) || n(t.everyMinutes));
@@ -290,6 +294,7 @@ export function wireToDefinition(w: Wire): unknown {
       };
     }),
     steps,
+    ...(arr(w.services).length ? { services: [...new Set(arr(w.services).map(s).filter(Boolean))] } : {}),
     limits: { maxSteps: Math.round(n(limits.maxSteps)), maxRunSeconds: Math.round(n(limits.maxRunSeconds)), maxSpendUsd: n(limits.maxSpendUsd) },
     ...(n(w.approvalHours) > 0 ? { approvalHours: Math.round(n(w.approvalHours)) } : {}),
   };
@@ -297,9 +302,18 @@ export function wireToDefinition(w: Wire): unknown {
 
 const PLAN_HISTORY_MESSAGES = 30;
 
+// The services of the catalog the maker named, in what they said, the
+// interview and their answers, or that Describe found the job needs.
+export function namedServices(input: Pick<PlanInput, "interview" | "history" | "services" | "feedback">): string[] {
+  const said = [...input.history.filter((m) => m.role === "user").map((m) => m.content), ...Object.values(input.interview).filter((v): v is string => typeof v === "string"), input.feedback ?? ""].join("\n");
+  return [...new Set([...(input.services ?? []), ...servicesIn(said)])];
+}
+
 export interface PlanInput {
   interview: SketchDTO;
   history: ChatMessage[];
+  // The services of the catalog Describe found the job needs, by id.
+  services?: string[];
   // Changing a plan: the plan as it is, and what the maker says is wrong.
   current?: AgentDefinition | null;
   feedback?: string | null;
@@ -396,9 +410,12 @@ export async function planAgent(
     return out.definition;
   };
 
-  // Stage one: the outline.
+  // Stage one: the outline. The services the maker named (or answered
+  // about) bring their typed reads into the tools it is told of.
+  const named = namedServices(input);
+  const offered = TOOL_NAMES.filter((tool) => !typedRead(tool) || named.includes(typedRead(tool)!.service));
   const outlineMessages: ChatMessage[] = [
-    { role: "system", content: `${outlinePrompt(minIntervalMinutes(), TOOL_NAMES.map((tool) => `${tool} (${TOOLS[tool].summary})`).join("; "))}${rulesText(opts.lessons)}` },
+    { role: "system", content: `${outlinePrompt(minIntervalMinutes(), offered.map((tool) => `${tool} (${TOOLS[tool].summary})`).join("; "), servicesPrompt(named))}${rulesText(opts.lessons)}` },
     { role: "user", content: planText },
   ];
   let outline = await ask("outline", outlineMessages);
@@ -510,6 +527,15 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: st
   askServToReason(d.steps as RawStep[], d as { limits?: unknown });
   // Rows written back keep their numbers from the read on.
   keepRowNumbers(d.steps as RawStep[], { actions: list(d.actions).map((x) => ({ id: s(x.id), tool: x.tool, description: s(x.description) })) });
+  // A step that reaches a service generically with none named: the
+  // services its words name.
+  const generic = list(d.steps).some((x) => s(x.kind) === "code" && Array.isArray(x.tools) && (x.tools as string[]).some((t) => t === "service.request" || t === "service.send")) || list(d.actions).some((a) => a.tool === "service.send");
+  const services = d as { services?: unknown };
+  if (generic && !(Array.isArray(services.services) && services.services.length)) {
+    const words = [...list(d.steps).map((x) => `${s(x.description)} ${s(x.title)}`), ...list(d.actions).map((a) => s(a.description))].join("\n");
+    const found = servicesIn(words).filter((id) => !["telegram", "google", "typeform", "webhook"].includes(id));
+    if (found.length) services.services = found;
+  }
   // An action no step takes any more (a question taken out) goes too.
   const taken = new Set(list(d.steps).flatMap((x) => (s(x.kind) === "action" ? [s(x.action)] : [])));
   const used = new Set(list(d.steps).flatMap((x) => (Array.isArray(x.tools) ? (x.tools as string[]) : [])));

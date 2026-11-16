@@ -41,7 +41,7 @@ export async function setUpTriggers(rt: Runtime, i: AgentInstallation, d: AgentD
   const now = rt.now();
   for (const [index, t] of d.triggers.entries()) {
     const at = firstAt(t, i, now);
-    if (!at || t.kind === "message") continue;
+    if (!at || t.kind === "message" || t.kind === "webhook") continue;
     await rt.db
       .insert(agentTriggers)
       .values({ installationId: i.id, index, kind: t.kind, nextAt: at })
@@ -86,7 +86,7 @@ export async function fireDue(rt: Runtime, limit = 20): Promise<number> {
   for (const { trigger: row, installation: i, version } of due) {
     const d = version.definition;
     const t = d?.triggers[row.index];
-    if (!d || !t || t.kind === "message") continue;
+    if (!d || !t || t.kind === "message" || t.kind === "webhook") continue;
     const next = t.kind === "schedule" ? nextRun(scheduleSpec(t, i.schedule), i.timezone, now) : new Date(now.getTime() + checkInterval(t.everyMinutes) * 60_000);
     // The claim: only one looker moves it on.
     const won = await rt.db

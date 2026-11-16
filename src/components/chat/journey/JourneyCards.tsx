@@ -13,6 +13,7 @@ import { STAGE_NAMES, STAGES, type ConnectAnswers, type HealTone, type JourneyCa
 import { jobWord } from "@/lib/jobWords";
 import type { AgentSummaryDTO, ConnectionDTO, InstallationDTO, SketchDTO } from "@/lib/types";
 import styles from "./Journey.module.css";
+import { entryOf } from "@/lib/connections/catalog";
 
 // The cards of the journey in the chat (lib/journey.ts), one per stage as
 // it happens: what the maker described, the steps, the build, the test,
@@ -631,11 +632,12 @@ function ConnectCard({ card, latest, agent, conversationId, api }: Props) {
   // The payee's name is asked with who it pays, not on its own.
   const plainSettings = setup!.settings.filter((s) => s.type !== "sheet" && s.key !== setup!.payee);
   const sheets = setup!.settings.filter((s) => s.type === "sheet");
-  const linked = (p: "telegram" | "google" | "typeform") => Boolean(conn?.connections.some((c) => c.provider === p));
+  const linked = (p: string) => Boolean(conn?.connections.some((c) => c.provider === p));
+  const services = setup!.needs.services ?? [];
   const set = (k: string, v: unknown) => setAnswers((a) => ({ ...a, settings: { ...a.settings, [k]: v } }));
   const err = (k: string) => (errors[k] ? <span className={styles.fieldError}>{errors[k]}</span> : null);
   const when = setup!.triggers[0]?.kind === "schedule" ? setup!.triggers[0].description : null;
-  const nothing = !plainSettings.length && !sheets.length && !setup!.needs.telegram && !setup!.needs.google && !setup!.needs.typeform && !setup!.spends;
+  const nothing = !plainSettings.length && !sheets.length && !setup!.needs.telegram && !setup!.needs.google && !setup!.needs.typeform && !services.length && !setup!.spends;
   const save = () =>
     act.run(async () => {
       setErrors({});
@@ -700,6 +702,20 @@ function ConnectCard({ card, latest, agent, conversationId, api }: Props) {
           {err("typeform")}
         </div>
       )}
+      {services.map((id) => (
+        <div key={id} className={styles.panel}>
+          <h4>Your {entryOf(id)?.name ?? id}</h4>
+          <p className={styles.quiet}>{entryOf(id)?.reads}</p>
+          {linked(id) ? (
+            <p className={styles.done}>Connected: {conn!.connections.find((c) => c.provider === id)!.label}.</p>
+          ) : (
+            <p>
+              <Link href={`/app/connections?connect=${id}&back=${encodeURIComponent(`/app/chat?c=${conversationId}`)}`}>Connect {entryOf(id)?.short ?? entryOf(id)?.name ?? id}</Link>, then come back here.
+            </p>
+          )}
+          {err(id)}
+        </div>
+      ))}
       {plainSettings.length > 0 && (
         <div className={styles.panel}>
           <h4>Its answers</h4>

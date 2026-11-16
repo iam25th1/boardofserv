@@ -15,17 +15,19 @@ describe("the catalog", () => {
       expect(CATEGORIES.map((c) => c.id), e.id).toContain(e.category);
       expect(AUTH_KINDS, e.id).toContain(e.auth);
       expect(e.hosts.length, e.id).toBeGreaterThan(0);
-      expect(e.base, e.id).toMatch(/^https:\/\//);
+      if (e.id !== "custom") expect(e.base, e.id).toMatch(/^https:\/\//);
       expect(e.reads.length, e.id).toBeGreaterThan(5);
       expect(e.keyHow.length, e.id).toBeGreaterThan(5);
       // A pasted key is checked when it is saved, and the owner is told
       // where to get one.
-      if (["api_key", "bearer", "bot_token", "webhook_url"].includes(e.auth)) {
+      if (["api_key", "bearer", "bot_token", "webhook_url"].includes(e.auth) && e.id !== "custom") {
         expect(e.fields.some((f) => f.secret), e.id).toBe(true);
         expect(e.keyUrl, e.id).toMatch(/^https:\/\//);
         expect(e.check ?? e.auth === "webhook_url", e.id).toBeTruthy();
       }
-      // Every host a call may reach is the base's host or one of its own.
+      // Every host a call may reach is the base's host or one of its own
+      // (a Custom API's is the owner's own address).
+      if (e.hosts.includes("*") || e.id === "custom") continue;
       const baseHost = new URL(e.base.replace(/\{[a-z]+\}/g, "x")).host;
       expect(e.hosts.map((h) => h.replace(/\{[a-z]+\}/g, "x")), e.id).toContain(baseHost);
     }

@@ -1,3 +1,4 @@
+import { TYPED_READS } from "../connections/reads";
 import { connectionsNeeded, loopChain, loopsOf, SIDE_EFFECT_TOOLS, spends, type AgentDefinition, type AgentStep } from "./definition";
 
 // An agent's plan as its maker reads it with details off: what it does, its
@@ -18,6 +19,9 @@ const TOOL_WORDS: Record<string, string> = {
   "wallet.pay": "the wallet",
   "serv.reason": "SERV",
   "typeform.read": "your Typeform form",
+  "service.request": "a service",
+  "service.send": "a service",
+  ...Object.fromEntries(TYPED_READS.map((t) => [t.tool, t.outside])),
 };
 
 // Words written for the plan, made plain: a tool's name becomes what it
@@ -25,7 +29,7 @@ const TOOL_WORDS: Record<string, string> = {
 // and brackets and code marks go.
 export function plain(text: string): string {
   return text
-    .replace(/\b(?:sheets|web|telegram|memory|wallet|serv|typeform)\.[a-z]+\b/g, (m) => TOOL_WORDS[m] ?? m.replace(".", " "))
+    .replace(/\b(?:sheets|web|telegram|memory|wallet|serv|typeform|service|github|tally|airtable|notion|linear|shopify|stripe|etherscan|coingecko)\.[a-z]+\b/g, (m) => TOOL_WORDS[m] ?? m.replace(".", " "))
     .replace(/\b(?:settings|rules|memory|trigger|input|inputs)\.([a-z][a-z0-9_]*)/g, (_, k: string) => k.replace(/_/g, " "))
     .replace(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g, (m) => m.replace(/_/g, " "))
     .replace(/[{}[\]`<>]/g, "")
