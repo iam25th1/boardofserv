@@ -42,6 +42,67 @@ describe("the connections page", () => {
     expect(await screen.findByText("link it here")).toBeInTheDocument();
   });
 
+  it("lists every service by category, finds one by what it is called, and offers Custom API for the rest", async () => {
+    const api = { load: vi.fn(async () => ({ connections: [], available: {} })), disconnect: vi.fn() } satisfies ConnectionsApi;
+    render(<ConnectionsView api={api} />);
+    expect(await screen.findByRole("heading", { name: "Code and work" })).toBeInTheDocument();
+    for (const name of ["Messages", "Forms and data", "Shops and payments", "Crypto", "Scheduling and customers", "Your own"]) expect(screen.getByRole("heading", { name })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "GitHub" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Find a service"), { target: { value: "repos" } });
+    expect(screen.getByRole("heading", { name: "GitHub" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Discord" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Find a service"), { target: { value: "mastodon" } });
+    expect(screen.getByText(/Nothing here goes by/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "use Custom API" }));
+    expect(screen.getByRole("heading", { name: "Custom API" })).toBeInTheDocument();
+    // A service with nothing to connect says so.
+    fireEvent.change(screen.getByLabelText("Find a service"), { target: { value: "coingecko" } });
+    expect(screen.getByText(/Nothing to connect\. Prices are public\./)).toBeInTheDocument();
+  });
+
+  it("connects a service with its key, saying where to get one and why one was turned down", async () => {
+    let linked: ConnectionDTO[] = [];
+    const connect = vi.fn(async (_p: string, fields: Record<string, string>) => {
+      if (fields.url !== "https://discord.com/api/webhooks/1/abc") throw new Error("That webhook didn't work with Discord: check the webhook still exists, or copy its address again.");
+      linked = [{ provider: "discord", name: "Discord", label: "Discord (Builds)", writes: false, connectedAt: "2026-11-16T08:00:00Z", lastUsedAt: null, usedBy: [] }];
+      return { label: "Discord (Builds)" };
+    });
+    const onConnected = vi.fn();
+    const api = { load: vi.fn(async () => ({ connections: linked, available: {} })), disconnect: vi.fn(), connect } satisfies ConnectionsApi;
+    render(<ConnectionsView api={api} focus="discord" onConnected={onConnected} />);
+    // Sent here to connect it: its form is open.
+    const field = await screen.findByLabelText("Webhook URL");
+    expect(field).toHaveAttribute("type", "password");
+    expect(screen.getByRole("link", { name: "Where to get it" })).toHaveAttribute("href", "https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks");
+    fireEvent.change(field, { target: { value: "https://discord.com/api/webhooks/1/nope" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect Discord" }));
+    expect(await screen.findByText("That webhook didn't work with Discord: check the webhook still exists, or copy its address again.")).toBeInTheDocument();
+    fireEvent.change(field, { target: { value: " https://discord.com/api/webhooks/1/abc " } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect Discord" }));
+    await waitFor(() => expect(onConnected).toHaveBeenCalledWith("discord"));
+    expect(connect).toHaveBeenLastCalledWith("discord", { url: "https://discord.com/api/webhooks/1/abc" });
+    expect(await screen.findByText("Discord (Builds)")).toBeInTheDocument();
+  });
+
+  it("lets agents write through a connection only once its owner turns the switch on", async () => {
+    let writes = false;
+    const github = (): ConnectionDTO => ({ provider: "github", name: "GitHub", label: "GitHub (ada)", writes, connectedAt: "2026-11-16T08:00:00Z", lastUsedAt: null, usedBy: [] });
+    const setWrites = vi.fn(async (_p: string, on: boolean) => {
+      writes = on;
+      return { writes: on };
+    });
+    const api = { load: vi.fn(async () => ({ connections: [github()], available: {} })), disconnect: vi.fn(), setWrites } satisfies ConnectionsApi;
+    render(<ConnectionsView api={api} />);
+    const toggle = await screen.findByRole("switch", { name: "Agents only read GitHub" });
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    fireEvent.click(toggle);
+    await waitFor(() => expect(setWrites).toHaveBeenCalledWith("github", true));
+    expect(await screen.findByText("Your agents may now write to GitHub, still asking first wherever you or the agent said to.")).toBeInTheDocument();
+    expect(await screen.findByRole("switch", { name: "Agents may write to GitHub" })).toHaveAttribute("aria-checked", "true");
+    // A service that only reads has no switch.
+    expect(screen.queryByRole("switch", { name: /Typeform/ })).toBeNull();
+  });
+
   it("links Telegram with a one-time code, looking again until the bot has it", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const refresh = vi.fn(async () => {});

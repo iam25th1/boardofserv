@@ -38,6 +38,10 @@ export function useApi() {
       // The owner's connections, and which services can be connected here.
       listConnections: () => json<{ connections: ConnectionDTO[]; available: Record<string, boolean> }>("/api/connections"),
       connectTypeform: (token: string) => json<{ connected: true; label: string }>("/api/connections/typeform", { method: "POST", body: JSON.stringify({ token }) }),
+      // Any keyed service of the catalog, checked when it is saved.
+      connectService: (provider: string, fields: Record<string, string>) => json<{ connected: true; label: string }>(`/api/connections/${encodeURIComponent(provider)}`, { method: "POST", body: JSON.stringify({ fields }) }),
+      // The owner's switch for writing through a connection.
+      setWrites: (provider: string, writes: boolean) => json<{ writes: boolean }>("/api/connections", { method: "PATCH", body: JSON.stringify({ provider, writes }) }),
       disconnect: (provider: ConnectionDTO["provider"]) => json<{ revoked: boolean | null; paused: number }>(`/api/connections?provider=${provider}`, { method: "DELETE" }),
       // A one-time code to send the bot from the chat to link.
       telegramCode: () => json<{ code: string; link: string; bot: string; expiresAt: string }>("/api/connections/telegram/code", { method: "POST" }),
