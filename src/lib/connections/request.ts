@@ -34,6 +34,15 @@ export interface ServiceCall {
 export interface ServiceAnswer {
   status: number;
   data: unknown;
+  // What the service said of its rate limit (x-ratelimit-remaining and
+  // x-ratelimit-reset, a time in seconds), when it said it.
+  rate?: { remaining: number; reset: number };
+}
+
+function rateOf(headers: Record<string, string>): ServiceAnswer["rate"] {
+  const remaining = Number(headers["x-ratelimit-remaining"]);
+  const reset = Number(headers["x-ratelimit-reset"]);
+  return headers["x-ratelimit-remaining"] !== undefined && Number.isFinite(remaining) ? { remaining, reset: Number.isFinite(reset) ? reset : 0 } : undefined;
 }
 
 export const MAX_REDIRECTS = 3;
@@ -242,7 +251,8 @@ export async function callService(entry: ServiceEntry, fields: Record<string, st
         url = next;
         continue;
       }
-      return { status: answered.status, data: redactDeep(readAnswer(answered), secrets) };
+      const rate = rateOf(answered.headers);
+      return { status: answered.status, data: redactDeep(readAnswer(answered), secrets), ...(rate ? { rate } : {}) };
     }
   } catch (err) {
     if (err instanceof ServiceRefused) throw new ServiceRefused(redact(err.message, secrets));

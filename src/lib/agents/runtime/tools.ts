@@ -31,8 +31,9 @@ import { formatAmount, parseAmount } from "../../money";
 import { fetchPage, WebUnreachable } from "./webFetch";
 import { canWrite, secretOf, touch as touchConnection, type ServiceSecret } from "../../connections/vault";
 import { entryOf, needsConnecting, serviceName } from "../../connections/catalog";
-import { callService, ServiceRefused, ServiceUnreachable, type ServiceCall } from "../../connections/request";
-import { typedRead } from "../../connections/reads";
+import { callService, ServiceRefused, ServiceUnreachable, type ServiceAnswer, type ServiceCall } from "../../connections/request";
+import { callKey, typedRead } from "../../connections/reads";
+import { allowance, cachedRead, keepRead, limited, LOW_PUBLIC_READS, noteAllowance, shouldTell } from "../../connections/publicReads";
 import { parseFeed } from "../../connections/feed";
 import { formIdOf, formResponses, TypeformError } from "../../typeform/api";
 import { sourceProblem, sourceRefusal } from "../sources";
@@ -608,8 +609,23 @@ export class JobTools implements ToolHost {
       if (!entry.writes) throw new ToolError(tool, `${entry.name} only reads: nothing can be written to it.`);
       if (!(await canWrite(this.rt, owner, entry.id))) throw new ToolError(tool, WRITES_OFF(entry.name));
     }
+    // GitHub without the owner's own key: the server's shared allowance of
+    // public reads (publicReads.ts). The same read within ten minutes comes
+    // from what was read; with nothing left, it waits, and the owner is
+    // told to connect GitHub.
+    const shared = !secret && entry.id === "github" && tool !== "service.send";
+    const now = this.rt.now().getTime();
+    const readKey = callKey(tool, parsed.data);
+    const kept = shared ? cachedRead(readKey, now) : null;
+    if (shared && !kept) {
+      const a = allowance(now);
+      if (a && a.remaining <= 0) {
+        await this.tellToConnectGithub(a, true);
+        throw new InfraError(this.githubOut(a));
+      }
+    }
     const limit = this.rt.services.caps.serviceCalls ?? DEFAULT_SERVICE_CALLS;
-    if (!(await this.take(`service:${entry.id}`, limit))) throw new ToolError(tool, `It reached its limit of ${limit} ${entry.name} calls today.`);
+    if (!kept && !(await this.take(`service:${entry.id}`, limit))) throw new ToolError(tool, `It reached its limit of ${limit} ${entry.name} calls today.`);
     let call: ServiceCall;
     if (typed) call = typed.request(parsed.data as never);
     else if (tool === "service.request") {
@@ -621,13 +637,27 @@ export class JobTools implements ToolHost {
       }
       call = { method: post ? "POST" : "GET", path: a.path ?? "", query: a.query, body: post ? a.body : undefined, url: a.url };
     } else call = { method: a.method ?? "POST", path: a.path ?? "", query: a.query, body: a.body, form: entry.form };
-    let got: { status: number; data: unknown };
-    try {
-      got = await callService(entry, (secret ?? {}) as ServiceSecret, call, transportOf(this.rt));
-    } catch (err) {
-      if (err instanceof ServiceUnreachable) throw new InfraError(err.message);
-      if (err instanceof ServiceRefused) throw new ToolError(tool, err.message);
-      throw err;
+    let got: ServiceAnswer;
+    if (kept) got = kept;
+    else {
+      try {
+        got = await callService(entry, (secret ?? {}) as ServiceSecret, call, transportOf(this.rt));
+      } catch (err) {
+        if (err instanceof ServiceUnreachable) throw new InfraError(err.message);
+        if (err instanceof ServiceRefused) throw new ToolError(tool, err.message);
+        throw err;
+      }
+      if (shared) {
+        noteAllowance(got.rate, now);
+        if (limited(got)) {
+          const a = allowance(now) ?? { remaining: 0, resetAt: now + 60 * 60_000 };
+          await this.tellToConnectGithub({ ...a, remaining: 0 }, true);
+          throw new InfraError(this.githubOut(a));
+        }
+        const a = allowance(now);
+        if (a && a.remaining <= LOW_PUBLIC_READS) await this.tellToConnectGithub(a, false);
+        if (got.status >= 200 && got.status < 300) keepRead(readKey, got, now);
+      }
     }
     if (secret) await touchConnection(this.rt, owner, entry.id);
     // Busy or down at the service: worth another try later.
@@ -636,6 +666,31 @@ export class JobTools implements ToolHost {
     if (!typed) return got;
     if (got.status >= 200 && got.status < 300) return typed.shape(got.data, parsed.data as never);
     throw new ToolError(tool, got.status === 401 || got.status === 403 ? `${entry.name} turned the connection down (${got.status}): check its key on Connections, or that it may read this.` : got.status === 404 ? `${entry.name} has no such item (${got.status}): check what the agent was given.` : `${entry.name} answered ${got.status}.`);
+  }
+
+  // When GitHub's shared public reads come back, in the owner's time.
+  private githubAt(resetAt: number): string {
+    try {
+      return new Date(resetAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: this.installation.timezone || "UTC" });
+    } catch {
+      return new Date(resetAt).toISOString().slice(11, 16);
+    }
+  }
+
+  private githubOut(a: { resetAt: number }): string {
+    return `This server's free GitHub reads are used up until ${this.githubAt(a.resetAt)}, so it tries again then. Connect GitHub on Connections with a free read-only token, and it reads with your own allowance instead.`;
+  }
+
+  // The owner told, once each time the shared allowance runs low or out,
+  // in their message box and their Telegram: why, and what to do.
+  private async tellToConnectGithub(a: { remaining: number; resetAt: number }, out: boolean): Promise<void> {
+    if (!shouldTell(this.installation.id, a.resetAt)) return;
+    const why = out
+      ? `they are used up until ${this.githubAt(a.resetAt)}, so it waits until then`
+      : `only ${a.remaining} ${a.remaining === 1 ? "is" : "are"} left until ${this.githubAt(a.resetAt)}`;
+    const text = `${this.definition.name} reads GitHub without your own key, so it shares this server's free GitHub reads with every other agent here, and ${why}. Connect GitHub on Connections with a free read-only token (read access to the repositories it checks), and it reads with your own allowance instead.`;
+    await this.rt.db.insert(agentMessages).values({ installationId: this.installation.id, from: "agent", text, jobId: this.job?.id ?? null, tgState: "pending", createdAt: this.rt.now() });
+    this.rt.log(`github: an installation was told to connect GitHub (${out ? "out of" : "low on"} shared public reads)`);
   }
 
   // What the agent remembers for this owner: on this installation's row
