@@ -3,6 +3,7 @@ import { Script } from "node:vm";
 import { completeJson, DOLPHIN_LABEL, modelConfig, type ChatMessage, type JsonResult, type ModelConfig, type Provider } from "../model";
 import { ANSWER_LIMITS } from "../modelLimits";
 import { ARGS_TOOLS, loopsOf, REASON_TOOL, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
+import { targetProblem, writtenTarget } from "./targets";
 import { OUTSIDE_TOOLS, TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
 import type { StepCode } from "./types";
@@ -38,6 +39,7 @@ export const CODE_PROMPT = [
   "Write `async function run(input, tools)`. input holds the step's inputs by name; return an object with exactly the step's outputs by name.",
   "Call only the tools listed, always with await. Plain JavaScript (ES2020): no TypeScript, no imports, no require, no fetch, no console, no timers, no globals.",
   "Read only the inputs listed, as they are described: never invent input fields, flags or options the step doesn't name (no input.skip, input.nothingToDo or input.cancelled), and never skip what the step says to do.",
+  "Never write what it works on or who it tells into the code: no repository, address, link, form, wallet, email, channel or coin, and no number to compare against. Read each from input.settings or input.rules, as the step's inputs describe them.",
   "Keep it short, and handle missing or odd values without throwing where you can.",
   "When serv.reason is listed, every judgement or piece of writing the step makes (a score and its reasons, a reply, a line for the day) comes from SERV: call tools.serv.reason({ task, data, answer }) for it (once per item), and return what SERV answered. Never work it out yourself with word counts, lengths, keyword lists or canned text.",
   "Text it writes for people never uses em dashes: use a colon or a comma.",
@@ -160,7 +162,8 @@ const REACHES = [
 ] as const;
 
 // The plain checks, before SERV sees it: null when it passes, else why not.
-export function checkCode(source: string, step: CodeStepDef): string | null {
+// With the agent's plan, also no target written into the code (targets.ts).
+export function checkCode(source: string, step: CodeStepDef, d?: AgentDefinition): string | null {
   try {
     // Parsed, never run: node:vm compiles the text without executing it.
     new Script(`(async () => {\n${source}\n})`);
@@ -174,6 +177,10 @@ export function checkCode(source: string, step: CodeStepDef): string | null {
   const stray = [...new Set(used.filter((u) => !(step.tools as readonly string[]).includes(u)))];
   if (stray.length) return `It calls ${stray.join(", ")}, which this step may not use (allowed: ${step.tools.join(", ") || "none"}).`;
   if (step.tools.includes(REASON_TOOL) && !used.includes(REASON_TOOL)) return "It never asks SERV (tools.serv.reason), so its judgement or writing would be a guess: ask SERV for it and use the answer.";
+  if (d) {
+    const target = writtenTarget(source, step, d);
+    if (target) return targetProblem(target, step.inputs.includes("settings"));
+  }
   return null;
 }
 
@@ -385,6 +392,8 @@ export async function writeStep(
   let rounds = 0;
   let writer: "dolphin" | "serv" = opts.writer ?? (opts.dolphin ? "dolphin" : "serv");
   let dolphinFailures = 0;
+  // The step as its code has made it so far: what it reads may grow.
+  let current = step;
   // One draft: Dolphin's, or SERV's once Dolphin hasn't answered twice.
   const write = async (round: number): Promise<TextResult> => {
     for (;;) {
@@ -410,10 +419,18 @@ export async function writeStep(
       continue;
     }
     source = code;
-    // The list is made to match the code before anything checks it.
+    // The list is made to match the code before anything checks it. A
+    // target written in: the step reads the settings it should come from,
+    // and is written again from them.
     const tools = fitTools(step, code);
-    const fitted = { ...step, tools };
-    const problem = checkCode(code, fitted);
+    const fittedInputs = [...current.inputs];
+    const target = writtenTarget(code, current, d);
+    if (target && !fittedInputs.includes("settings")) fittedInputs.push("settings");
+    if (target?.from?.startsWith("rules.") && !fittedInputs.includes("rules")) fittedInputs.push("rules");
+    const grew = fittedInputs.length !== current.inputs.length;
+    current = { ...current, inputs: fittedInputs };
+    const fitted = { ...current, tools };
+    const problem = checkCode(code, { ...fitted, inputs: target && grew ? step.inputs : fitted.inputs }, d);
     if (problem) {
       note = problem;
     } else {
@@ -429,14 +446,14 @@ export async function writeStep(
         break;
       }
       if (review.approved) {
-        return { spec, status: "approved", source: code, rounds: round, note: review.reason || null, ...(writer === "serv" ? { writer } : {}), ...(sameTools(tools, step.tools) ? {} : { tools }), updatedAt: new Date().toISOString() };
+        return { spec, status: "approved", source: code, rounds: round, note: review.reason || null, ...(writer === "serv" ? { writer } : {}), ...(sameTools(tools, step.tools) ? {} : { tools }), ...(current.inputs.length !== step.inputs.length ? { inputs: current.inputs } : {}), updatedAt: new Date().toISOString() };
       }
       note = review.reason || "SERV rejected it.";
     }
     conversation.push(
       { role: "assistant", content: "```js\n" + code + "\n```" },
-      { role: "user", content: `It was rejected: ${note}\nWrite the whole function again with that fixed.` },
+      { role: "user", content: `It was rejected: ${note}${grew ? `\nIt is given more now:\n${codeRequest(current, d).split("\n\nReturn:")[0]!.split("\ninput:\n")[1] ?? ""}` : ""}\nWrite the whole function again with that fixed.` },
     );
   }
-  return { spec, status: "needs_attention", source, rounds, note, ...(writer === "serv" ? { writer } : {}), updatedAt: new Date().toISOString() };
+  return { spec, status: "needs_attention", source, rounds, note, ...(writer === "serv" ? { writer } : {}), ...(current.inputs.length !== step.inputs.length ? { inputs: current.inputs } : {}), updatedAt: new Date().toISOString() };
 }

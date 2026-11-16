@@ -225,13 +225,14 @@ function writeHooks(version: AgentVersion, step: CodeStepDef, spec: string, ctx:
   };
 }
 
-// A step whose code calls other tools than the plan listed: the plan is
-// changed to match (code.ts fitTools), and the code's spec with it, so the
-// list never disagrees with the code.
+// A step whose code calls other tools than the plan listed, or needed the
+// settings to read a target from: the plan is changed to match (code.ts
+// fitTools, writeStep), and the code's spec with it, so the lists never
+// disagree with the code.
 async function fitPlan(versionId: string, definition: AgentDefinition, step: CodeStepDef, entry: StepCode): Promise<{ definition: AgentDefinition; entry: StepCode }> {
-  if (!entry.tools) return { definition, entry };
-  const { tools, ...rest } = entry;
-  const fitted: CodeStepDef = { ...step, tools };
+  if (!entry.tools && !entry.inputs) return { definition, entry };
+  const { tools, inputs, ...rest } = entry;
+  const fitted: CodeStepDef = { ...step, ...(tools ? { tools } : {}), ...(inputs ? { inputs } : {}) };
   const next = { ...definition, steps: definition.steps.map((s) => (s.id === step.id ? fitted : s)) };
   await updateDraft(versionId, { definition: next });
   return { definition: next, entry: { ...rest, spec: codeSpec(fitted) } };

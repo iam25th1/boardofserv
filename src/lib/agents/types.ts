@@ -24,6 +24,10 @@ export interface StepCode {
   // The step's tools as its code really calls them, when that differs from
   // the plan's list (code.ts fitTools): the plan is changed to match.
   tools?: ToolName[];
+  // The inputs the plan should list, when its code needed one it didn't
+  // (the settings it should read a target from): the plan is made to
+  // match, as with tools.
+  inputs?: string[];
   updatedAt: string;
 }
 
