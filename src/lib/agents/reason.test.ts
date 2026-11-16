@@ -203,7 +203,7 @@ describe("a run", () => {
     const calls: string[] = [];
     const end = await runAgent({ definition: d, code: { read: ok(READ), score: ok(SCORE), summary: ok(SUMMARY) }, bench: bench(), dryRun: false, serv, fetchImpl: servFetch(calls), onEvent: () => {} });
     expect(calls).toEqual([]);
-    expect(end).toMatchObject({ status: "stopped", reason: "It reached its spend limit of $0." });
+    expect(end).toMatchObject({ status: "stopped", reason: expect.stringMatching(/^It stopped before its next call to SERV \(about \$0\.\d+\) would take it over its spend limit of \$0 for one run\. What it had done is saved, so its next run picks up from there\.$/) });
   });
 
   it("asks SERV once per call: picked up again, the step's answers come from its journal", async () => {

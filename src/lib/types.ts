@@ -50,8 +50,10 @@ export interface AccountDTO {
   // The agent page opens with everything shown (step graph, code, test
   // bench, versions), not the plain view.
   agentDetails?: boolean;
-  // Their time zone, as their browser last gave it (null until one has).
+  // Their time zone, as their browser last gave it (null until one has),
+  // or the one they chose in their settings (chosen), which then stays.
   timezone?: string | null;
+  timezoneChosen?: boolean;
 }
 
 // The agent sketch for one conversation, as the server stores and sends it.
@@ -211,6 +213,10 @@ export interface InstallationDTO {
   safety: SafetyDTO;
   // Its model cost this week against its budget (USDC minor units).
   budget: BudgetDTO;
+  // A newer version of the owner's own agent: its number, one line on what
+  // changed, and why switching needs setting it up again (null when its
+  // answers carry over). Null when it runs the newest.
+  newer?: { version: number; line: string; breaking: string | null } | null;
 }
 
 export interface BudgetDTO {
@@ -225,6 +231,9 @@ export interface BudgetDTO {
   // Its renter pays each job's model cost on top of the fee.
   modelShare: boolean;
   decimals: number;
+  // Its owner runs it on their own SERV key: the free allowance doesn't
+  // apply, their budget does.
+  ownKey?: boolean;
 }
 
 // An installation's tools by risk level (read, write, outbound, money), and

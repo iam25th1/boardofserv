@@ -6,7 +6,7 @@ import Link from "next/link";
 import { usePrivy } from "@privy-io/react-auth";
 import { Page } from "@/components/shell/Page";
 import { YourAgentsNav } from "@/components/shell/SubNav";
-import { Controls, Glance } from "@/components/agents/InstallationControls";
+import { Controls, Glance, NewerVersion } from "@/components/agents/InstallationControls";
 import { privyAppId } from "@/lib/privy-config";
 import type { InstallationDTO } from "@/lib/types";
 import { useApi } from "@/lib/useApi";
@@ -66,6 +66,13 @@ function List() {
               {i.status}
             </span>
           </div>
+          <NewerVersion
+            data={i}
+            onSwitch={async () => {
+              const next = await api.switchVersion(i.id);
+              setList((all) => all?.map((x) => (x.id === next.id ? next : x)) ?? null);
+            }}
+          />
           <Glance data={i} />
           <Controls
             data={i}

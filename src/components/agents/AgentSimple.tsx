@@ -10,6 +10,7 @@ import { describeTriggers } from "@/lib/agents/schedule";
 import { asksBefore, connectsTo, plain, stepDepths, stepLine, stepsInOrder } from "@/lib/agents/plainView";
 import type { AgentBuilderDTO, AgentSummaryDTO } from "@/lib/types";
 import { SetupFlow, type SetupApi } from "./SetupFlow";
+import { useOwnerZone } from "@/components/shell/AccountContext";
 import styles from "./AgentSimple.module.css";
 
 // The agent's page with details off: what a first-time maker needs and no
@@ -45,10 +46,8 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
   const [busy, setBusy] = useState<"test" | "fix" | "publish" | null>(null);
   const [said, setSaid] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
-  // The maker's time zone, from their browser once it is open: what their
-  // own runs go by (Connect sends it).
-  const [zone, setZone] = useState<string | null>(null);
-  useEffect(() => setZone(browserZone()), []);
+  // The maker's time zone, their account's: what their own runs go by.
+  const zone = useOwnerZone();
   const stepsRef = useStaggerIn<HTMLOListElement>(Boolean(d));
   const storyRef = useRef<HTMLParagraphElement>(null);
   const story = agent.test?.story ?? null;
@@ -217,15 +216,6 @@ export function AgentSimple({ data, api, onData }: { data: AgentBuilderDTO; api:
 }
 
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
-
-// The maker's own time zone, from their browser: what their agents run by.
-function browserZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
 
 // What is wrong, in one sentence, and the one button that fixes it.
 function Problem({ text, busy, onFix }: { text: string; busy: boolean; onFix: () => void }) {

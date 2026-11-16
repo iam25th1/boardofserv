@@ -2,7 +2,7 @@ import "server-only";
 import { completeJson, modelPrices, type ChatMessage, type JsonResult, type ModelConfig } from "../model";
 import { ANSWER_LIMITS } from "../modelLimits";
 import { loopChain, loopsOf, madeInside, MAX_EACH_ITEMS, MAX_LOOP_ITEMS, REASON_TOOL, RUN_VALUES, SIDE_EFFECT_TOOLS, type ActionStepDef, type AgentDefinition, type AgentStep, type DecisionStepDef, type LoopStepDef, type ToolName } from "./definition";
-import { askReason, readReason, readReasonArgs, type ReasonArgs, type Reasoned } from "./reason";
+import { askReason, estimateReasonUsd, readReason, readReasonArgs, type ReasonArgs, type Reasoned } from "./reason";
 import { needsReasoning } from "./planRules";
 import { runInSandbox, DEFAULT_TIME_MS } from "./sandbox";
 import { DATA_RULE, wrapData } from "./untrusted";
@@ -141,6 +141,8 @@ export interface CallContext {
 
 export interface ToolHost {
   call(step: AgentStep, tool: ToolName, args: unknown, approval?: { answer: string | null }, ctx?: CallContext): Promise<unknown>;
+  // SERV answered a step's call to judge (serv.reason): an item is judged.
+  judged?(): Promise<void>;
 }
 
 // One item's verdict, from a decision over a list: the item's place in the
@@ -160,7 +162,9 @@ export type Decided =
 // ended there, having sent nothing. noted: it got to the end, but a side
 // step (one nothing after it reads, like noting where it got to) failed or
 // was stopped.
-export type EndCause = "end" | "logic" | "limit" | "stop" | "declined" | "infra" | "blocked" | "skipped" | "noted";
+// budget: it stopped before a call to SERV would take it over a spend
+// limit or its model budget, with what it had done saved.
+export type EndCause = "end" | "logic" | "limit" | "stop" | "declined" | "infra" | "blocked" | "skipped" | "noted" | "budget";
 
 export type EngineResult =
   | { kind: "end"; status: "done" | "failed" | "stopped"; cause: EndCause; reason: string }
@@ -183,16 +187,22 @@ export interface EngineOptions {
   // Checked before each step: why the run must stop now (the owner stopped it).
   shouldStop?: () => Promise<string | null>;
   // Checked before each model call: why it may not spend now (a daily cap).
-  canSpend?: () => Promise<string | null>;
+  // With the next call's estimated cost (USD) when there is one: a limit
+  // it would go over, said as a clean stop.
+  canSpend?: (estimateUsd?: number) => Promise<string | null>;
   // Screens a decision or code step's untrusted inputs before it runs (the
   // prompt guard): a question for the renter when something looks like an
   // attempt to give the agent instructions, else null.
   screen?: (step: AgentStep, input: Record<string, unknown>, untrusted: string[], sources: string[]) => Promise<{ question: string; reason: string } | null>;
   // Before a decision's model call: whether the week's model budget allows
   // it (a question for the renter when it would go over, or why it stops).
-  budget?: () => Promise<{ ask: { question: string; reason: string } } | { stop: string } | null>;
+  // With the next call's estimated cost (USD) when there is one.
+  budget?: (estimateUsd?: number) => Promise<{ ask: { question: string; reason: string } } | { stop: string } | null>;
   // How often one job may start the same step (a loop stops there).
   maxVisits?: number;
+  // The most calls to SERV's reasoning one run may make (an agent judging
+  // a feed's few new items): past it, the run stops cleanly.
+  maxReasons?: number;
   // Hand failures outside the agent back to be tried again (jobs), rather
   // than ending the run (the bench).
   retryInfra?: boolean;
@@ -309,6 +319,29 @@ export function nothingToDo(step: ActionStepDef, input: Record<string, unknown>)
   return Array.isArray(list) && list.length === 0;
 }
 
+// A message to the owner with nothing in it: none made, or empty text.
+function emptyMessage(step: ActionStepDef, input: Record<string, unknown>): boolean {
+  if (!step.inputs[0]) return false;
+  const v = input[step.inputs[0]];
+  const text = typeof v === "string" ? v : v && typeof v === "object" ? (v as { text?: unknown }).text : null;
+  return v === null || v === undefined || (typeof text === "string" ? !text.trim() : typeof v === "object" && text === undefined && Object.keys(v as object).length === 0);
+}
+
+// A decision about whether there is anything new to look at, not about
+// what was found: its "no" ends a run quietly.
+const NOTHING_NEW = /\b(?:any(?:thing)? new|new (?:commits?|items?|rows?|changes?|posts?|responses?|orders?|pull requests?|issues?)|(?:has|have) (?:it |anything |they )?changed|any changes|changes since|since (?:the )?last|already (?:checked|seen|judged))\b/i;
+
+// The short message a run that judged and found nothing sends. An agent
+// made to speak up only when something happens (an alert: "tell me when
+// the price drops below my target") stays quiet instead.
+export const ALL_CLEAR = (name: string) => `All clear: ${name} checked and found nothing wrong.`;
+const ONLY_WHEN = /\bonly (?:when|if)\b[^.]*\b(?:found|finds|wrong|problems?|issues?|violations?|errors?|fails?|failing|changes?|new|low|over|under|above|below|drops?|rises?)\b|\b(?:stay|stays|keep|keeps|remain|remains) (?:quiet|silent)\b|\bnothing (?:is )?sent\b|\b(?:alert|alerts|tell|tells|notify|notifies|ping|pings|warn|warns|message|messages|let)\s+(?:me|you|the owner|its owner|them)\b[^.]*\bwhen(?:ever)?\b|\bwhen(?:ever)?\b[^.]*\b(?:drops?|falls?|rises?|goes|gets|climbs?|dips?)\s+(?:below|above|under|over|to|past)\b/i;
+// Whether the steps say to tell the owner only when something is found.
+function onlyWhenFound(d: AgentDefinition, step: ActionStepDef): boolean {
+  const words = [d.job.does, d.job.done, ...d.steps.filter((s) => s.kind === "code" && s.outputs.includes(step.inputs[0] ?? "")).map((s) => (s.kind === "code" ? s.description : ""))].join(" ");
+  return ONLY_WHEN.test(words);
+}
+
 // Arguments compared for a replay: the same call, whatever the key order.
 function same(a: unknown, b: unknown): boolean {
   const norm = (v: unknown): unknown =>
@@ -317,6 +350,12 @@ function same(a: unknown, b: unknown): boolean {
 }
 
 const DIVERGED = "It went a different way when it ran again, so it was stopped before anything could happen twice.";
+
+// A run stopped before a call to SERV would take it over its own spend
+// limit: what it had done is kept.
+export const SAVED = "What it had done is saved, so its next run picks up from there.";
+export const REASONS_STOP = (most: number) => `It stopped after ${most} calls to SERV, the most one run of it makes (one a new item, a few at a time). ${SAVED}`;
+export const RUN_LIMIT_STOP = (limit: number, estimate: number) => `It stopped before its next call to SERV (about $${estimate < 0.001 ? estimate.toFixed(4) : estimate.toFixed(3)}) would take it over its spend limit of $${limit} for one run. ${SAVED}`;
 
 // A judgement or words for people made without SERV.
 const GUESSES = "It made its judgement or wrote its words without asking SERV, so it would only be a guess.";
@@ -446,6 +485,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         // It did something the owner can see: a side step failing after
         // this leaves the job done, with a note.
         if (SIDE_EFFECT_TOOLS.includes(tool)) state.acted = true;
+        if (tool === "telegram.send") state.told = true;
         state.journal[i] = { tool, args, result: result ?? null, ...(prior?.approval ? { approval: prior.approval } : {}) };
         await o.save?.(state);
         emit(result, null);
@@ -499,9 +539,14 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       };
       const read = readReasonArgs(args);
       if (!read.ok) return fail(read.error);
-      if (state.costUsd >= d.limits.maxSpendUsd) return { kind: "halted", reason: `It reached its spend limit of $${d.limits.maxSpendUsd}.`, cause: "limit" };
-      const no = (await o.canSpend?.()) ?? null;
-      if (no) return { kind: "halted", reason: no, cause: "limit" };
+      // What this call will likely cost, before it is made: one that would
+      // take the run over a limit or its budget isn't made, and the run
+      // stops cleanly here, with what it had done (and saved) kept.
+      if (o.maxReasons !== undefined && (state.reasons ?? 0) >= o.maxReasons) return { kind: "halted", reason: REASONS_STOP(o.maxReasons), cause: "budget" };
+      const estimate = estimateReasonUsd(read.args);
+      if (state.costUsd + estimate > d.limits.maxSpendUsd) return { kind: "halted", reason: RUN_LIMIT_STOP(d.limits.maxSpendUsd, estimate), cause: "budget" };
+      const no = (await o.canSpend?.(estimate)) ?? null;
+      if (no) return { kind: "halted", reason: no, cause: "budget" };
       if (o.budget && !state.budgetOk) {
         if (prior?.tool === BUDGET) {
           if (!prior.approval || !isYesAnswer(prior.approval.answer)) {
@@ -509,8 +554,8 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
           }
           state.budgetOk = true;
         } else {
-          const b = await o.budget();
-          if (b && "stop" in b) return { kind: "halted", reason: b.stop, cause: "limit" };
+          const b = await o.budget(estimate);
+          if (b && "stop" in b) return { kind: "halted", reason: b.stop, cause: "budget" };
           if (b && "ask" in b) {
             state.journal[i] = { tool: BUDGET, args: { step: step.id }, waiting: true };
             await o.save?.(state);
@@ -523,8 +568,10 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       spent += r.costUsd;
       if (!r.ok) return fail(r.error, r.infra);
       usedModel = r.model;
+      state.reasons = (state.reasons ?? 0) + 1;
       state.journal[i] = { tool: REASON_TOOL, args, result: r.result };
       await o.save?.(state);
+      await o.tools.judged?.();
       emit(r.result, null);
       return { kind: "ok", result: r.result };
     };
@@ -555,8 +602,11 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
     }
 
     // A step that judges or writes, at the top of the run, with nothing to
-    // work on: the run is skipped there, and nothing is sent.
-    const hollowInput = judgesOrWrites(step) && !loops.inside.get(step.id) ? dataInputs(d, step).find((k) => thin(input[k])) : undefined;
+    // work on: the run is skipped there, and nothing is sent. Only what it
+    // was to look at counts (what was read, what came in): a judgement's
+    // own result, empty, means nothing was found, and the step goes on to
+    // say so.
+    const hollowInput = judgesOrWrites(step) && !loops.inside.get(step.id) ? dataInputs(d, step).find((k) => !judgedValue(d, k) && thin(input[k])) : undefined;
     if (hollowInput) {
       done("ok", null, null, "Skipped: empty input.");
       return end("done", "skipped", `Skipped, empty input: "${step.title}" had nothing to work on (${hollowInput.replace(/_/g, " ")} was empty), so nothing was sent.`);
@@ -603,7 +653,10 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         call: async (tool, args) => {
           const index = cursor;
           const r = await invoke(tool, args);
-          if (r.kind === "ok" && tool === REASON_TOOL) reasoned += 1;
+          if (r.kind === "ok" && tool === REASON_TOOL) {
+            reasoned += 1;
+            state.judged = (state.judged ?? 0) + 1;
+          }
           if (r.kind === "ok") return r.result;
           if (r.kind === "declined") {
             // In code, a question nobody answered in time is a null answer.
@@ -692,6 +745,9 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       }
       if (step.outputs[0] && loops.inside.get(step.id)) state.bag[step.outputs[0]] = { outcome: way.id, label: way.label, reason: "" };
       done("ok", { outcome: way.id, label: way.label }, way.id, null);
+      // A comparison that ends the run (the price isn't low yet) ends it
+      // quietly: nothing was found to say, by design.
+      if (way.next === null && !loops.inside.get(step.id)) state.quiet = true;
       next = way.next;
     } else if (step.kind === "decision") {
       if (!o.dryRun && state.costUsd >= d.limits.maxSpendUsd) {
@@ -749,6 +805,8 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
         if (r.infra && o.retryInfra) return { kind: "retry", reason: r.reason };
         return end("failed", r.infra ? "infra" : "logic", r.reason);
       }
+      // A judgement made (an empty list needed none).
+      if (!listed || listed.length) state.judged = (state.judged ?? 0) + 1;
       if (step.each) {
         const verdicts = r.verdicts ?? [];
         if (step.outputs[0]) {
@@ -768,6 +826,8 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
           taint(step.outputs[0], sourcesOf(step.inputs.filter((k) => untrusted.has(k))));
         }
         done("ok", { outcome: outcome.id, label: outcome.label }, outcome.id, r.note, r.costUsd, r.model);
+        // Nothing new to look at, decided: the run ends quietly.
+        if (outcome.next === null && !loops.inside.get(step.id) && NOTHING_NEW.test(`${step.title} ${step.prompt}`)) state.quiet = true;
         next = outcome.next;
       }
     } else if (step.kind === "loop") {
@@ -815,7 +875,12 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       // Nothing to do: the code step before it left its input empty (no new
       // rows, nothing to report), so it is skipped and the run goes on. This
       // is how code, not a decision, says there was nothing to go through.
-      if (nothingToDo(step, input)) {
+      // A message with nothing in it after a judgement that ran (SERV
+      // looked and found nothing wrong) is an all-clear, never silence;
+      // unless the steps say to tell the owner only when something is found.
+      const allClear = action.tool === "telegram.send" && (state.judged ?? 0) > 0 && !state.quiet && emptyMessage(step, input) && !onlyWhenFound(d, step) ? ALL_CLEAR(d.name) : null;
+      if (allClear) input[step.inputs[0]!] = { text: allClear };
+      else if (nothingToDo(step, input) || (action.tool === "telegram.send" && emptyMessage(step, input))) {
         if (step.outputs[0]) state.bag[step.outputs[0]] = null;
         done("ok", null, null, "Nothing to do, so it was skipped.");
         state.at = passOn(step.next);
@@ -879,6 +944,25 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
     flush();
     await o.save?.(state);
   }
+  // A run that judged something and told its owner nothing (a judgement
+  // found nothing wrong and the run ended there) says so: a short
+  // all-clear, never silence; unless its steps say to tell them only when
+  // something is found.
+  const say = d.actions.find((a) => a.tool === "telegram.send");
+  const sender = say ? d.steps.find((s): s is ActionStepDef => s.kind === "action" && s.action === say.id) : undefined;
+  if (sender && !state.told && !state.quiet && (state.judged ?? 0) > 0 && !state.notes?.length && !onlyWhenFound(d, sender)) {
+    const args = { text: ALL_CLEAR(d.name) };
+    state.told = true;
+    await o.save?.(state);
+    try {
+      const result = await o.tools.call(sender, "telegram.send", args, undefined, { inputs: {}, untrusted: [], callKey: `${state.steps}:all-clear` });
+      state.acted = true;
+      o.onEvent({ type: "tool", stepId: sender.id, tool: "telegram.send", args, result: result ?? null, error: null });
+    } catch (err) {
+      // Held for a yes or refused: the run itself still did its work.
+      o.onEvent({ type: "tool", stepId: sender.id, tool: "telegram.send", args, result: null, error: errorText(err, "It couldn't send the all-clear.") });
+    }
+  }
   // A side step didn't go through: done with a note when the run did what
   // it was for, and failed when it did nothing else.
   if (state.notes?.length) {
@@ -902,6 +986,27 @@ function judgesOrWrites(step: AgentStep): boolean {
 function dataInputs(d: AgentDefinition, step: AgentStep): string[] {
   const messages = d.triggers.some((t) => t.kind === "message");
   return step.inputs.filter((k) => k !== "settings" && k !== "rules" && k !== "memory" && (k !== "trigger" || messages));
+}
+
+// A value a judgement made, or one made from such a value: what a model
+// decided, what a code step that asks SERV returned, what a loop gathered
+// from them, what code counted or summed from them. Empty, it means
+// nothing was found, never that there was nothing to look at.
+export function judgedValue(d: AgentDefinition, key: string, seen = new Set<string>()): boolean {
+  if (seen.has(key)) return false;
+  seen.add(key);
+  const maker = d.steps.find((s) => s.outputs.includes(key));
+  if (!maker) return false;
+  if (maker.kind === "decision") return true;
+  if (maker.kind === "loop") {
+    const g = maker.gather.find((x) => x.into === key);
+    return Boolean(g && judgedValue(d, g.from, seen));
+  }
+  if (maker.kind !== "code") return false;
+  if (maker.tools.includes(REASON_TOOL) || needsReasoning(maker)) return true;
+  // Code that only works on what was judged (a count, a summary of it).
+  const made = maker.inputs.filter((k) => !(RUN_VALUES as readonly string[]).includes(k));
+  return !maker.tools.some((t) => t !== "memory.get") && made.length > 0 && made.every((k) => judgedValue(d, k, seen));
 }
 
 // Keys that say where a value came from or which one it is, not what it

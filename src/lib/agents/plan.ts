@@ -8,7 +8,7 @@ import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAM
 import { TOOLS } from "./toolbox";
 import { typeformLinkIn } from "../typeform/api";
 import { planProblems } from "./planRules";
-import { askedFirst, askForForm, askForMissing, askForSheet, askServToReason, columnsByName, dropUnasked, fixSetup, keepRowNumbers, mergeSameActions, repairPlan, toCatalogTools, type RawStep } from "./planRepairs";
+import { askedFirst, askForForm, askForMissing, askForSheet, askServToReason, columnsByName, dropMadeUp, dropUnasked, fixSetup, keepPlaceByDate, keepRowNumbers, mergeSameActions, repairPlan, toCatalogTools, type RawStep } from "./planRepairs";
 import { actingSteps, askPurpose, leaveOut, readPurpose } from "./purpose";
 import { rulesText } from "./lessonRules";
 import { servicesPrompt } from "./servicesPrompt";
@@ -191,7 +191,7 @@ function nextIds(step: unknown): string[] {
 export function wireToDefinition(w: Wire): unknown {
   const steps = arr(w.steps).map((x) => {
     const st = x as Wire;
-    const base = { id: s(st.id), title: s(st.title), ...(s(st.plain) ? { plain: s(st.plain).slice(0, 200) } : {}), inputs: arr(st.inputs).map(s), outputs: arr(st.outputs).map(s) };
+    const base = { id: s(st.id), title: s(st.title), ...(s(st.plain) ? { plain: s(st.plain).slice(0, 200) } : {}), inputs: arr(st.inputs).map(s).filter(Boolean), outputs: arr(st.outputs).map(s).filter(Boolean) };
     // Each output's shape: in the outputs' order on the wire, by name in a
     // plan already read.
     const shapes = Array.isArray(st.shapes)
@@ -516,6 +516,9 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: st
   }
   const list = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
   if (Array.isArray(d.settings)) (d as { settings: unknown }).settings = fixSetup(d.settings as { key: string; label?: string; type: unknown }[]);
+  // Settings no one gave (a rule the maker never said, one nothing it
+  // reads can measure) go, with the sentences that use them.
+  if (o.owner !== undefined || o.said !== undefined) dropMadeUp(d, [o.said ?? "", o.owner ?? ""].join("\n"));
   // Columns by their names, never by a setting or rule that names them.
   const drop = columnsByName(d.steps as RawStep[], { settings: list(d.settings).map((x) => ({ key: s(x.key), label: s(x.label), given: s(x.given) })), rules: list(d.rules).map((x) => ({ key: s(x.key), label: s(x.label), value: s(x.value) })) });
   if (drop.settings.length) (d as { settings: unknown }).settings = list(d.settings).filter((x) => !drop.settings.includes(s(x.key)));
@@ -550,6 +553,10 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: st
   }
   // Judgement or words only a model can give: SERV, at run time.
   askServToReason(d.steps as RawStep[], d as { limits?: unknown });
+  // New items from a feed: a few a run, after a date it remembers, its
+  // place saved after each item.
+  const kept = d as { memory?: unknown };
+  if (Array.isArray(kept.memory)) kept.memory = keepPlaceByDate(d.steps as RawStep[], list(kept.memory) as { key: string; type?: unknown; description?: string }[]);
   // Rows written back keep their numbers from the read on.
   keepRowNumbers(d.steps as RawStep[], { actions: list(d.actions).map((x) => ({ id: s(x.id), tool: x.tool, description: s(x.description) })) });
   // A service of the catalog fetched with web.fetch: its own tool instead.

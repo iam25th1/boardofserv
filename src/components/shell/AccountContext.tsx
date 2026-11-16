@@ -22,6 +22,14 @@ export function useShellAccount(): AccountState {
   return useContext(AccountCtx);
 }
 
+// The owner's time zone, wherever a page shows or sets one: the account's
+// (their browser's, or the one they chose), else this browser's until the
+// account has loaded.
+export function useOwnerZone(): string {
+  const { account } = useShellAccount();
+  return account?.timezone || browserZone() || "UTC";
+}
+
 export function AccountProvider({ children }: { children: React.ReactNode }) {
   if (!privyAppId()) return <AccountCtx.Provider value={{ account: null, signedIn: false, refresh: async () => {}, setAccount: () => {} }}>{children}</AccountCtx.Provider>;
   return <WithPrivy>{children}</WithPrivy>;
@@ -44,18 +52,19 @@ function WithPrivy({ children }: { children: React.ReactNode }) {
     if (!ready) return;
     void refresh();
   }, [ready, refresh]);
-  // The browser's time zone is the account's: saved whenever it differs,
-  // so agents' times and tests go by it, never the server's.
+  // The browser's time zone is the account's: saved at sign in and
+  // whenever it differs, so agents' times and tests go by it, never the
+  // server's; until its owner chooses one in their settings, which stays.
   useEffect(() => {
-    if (!account) return;
+    if (!account || account.timezoneChosen) return;
     const zone = browserZone();
-    if (zone && zone !== account.timezone) void api.setTimezone(zone).then(() => setAccount((a) => (a ? { ...a, timezone: zone } : a)), () => undefined);
+    if (zone && zone !== account.timezone) void api.setTimezone(zone).then((r) => setAccount((a) => (a ? { ...a, timezone: r.timezone, timezoneChosen: r.chosen } : a)), () => undefined);
   }, [account, api]);
   const value = useMemo(() => ({ account, signedIn, refresh, setAccount: setAccount as AccountState["setAccount"] }), [account, signedIn, refresh]);
   return <AccountCtx.Provider value={value}>{children}</AccountCtx.Provider>;
 }
 
-function browserZone(): string | null {
+export function browserZone(): string | null {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
   } catch {

@@ -184,6 +184,8 @@ export function useApi() {
         json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ modelBudget }) }).then((d) => d.installation),
       controlInstallation: (id: string, action: "pause" | "resume" | "stop" | "run" | "test" | "golive") =>
         json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}/control`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.installation),
+      // Switch the owner's own copy to the newest version of its agent.
+      switchVersion: (id: string) => json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}/version`, { method: "POST" }).then((d) => d.installation),
       listAgentMessages: (id: string) => json<{ messages: AgentMessageDTO[] }>(`/api/installations/${encodeURIComponent(id)}/messages`).then((d) => d.messages),
       messageAgent: (id: string, text: string) =>
         json<{ message: AgentMessageDTO }>(`/api/installations/${encodeURIComponent(id)}/messages`, { method: "POST", body: JSON.stringify({ text }) }).then((d) => d.message),
@@ -195,7 +197,9 @@ export function useApi() {
         json<{ agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/fix`, { method: "POST", body: JSON.stringify({ step }) }).then((d) => d.agent),
       // "Show details" on the agent page, kept for this maker.
       setAgentDetails: (on: boolean) => json<{ agentDetails: boolean }>("/api/account/details", { method: "PUT", body: JSON.stringify({ on }) }).then((d) => d.agentDetails),
-      setTimezone: (timezone: string) => json<{ timezone: string }>("/api/account/timezone", { method: "PUT", body: JSON.stringify({ timezone }) }),
+      // chosen: picked in settings (true), back to the browser's (false), or
+      // left out for what the browser says.
+      setTimezone: (timezone: string, chosen?: boolean) => json<{ timezone: string; chosen: boolean }>("/api/account/timezone", { method: "PUT", body: JSON.stringify({ timezone, ...(chosen === undefined ? {} : { chosen }) }) }),
       // "Test it": one run on sample data made from the plan, as a story.
       testAgent: (id: string, o: { journey?: boolean } = {}) =>
         json<{ test: TestResult; agent: AgentSummaryDTO }>(`/api/agents/${encodeURIComponent(id)}/test`, { method: "POST", ...(o.journey ? { body: JSON.stringify({ journey: true }) } : {}) }),

@@ -48,6 +48,42 @@ export function reasonFields(args: ReasonArgs): Record<string, ReasonType> {
   return args.answer && Object.keys(args.answer).length ? args.answer : { text: "text" };
 }
 
+// What a step hands SERV is cut to a size (the longest texts first, a
+// commit's patches, each to its share), so one call costs about the same
+// whatever the item: a commit of fifty files is judged on the start of
+// each file's changes, not sent whole.
+export const REASON_DATA_CAP = 8_000;
+const CUT = " [cut]";
+export function trimData(value: unknown, cap = REASON_DATA_CAP): unknown {
+  let text = JSON.stringify(value ?? null) ?? "null";
+  if (text.length <= cap) return value;
+  let out: unknown = JSON.parse(text);
+  for (let round = 0; round < 8 && text.length > cap; round++) {
+    const lengths: number[] = [];
+    const walk = (v: unknown): void => {
+      if (typeof v === "string" && v.length > 80) lengths.push(v.length);
+      else if (Array.isArray(v)) v.forEach(walk);
+      else if (v && typeof v === "object") Object.values(v).forEach(walk);
+    };
+    walk(out);
+    if (!lengths.length) break;
+    const total = lengths.reduce((a, b) => a + b, 0);
+    const over = text.length - cap + CUT.length * lengths.length;
+    const cut = (v: unknown): unknown => {
+      if (typeof v === "string" && v.length > 80) {
+        const keep = Math.max(80, Math.floor(v.length - (over * v.length) / total));
+        return keep < v.length ? `${v.slice(0, keep).trimEnd()}${CUT}` : v;
+      }
+      if (Array.isArray(v)) return v.map(cut);
+      if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, cut(x)]));
+      return v;
+    };
+    out = cut(out);
+    text = JSON.stringify(out);
+  }
+  return out;
+}
+
 export function reasonRequest(args: ReasonArgs): string {
   const fields = reasonFields(args);
   return [
@@ -59,7 +95,7 @@ export function reasonRequest(args: ReasonArgs): string {
       .map(([k, t]) => `${k} (${t === "list" ? "a list of short texts" : t})`)
       .join(", ")}.`,
     "",
-    wrapData("the values the step works from", args.data ?? null, 16000),
+    wrapData("the values the step works from", trimData(args.data ?? null), 16000),
   ].join("\n");
 }
 
@@ -99,4 +135,14 @@ export function readReason(args: ReasonArgs, call: JsonResult): Reasoned {
     out[k] = typeof v === "string" ? fixDashes(v).slice(0, 4000) : Array.isArray(v) ? (v as string[]).map((x) => fixDashes(x).slice(0, 1000)) : v;
   }
   return { ok: true, result: out, costUsd, model: call.model };
+}
+
+// What one call is likely to cost, before it is made: what it sends (about
+// 3.5 characters a token, its system message with it) and what its answer
+// takes (by the fields asked for), at SERV's rates, in USD.
+export function estimateReasonUsd(args: ReasonArgs): number {
+  const price = modelPrices().serv;
+  const input = Math.ceil((REASON_SYSTEM.length + reasonRequest(args).length) / 3.5);
+  const output = 60 + Object.values(reasonFields(args)).reduce((n, t) => n + (t === "list" ? 400 : t === "text" ? 300 : 20), 0);
+  return (input * price.input + output * price.output) / 1_000_000;
 }

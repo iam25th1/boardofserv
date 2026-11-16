@@ -7,6 +7,8 @@ import { Button } from "@/components/ui";
 import { ApprovalCard } from "./ApprovalCard";
 import { jobWord } from "@/lib/jobWords";
 import styles from "./JobTimeline.module.css";
+import { useOwnerZone } from "@/components/shell/AccountContext";
+import { inZone } from "@/lib/ownerTime";
 
 // A job, step by step, as a chalk timeline: a line down the side, each step
 // a mark on it (a square for code, a diamond for a decision, a circle for
@@ -59,6 +61,7 @@ function Value({ label, value, untrusted }: { label: string; value: unknown; unt
 }
 
 export function JobTimeline({ initial, api }: { initial: JobDTO; api: JobApi }) {
+  const zone = useOwnerZone();
   const [job, setJob] = useState(initial);
   const [open, setOpen] = useState<number | null>(null);
   const listRef = useRef<HTMLOListElement>(null);
@@ -125,7 +128,7 @@ export function JobTimeline({ initial, api }: { initial: JobDTO; api: JobApi }) 
         <div>
           <h1>{job.agentName}</h1>
           <p className={styles.quiet}>
-            Started {job.started}, {new Date(job.createdAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}, version {job.version}
+            Started {job.started}, {inZone(job.createdAt, zone, { weekday: "short", hour: "numeric", minute: "2-digit" })}, version {job.version}
           </p>
         </div>
         <span className={styles.status} data-status={job.status}>

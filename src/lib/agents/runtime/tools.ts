@@ -32,11 +32,15 @@ import { fetchPage, WebUnreachable } from "./webFetch";
 import { canWrite, secretOf, touch as touchConnection, type ServiceSecret } from "../../connections/vault";
 import { entryOf, needsConnecting, serviceName } from "../../connections/catalog";
 import { callService, ServiceRefused, ServiceUnreachable, type ServiceAnswer, type ServiceCall } from "../../connections/request";
-import { callKey, typedRead } from "../../connections/reads";
+import { callKey, isDateText, typedRead } from "../../connections/reads";
 import { allowance, cachedRead, keepRead, limited, LOW_PUBLIC_READS, noteAllowance, shouldTell } from "../../connections/publicReads";
 import { parseFeed } from "../../connections/feed";
 import { formIdOf, formResponses, TypeformError } from "../../typeform/api";
 import { sourceProblem, sourceRefusal } from "../sources";
+import { DATE_CURSOR, NEW_PER_RUN } from "../planRepairs";
+
+// Where a reading step says it keeps its place (planRepairs.ts firstRunNote).
+const FIRST_RUN = /and keeps memory\.([a-z][a-z0-9_]*) itself/;
 import { errorText } from "../../db/errors";
 
 // A job's tools (and a value check's, with no job). Sheets are real: the
@@ -72,6 +76,30 @@ export function writesIn(kind: "graphql" | "jsonrpc", body: unknown): string | n
   return methods.every((m) => /^(?:eth_|alchemy_|net_|web3_)/.test(m) && !/send|sign|submit|install|uninstall|personal_/i.test(m)) ? null : "service.request only reads the chain: a call that sends or signs is never made.";
 }
 
+// A job of an agent that keeps its place (it declares memory) or judges
+// what it reads (it asks SERV) reads new items from a feed (a repository's
+// commits, pull requests or issues) a few a run: with no since (its first
+// run) the latest NEW_PER_RUN from the last 24 hours, whichever is fewer;
+// with since, the oldest NEW_PER_RUN that came after it (so the next run,
+// from the newest of those, misses none). Listed newest first, as GitHub
+// lists them.
+const FEED_OPS = ["commits", "pulls", "issues"];
+// An agent that reads a feed's items (a repository's commits, pull
+// requests or issues).
+export function readsFeed(d: Pick<AgentDefinition, "steps">): boolean {
+  return d.steps.some((st) => st.kind === "code" && st.tools.includes("github.read"));
+}
+export function feedArgs(tool: ToolName, args: Record<string, unknown>, keepsPlace: boolean): Record<string, unknown> | null {
+  if (!keepsPlace || tool !== "github.read" || !FEED_OPS.includes(String(args.op))) return null;
+  return typeof args.since === "string" && args.since ? { ...args, limit: 100 } : { ...args, limit: Math.min(Number(args.limit ?? NEW_PER_RUN), NEW_PER_RUN) };
+}
+export function feedItems<T extends Record<string, unknown>>(items: T[], o: { since: string | null; now: number }): T[] {
+  const at = (x: T) => Date.parse(String(x.date ?? x.created_at ?? ""));
+  if (!o.since) return items.filter((x) => at(x) >= o.now - 24 * 3_600_000).slice(0, NEW_PER_RUN);
+  const since = Date.parse(o.since);
+  return items.filter((x) => at(x) > since).slice(-NEW_PER_RUN);
+}
+
 // A write through a connection whose owner switched writing off.
 export const WRITES_OFF = (name: string) => `Writing to ${name} is switched off on Connections, so nothing was written. Turn it on there to let your agents write.`;
 
@@ -84,6 +112,9 @@ export const isYes = (answer: string | null) => answer !== null && /^\s*(yes|y|o
 
 export class JobTools implements ToolHost {
   private mock: MockTools | null = null;
+  // Where this job's feed read got to: the items it gave, the ones judged,
+  // and the one being judged now (its changes read last).
+  private feedRun: { key: string | null; items: { id: string; date: string }[]; done: Set<string>; read: string[] } | null = null;
   // The guard's answers in this run, by call: the same call is checked once.
   private checked = new Map<string, GuardResult>();
   // The checks whose model cost is in the audit log already.
@@ -309,6 +340,19 @@ export class JobTools implements ToolHost {
     }
     const risk = riskOf(this.definition, step, tool);
     if (risk === "read") return this.use(step, tool, args);
+    if (tool === "memory.set") this.placeOnly(tool, String((args as { key?: unknown } | null)?.key ?? ""), (args as { value?: unknown } | null)?.value ?? null);
+    // The agent noting its place, a date, in a field it declares needs no
+    // model call of the guard's, unless its owner asked to approve it:
+    // saved after each item, it would cost a call each. Anything else it
+    // remembers is checked as any write is.
+    const place = tool === "memory.set" ? (args as { value?: unknown } | null)?.value : null;
+    if (typeof place === "string" && isDateText(place) && !approval && !readPolicy(this.installation.policy).askFor.includes(tool)) {
+      const noted = describeCall(tool, args);
+      await this.limited(step, tool, risk, noted);
+      const kept = await this.use(step, tool, args);
+      await this.logged(step, tool, risk, noted, { outcome: "ran", approvedBy: "rules" });
+      return kept;
+    }
     // Anything that changes, says or spends something waits for the
     // renter's yes when the platform's floor or their own settings say so,
     // or when spending would take the job's or the day's total over a
@@ -596,7 +640,7 @@ export class JobTools implements ToolHost {
   // owner's switch on. What comes back is the service's data, untrusted.
   private async service(tool: ToolName, args: unknown): Promise<unknown> {
     const parsed = TOOL_ARGS[tool].safeParse(args);
-    if (!parsed.success) throw new ToolError(tool, `${tool} was called wrongly: ${parsed.error.issues.map((i) => `${i.path.join(".") || "arguments"} ${i.message.toLowerCase()}`).join("; ")}.`);
+    if (!parsed.success) throw new ToolError(tool, `${tool} was called wrongly: ${parsed.error.issues.map((i) => `${i.path.join(".") || "arguments"} ${i.message.charAt(0).toLowerCase()}${i.message.slice(1)}`).join("; ")}.`);
     const typed = typedRead(tool);
     const a = parsed.data as { connection?: string; path?: string; query?: Record<string, string | number | boolean>; body?: unknown; url?: string; method?: "POST" | "PUT" | "PATCH" | "DELETE" };
     const entry = entryOf(typed ? typed.service : (a.connection ?? ""));
@@ -615,7 +659,17 @@ export class JobTools implements ToolHost {
     // told to connect GitHub.
     const shared = !secret && entry.id === "github" && tool !== "service.send";
     const now = this.rt.now().getTime();
-    const readKey = callKey(tool, parsed.data);
+    // New items from a feed, a few a run, for a job that keeps its place.
+    const capped = this.definition.memory.length > 0 || this.definition.steps.some((st) => st.kind === "decision" || (st.kind === "code" && st.tools.includes("serv.reason")));
+    const feed = this.job ? feedArgs(tool, parsed.data as Record<string, unknown>, capped) : null;
+    // After its first run: what came after the date it remembers, whether
+    // or not the code asked for it.
+    const place = feed && !feed.since ? await this.place() : null;
+    if (feed && place) Object.assign(feed, { since: place, limit: 100 });
+    // An item's changes read: the one before it is judged.
+    if (typed && !feed && tool === "github.read") await this.itemTaken(String((parsed.data as { sha?: unknown; number?: unknown }).sha ?? (parsed.data as { number?: unknown }).number ?? ""));
+    const asked = feed ?? parsed.data;
+    const readKey = callKey(tool, asked);
     const kept = shared ? cachedRead(readKey, now) : null;
     if (shared && !kept) {
       const a = allowance(now);
@@ -627,7 +681,7 @@ export class JobTools implements ToolHost {
     const limit = this.rt.services.caps.serviceCalls ?? DEFAULT_SERVICE_CALLS;
     if (!kept && !(await this.take(`service:${entry.id}`, limit))) throw new ToolError(tool, `It reached its limit of ${limit} ${entry.name} calls today.`);
     let call: ServiceCall;
-    if (typed) call = typed.request(parsed.data as never);
+    if (typed) call = typed.request(asked as never);
     else if (tool === "service.request") {
       const post = a.body !== undefined && a.body !== null && entry.postReads;
       if (a.body !== undefined && a.body !== null && !entry.postReads) throw new ToolError(tool, "service.request only reads (a GET): sending a body is a write, made with service.send.");
@@ -664,8 +718,78 @@ export class JobTools implements ToolHost {
     if (got.status === 429 || got.status >= 500) throw new InfraError(`${entry.name} ${got.status === 429 ? "is busy (too many calls just now)" : `answered ${got.status}`}; it tries again later.`);
     if (entry.id === "rss" && typeof got.data === "string") return { status: got.status, data: parseFeed(got.data) ?? got.data };
     if (!typed) return got;
-    if (got.status >= 200 && got.status < 300) return typed.shape(got.data, parsed.data as never);
+    if (got.status >= 200 && got.status < 300) {
+      const shaped = typed.shape(got.data, asked as never) as { items?: Record<string, unknown>[] };
+      if (!feed || !Array.isArray(shaped.items)) return shaped;
+      const items = feedItems(shaped.items, { since: typeof feed.since === "string" ? feed.since : null, now });
+      this.feedRun = { key: this.placeKey(), items: items.map((x) => ({ id: String(x.sha ?? x.number ?? ""), date: String(x.date ?? x.created_at ?? "") })), done: new Set(), read: [] };
+      return { ...shaped, items };
+    }
     throw new ToolError(tool, got.status === 401 || got.status === 403 ? `${entry.name} turned the connection down (${got.status}): check its key on Connections, or that it may read this.` : got.status === 404 ? `${entry.name} has no such item (${got.status}): check what the agent was given.` : `${entry.name} answered ${got.status}.`);
+  }
+
+  // Its place is a date the services take, never a time written for
+  // people ("11/16/2026, 10:31 PM").
+  private placeOnly(tool: ToolName, key: string, value: unknown): void {
+    if (key !== this.placeKey() || value === null || (typeof value === "string" && isDateText(value))) return;
+    throw new ToolError(tool, `"${key}" holds a date, ISO 8601 (like 2026-11-16T09:00:00Z): an item's date, or new Date().toISOString().`);
+  }
+
+  // The memory field an agent keeps its place in: the date of the newest
+  // item it has judged, as its reading step says (planRepairs.ts
+  // keepPlaceByDate).
+  private placeKey(): string | null {
+    const said = this.definition.steps.map((st) => (st.kind === "code" ? FIRST_RUN.exec(st.description)?.[1] : undefined)).find(Boolean);
+    const key = said ?? this.definition.memory.find((m) => m.description === DATE_CURSOR)?.key;
+    return key && this.definition.memory.some((m) => m.key === key && m.type === "text") ? key : null;
+  }
+
+  private async place(): Promise<string | null> {
+    const key = this.placeKey();
+    if (!key) return null;
+    const { value } = (await this.memory("memory.get", { key })) as { value: unknown };
+    return typeof value === "string" && isDateText(value) ? value : null;
+  }
+
+  // An item's changes read: it is next to be judged.
+  private async itemTaken(id: string): Promise<void> {
+    const f = this.feedRun;
+    const item = f && id ? f.items.find((x) => x.id === id || (id.length >= 7 && x.id.startsWith(id))) : undefined;
+    if (f && item && !f.read.includes(item.id)) f.read.push(item.id);
+  }
+
+  // SERV judged something: the first item whose changes were read and
+  // isn't judged yet is.
+  async judged(): Promise<void> {
+    const f = this.feedRun;
+    const next = f?.read.find((id) => !f.done.has(id));
+    if (!f || !next) return;
+    f.done.add(next);
+    await this.keepPlace();
+  }
+
+  // The job did all it was for: every item its feed read gave is judged.
+  async settleFeed(): Promise<void> {
+    const f = this.feedRun;
+    if (!f) return;
+    for (const x of f.items) f.done.add(x.id);
+    await this.keepPlace();
+  }
+
+  // Its place: the date of the newest item judged with every item before
+  // it judged too, whatever order the code went in, saved at once, so a
+  // run that stops part way never judges an item again.
+  private async keepPlace(): Promise<void> {
+    const f = this.feedRun;
+    if (!f?.key) return;
+    let at: string | null = null;
+    for (const x of [...f.items].filter((i) => isDateText(i.date)).sort((a, b) => Date.parse(a.date) - Date.parse(b.date))) {
+      if (!f.done.has(x.id)) break;
+      at = x.date;
+    }
+    const was = await this.place();
+    if (!at || (was && Date.parse(was) >= Date.parse(at))) return;
+    await this.memory("memory.set", { key: f.key, value: at });
   }
 
   // When GitHub's shared public reads come back, in the owner's time.
@@ -703,6 +827,7 @@ export class JobTools implements ToolHost {
     const value = tool === "memory.set" ? ((parsed.data as { value?: unknown }).value ?? null) : null;
     const why = memoryProblem(this.definition.memory, key, value);
     if (why) throw new ToolError(tool, why);
+    this.placeOnly(tool, key, value);
     const here = eq(agentInstallations.id, this.installation.id);
     if (tool === "memory.get") {
       const [row] = await this.rt.db.select({ value: sql<unknown>`${agentInstallations.memory} -> ${key}` }).from(agentInstallations).where(here);

@@ -4,6 +4,10 @@ import { completeJson, DOLPHIN_LABEL, modelConfig, type ChatMessage, type JsonRe
 import { ANSWER_LIMITS } from "../modelLimits";
 import { ARGS_TOOLS, checkDefinition, loopsOf, REASON_TOOL, RUN_VALUES, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
 import { targetProblem, writtenTarget } from "./targets";
+import { argMismatches, mismatchProblem } from "./argKinds";
+import { callsOf, codeLoops, loopsAround, loopSpans } from "./codeShape";
+import { DIFFS_MARK } from "./planRepairs";
+import { brokenRule, PLATFORM_RULES } from "./vetting";
 import { CATALOG } from "../connections/catalog";
 import { OUTSIDE_TOOLS, TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
@@ -43,6 +47,7 @@ export const CODE_PROMPT = [
   "Never write what it works on or who it tells into the code: no repository, address, link, form, wallet, email, channel or coin, and no number to compare against. Read each from input.settings or input.rules, as the step's inputs describe them.",
   "Keep it short, and handle missing or odd values without throwing where you can.",
   "When serv.reason is listed, every judgement or piece of writing the step makes (a score and its reasons, a reply, a line for the day) comes from SERV: call tools.serv.reason({ task, data, answer }) for it (once per item), and return what SERV answered. Never work it out yourself with word counts, lengths, keyword lists or canned text.",
+  "One serv.reason call per item, never one per part of an item: a commit's changed files and their patches go to SERV together, in one call's data (the platform trims long text).",
   "Text it writes for people never uses em dashes: use a colon or a comma.",
   "A sheet's rows (sheets.read) are objects keyed by the sheet's own column headers, exactly as written (row.Name, row[\"Due date\"]), plus _row, the row's number: read each column by its header as the step names it, never lower-cased or renamed.",
   "Dates and times are the owner's: new Date() and its local methods (getDate, getHours, toLocaleDateString) are in their time zone. For today's date use those, never toISOString().slice(0, 10), which is UTC.",
@@ -59,6 +64,7 @@ export const REVIEW_PROMPT = [
   "Approve only if all of these hold: it does what the step says, reading only its inputs and returning an object whose keys are exactly its outputs (never a bare value); a message the step makes for the owner may be the text itself or telegram.send's arguments { text }, either is right; an output an action takes as its tool's arguments has exactly that shape; it calls only the tools listed (the list is exactly what the code calls, so a tool the step's words mention but the code doesn't need is not listed); it does nothing risky (no reaching for the network, files, timers or globals, no endless loops or huge allocations, nothing sent anywhere except through the listed tools).",
   "When serv.reason is listed, the step's judgement or writing must come from tools.serv.reason, not from rules of thumb, word counts, keyword lists or canned text in the code: reject code that works it out itself.",
   "Approving, leave the reason empty. Rejecting, say in one or two plain sentences, in your own words, what to change in this code. Never use em dashes.",
+  `The platform's rules, which code is never rejected for keeping: ${PLATFORM_RULES.filter((r) => r.id !== "reads").map((r) => r.rule).join(" ")}`,
 ].join(" ");
 
 export const REVIEW_SCHEMA = {
@@ -221,6 +227,25 @@ export function checkCode(source: string, step: CodeStepDef, d?: AgentDefinition
     const tool = fetched.tools[0] as ToolName;
     return `It fetches ${fetched.name}'s API with web.fetch: read it with ${tool} instead, its tool here, which needs no address: ${TOOLS[tool].signature}`;
   }
+  // A tool given the wrong kind of value (an id where a date goes).
+  const wrong = argMismatches(source, { memory: d?.memory });
+  if (wrong.length) return mismatchProblem(wrong[0]!);
+  // SERV once per item: never once for each part of each item (every
+  // changed file of every commit), which multiplies a run's cost.
+  const loops = loopSpans(source);
+  const reasons = callsOf(source, REASON_TOOL);
+  if (reasons.some((at) => loopsAround(loops, at).length >= 2)) {
+    return "It asks SERV once for every part of every item (a loop inside a loop): ask once per item, with all of that item's parts (its changed files and their patches) together in data, so a run of 5 items makes 5 calls.";
+  }
+  // Nor once for each changed file, gathered from every item.
+  const perFile = codeLoops(source).filter((l) => /\bfiles?\b|\bpatch(?:es)?\b|\bchanged_?files\b|\bchangedFiles\b/i.test(l.over));
+  if (reasons.some((at) => perFile.some(({ span: [a, b] }) => a < at && at < b))) {
+    return "It asks SERV once for every changed file: ask once per item (a commit or a pull request), with all of its changed files and their patches together in data, so a run of 5 items makes 5 calls.";
+  }
+  // A step told to judge each item on its changes reads them.
+  if (step.description.includes(DIFFS_MARK) && !(callsOf(source, "github.read").length && /\bop\s*:\s*["'`](?:commit|pull)["'`]/.test(source))) {
+    return 'It judges the items without reading their changes: for each item read its changed files with tools.github.read (op "commit" with its sha, or op "pull" with its number, and the repository from input.settings) and give them to serv.reason.';
+  }
   if (d) {
     const target = writtenTarget(source, step, d);
     if (target) return targetProblem(target, step.inputs.includes("settings"));
@@ -363,6 +388,8 @@ export interface Review {
   approved: boolean;
   reason: string;
   result: JsonResult;
+  // A rejection dropped for going against a rule of the platform.
+  dropped?: { rule: string; reason: string };
 }
 
 // SERV's review of one function. A review that couldn't be made is not an
@@ -397,7 +424,15 @@ export async function reviewCode(source: string, step: CodeStepDef, serv: ModelC
   try {
     const parsed = JSON.parse(result.content) as { verdict?: string; reason?: string };
     if (parsed.verdict !== "approve" && parsed.verdict !== "reject") return null;
-    return { approved: parsed.verdict === "approve", reason: (parsed.reason ?? "").trim().slice(0, 500), result };
+    const reason = (parsed.reason ?? "").trim().slice(0, 500);
+    // A rejection that goes against a rule of the platform is wrong about
+    // the platform, not the code: dropped, and logged.
+    const rule = parsed.verdict === "reject" ? brokenRule(reason) : null;
+    if (rule) {
+      console.warn(`agents: a code review's rejection of "${step.title}" went against the platform's ${rule} rule and was dropped: ${reason}`);
+      return { approved: true, reason: "", result, dropped: { rule, reason } };
+    }
+    return { approved: parsed.verdict === "approve", reason, result };
   } catch {
     return null;
   }

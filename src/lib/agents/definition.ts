@@ -177,7 +177,8 @@ export const CodeStep = z.object({
   ...stepBase,
   kind: z.literal("code"),
   // What the code must do, in plain words: the brief Dolphin writes from.
-  description: text(800),
+  // SERV's own words and the platform's notes added to them (planRepairs).
+  description: text(1400),
   tools: z.array(z.enum(TOOL_NAMES)).max(9),
   next: key.nullable(),
 });
@@ -345,6 +346,23 @@ export function setupShapeOf(d: AgentDefinition): SetupShape {
 // their own setup starts.
 export function givenAnswers(d: AgentDefinition): Record<string, string> {
   return Object.fromEntries(d.settings.flatMap((s) => (s.given ? [[s.key, s.given]] : [])));
+}
+
+// Where the owner's setup of a version starts: what they said in the chat
+// for each question, else what they answered for the version running now
+// (the same question, of the same kind), else nothing. Never the sample
+// the test made up (a repository the owner never named).
+export function setupDefaults(d: AgentDefinition, running?: { definition: AgentDefinition; settings: Record<string, unknown> } | null): Record<string, unknown> {
+  const given = givenAnswers(d);
+  const out: Record<string, unknown> = {};
+  for (const s of d.settings) {
+    if (given[s.key]) out[s.key] = given[s.key];
+    else if (running && running.definition.settings.some((r) => r.key === s.key && r.type === s.type)) {
+      const v = running.settings[s.key];
+      if (v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && !v.length)) out[s.key] = v;
+    }
+  }
+  return out;
 }
 
 // Why moving an installation from one version of an agent to another

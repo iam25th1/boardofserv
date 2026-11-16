@@ -196,3 +196,31 @@ describe("Your SERV key", () => {
     expect(screen.getByText("Linked (4821)")).toBeInTheDocument();
   });
 });
+
+describe("Time zone", () => {
+  const zoned = (onSaveTimezone: (tz: string, chosen: boolean) => Promise<void>, o: Partial<AccountDTO> = {}, browserZone = "Europe/Berlin") =>
+    render(<AccountMenu account={{ ...ACCOUNT, timezone: "America/Los_Angeles", timezoneChosen: false, ...o }} onSignOut={() => {}} onSaveTimezone={onSaveTimezone} browserZone={browserZone} startOpen />);
+
+  it("shows what the agents go by, and says when the browser says otherwise, with a way to take it", async () => {
+    const save = vi.fn(async () => {});
+    zoned(save);
+    expect(screen.getByText("America/Los Angeles")).toBeInTheDocument();
+    expect(screen.getByText("From your browser. Your agents' times and runs go by it.")).toBeInTheDocument();
+    expect(screen.getByText(/Your browser says Europe\/Berlin\./)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Use it" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith("Europe/Berlin", false));
+  });
+
+  it("can be chosen, and then says it was", async () => {
+    const save = vi.fn(async () => {});
+    zoned(save);
+    fireEvent.click(screen.getByRole("button", { name: "Change zone" }));
+    fireEvent.change(screen.getByLabelText("Time zone"), { target: { value: "Asia/Tokyo" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith("Asia/Tokyo", true));
+    cleanup();
+    zoned(save, { timezone: "Asia/Tokyo", timezoneChosen: true }, "Asia/Tokyo");
+    expect(screen.getByText("You chose it. Your agents' times and runs go by it.")).toBeInTheDocument();
+    expect(screen.queryByText(/Your browser says/)).toBeNull();
+  });
+});

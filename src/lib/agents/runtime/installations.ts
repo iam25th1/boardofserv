@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne } from "drizzle-orm";
 import { agentApprovals, agentInstallations, agentJobs, agents, agentTriggers, agentVersions, rentals, type Agent, type AgentInstallation, type AgentVersion, type SheetGrant } from "../../db/schema";
 import { GoogleRevoked, GoogleUnavailable } from "../../google/oauth";
 import { isSheetAnswer, parseSheetLink, sheetLink } from "../../google/sheetLink";
@@ -7,7 +7,8 @@ import { SheetRefused, sheetInfo } from "../../google/sheets";
 import type { InstallationDTO } from "../../types";
 import { hasConnection } from "../../connections/vault";
 import { serviceName } from "../../connections/catalog";
-import { connectionsNeeded, neededIds, type AgentDefinition } from "../definition";
+import { breakingChange, connectionsNeeded, neededIds, type AgentDefinition } from "../definition";
+import { whatChanged } from "../plainView";
 import { describeTriggers } from "../schedule";
 import { checkAnswers, type InstallAnswers } from "../settingsForm";
 import { emptyBench } from "../types";
@@ -182,6 +183,55 @@ export async function allowanceWarning(rt: Runtime, d: AgentDefinition, installa
   return available > 0n ? null : EMPTY_ALLOWANCE;
 }
 
+// A newer version of the owner's own agent than the one their copy runs:
+// its number, one line on what changed, and why switching to it needs
+// setting it up again (null when its answers carry over). A renter's copy
+// is offered new versions on Rented instead (market/versions.ts).
+export async function newerVersion(rt: Runtime, l: Loaded): Promise<{ id: string; version: number; definition: AgentDefinition; line: string; breaking: string | null } | null> {
+  const i = l.installation;
+  if (l.agent.ownerUserId !== i.ownerUserId || i.status === "stopped") return null;
+  const [rented] = await rt.db.select({ id: rentals.id }).from(rentals).where(eq(rentals.installationId, i.id)).limit(1);
+  if (rented) return null;
+  const [v] = await rt.db
+    .select()
+    .from(agentVersions)
+    .where(and(eq(agentVersions.agentId, l.agent.id), eq(agentVersions.state, "published")))
+    .orderBy(desc(agentVersions.number))
+    .limit(1);
+  if (!v?.definition || v.number <= l.version.number || notRunnable(v)) return null;
+  return { id: v.id, version: v.number, definition: v.definition, line: whatChanged(l.definition, v.definition), breaking: breakingChange(l.definition, v.definition) };
+}
+
+// Switch the owner's copy to the newest version: in place, with the same
+// answers, sheets and connections, its triggers set up afresh. A version
+// that asks something new at setup is set up from its page instead.
+export async function switchVersion(rt: Runtime, l: Loaded): Promise<void> {
+  const newer = await newerVersion(rt, l);
+  if (!newer) throw new ControlRefused("It runs the newest version already.");
+  if (newer.breaking) throw new ControlRefused(`${newer.breaking} Set version ${newer.version} up from its page.`);
+  const now = rt.now();
+  const [row] = await rt.db.update(agentInstallations).set({ versionId: newer.id, updatedAt: now }).where(eq(agentInstallations.id, l.installation.id)).returning();
+  await rt.db.delete(agentTriggers).where(eq(agentTriggers.installationId, l.installation.id));
+  if (row!.live && row!.status === "active") await setUpTriggers(rt, row!, newer.definition);
+}
+
+// An owner's time zone, wherever their agents run: every copy of theirs
+// that isn't stopped goes by it, its schedules set again from now in it.
+export async function followZone(rt: Runtime, ownerUserId: string, timezone: string): Promise<number> {
+  const moved = await rt.db
+    .update(agentInstallations)
+    .set({ timezone, updatedAt: rt.now() })
+    .where(and(eq(agentInstallations.ownerUserId, ownerUserId), ne(agentInstallations.status, "stopped"), ne(agentInstallations.timezone, timezone)))
+    .returning();
+  for (const row of moved) {
+    const l = await loadInstallation(rt, row.id);
+    if (!l) continue;
+    await rt.db.delete(agentTriggers).where(eq(agentTriggers.installationId, row.id));
+    if (row.live && row.status === "active") await setUpTriggers(rt, row, l.definition);
+  }
+  return moved.length;
+}
+
 // What its owner sees of an installation.
 export async function installationDTO(rt: Runtime, l: Loaded): Promise<InstallationDTO> {
   const { installation: i, definition: d } = l;
@@ -219,6 +269,7 @@ export async function installationDTO(rt: Runtime, l: Loaded): Promise<Installat
     approvals: await approvalsOf(rt, i.ownerUserId, { installationId: i.id, pendingOnly: true }),
     safety: safetyOf(d, readPolicy(i.policy)),
     budget: await budgetDTO(rt, i),
+    newer: await newerVersion(rt, l).then((n) => (n ? { version: n.version, line: n.line, breaking: n.breaking } : null)),
   };
 }
 

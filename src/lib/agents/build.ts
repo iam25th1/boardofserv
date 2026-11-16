@@ -19,7 +19,7 @@ import { errorText } from "../db/errors";
 import { recordAttempts } from "../modelAttempts";
 import { codeDiagnosis, planDiagnosis, testDiagnosis, withDiagnosis } from "./diagnosis";
 import { askFixer, type FixVerdict } from "./fixer";
-import { escalated, toCatalogVerdict, foundLine, freshBuild, gaveUpLine, healLimits, repairLine, roundsUsed, withLine, withRound } from "./heal";
+import { argsVerdict, escalated, toCatalogVerdict, foundLine, freshBuild, gaveUpLine, healLimits, repairLine, roundsUsed, withLine, withRound } from "./heal";
 import { weakens } from "./guarded";
 import { learn, recurringRules } from "./lessons";
 
@@ -426,9 +426,14 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
       answer = null;
     } else {
       await healOf(versionId, (l) => withLine(l, foundLine(dx, v.definition), "working"));
-      const asked = await askFixer(dx, ctx.serv, { tried: triedOf(log), interview: said, lessons: c.lessons, signal: c.signal });
-      await recordAgentCall(c, "agent_plan", asked.call);
-      verdict = asked.verdict;
+      // A tool given the wrong kind of value: its code, with no fixer to ask.
+      const typed = v.definition ? argsVerdict(v.definition, v.code, dx.step?.id ?? null) : null;
+      if (typed) verdict = typed;
+      else {
+        const asked = await askFixer(dx, ctx.serv, { tried: triedOf(log), interview: said, lessons: c.lessons, signal: c.signal });
+        await recordAgentCall(c, "agent_plan", asked.call);
+        verdict = asked.verdict;
+      }
     }
     if (!verdict) {
       await healOf(versionId, (l) => withRound(l, { verdict: null, why: "The fixer couldn't say what was wrong.", outcome: "failed" }));
@@ -475,7 +480,7 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
       }
       await updateDraft(versionId, { definition: next, code: carryCode(next, v.code), buildState: "writing" });
       await healOf(versionId, (l) => withLine(withRound(l, { ...round, verdict: "code", repair: `Step "${step.id}" written again from: ${verdict!.spec}` }), repairLine("code", v.definition, step.id), "working"));
-      outcome = await writeAndTest(versionId, next, c, settle, { hints: { [step.id]: dx.evidence.review ?? dx.failure } });
+      outcome = await writeAndTest(versionId, next, c, settle, { hints: { [step.id]: verdict.kind === "wrong_value" && verdict.why ? verdict.why : (dx.evidence.review ?? dx.failure) } });
     } else {
       await healOf(versionId, (l) => withLine(withRound(l, { ...round, verdict: "plan", repair: change }), repairLine("plan", v.definition, null), "working"));
       const base = input ?? (await planInputFor(ctx.conversationId, v.definition, ""));

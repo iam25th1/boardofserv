@@ -248,3 +248,20 @@
 .keyActions {
   margin-top: var(--s-2);
 }
+
+/* The time zone picker: the panel's own field, full width. */
+.zone {
+  width: 100%;
+  min-height: 2.25rem;
+  padding: 0 var(--s-2);
+  border: 1.5px solid var(--chalk-3);
+  border-radius: var(--r-md);
+  background: var(--slate-2);
+  color: var(--chalk);
+  font: inherit;
+  font-size: var(--t-sm);
+}
+.zone:focus-visible {
+  outline: 2px solid var(--chalk);
+  outline-offset: 2px;
+}

@@ -18,6 +18,7 @@ export async function vetVersion(rt: Runtime, maker: User, version: AgentVersion
   const review = await reviewVersion(version.definition!, version.code, serv && !refused && room ? serv.config : null, {
     now: rt.now(),
     fetchImpl: rt.fetchImpl,
+    log: rt.log,
     record: async (call) => {
       await rt.record(maker, call, serv!.ownKey, "agent_vetting");
       await meterPlatform(rt.db, { purpose: "publish_review", userId: maker.id, agentId: version.agentId, call, ownKey: serv!.ownKey, now: rt.now() });

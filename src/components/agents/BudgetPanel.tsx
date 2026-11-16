@@ -23,7 +23,10 @@ export function BudgetPanel({ budget, save, disabled }: { budget: BudgetDTO; sav
   const fill = useRef<HTMLSpanElement>(null);
   useEffect(() => setText(formatAmount(BigInt(budget.budget), budget.decimals)), [budget.budget, budget.decimals]);
 
-  const cap = BigInt(budget.free ? (BigInt(budget.allowance) < BigInt(budget.budget) ? budget.allowance : budget.budget) : budget.budget);
+  // A free agent on the site's key runs within the platform's allowance:
+  // when that is less than its budget, it is the cap, and the panel says so.
+  const allowed = budget.free && !budget.ownKey && BigInt(budget.allowance) < BigInt(budget.budget);
+  const cap = BigInt(allowed ? budget.allowance : budget.budget);
   const spent = BigInt(budget.spentThisWeek);
   const share = cap === 0n ? 1 : Math.min(1, Number((spent * 10_000n) / cap) / 10_000);
 
@@ -64,6 +67,11 @@ export function BudgetPanel({ budget, save, disabled }: { budget: BudgetDTO; sav
         <span className={styles.track} />
         <span className={styles.fill} ref={fill} style={{ width: `${share * 100}%` }} />
       </div>
+      {allowed && (
+        <p className={styles.cap} role="note">
+          This week&apos;s cap is {usdc(cap, budget.decimals)}, not the {usdc(budget.budget, budget.decimals)} you set: it runs free, so boardofserv pays for its model calls, up to {usdc(budget.allowance, budget.decimals)} a week. Your {usdc(budget.budget, budget.decimals)} applies when it runs on your own SERV key.
+        </p>
+      )}
       <dl className={styles.facts}>
         <div>
           <dt>This week</dt>
@@ -82,7 +90,7 @@ export function BudgetPanel({ budget, save, disabled }: { budget: BudgetDTO; sav
       </dl>
       <p className={styles.quiet}>
         Its decisions and safety checks are model calls. Before one would take it over this week&apos;s budget, it asks you.
-        {budget.free ? ` It is free, so boardofserv pays up to ${usdc(budget.allowance, budget.decimals)} a week of it; after that it pauses until Monday.` : ""}
+        {budget.free && !budget.ownKey ? ` It is free, so boardofserv pays up to ${usdc(budget.allowance, budget.decimals)} a week of it; before a call would go past that, it stops with its work saved and pauses until Monday.` : ""}
         {budget.modelShare ? " Each job's model cost is added to what you pay for it." : ""}
       </p>
       <div className={styles.set}>

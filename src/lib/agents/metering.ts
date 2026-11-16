@@ -1,6 +1,6 @@
 import "server-only";
 import { and, eq, gte, sql } from "drizzle-orm";
-import { agentListings, agentModelUsage, platformModelUsage, rentals, type AgentInstallation } from "../db/schema";
+import { agentListings, agentModelUsage, platformModelUsage, rentals, users, type AgentInstallation } from "../db/schema";
 import { modelPrices, type JsonResult } from "../model";
 import { formatAmount, parseAmount } from "../money";
 import type { Runtime } from "./runtime/context";
@@ -134,15 +134,18 @@ export async function budgetOf(rt: Runtime, i: Pick<AgentInstallation, "id" | "a
 export const allowancePause = (allowance: bigint) =>
   `Its free model allowance of ${usdcWords(allowance)} for this week is used up, so it is paused. It starts again on Monday, or sooner on your own SERV key.`;
 export const ALLOWANCE_PREFIX = "Its free model allowance of ";
+// A job stopped before its next call would run the allowance out.
+export const allowanceStopped = (allowance: bigint) =>
+  `It stopped before its next call to SERV would run out its free model allowance of ${usdcWords(allowance)} for this week. What it had done is saved, so its next run picks up from there: on Monday, or sooner on your own SERV key.`;
 
 export type BudgetGate = { kind: "ok" } | { kind: "ask"; question: string; reason: string } | { kind: "pause"; reason: string };
 
 // Before a model call in a run: whether it may go ahead within the week's
 // budget (and a free agent's allowance).
-export async function budgetGate(rt: Runtime, i: Pick<AgentInstallation, "id" | "agentId" | "modelBudget">, ownKey: boolean): Promise<BudgetGate> {
+// next: what the call is likely to cost (a typical call's, unless said).
+export async function budgetGate(rt: Runtime, i: Pick<AgentInstallation, "id" | "agentId" | "modelBudget">, ownKey: boolean, next: bigint = callEstimate()): Promise<BudgetGate> {
   const b = await budgetOf(rt, i);
   const spent = await weekCost(rt, i.id);
-  const next = callEstimate();
   if (b.free && !ownKey && spent.site + next > b.allowance) return { kind: "pause", reason: allowancePause(b.allowance) };
   if (spent.all + next > b.budget) {
     return {
@@ -163,10 +166,12 @@ export async function dayCost(rt: Runtime, installationId: string): Promise<bigi
   return BigInt(row?.all ?? "0");
 }
 
-export async function budgetDTO(rt: Runtime, i: Pick<AgentInstallation, "id" | "agentId" | "modelBudget">) {
+export async function budgetDTO(rt: Runtime, i: Pick<AgentInstallation, "id" | "agentId" | "modelBudget"> & { ownerUserId?: string }) {
   const b = await budgetOf(rt, i);
   const week = await weekCost(rt, i.id);
+  const [owner] = i.ownerUserId ? await rt.db.select({ key: users.servKeyEncrypted }).from(users).where(eq(users.id, i.ownerUserId)) : [];
   return {
+    ownKey: Boolean(owner?.key),
     spentThisWeek: week.all.toString(),
     spentToday: (await dayCost(rt, i.id)).toString(),
     budget: b.budget.toString(),

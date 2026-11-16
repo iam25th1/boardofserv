@@ -123,7 +123,7 @@ const json = (url: string, method = "GET", body?: unknown) =>
 async function interviewed(user: schema.User, done = true): Promise<string> {
   const [convo] = await db.insert(schema.conversations).values({ userId: user.id, title: "Restock" }).returning();
   await db.insert(schema.messages).values([
-    { conversationId: convo!.id, role: "user", content: "Every morning check my fabric stock and reorder what's low." },
+    { conversationId: convo!.id, role: "user", content: "Every morning check my fabric stock and reorder what's low. Skip suppliers that take longer than 7 days to deliver." },
     { conversationId: convo!.id, role: "assistant", content: "What must it never do without asking you?" },
     { conversationId: convo!.id, role: "user", content: "Place an order over 250 USDC." },
   ]);
@@ -336,6 +336,13 @@ describe("the builder", () => {
     const b = ((await published.json()) as { builder: AgentBuilderDTO }).builder;
     expect(b.agent).toMatchObject({ state: "published", version: 1 });
     expect(b.versions).toEqual([{ number: 1, state: "published", createdAt: expect.any(String), publishedAt: expect.any(String) }]);
+    // Run it for real starts from the owner's own answers: none yet, and
+    // never the sample's; then what their running copy was given.
+    expect(b.runnable!.defaults).toEqual({});
+    const v1row = await db.query.agentVersions.findFirst({ where: (v, { and, eq: is }) => and(is(v.agentId, id), is(v.number, 1)) });
+    const [mine] = await db.insert(schema.agentInstallations).values({ agentId: id, versionId: v1row!.id, ownerUserId: ana.id, mocks: { sheets: {}, search: {}, wallet: { balanceUsdc: 0 } }, settings: { stock_sheet: "Fabric stock" } }).returning();
+    expect((await builderOf(id)).runnable!.defaults).toEqual({ stock_sheet: "Fabric stock" });
+    await db.delete(schema.agentInstallations).where(eq(schema.agentInstallations.id, mine!.id));
     expect((await publish.POST(json(`/api/agents/${id}/publish`, "POST"), { params: Promise.resolve({ id }) })).status).toBe(409);
 
     const list = ((await (await agents.GET(json("/api/agents"))).json()) as { agents: { id: string; testing: number | null; draft: boolean }[] }).agents;
