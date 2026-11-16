@@ -229,6 +229,9 @@ export interface BudgetDTO {
   // Its renter pays each job's model cost on top of the fee.
   modelShare: boolean;
   decimals: number;
+  // Its owner runs it on their own SERV key: the free allowance doesn't
+  // apply, their budget does.
+  ownKey?: boolean;
 }
 
 // An installation's tools by risk level (read, write, outbound, money), and

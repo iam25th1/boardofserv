@@ -79,7 +79,9 @@ describe("a step told to save its place item by item", () => {
   const judge = code(d, "analyze_quality");
 
   it("is sent back when it saves at the end, or not at all", () => {
-    expect(checkCode(V3_ANALYZE, judge, d)).toMatch(/^It doesn't save its place item by item/);
+    // Version 3's: SERV once per file of every commit, and its place saved
+    // nowhere.
+    expect(checkCode(V3_ANALYZE, judge, d)).toMatch(/^It asks SERV once for every part of every item/);
     const atTheEnd = `async function run(input, tools) {
   const commits = (input.commits || []).slice().reverse();
   const violations = [];

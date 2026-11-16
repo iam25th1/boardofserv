@@ -2,7 +2,7 @@ import "server-only";
 import { completeJson, modelPrices, type ChatMessage, type JsonResult, type ModelConfig } from "../model";
 import { ANSWER_LIMITS } from "../modelLimits";
 import { loopChain, loopsOf, madeInside, MAX_EACH_ITEMS, MAX_LOOP_ITEMS, REASON_TOOL, RUN_VALUES, SIDE_EFFECT_TOOLS, type ActionStepDef, type AgentDefinition, type AgentStep, type DecisionStepDef, type LoopStepDef, type ToolName } from "./definition";
-import { askReason, readReason, readReasonArgs, type ReasonArgs, type Reasoned } from "./reason";
+import { askReason, estimateReasonUsd, readReason, readReasonArgs, type ReasonArgs, type Reasoned } from "./reason";
 import { needsReasoning } from "./planRules";
 import { runInSandbox, DEFAULT_TIME_MS } from "./sandbox";
 import { DATA_RULE, wrapData } from "./untrusted";
@@ -160,7 +160,9 @@ export type Decided =
 // ended there, having sent nothing. noted: it got to the end, but a side
 // step (one nothing after it reads, like noting where it got to) failed or
 // was stopped.
-export type EndCause = "end" | "logic" | "limit" | "stop" | "declined" | "infra" | "blocked" | "skipped" | "noted";
+// budget: it stopped before a call to SERV would take it over a spend
+// limit or its model budget, with what it had done saved.
+export type EndCause = "end" | "logic" | "limit" | "stop" | "declined" | "infra" | "blocked" | "skipped" | "noted" | "budget";
 
 export type EngineResult =
   | { kind: "end"; status: "done" | "failed" | "stopped"; cause: EndCause; reason: string }
@@ -183,14 +185,17 @@ export interface EngineOptions {
   // Checked before each step: why the run must stop now (the owner stopped it).
   shouldStop?: () => Promise<string | null>;
   // Checked before each model call: why it may not spend now (a daily cap).
-  canSpend?: () => Promise<string | null>;
+  // With the next call's estimated cost (USD) when there is one: a limit
+  // it would go over, said as a clean stop.
+  canSpend?: (estimateUsd?: number) => Promise<string | null>;
   // Screens a decision or code step's untrusted inputs before it runs (the
   // prompt guard): a question for the renter when something looks like an
   // attempt to give the agent instructions, else null.
   screen?: (step: AgentStep, input: Record<string, unknown>, untrusted: string[], sources: string[]) => Promise<{ question: string; reason: string } | null>;
   // Before a decision's model call: whether the week's model budget allows
   // it (a question for the renter when it would go over, or why it stops).
-  budget?: () => Promise<{ ask: { question: string; reason: string } } | { stop: string } | null>;
+  // With the next call's estimated cost (USD) when there is one.
+  budget?: (estimateUsd?: number) => Promise<{ ask: { question: string; reason: string } } | { stop: string } | null>;
   // How often one job may start the same step (a loop stops there).
   maxVisits?: number;
   // Hand failures outside the agent back to be tried again (jobs), rather
@@ -334,6 +339,11 @@ function same(a: unknown, b: unknown): boolean {
 }
 
 const DIVERGED = "It went a different way when it ran again, so it was stopped before anything could happen twice.";
+
+// A run stopped before a call to SERV would take it over its own spend
+// limit: what it had done is kept.
+export const SAVED = "What it had done is saved, so its next run picks up from there.";
+export const RUN_LIMIT_STOP = (limit: number, estimate: number) => `It stopped before its next call to SERV (about $${estimate < 0.001 ? estimate.toFixed(4) : estimate.toFixed(3)}) would take it over its spend limit of $${limit} for one run. ${SAVED}`;
 
 // A judgement or words for people made without SERV.
 const GUESSES = "It made its judgement or wrote its words without asking SERV, so it would only be a guess.";
@@ -516,9 +526,13 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       };
       const read = readReasonArgs(args);
       if (!read.ok) return fail(read.error);
-      if (state.costUsd >= d.limits.maxSpendUsd) return { kind: "halted", reason: `It reached its spend limit of $${d.limits.maxSpendUsd}.`, cause: "limit" };
-      const no = (await o.canSpend?.()) ?? null;
-      if (no) return { kind: "halted", reason: no, cause: "limit" };
+      // What this call will likely cost, before it is made: one that would
+      // take the run over a limit or its budget isn't made, and the run
+      // stops cleanly here, with what it had done (and saved) kept.
+      const estimate = estimateReasonUsd(read.args);
+      if (state.costUsd + estimate > d.limits.maxSpendUsd) return { kind: "halted", reason: RUN_LIMIT_STOP(d.limits.maxSpendUsd, estimate), cause: "budget" };
+      const no = (await o.canSpend?.(estimate)) ?? null;
+      if (no) return { kind: "halted", reason: no, cause: "budget" };
       if (o.budget && !state.budgetOk) {
         if (prior?.tool === BUDGET) {
           if (!prior.approval || !isYesAnswer(prior.approval.answer)) {
@@ -526,8 +540,8 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
           }
           state.budgetOk = true;
         } else {
-          const b = await o.budget();
-          if (b && "stop" in b) return { kind: "halted", reason: b.stop, cause: "limit" };
+          const b = await o.budget(estimate);
+          if (b && "stop" in b) return { kind: "halted", reason: b.stop, cause: "budget" };
           if (b && "ask" in b) {
             state.journal[i] = { tool: BUDGET, args: { step: step.id }, waiting: true };
             await o.save?.(state);

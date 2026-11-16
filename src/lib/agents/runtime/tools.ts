@@ -32,7 +32,7 @@ import { fetchPage, WebUnreachable } from "./webFetch";
 import { canWrite, secretOf, touch as touchConnection, type ServiceSecret } from "../../connections/vault";
 import { entryOf, needsConnecting, serviceName } from "../../connections/catalog";
 import { callService, ServiceRefused, ServiceUnreachable, type ServiceAnswer, type ServiceCall } from "../../connections/request";
-import { callKey, typedRead } from "../../connections/reads";
+import { callKey, isDateText, typedRead } from "../../connections/reads";
 import { allowance, cachedRead, keepRead, limited, LOW_PUBLIC_READS, noteAllowance, shouldTell } from "../../connections/publicReads";
 import { parseFeed } from "../../connections/feed";
 import { formIdOf, formResponses, TypeformError } from "../../typeform/api";
@@ -329,6 +329,18 @@ export class JobTools implements ToolHost {
     }
     const risk = riskOf(this.definition, step, tool);
     if (risk === "read") return this.use(step, tool, args);
+    // The agent noting its place, a date, in a field it declares needs no
+    // model call of the guard's, unless its owner asked to approve it:
+    // saved after each item, it would cost a call each. Anything else it
+    // remembers is checked as any write is.
+    const place = tool === "memory.set" ? (args as { value?: unknown } | null)?.value : null;
+    if (typeof place === "string" && isDateText(place) && !approval && !readPolicy(this.installation.policy).askFor.includes(tool)) {
+      const noted = describeCall(tool, args);
+      await this.limited(step, tool, risk, noted);
+      const kept = await this.use(step, tool, args);
+      await this.logged(step, tool, risk, noted, { outcome: "ran", approvedBy: "rules" });
+      return kept;
+    }
     // Anything that changes, says or spends something waits for the
     // renter's yes when the platform's floor or their own settings say so,
     // or when spending would take the job's or the day's total over a

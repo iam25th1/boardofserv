@@ -46,6 +46,7 @@ export const CODE_PROMPT = [
   "Never write what it works on or who it tells into the code: no repository, address, link, form, wallet, email, channel or coin, and no number to compare against. Read each from input.settings or input.rules, as the step's inputs describe them.",
   "Keep it short, and handle missing or odd values without throwing where you can.",
   "When serv.reason is listed, every judgement or piece of writing the step makes (a score and its reasons, a reply, a line for the day) comes from SERV: call tools.serv.reason({ task, data, answer }) for it (once per item), and return what SERV answered. Never work it out yourself with word counts, lengths, keyword lists or canned text.",
+  "One serv.reason call per item, never one per part of an item: a commit's changed files and their patches go to SERV together, in one call's data (the platform trims long text).",
   "Text it writes for people never uses em dashes: use a colon or a comma.",
   "A sheet's rows (sheets.read) are objects keyed by the sheet's own column headers, exactly as written (row.Name, row[\"Due date\"]), plus _row, the row's number: read each column by its header as the step names it, never lower-cased or renamed.",
   "Dates and times are the owner's: new Date() and its local methods (getDate, getHours, toLocaleDateString) are in their time zone. For today's date use those, never toISOString().slice(0, 10), which is UTC.",
@@ -227,6 +228,12 @@ export function checkCode(source: string, step: CodeStepDef, d?: AgentDefinition
   // A tool given the wrong kind of value (an id where a date goes).
   const wrong = argMismatches(source, { memory: d?.memory });
   if (wrong.length) return mismatchProblem(wrong[0]!);
+  // SERV once per item: never once for each part of each item (every
+  // changed file of every commit), which multiplies a run's cost.
+  const loops = loopSpans(source);
+  if (callsOf(source, REASON_TOOL).some((at) => loopsAround(loops, at).length >= 2)) {
+    return "It asks SERV once for every part of every item (a loop inside a loop): ask once per item, with all of that item's parts (its changed files and their patches) together in data, so a run of 5 items makes 5 calls.";
+  }
   // A step told to keep its place item by item saves each item's date in
   // the loop that judges it, so a run that stops part way never judges it
   // again.

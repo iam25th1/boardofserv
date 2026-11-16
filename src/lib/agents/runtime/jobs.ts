@@ -1,15 +1,15 @@
 import "server-only";
 import { and, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
-import { agentApprovals, agentInstallations, agentJobs, agentJobSteps, agents, agentSeenItems, agentVersions, messages, users, type AgentInstallation, type AgentJob } from "../../db/schema";
+import { agentApprovals, agentInstallations, agentJobs, agentJobSteps, agentMessages, agents, agentSeenItems, agentVersions, messages, users, type AgentInstallation, type AgentJob } from "../../db/schema";
 import type { AgentDefinition, AgentStep, DecisionStepDef } from "../definition";
 import type { BenchData } from "../types";
 import { askReason, readReason, type ReasonArgs, type Reasoned } from "../reason";
-import { askServ, readDecision, runSteps, startState, typedRules, type Decided, type EngineResult, type RunEvent, type RunState } from "../runner";
+import { askServ, readDecision, runSteps, SAVED, startState, typedRules, type Decided, type EngineResult, type RunEvent, type RunState } from "../runner";
 import { FEE_SHORT, holdJobFee } from "../../market/charges";
 import { pauseForOwner } from "./approvals";
 import { askAboutHeld, dropHeld, releaseHeld } from "./held";
 import { screenText } from "../screen";
-import { budgetGate, meter, type Scope } from "../metering";
+import { allowanceStopped, budgetGate, budgetOf, meter, type Scope } from "../metering";
 import { pauseOnRepeatedFailure, rateLimits } from "./rates";
 import { holdOn } from "../../safety/freeze";
 import type { Runtime } from "./context";
@@ -271,25 +271,31 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
       },
       // Before each model call: the installation's daily cap, then the
       // site's (this spend counts towards it like any other).
-      canSpend: async () => {
+      canSpend: async (estimateUsd?: number) => {
         if (rt.decide || rt.reason) return null;
         await log.flush();
         const cap = Number(installation.dailySpendUsd);
-        if ((await spendToday(rt, installation.id)) >= cap) return `It reached its daily spend limit of $${cap >= 0.01 ? cap.toFixed(2) : Number(cap.toFixed(6))} for today.`;
+        const today = await spendToday(rt, installation.id);
+        const capText = `$${cap >= 0.01 ? cap.toFixed(2) : Number(cap.toFixed(6))}`;
+        if (today >= cap) return `It reached its daily spend limit of ${capText} for today.`;
+        // With the call's estimate: stopped before it, not after.
+        if (estimateUsd !== undefined && today + estimateUsd > cap) return `It stopped before its next call to SERV would take it over its daily spend limit of ${capText}. ${SAVED}`;
         return serv ? rt.siteRefusal(owner, serv.ownKey) : null;
       },
       // The week's model budget before each decision: over it, the renter
       // is asked; a free agent out of its allowance pauses until Monday.
-      budget: async () => {
+      budget: async (estimateUsd?: number) => {
         if (rt.decide || rt.reason || !serv) return null;
-        const gate = await budgetGate(rt, installation, serv.ownKey);
+        const next = estimateUsd === undefined ? undefined : BigInt(Math.ceil(estimateUsd * 1e6));
+        const gate = await budgetGate(rt, installation, serv.ownKey, next);
         if (gate.kind === "ok") return null;
         if (gate.kind === "ask") return { ask: { question: gate.question, reason: gate.reason } };
         await rt.db
           .update(agentInstallations)
           .set({ status: "paused", pausedReason: gate.reason, updatedAt: rt.now() })
           .where(and(eq(agentInstallations.id, installation.id), eq(agentInstallations.status, "active")));
-        return { stop: gate.reason };
+        // Before a call it could estimate: stopped cleanly, before running out.
+        return { stop: next === undefined ? gate.reason : allowanceStopped((await budgetOf(rt, installation)).allowance) };
       },
       // The prompt guard on what a decision or code step reads from outside.
       screen: async (step, input, tainted, from) => {
@@ -325,6 +331,11 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
   // the job ends once it is answered. A job stopped by its owner sends none.
   if (!("retry" in how) && how.status !== "cancelled" && (await askAboutHeld(rt, job, worker, definition, installation, state, how))) return;
   await finish(rt, job, worker, state, how);
+  // Stopped before its budget ran out: its owner hears why, and that what
+  // it did is kept, since nothing else was sent.
+  if (result.kind === "end" && result.cause === "budget") {
+    await rt.db.insert(agentMessages).values({ installationId: installation.id, from: "agent", text: `${definition.name}: ${result.reason}`, jobId: job.id, tgState: "pending", createdAt: rt.now() });
+  }
   if (result.kind === "end") await askAboutBlocked(rt, installation, result.reason).catch((err: unknown) => rt.log(`jobs: the chat wasn't asked about a blocked step: ${err instanceof Error ? err.name : "unknown error"}`));
 }
 
@@ -350,7 +361,8 @@ function endOf(r: Extract<EngineResult, { kind: "end" }>): { status: "done" | "f
   if (r.cause === "end") return { status: "done", reason: r.reason };
   // Skipped for empty input, or done with a note: done, and said so.
   if (r.cause === "skipped" || r.cause === "noted") return { status: "done", reason: r.reason, outcome: r.cause };
-  if (r.cause === "stop" || r.cause === "declined") return { status: "cancelled", reason: r.reason };
+  // Stopped before a limit or its budget: stopped, with what it did kept.
+  if (r.cause === "stop" || r.cause === "declined" || r.cause === "budget") return { status: "cancelled", reason: r.reason };
   return { status: "failed", reason: r.reason };
 }
 

@@ -96,3 +96,11 @@
     width: 100%;
   }
 }
+/* Which cap applies, when it isn't the budget the owner set: said in full
+   under the bar, in the panel's own ink, not a footnote. */
+.cap {
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--chalk);
+  overflow-wrap: anywhere;
+}
