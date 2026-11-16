@@ -733,3 +733,80 @@ export function keepPlaceByDate<M extends { key: string; type?: unknown; descrip
   }
   return out;
 }
+
+// Settings no one gave. A rule's value (a limit with a default) must come
+// from the maker: their words, or an answer they picked from the chat's
+// questions (Describe's notes carry those). A rule they never said goes:
+// a check of its own (on or off: a complexity check) with the sentences
+// of the steps that use it; a limit the steps work by (a maximum of 5
+// violations) becomes a question the setup asks, with no answer made up;
+// one nothing uses, just goes. So does a rule or setting the agent can't
+// measure from what it reads (test coverage from a diff needs the tests
+// run), whoever said it. An answer given in the chat that names no value
+// ("A specific repository", "I'll give it at setup") is no answer: the
+// setup asks it.
+const UNMEASURABLE = /\b(?:(?:test|code) coverage|coverage (?:percent(?:age)?|threshold|minimum)|minimum coverage|page (?:load|speed)|load time|latency|uptime|memory usage|cpu usage|benchmark)/i;
+export const PLACEHOLDER_ANSWER = /\bat setup\b|\bwhen i set it up\b|\bi'?ll (?:give|define|provide|pick|choose|name|tell|set|add)\b|\bi will (?:give|define|provide|pick|choose|name|tell|set|add)\b|^(?:a|one|some) (?:specific|particular|certain)\b|^custom\b|^(?:all|any) (?:my|of my)\b|^not sure\b|^later\b/i;
+const STOP = new Set(["check", "checks", "number", "minimum", "maximum", "before", "after", "flagging", "include", "whether", "value", "limit", "threshold", "percentage", "percent", "count", "should", "would", "which", "their", "about"]);
+const words = (t: string) => (t.toLowerCase().match(/[a-z][a-z0-9]{3,}/g) ?? []).filter((w) => !STOP.has(w));
+const flat = (t: string) => ` ${t.toLowerCase().replace(/https?:\/\/(?:www\.)?github\.com\//g, "").replace(/[^a-z0-9.%$/-]+/g, " ")} `;
+
+export function dropMadeUp(plan: { settings?: unknown; rules?: unknown; steps?: unknown; actions?: unknown }, owner: string): { dropped: string[]; asked: string[] } {
+  const said = flat(owner);
+  const rules = Array.isArray(plan.rules) ? (plan.rules as Record<string, unknown>[]) : [];
+  const settings = Array.isArray(plan.settings) ? (plan.settings as Record<string, unknown>[]) : [];
+  const actions = Array.isArray(plan.actions) ? (plan.actions as Record<string, unknown>[]) : [];
+  const steps = Array.isArray(plan.steps) ? (plan.steps as RawStep[]) : [];
+  const text = (x: Record<string, unknown>) => `${String(x.key ?? "")} ${String(x.label ?? "")} ${String(x.help ?? "")}`.replace(/_/g, " ");
+  // A spending limit the actions ask by stays: the runtime asks over it.
+  const spending = new Set(actions.flatMap((a) => [a.askOver, a.askOverDay]).filter((k): k is string => typeof k === "string" && Boolean(k)));
+  const given = (r: Record<string, unknown>): boolean => {
+    const v = String(r.value ?? "").trim();
+    const named = words(String(r.label ?? "")).some((w) => said.includes(` ${w}`));
+    if (r.type === "boolean") return named;
+    if (!v) return true;
+    if (r.type === "number" || r.type === "usdc") return new RegExp(`(?:^|[^0-9.])${escapeRe(v.replace(/\.0+$/, ""))}(?:\\.0+)?(?![0-9])`).test(said);
+    return said.includes(v.toLowerCase());
+  };
+  const stepText = (st: RawStep) => `${st.description ?? ""} ${st.prompt ?? ""}`;
+  const named = (key: string) => steps.some((st) => new RegExp(`\\b${escapeRe(key)}\\b`).test(stepText(st)));
+  const dropped: Record<string, unknown>[] = [];
+  const asked: Record<string, unknown>[] = [];
+  for (const r of rules) {
+    if (spending.has(String(r.key))) continue;
+    if (UNMEASURABLE.test(text(r)) || (!given(r) && (r.type === "boolean" || !named(String(r.key))))) dropped.push(r);
+    else if (!given(r)) asked.push(r);
+  }
+  const unmeasured = settings.filter((st) => UNMEASURABLE.test(text(st)) && !steps.some((x) => x.kind === "loop" && x.over === st.key));
+  if (dropped.length || asked.length) plan.rules = rules.filter((r) => !dropped.includes(r) && !asked.includes(r));
+  // A limit the steps work by, that no one gave: asked at setup instead.
+  if (asked.length || unmeasured.length) {
+    plan.settings = [
+      ...settings.filter((st) => !unmeasured.includes(st)),
+      ...asked.map((r) => ({ key: r.key, label: r.label, type: r.type === "usdc" ? "number" : r.type, help: r.help ?? "", choices: [] })),
+    ];
+    for (const st of steps) {
+      for (const r of asked) {
+        const k = escapeRe(String(r.key));
+        for (const f of ["description", "prompt"] as const) if (typeof st[f] === "string") st[f] = (st[f] as string).replace(new RegExp(`\\brules\\.${k}\\b`, "g"), `settings.${String(r.key)}`);
+        if (new RegExp(`\\b${k}\\b`).test(stepText(st)) && !st.inputs.includes("settings")) st.inputs = [...st.inputs, "settings"];
+      }
+    }
+  }
+  // The steps' sentences that use what went go with it.
+  const gone = [...dropped, ...unmeasured];
+  if (gone.length) {
+    const uses = (sentence: string) => gone.some((x) => new RegExp(`\\b${escapeRe(String(x.key))}\\b`, "i").test(sentence) || (typeof x.label === "string" && x.label.length > 6 && sentence.toLowerCase().includes(x.label.toLowerCase())));
+    const strip = (t: string) => {
+      const kept = t.split(/(?<=[.!?])\s+/).filter((sentence) => !uses(sentence));
+      return kept.length ? kept.join(" ") : t;
+    };
+    for (const st of steps) {
+      if (typeof st.description === "string") st.description = strip(st.description);
+      if (typeof st.prompt === "string" && st.prompt) st.prompt = strip(st.prompt);
+    }
+  }
+  // An answer that names no value is no answer.
+  for (const st of settings) if (typeof st.given === "string" && st.given && PLACEHOLDER_ANSWER.test(st.given.trim())) st.given = "";
+  return { dropped: [...dropped, ...unmeasured].map((x) => String(x.key)), asked: asked.map((r) => String(r.key)) };
+}

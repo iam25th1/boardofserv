@@ -123,7 +123,7 @@ const json = (url: string, method = "GET", body?: unknown) =>
 async function interviewed(user: schema.User, done = true): Promise<string> {
   const [convo] = await db.insert(schema.conversations).values({ userId: user.id, title: "Restock" }).returning();
   await db.insert(schema.messages).values([
-    { conversationId: convo!.id, role: "user", content: "Every morning check my fabric stock and reorder what's low." },
+    { conversationId: convo!.id, role: "user", content: "Every morning check my fabric stock and reorder what's low. Skip suppliers that take longer than 7 days to deliver." },
     { conversationId: convo!.id, role: "assistant", content: "What must it never do without asking you?" },
     { conversationId: convo!.id, role: "user", content: "Place an order over 250 USDC." },
   ]);

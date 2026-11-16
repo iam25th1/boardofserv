@@ -8,7 +8,7 @@ import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAM
 import { TOOLS } from "./toolbox";
 import { typeformLinkIn } from "../typeform/api";
 import { planProblems } from "./planRules";
-import { askedFirst, askForForm, askForMissing, askForSheet, askServToReason, columnsByName, dropUnasked, fixSetup, keepPlaceByDate, keepRowNumbers, mergeSameActions, repairPlan, toCatalogTools, type RawStep } from "./planRepairs";
+import { askedFirst, askForForm, askForMissing, askForSheet, askServToReason, columnsByName, dropMadeUp, dropUnasked, fixSetup, keepPlaceByDate, keepRowNumbers, mergeSameActions, repairPlan, toCatalogTools, type RawStep } from "./planRepairs";
 import { actingSteps, askPurpose, leaveOut, readPurpose } from "./purpose";
 import { rulesText } from "./lessonRules";
 import { servicesPrompt } from "./servicesPrompt";
@@ -516,6 +516,9 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: st
   }
   const list = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
   if (Array.isArray(d.settings)) (d as { settings: unknown }).settings = fixSetup(d.settings as { key: string; label?: string; type: unknown }[]);
+  // Settings no one gave (a rule the maker never said, one nothing it
+  // reads can measure) go, with the sentences that use them.
+  if (o.owner !== undefined || o.said !== undefined) dropMadeUp(d, [o.said ?? "", o.owner ?? ""].join("\n"));
   // Columns by their names, never by a setting or rule that names them.
   const drop = columnsByName(d.steps as RawStep[], { settings: list(d.settings).map((x) => ({ key: s(x.key), label: s(x.label), given: s(x.given) })), rules: list(d.rules).map((x) => ({ key: s(x.key), label: s(x.label), value: s(x.value) })) });
   if (drop.settings.length) (d as { settings: unknown }).settings = list(d.settings).filter((x) => !drop.settings.includes(s(x.key)));

@@ -783,7 +783,7 @@ describe("a helper's instructions stay on the server", () => {
       kind: "agent",
       wakes: "every morning",
       looks: "the Stock sheet",
-      handles: "orders what is low",
+      handles: "orders what is low, from suppliers that deliver within 7 days",
       finish: "an order is recorded",
       asks: "orders over 250 USDC",
       setup: "the sheets",

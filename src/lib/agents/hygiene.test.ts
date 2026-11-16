@@ -84,8 +84,14 @@ describe("nothing the maker never asked for", () => {
       const d = (c as { definition: AgentDefinition }).definition;
       expect(d.steps.map((s) => s.id)).toEqual(["fetch", "analyze", "check", "make_report_pass", "report_pass", "make_report_fail"]);
       expect(d.actions.map((a) => a.id)).toEqual(["report_verification"]);
-      expect(d.memory).toEqual([]);
-      expect(d.settings.map((s) => s.key)).toEqual(["repos"]);
+      // No counter or log of what it did; only its place, a date, so the
+      // next run judges only commits that came after it.
+      expect(d.memory.map((m) => m.key)).toEqual(["last_item_date"]);
+      // "Lowest quality: 70" was the planner's, never the maker's: the
+      // steps work by it, so the setup asks it, with no answer made up.
+      expect(d.rules).toEqual([]);
+      expect(d.settings.map((s) => s.key)).toEqual(["repos", "quality_threshold"]);
+      expect(d.steps.find((s) => s.id === "analyze")!.kind === "code" && (d.steps.find((s) => s.id === "analyze") as { description: string }).description).toContain("at least settings.quality_threshold");
     }
   });
 

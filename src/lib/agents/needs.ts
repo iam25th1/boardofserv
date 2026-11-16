@@ -3,6 +3,7 @@ import { completeJson, type ChatMessage, type JsonResult, type ModelConfig } fro
 import { ANSWER_LIMITS } from "../modelLimits";
 import { CATALOG, entryOf, needsConnecting, serviceName, servicesIn } from "../connections/catalog";
 import { fixDashes } from "../dashes";
+import { PLACEHOLDER_ANSWER } from "./planRepairs";
 
 // Before an agent is planned, Describe asks what the job can't run
 // without: what it works on (which repositories, pages, coins), the bar it
@@ -216,7 +217,8 @@ export function needNotes(n: JobNeeds | null): string[] {
       continue;
     }
     if (i.kind === "input" && i.answer) {
-      const later = /at setup|when i set it up/i.test(i.answer);
+      // An answer that names no value ("A specific repository") is asked at setup.
+      const later = PLACEHOLDER_ANSWER.test(i.answer.trim());
       out.push(later ? `The maker was asked "${i.question}" and will answer it at setup: it is a setting with no given answer, read by the steps, never written into a step.` : `The maker was asked "${i.question}" and answered "${i.answer}": that is a setting with given "${i.answer}", exactly, read by the steps, never written into a step.`);
     }
     if (i.kind === "unlisted") out.push(i.answer === USE_CUSTOM ? `${i.service} isn't in the catalog: reach it through custom (Custom API) with service.request or service.send, and list "custom" in services.` : `${i.service} isn't in the catalog: leave it out, with no step for it.`);
