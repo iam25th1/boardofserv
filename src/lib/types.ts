@@ -211,6 +211,10 @@ export interface InstallationDTO {
   safety: SafetyDTO;
   // Its model cost this week against its budget (USDC minor units).
   budget: BudgetDTO;
+  // A newer version of the owner's own agent: its number, one line on what
+  // changed, and why switching needs setting it up again (null when its
+  // answers carry over). Null when it runs the newest.
+  newer?: { version: number; line: string; breaking: string | null } | null;
 }
 
 export interface BudgetDTO {

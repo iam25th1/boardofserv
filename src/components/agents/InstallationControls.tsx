@@ -72,6 +72,48 @@ export function Glance({ data, jobHref = (id) => `/app/jobs/${id}` }: { data: In
   );
 }
 
+// A newer version of the owner's own agent: its number, one line on what
+// changed, and Switch (or, when it asks something new at setup, a way to
+// set it up from its page).
+export function NewerVersion({ data, onSwitch }: { data: InstallationDTO; onSwitch: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  const newer = data.newer;
+  if (!newer || data.status === "stopped") return null;
+  const go = async () => {
+    setBusy(true);
+    setSaid(null);
+    try {
+      await onSwitch();
+    } catch (err) {
+      setSaid(err instanceof Error ? err.message : "That didn't work. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className={styles.newer} role="status">
+      <p>
+        <strong>Version {newer.version} is ready.</strong> {newer.line}
+      </p>
+      {newer.breaking ? (
+        <p className={styles.why}>
+          {newer.breaking} <Link href={`/app/agents/${data.agentId}?setup=1`}>Set version {newer.version} up</Link>, then stop this one.
+        </p>
+      ) : (
+        <Button size="sm" onClick={() => void go()} disabled={busy}>
+          {busy ? "Switching..." : `Switch to version ${newer.version}`}
+        </Button>
+      )}
+      {said && (
+        <span className={styles.said} role="alert">
+          {said}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function Controls({ data, onControl }: { data: InstallationDTO; onControl: (action: ControlAction) => Promise<void> }) {
   const [busy, setBusy] = useState<ControlAction | null>(null);
   const [confirm, setConfirm] = useState(false);

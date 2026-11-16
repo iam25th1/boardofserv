@@ -68,6 +68,7 @@ import { planAnswer } from "@/test/planAnswers";
 import * as installationJobs from "@/app/api/installations/[id]/jobs/route";
 import * as agentJobs from "@/app/api/agents/[id]/jobs/route";
 import * as installationControl from "@/app/api/installations/[id]/control/route";
+import * as installationVersion from "@/app/api/installations/[id]/version/route";
 import * as demoAgent from "@/app/api/demo/agent/route";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { install } from "@/lib/agents/runtime/installations";
@@ -197,6 +198,7 @@ const ROUTES: Record<string, object> = {
   "installations/[id]/jobs": installationJobs,
   "agents/[id]/jobs": agentJobs,
   "installations/[id]/control": installationControl,
+  "installations/[id]/version": installationVersion,
   "demo/agent": demoAgent,
   "demo/agent/live": demoLive,
   "connections": connectionsRoute,
@@ -903,6 +905,7 @@ describe("a helper's instructions stay on the server", () => {
       // A job runs for real: its log and its question, to its owner.
       const rt = serverRuntime();
       await hit("agent: run now", installationControl.POST(req(`/api/installations/${ipId}/control`, "POST", { action: "run" }), ip));
+      await hit("agent: switch version", installationVersion.POST(req(`/api/installations/${ipId}/version`, "POST"), ip));
       await runJob(rt, (await claimJob(rt, "secrecy"))!, "secrecy");
       const pending = JSON.parse(await (await hit("agent: questions", approvalsRoute.GET(req("/api/approvals")))).clone().text()).approvals as { id: string; jobId: string }[];
       expect(pending.length).toBeGreaterThan(0);

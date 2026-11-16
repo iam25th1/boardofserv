@@ -49,3 +49,20 @@
   font-size: var(--t-sm);
   overflow-wrap: anywhere;
 }
+/* A newer version ready: solid chalk, so it reads as news next to the
+   dashed reason a run paused. */
+.newer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border: var(--stroke) solid var(--chalk);
+  border-radius: var(--r-md);
+  font-size: var(--t-sm);
+}
+.newer p {
+  margin: 0;
+  flex: 1 1 16rem;
+  overflow-wrap: anywhere;
+}
