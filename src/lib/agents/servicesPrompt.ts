@@ -20,6 +20,7 @@ export function servicesPrompt(named: readonly string[] = []): string {
   return [
     "Services the owner can connect, by id:",
     ...lines,
+    "Prices and market data of coins and tokens (ETH, BTC, any other) come from coingecko.read, by CoinGecko's id for each coin (ethereum for ETH, bitcoin for BTC) from a setting, never by fetching a price page or an API with web.fetch.",
     "Reach a service only through its own tool: its typed read where it has one (github.read for a GitHub repository, public ones with no key), else service.request with connection its id and a path under its address. Write to it with service.send, a declared action. Never web.fetch a service's API and never put a key, token or password in a step, a setting or a rule: the owner connects the service on Connections and the server adds the key to each call.",
     "List in services every service it reaches with service.request or service.send, by id (its typed reads name their own).",
     "Never plan a step for a service that isn't listed here. One the maker named that isn't listed is reached through custom (Custom API, an https address and key the owner gives) only when the maker chose that; otherwise leave it out.",

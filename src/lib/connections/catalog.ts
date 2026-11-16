@@ -487,7 +487,7 @@ export const CATALOG: ServiceEntry[] = [
     name: "CoinGecko",
     category: "crypto",
     auth: "none",
-    aliases: ["coingecko", "coin gecko", "crypto price", "token price", "bitcoin price", "eth price"],
+    aliases: ["coingecko", "coin gecko", "crypto price", "crypto prices", "token price", "coin price", "bitcoin price", "btc price", "eth price", "ethereum price", "sol price", "solana price", "price of eth", "price of bitcoin", "price of ethereum", "market cap", "price feed"],
     fields: [],
     base: "https://api.coingecko.com/api/v3",
     hosts: ["api.coingecko.com"],

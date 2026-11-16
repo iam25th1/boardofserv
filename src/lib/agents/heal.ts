@@ -1,6 +1,7 @@
 import type { AgentDefinition, CodeStepDef } from "./definition";
 import type { FixVerdict } from "./fixer";
 import { OUTSIDE_TOOLS } from "./toolbox";
+import { catalogFetched } from "./planRepairs";
 import { stepLine, stepsInOrder } from "./plainView";
 import { emptyHeal, type Diagnosis, type HealLog, type HealRound } from "./types";
 
@@ -131,4 +132,18 @@ export function escalated(verdict: FixVerdict, rounds: HealRound[], d: AgentDefi
     return { ...verdict, verdict: "plan_wrong", change: `${said} What it reads (which repositories, pages, forms) is a setting the reading step reads${reading ? ` ("${reading.id}" lists "settings" in its inputs)` : ""}, so its calls come from what the owner answers, never from values in the code.`.slice(0, 1200) };
   }
   return { ...verdict, verdict: "code_wrong", step: reading.id, spec: `${reading.description} Make every address and call from input.settings, exactly as given, never from a value written into the code.`.slice(0, 800) };
+}
+
+// A step that fetches a service of the catalog with web.fetch (a coin's
+// price from CoinGecko's API) is fixed one way, whatever the fixer said: it
+// reads with the service's own tool. A new sample or a new brief for the
+// fetch would only fetch again.
+export function toCatalogVerdict(verdict: FixVerdict, d: AgentDefinition, failedAt: string | null): FixVerdict {
+  if (verdict.verdict === "unclear") return verdict;
+  const step = d.steps.find((s) => s.id === (verdict.step ?? failedAt));
+  const fetching = step?.kind === "code" && step.tools.includes("web.fetch") ? step : d.steps.find((s): s is CodeStepDef => s.kind === "code" && s.tools.includes("web.fetch") && Boolean(catalogFetched(`${s.title} ${s.description}`)));
+  const e = fetching?.kind === "code" ? catalogFetched(`${fetching.title} ${fetching.description}`) : null;
+  if (!fetching || !e) return verdict;
+  const tool = e.tools[0] ?? "service.request";
+  return { ...verdict, verdict: "plan_wrong", step: fetching.id, change: `Step "${fetching.id}" reads ${e.name} with ${tool}${tool === "service.request" ? ` (connection "${e.id}", listed in services)` : ""} instead of web.fetch, with what it reads (the coins, the repositories) from a setting. Nothing else changes.` };
 }

@@ -8,7 +8,7 @@ import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAM
 import { TOOLS } from "./toolbox";
 import { typeformLinkIn } from "../typeform/api";
 import { planProblems } from "./planRules";
-import { askedFirst, askForForm, askForMissing, askForSheet, askServToReason, columnsByName, dropUnasked, fixSetup, keepRowNumbers, mergeSameActions, repairPlan, type RawStep } from "./planRepairs";
+import { askedFirst, askForForm, askForMissing, askForSheet, askServToReason, columnsByName, dropUnasked, fixSetup, keepRowNumbers, mergeSameActions, repairPlan, toCatalogTools, type RawStep } from "./planRepairs";
 import { actingSteps, askPurpose, leaveOut, readPurpose } from "./purpose";
 import { rulesText } from "./lessonRules";
 import { servicesPrompt } from "./servicesPrompt";
@@ -552,6 +552,12 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: st
   askServToReason(d.steps as RawStep[], d as { limits?: unknown });
   // Rows written back keep their numbers from the read on.
   keepRowNumbers(d.steps as RawStep[], { actions: list(d.actions).map((x) => ({ id: s(x.id), tool: x.tool, description: s(x.description) })) });
+  // A service of the catalog fetched with web.fetch: its own tool instead.
+  const reached = toCatalogTools(d.steps as RawStep[]);
+  if (reached.length) {
+    const named = d as { services?: unknown };
+    named.services = [...new Set([...(Array.isArray(named.services) ? (named.services as string[]) : []), ...reached])];
+  }
   // A step that reaches a service generically with none named: the
   // services its words name.
   const generic = list(d.steps).some((x) => s(x.kind) === "code" && Array.isArray(x.tools) && (x.tools as string[]).some((t) => t === "service.request" || t === "service.send")) || list(d.actions).some((a) => a.tool === "service.send");

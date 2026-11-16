@@ -71,9 +71,13 @@ describe("a target written into the code", () => {
 
   it("fails the code's check in plain words, naming where it should come from", () => {
     const step = { ...(d.steps[0] as CodeStepDef), tools: ["web.fetch"] } as CodeStepDef;
-    expect(checkCode(OCTOCAT, step, d)).toBe('It writes the address "https://api.github.com/repos/${owner}/${repo}/commits?per_page=10" into the code, so every owner would get the same one whatever they answered: read it from settings.repos (Repositories), which this step now reads.');
+    const page = 'async function run(input, tools) { const r = await tools.web.fetch({ url: "https://example.org/repos/feed.xml" }); return { commits: [r.text] }; }';
+    expect(checkCode(page, step, d)).toBe('It writes the address "https://example.org/repos/feed.xml" into the code, so every owner would get the same one whatever they answered: read it from settings.repos (Repositories), which this step now reads.');
     // Without the plan, the check is as it was.
-    expect(checkCode(OCTOCAT, step)).toBeNull();
+    expect(checkCode(page, step)).toBeNull();
+    // A service of the catalog fetched by its address is read with its own
+    // tool, whatever it fetches.
+    expect(checkCode(OCTOCAT, step, d)).toMatch(/^It fetches GitHub's API with web\.fetch: read it with github\.read instead, its tool here, which needs no address: tools\.github\.read\(/);
   });
 });
 
