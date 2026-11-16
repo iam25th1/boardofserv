@@ -40,7 +40,7 @@ import { sourceProblem, sourceRefusal } from "../sources";
 import { DATE_CURSOR, NEW_PER_RUN } from "../planRepairs";
 
 // Where a reading step says it keeps its place (planRepairs.ts firstRunNote).
-const FIRST_RUN = /First run \(memory\.([a-z][a-z0-9_]*) empty\)/;
+const FIRST_RUN = /and keeps memory\.([a-z][a-z0-9_]*) itself/;
 import { errorText } from "../../db/errors";
 
 // A job's tools (and a value check's, with no job). Sheets are real: the
@@ -84,6 +84,11 @@ export function writesIn(kind: "graphql" | "jsonrpc", body: unknown): string | n
 // from the newest of those, misses none). Listed newest first, as GitHub
 // lists them.
 const FEED_OPS = ["commits", "pulls", "issues"];
+// An agent that reads a feed's items (a repository's commits, pull
+// requests or issues).
+export function readsFeed(d: Pick<AgentDefinition, "steps">): boolean {
+  return d.steps.some((st) => st.kind === "code" && st.tools.includes("github.read"));
+}
 export function feedArgs(tool: ToolName, args: Record<string, unknown>, keepsPlace: boolean): Record<string, unknown> | null {
   if (!keepsPlace || tool !== "github.read" || !FEED_OPS.includes(String(args.op))) return null;
   return typeof args.since === "string" && args.since ? { ...args, limit: 100 } : { ...args, limit: Math.min(Number(args.limit ?? NEW_PER_RUN), NEW_PER_RUN) };
@@ -109,7 +114,7 @@ export class JobTools implements ToolHost {
   private mock: MockTools | null = null;
   // Where this job's feed read got to: the items it gave, the ones judged,
   // and the one being judged now (its changes read last).
-  private feedRun: { key: string | null; items: { id: string; date: string }[]; done: Set<string>; current: string | null } | null = null;
+  private feedRun: { key: string | null; items: { id: string; date: string }[]; done: Set<string>; read: string[] } | null = null;
   // The guard's answers in this run, by call: the same call is checked once.
   private checked = new Map<string, GuardResult>();
   // The checks whose model cost is in the audit log already.
@@ -335,6 +340,7 @@ export class JobTools implements ToolHost {
     }
     const risk = riskOf(this.definition, step, tool);
     if (risk === "read") return this.use(step, tool, args);
+    if (tool === "memory.set") this.placeOnly(tool, String((args as { key?: unknown } | null)?.key ?? ""), (args as { value?: unknown } | null)?.value ?? null);
     // The agent noting its place, a date, in a field it declares needs no
     // model call of the guard's, unless its owner asked to approve it:
     // saved after each item, it would cost a call each. Anything else it
@@ -716,10 +722,17 @@ export class JobTools implements ToolHost {
       const shaped = typed.shape(got.data, asked as never) as { items?: Record<string, unknown>[] };
       if (!feed || !Array.isArray(shaped.items)) return shaped;
       const items = feedItems(shaped.items, { since: typeof feed.since === "string" ? feed.since : null, now });
-      this.feedRun = { key: this.placeKey(), items: items.map((x) => ({ id: String(x.sha ?? x.number ?? ""), date: String(x.date ?? x.created_at ?? "") })), done: new Set(), current: null };
+      this.feedRun = { key: this.placeKey(), items: items.map((x) => ({ id: String(x.sha ?? x.number ?? ""), date: String(x.date ?? x.created_at ?? "") })), done: new Set(), read: [] };
       return { ...shaped, items };
     }
     throw new ToolError(tool, got.status === 401 || got.status === 403 ? `${entry.name} turned the connection down (${got.status}): check its key on Connections, or that it may read this.` : got.status === 404 ? `${entry.name} has no such item (${got.status}): check what the agent was given.` : `${entry.name} answered ${got.status}.`);
+  }
+
+  // Its place is a date the services take, never a time written for
+  // people ("11/16/2026, 10:31 PM").
+  private placeOnly(tool: ToolName, key: string, value: unknown): void {
+    if (key !== this.placeKey() || value === null || (typeof value === "string" && isDateText(value))) return;
+    throw new ToolError(tool, `"${key}" holds a date, ISO 8601 (like 2026-11-16T09:00:00Z): an item's date, or new Date().toISOString().`);
   }
 
   // The memory field an agent keeps its place in: the date of the newest
@@ -738,12 +751,20 @@ export class JobTools implements ToolHost {
     return typeof value === "string" && isDateText(value) ? value : null;
   }
 
+  // An item's changes read: it is next to be judged.
   private async itemTaken(id: string): Promise<void> {
     const f = this.feedRun;
     const item = f && id ? f.items.find((x) => x.id === id || (id.length >= 7 && x.id.startsWith(id))) : undefined;
-    if (!f || !item) return;
-    if (f.current && f.current !== item.id) f.done.add(f.current);
-    f.current = item.id;
+    if (f && item && !f.read.includes(item.id)) f.read.push(item.id);
+  }
+
+  // SERV judged something: the first item whose changes were read and
+  // isn't judged yet is.
+  async judged(): Promise<void> {
+    const f = this.feedRun;
+    const next = f?.read.find((id) => !f.done.has(id));
+    if (!f || !next) return;
+    f.done.add(next);
     await this.keepPlace();
   }
 
@@ -752,7 +773,6 @@ export class JobTools implements ToolHost {
     const f = this.feedRun;
     if (!f) return;
     for (const x of f.items) f.done.add(x.id);
-    f.current = null;
     await this.keepPlace();
   }
 
@@ -807,6 +827,7 @@ export class JobTools implements ToolHost {
     const value = tool === "memory.set" ? ((parsed.data as { value?: unknown }).value ?? null) : null;
     const why = memoryProblem(this.definition.memory, key, value);
     if (why) throw new ToolError(tool, why);
+    this.placeOnly(tool, key, value);
     const here = eq(agentInstallations.id, this.installation.id);
     if (tool === "memory.get") {
       const [row] = await this.rt.db.select({ value: sql<unknown>`${agentInstallations.memory} -> ${key}` }).from(agentInstallations).where(here);

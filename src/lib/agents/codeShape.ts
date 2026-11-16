@@ -52,25 +52,33 @@ function closing(code: string, i: number): number {
 // Each loop's body: for and while loops (their block, or their one
 // statement), and the callbacks of forEach, map and their kin.
 export function loopSpans(source: string): Span[] {
+  return codeLoops(source).map((l) => l.span);
+}
+
+// Each loop with what it goes through: a for loop's head, or what a
+// forEach or map is called on.
+export function codeLoops(source: string): { span: Span; over: string }[] {
   const code = blanked(source);
-  const spans: Span[] = [];
+  const loops: { span: Span; over: string }[] = [];
   for (const m of code.matchAll(/\b(?:for|while)\s*(?:await\s*)?\(/g)) {
     const head = m.index! + m[0].length - 1;
     const after = closing(code, head) + 1;
+    const over = source.slice(head + 1, after - 1);
     const rest = code.slice(after);
     const lead = rest.length - rest.trimStart().length;
     const at = after + lead;
-    if (code[at] === "{") spans.push([at, closing(code, at)]);
+    if (code[at] === "{") loops.push({ span: [at, closing(code, at)], over });
     else {
       const end = code.indexOf(";", at);
-      spans.push([at, end < 0 ? code.length : end]);
+      loops.push({ span: [at, end < 0 ? code.length : end], over });
     }
   }
   for (const m of code.matchAll(/\.\s*(?:forEach|map|flatMap|filter|reduce|some|every|find)\s*\(/g)) {
     const open = m.index! + m[0].length - 1;
-    spans.push([open, closing(code, open)]);
+    const over = /[\w$.\]\[)]+$/.exec(source.slice(Math.max(0, m.index! - 60), m.index!))?.[0] ?? "";
+    loops.push({ span: [open, closing(code, open)], over });
   }
-  return spans;
+  return loops;
 }
 
 // Where the code calls a tool (tools.serv.reason, tools.memory.set).

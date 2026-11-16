@@ -141,6 +141,8 @@ export interface CallContext {
 
 export interface ToolHost {
   call(step: AgentStep, tool: ToolName, args: unknown, approval?: { answer: string | null }, ctx?: CallContext): Promise<unknown>;
+  // SERV answered a step's call to judge (serv.reason): an item is judged.
+  judged?(): Promise<void>;
 }
 
 // One item's verdict, from a decision over a list: the item's place in the
@@ -198,6 +200,9 @@ export interface EngineOptions {
   budget?: (estimateUsd?: number) => Promise<{ ask: { question: string; reason: string } } | { stop: string } | null>;
   // How often one job may start the same step (a loop stops there).
   maxVisits?: number;
+  // The most calls to SERV's reasoning one run may make (an agent judging
+  // a feed's few new items): past it, the run stops cleanly.
+  maxReasons?: number;
   // Hand failures outside the agent back to be tried again (jobs), rather
   // than ending the run (the bench).
   retryInfra?: boolean;
@@ -349,6 +354,7 @@ const DIVERGED = "It went a different way when it ran again, so it was stopped b
 // A run stopped before a call to SERV would take it over its own spend
 // limit: what it had done is kept.
 export const SAVED = "What it had done is saved, so its next run picks up from there.";
+export const REASONS_STOP = (most: number) => `It stopped after ${most} calls to SERV, the most one run of it makes (one a new item, a few at a time). ${SAVED}`;
 export const RUN_LIMIT_STOP = (limit: number, estimate: number) => `It stopped before its next call to SERV (about $${estimate < 0.001 ? estimate.toFixed(4) : estimate.toFixed(3)}) would take it over its spend limit of $${limit} for one run. ${SAVED}`;
 
 // A judgement or words for people made without SERV.
@@ -536,6 +542,7 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       // What this call will likely cost, before it is made: one that would
       // take the run over a limit or its budget isn't made, and the run
       // stops cleanly here, with what it had done (and saved) kept.
+      if (o.maxReasons !== undefined && (state.reasons ?? 0) >= o.maxReasons) return { kind: "halted", reason: REASONS_STOP(o.maxReasons), cause: "budget" };
       const estimate = estimateReasonUsd(read.args);
       if (state.costUsd + estimate > d.limits.maxSpendUsd) return { kind: "halted", reason: RUN_LIMIT_STOP(d.limits.maxSpendUsd, estimate), cause: "budget" };
       const no = (await o.canSpend?.(estimate)) ?? null;
@@ -561,8 +568,10 @@ export async function runSteps(o: EngineOptions): Promise<EngineResult> {
       spent += r.costUsd;
       if (!r.ok) return fail(r.error, r.infra);
       usedModel = r.model;
+      state.reasons = (state.reasons ?? 0) + 1;
       state.journal[i] = { tool: REASON_TOOL, args, result: r.result };
       await o.save?.(state);
+      await o.tools.judged?.();
       emit(r.result, null);
       return { kind: "ok", result: r.result };
     };

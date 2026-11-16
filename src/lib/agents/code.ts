@@ -5,8 +5,8 @@ import { ANSWER_LIMITS } from "../modelLimits";
 import { ARGS_TOOLS, checkDefinition, loopsOf, REASON_TOOL, RUN_VALUES, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
 import { targetProblem, writtenTarget } from "./targets";
 import { argMismatches, mismatchProblem } from "./argKinds";
-import { callsOf, loopsAround, loopSpans } from "./codeShape";
-import { DIFFS_MARK, EACH_ITEM_MARK } from "./planRepairs";
+import { callsOf, codeLoops, loopsAround, loopSpans } from "./codeShape";
+import { DIFFS_MARK } from "./planRepairs";
 import { brokenRule, PLATFORM_RULES } from "./vetting";
 import { CATALOG } from "../connections/catalog";
 import { OUTSIDE_TOOLS, TOOLS } from "./toolbox";
@@ -233,23 +233,18 @@ export function checkCode(source: string, step: CodeStepDef, d?: AgentDefinition
   // SERV once per item: never once for each part of each item (every
   // changed file of every commit), which multiplies a run's cost.
   const loops = loopSpans(source);
-  if (callsOf(source, REASON_TOOL).some((at) => loopsAround(loops, at).length >= 2)) {
+  const reasons = callsOf(source, REASON_TOOL);
+  if (reasons.some((at) => loopsAround(loops, at).length >= 2)) {
     return "It asks SERV once for every part of every item (a loop inside a loop): ask once per item, with all of that item's parts (its changed files and their patches) together in data, so a run of 5 items makes 5 calls.";
+  }
+  // Nor once for each changed file, gathered from every item.
+  const perFile = codeLoops(source).filter((l) => /\bfiles?\b|\bpatch(?:es)?\b|\bchanged_?files\b|\bchangedFiles\b/i.test(l.over));
+  if (reasons.some((at) => perFile.some(({ span: [a, b] }) => a < at && at < b))) {
+    return "It asks SERV once for every changed file: ask once per item (a commit or a pull request), with all of its changed files and their patches together in data, so a run of 5 items makes 5 calls.";
   }
   // A step told to judge each item on its changes reads them.
   if (step.description.includes(DIFFS_MARK) && !(callsOf(source, "github.read").length && /\bop\s*:\s*["'`](?:commit|pull)["'`]/.test(source))) {
     return 'It judges the items without reading their changes: for each item read its changed files with tools.github.read (op "commit" with its sha, or op "pull" with its number, and the repository from input.settings) and give them to serv.reason.';
-  }
-  // A step told to keep its place item by item saves each item's date in
-  // the loop that judges it, so a run that stops part way never judges it
-  // again.
-  if (step.description.includes(EACH_ITEM_MARK)) {
-    const spans = loopSpans(source);
-    const items = callsOf(source, REASON_TOOL).flatMap((at) => loopsAround(spans, at).slice(0, 1));
-    const saved = callsOf(source, "memory.set");
-    if (!items.length || !saved.some((at) => items.some(([a, b]) => a < at && at < b))) {
-      return "It doesn't save its place item by item: go through the items one at a time, oldest first, and right after each item's serv.reason call save that item's date with tools.memory.set, inside the loop, so a run that stops part way never judges it again.";
-    }
   }
   if (d) {
     const target = writtenTarget(source, step, d);

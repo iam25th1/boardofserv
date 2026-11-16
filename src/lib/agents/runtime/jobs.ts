@@ -13,7 +13,8 @@ import { allowanceStopped, budgetGate, budgetOf, meter, type Scope } from "../me
 import { pauseOnRepeatedFailure, rateLimits } from "./rates";
 import { holdOn } from "../../safety/freeze";
 import type { Runtime } from "./context";
-import { JobTools } from "./tools";
+import { JobTools, readsFeed } from "./tools";
+import { NEW_PER_RUN } from "../planRepairs";
 import { spendToday } from "./views";
 
 // Jobs: one run each of an installation, started by a trigger (or by hand,
@@ -309,6 +310,9 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
         };
       },
       maxVisits: rateLimits().stepVisits,
+      // An agent judging a feed's new items: a few items, one call each,
+      // and a few more for what it says.
+      ...(readsFeed(definition) ? { maxReasons: NEW_PER_RUN + 3 } : {}),
       retryInfra: true,
       signal: halt.signal,
       // Its code's local time is its owner's, as they set it up.

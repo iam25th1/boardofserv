@@ -683,10 +683,13 @@ const FEEDS = ["github.read"];
 const ID_KEY = /(?:^|_)(?:sha|id|hash)$|[a-z0-9](?:Sha|Id|Hash)$/;
 const DATE_SAID = /\b(?:date|time|timestamp|iso)\b/i;
 export const DATE_CURSOR = "The date (ISO 8601) of the newest item it has judged, so the next run reads only what came after it.";
+// The reading step takes what github.read gives: the runtime gives only
+// the new items and keeps the place (runtime/tools.ts), so the code has no
+// date filter, limit or save of its own to get wrong.
 export const firstRunNote = (key: string) =>
-  `First run (memory.${key} empty): the latest ${NEW_PER_RUN} from the last 24 hours, whichever is fewer; after that only what came after memory.${key}, given to github.read as since (a date, never a sha or an id), ${NEW_PER_RUN} at most.`;
-export const EACH_ITEM_MARK = "right after each item it saves that item's date";
-export const eachItemNote = (key: string) => `One item at a time, oldest first (GitHub lists the newest first), one serv.reason call each; ${EACH_ITEM_MARK}: tools.memory.set({ key: "${key}", value: the item's date }).`;
+  `github.read gives only the new items, ${NEW_PER_RUN} at most (with memory.${key} empty, the latest from the last 24 hours; after that what came after it), and keeps memory.${key} itself: take what it gives, with no date filter, limit or memory.set of its own.`;
+export const EACH_ITEM_MARK = "one serv.reason call for each item";
+export const eachItemNote = () => `It goes through the items one at a time, oldest first (GitHub lists the newest first), ${EACH_ITEM_MARK}.`;
 // A repository's items are judged on their changes, not their titles.
 export const DIFFS_MARK = "reads its changed files with github.read";
 export const diffsNote = () => `For each item it ${DIFFS_MARK} (op "commit" with the sha, or op "pull" with the number; the repository from settings) and gives them to serv.reason.`;
@@ -735,7 +738,7 @@ export function keepPlaceByDate<M extends { key: string; type?: unknown; descrip
     key = next;
   }
   const out = memory.map((m) => (m === field ? { ...m, key, type: "text", description: DATE_SAID.test(m.description ?? "") && m.key === key ? m.description : DATE_CURSOR } : m));
-  if (!(reading.description ?? "").includes(`the latest ${NEW_PER_RUN} from the last 24 hours`)) reading.description = noted(reading.description, firstRunNote(key));
+  if (!(reading.description ?? "").includes(`and keeps memory.${key} itself`)) reading.description = noted(reading.description, firstRunNote(key));
   // What saves its place says it saves a date.
   for (const st of steps) {
     if (st === reading || st.kind !== "code" || !(st.tools ?? []).includes("memory.set")) continue;
@@ -748,9 +751,7 @@ export function keepPlaceByDate<M extends { key: string; type?: unknown; descrip
   const items = reading.outputs.filter((k) => typeof shapes[k] !== "string" || /\[\]\s*$/.test(String(shapes[k]).trim()));
   for (const st of steps) {
     if (st.kind !== "code" || !(st.tools ?? []).includes(REASON_TOOL) || !st.inputs.some((k) => items.includes(k))) continue;
-    if (!(st.description ?? "").includes(EACH_ITEM_MARK)) st.description = noted(st.description, eachItemNote(key));
-    if (!(st.tools ?? []).includes("memory.set")) st.tools = [...(st.tools ?? []), "memory.set"];
-    if (!st.inputs.includes("memory")) st.inputs = [...st.inputs, "memory"];
+    if (!(st.description ?? "").includes(EACH_ITEM_MARK)) st.description = noted(st.description, eachItemNote());
     // Its items' changes, read one at a time: what it judges (unless the
     // reading step reads them already).
     if ((reading.tools ?? []).includes("github.read") && !/changed files|patch|\bdiffs?\b|op\s*[:=]?\s*["']?commit["']?(?!s)|op\s*[:=]?\s*["']?pull["']?(?!s)/i.test(reading.description ?? "")) {

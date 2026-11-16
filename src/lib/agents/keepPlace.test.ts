@@ -5,7 +5,7 @@ import type { PgliteDatabase } from "drizzle-orm/pglite";
 import { eq } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import { addUser, testDb } from "@/test/helperDb";
-import { checkerDefinition, V3_ANALYZE } from "@/test/githubChecker";
+import { checkerDefinition } from "@/test/githubChecker";
 import { publishedAgent, testRuntime, type TestRuntime } from "@/test/runtimeFixtures";
 import { forgetPublicReads } from "../connections/publicReads";
 import { checkCode } from "./code";
@@ -29,13 +29,13 @@ const repair = (d: AgentDefinition): AgentDefinition => {
 const code = (d: AgentDefinition, id: string) => d.steps.find((s): s is CodeStepDef => s.id === id && s.kind === "code")!;
 
 describe("a plan that reads new items", () => {
-  it("keeps its place as a date, reads 5 at most, and saves the date after each item it judges", () => {
+  it("keeps its place as a date the runtime keeps, reads 5 at most, and judges one item at a time", () => {
     const d = repair(checkerDefinition());
     expect(d.memory).toEqual([{ key: "last_check_date", type: "text", description: "ISO format timestamp of the last analysis to fetch only commits since then" }]);
     expect(code(d, "fetch_commits").description).toContain(firstRunNote("last_check_date"));
     const judge = code(d, "analyze_quality");
-    expect(judge.description).toContain(eachItemNote("last_check_date"));
-    expect(judge.tools).toEqual(["github.read", "serv.reason", "memory.set"]);
+    expect(judge.description).toContain(eachItemNote());
+    expect(judge.tools).toEqual(["github.read", "serv.reason"]);
     expect(code(d, "save_last_check").description).toMatch(/is the newest item's date \(ISO 8601\), never its sha or id\.$/);
     expect(judge.description).toContain(diffsNote());
     // Repaired again, it reads the same.
@@ -48,15 +48,14 @@ describe("a plan that reads new items", () => {
     const titles: AgentDefinition = { ...base, steps: base.steps.map((s) => (s.id === "analyze_quality" && s.kind === "code" ? { ...s, inputs: ["commits"], tools: ["serv.reason"], description: "For each commit, ask serv.reason to judge its quality from its message. Return violations and quality_summary." } : s)) };
     const d = repair(titles);
     const judge = code(d, "analyze_quality");
-    expect(judge.tools).toEqual(["serv.reason", "memory.set", "github.read"]);
-    expect(judge.inputs).toEqual(["commits", "memory", "settings"]);
+    expect(judge.tools).toEqual(["serv.reason", "github.read"]);
+    expect(judge.inputs).toEqual(["commits", "settings"]);
     expect(judge.description).toContain(diffsNote());
     const fromTitles = `async function run(input, tools) {
   const violations = [];
   for (const c of (input.commits || []).slice().reverse()) {
     const r = await tools.serv.reason({ task: "Judge this commit.", data: { message: c.message }, answer: { violations: "list" } });
     violations.push(...r.violations);
-    await tools.memory.set({ key: "last_check_date", value: c.date });
   }
   return { violations, quality_summary: { files_checked: 0, violations_total: violations.length } };
 }`;
@@ -68,7 +67,7 @@ describe("a plan that reads new items", () => {
     expect(d.memory).toEqual([{ key: "last_commit_date", type: "text", description: DATE_CURSOR }]);
     expect(JSON.stringify(d.steps)).not.toContain("last_commit_sha");
     expect(code(d, "fetch_commits").description).toContain("memory.last_commit_date");
-    expect(code(d, "fetch_commits").description).toContain("given to github.read as since (a date, never a sha or an id)");
+    expect(code(d, "fetch_commits").description).toContain("and keeps memory.last_commit_date itself");
   });
 
   it("gets a place, a date, when it judges what it reads and kept none", () => {
@@ -78,7 +77,7 @@ describe("a plan that reads new items", () => {
     expect(d.memory).toEqual([{ key: "last_item_date", type: "text", description: DATE_CURSOR }]);
     expect(code(d, "fetch_commits").inputs).toEqual(["settings", "memory"]);
     expect(code(d, "fetch_commits").description).toContain(firstRunNote("last_item_date"));
-    expect(code(d, "analyze_quality").description).toContain(eachItemNote("last_item_date"));
+    expect(code(d, "analyze_quality").description).toContain(eachItemNote());
   });
 
   it("keeps its place in the step that reads, when a step of its own looked it up first", () => {
@@ -104,9 +103,9 @@ describe("a plan that reads new items", () => {
     expect(code(d, "fetch_commits").inputs).toEqual(["last_commit", "settings", "memory"]);
     expect(code(d, "fetch_commits").description).toContain(firstRunNote("last_checked_commit"));
     const judge = code(d, "analyze_quality");
-    expect(judge.description).toContain(eachItemNote("last_checked_commit"));
+    expect(judge.description).toContain(eachItemNote());
     // It has the changes already: it isn't told to read them again.
-    expect(judge.tools).toEqual(["serv.reason", "memory.set"]);
+    expect(judge.tools).toEqual(["serv.reason"]);
     expect(judge.description).not.toContain(diffsNote());
   });
 
@@ -119,7 +118,7 @@ describe("a plan that reads new items", () => {
     };
     const d = repair(metrics);
     expect(code(d, "fetch_commits").description).toContain(firstRunNote("last_check_date"));
-    expect(code(d, "analyze_quality").description).not.toContain("right after each item");
+    expect(code(d, "analyze_quality").description).not.toContain(eachItemNote());
   });
 
   it("leaves a plan alone that only counts what it reads", () => {
@@ -135,44 +134,6 @@ describe("a plan that reads new items", () => {
     const d = repair(counts);
     expect(d.memory).toEqual([]);
     expect(code(d, "fetch_commits").description).not.toContain("the latest 5");
-  });
-});
-
-describe("a step told to save its place item by item", () => {
-  const d = repair(checkerDefinition());
-  const judge = code(d, "analyze_quality");
-
-  it("is sent back when it saves at the end, or not at all", () => {
-    // Version 3's: SERV once per file of every commit, and its place saved
-    // nowhere.
-    expect(checkCode(V3_ANALYZE, judge, d)).toMatch(/^It asks SERV once for every part of every item/);
-    const atTheEnd = `async function run(input, tools) {
-  const commits = (input.commits || []).slice().reverse();
-  const violations = [];
-  for (const c of commits) {
-    const files = await tools.github.read({ op: "commit", repo: input.settings.github_repo, sha: c.sha });
-    const r = await tools.serv.reason({ task: "Judge this commit's changes.", data: { files: files.items }, answer: { violations: "list" } });
-    violations.push(...r.violations);
-  }
-  await tools.memory.set({ key: "last_check_date", value: commits.length ? commits[commits.length - 1].date : null });
-  return { violations, quality_summary: { files_checked: 0, violations_total: violations.length } };
-}`;
-    expect(checkCode(atTheEnd, judge, d)).toMatch(/^It doesn't save its place item by item/);
-  });
-
-  it("passes when each item's date is saved right after it is judged", () => {
-    const each = `async function run(input, tools) {
-  const commits = (input.commits || []).slice().reverse();
-  const violations = [];
-  for (const c of commits) {
-    const files = await tools.github.read({ op: "commit", repo: input.settings.github_repo, sha: c.sha });
-    const r = await tools.serv.reason({ task: "Judge this commit's changes.", data: { files: files.items }, answer: { violations: "list" } });
-    violations.push(...r.violations);
-    await tools.memory.set({ key: "last_check_date", value: c.date });
-  }
-  return { violations, quality_summary: { files_checked: 0, violations_total: violations.length } };
-}`;
-    expect(checkCode(each, judge, d)).toBeNull();
   });
 });
 
@@ -228,7 +189,7 @@ describe("a job's feed reads", () => {
     expect(later.items.map((c) => c.sha)).toEqual(["c2", "c3", "c4", "c5", "c6"]);
   });
 
-  it("keep their place themselves, a date, item by item as each one's changes are read, whatever the plan did", async () => {
+  it("keep their place themselves, a date, item by item as SERV judges each one, whatever the plan did", async () => {
     const d = repair(checkerDefinition());
     const u = await addUser(db, "feed.place");
     const p = await publishedAgent(db, u, { definition: d, code: {} });
@@ -238,25 +199,32 @@ describe("a job's feed reads", () => {
       const since = new URL(req.url).searchParams.get("since");
       return Response.json(since ? raw.filter((c) => Date.parse(c.commit.author.date) > Date.parse(since)) : raw);
     });
-    rt.net.on(/\/repos\/acme\/place\/commits\/c/, () => Response.json({ files: [] }));
+    rt.net.on(/\/repos\/acme\/place\/commits\/c0ffee/, () => Response.json({ files: [] }));
     const place = async () => ((await db.select().from(schema.agentInstallations).where(eq(schema.agentInstallations.id, inst!.id)))[0]!.memory as Record<string, unknown>).last_check_date ?? null;
     const step = d.steps[0]!;
     const job = (n: number) => new JobTools(rt, inst!, d, { id: `00000000-0000-0000-0000-00000000f0${n}0` } as schema.AgentJob);
     const first = job(1);
     expect(((await first.call(step, "github.read", { op: "commits", repo: "acme/place" })) as { items: { sha: string }[] }).items.map((c) => c.sha)).toEqual(["c0ffee0", "c0ffee1", "c0ffee2", "c0ffee3", "c0ffee4"]);
-    // Oldest first: c4 is being judged, so nothing is saved yet; c3 read
-    // means c4 is judged.
+    // Oldest first: c0ffee4's changes read, nothing is judged yet; SERV's
+    // answer judges it.
     await first.call(step, "github.read", { op: "commit", repo: "acme/place", sha: "c0ffee4" });
     expect(await place()).toBeNull();
-    await first.call(step, "github.read", { op: "commit", repo: "acme/place", sha: "c0ffee3" });
+    await first.judged();
     expect(await place()).toBe(at(5));
-    // Stopped here, the next run starts after c4.
+    // Stopped here, the next run starts after it.
     const next = job(2);
     expect(((await next.call(step, "github.read", { op: "commits", repo: "acme/place" })) as { items: { sha: string }[] }).items.map((c) => c.sha)).toEqual(["c0ffee0", "c0ffee1", "c0ffee2", "c0ffee3"]);
+    // Every change read first, then judged one by one: the place follows the judging.
+    for (const sha of ["c0ffee3", "c0ffee2", "c0ffee1", "c0ffee0"]) await next.call(step, "github.read", { op: "commit", repo: "acme/place", sha });
+    expect(await place()).toBe(at(5));
+    await next.judged();
+    expect(await place()).toBe(at(3));
     // Done, everything it read is judged: its place is the newest.
     await next.settleFeed();
     expect(await place()).toBe(at(0.5));
     expect(((await job(3).call(step, "github.read", { op: "commits", repo: "acme/place" })) as { items: unknown[] }).items).toEqual([]);
+    // Its place is a date the services take, never a time written for people.
+    await expect(job(4).call(step, "memory.set", { key: "last_check_date", value: "11/16/2026, 10:31:42 PM" })).rejects.toThrow('"last_check_date" holds a date, ISO 8601');
   });
 
   it("never moves past an item not judged yet, when the code goes newest first", async () => {
@@ -268,7 +236,10 @@ describe("a job's feed reads", () => {
     rt.net.on(/\/repos\/acme\/newest\/commits\/c/, () => Response.json({ files: [] }));
     const tools = new JobTools(rt, inst!, d, { id: "00000000-0000-0000-0000-00000000f0a0" } as schema.AgentJob);
     await tools.call(d.steps[0]!, "github.read", { op: "commits", repo: "acme/newest" });
-    for (const sha of ["c0ffee0", "c0ffee1", "c0ffee2"]) await tools.call(d.steps[0]!, "github.read", { op: "commit", repo: "acme/newest", sha });
+    for (const sha of ["c0ffee0", "c0ffee1", "c0ffee2"]) {
+      await tools.call(d.steps[0]!, "github.read", { op: "commit", repo: "acme/newest", sha });
+      await tools.judged();
+    }
     const [row] = await db.select().from(schema.agentInstallations).where(eq(schema.agentInstallations.id, inst!.id));
     expect((row!.memory as Record<string, unknown>).last_check_date ?? null).toBeNull();
   });

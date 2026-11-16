@@ -90,7 +90,7 @@ afterAll(async () => {
 });
 
 const ok = (source: string): StepCode => ({ spec: "", status: "approved", source, rounds: 1, note: null, updatedAt: new Date().toISOString() });
-// Judging one commit at a time with SERV, its place saved after each.
+// Judging one commit at a time with SERV; the runtime keeps its place.
 const JUDGE = `async function run(input, tools) {
   const violations = [];
   let files = 0;
@@ -99,7 +99,6 @@ const JUDGE = `async function run(input, tools) {
     files += got.items.length;
     const r = await tools.serv.reason({ task: "Judge the quality of this commit's changes: list each real problem in a few words, or nothing.", data: { message: c.message, files: got.items }, answer: { violations: "list" } });
     for (const v of r.violations) violations.push({ file: "", type: "quality", severity: "info", line: 0, message: v });
-    await tools.memory.set({ key: "last_check_date", value: c.date });
   }
   return { violations, quality_summary: { files_checked: files, violations_total: violations.length } };
 }`;

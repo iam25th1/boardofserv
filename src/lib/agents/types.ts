@@ -222,6 +222,8 @@ export interface RunState {
   judged?: number;
   // It sent its owner a message in this run.
   told?: boolean;
+  // Calls to SERV's reasoning this run made.
+  reasons?: number;
   // A comparison ended the run, by design (the price isn't low yet): no
   // all-clear follows.
   quiet?: boolean;
