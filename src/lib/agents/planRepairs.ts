@@ -1,6 +1,7 @@
 import { loopChain, loopsOf, REASON_TOOL, type CodeStepDef } from "./definition";
 import { needsReasoning } from "./planRules";
 import { parseShape, showShape } from "./shapes";
+import { OUTSIDE_TOOLS } from "./toolbox";
 
 // Repairs to a plan as SERV answers it, each with only one meaning, made
 // before the plan is checked (plan.ts, wireToDefinition), so a slip SERV
@@ -276,7 +277,7 @@ export function mayBeEmpty(steps: RawStep[], id: string): boolean {
       if (seen.has(st.id)) continue;
       seen.add(st.id);
       if (st.kind === "loop" || (st.kind === "decision" && st.each)) return true;
-      if (st.kind === "code" && (st.tools ?? []).some((t) => t === "sheets.read" || t === "web.search" || t === "memory.get" || t === "typeform.read")) return true;
+      if (st.kind === "code" && (st.tools ?? []).some((t) => t !== "web.fetch" && (OUTSIDE_TOOLS as readonly string[]).includes(t))) return true;
     }
     at = at.filter((x) => x.kind !== "decision" || x.each);
     if (seen.size > steps.length) break;
@@ -570,4 +571,64 @@ export function askForForm(steps: RawStep[], settings: { key: string; label: str
     if (!(st.description ?? "").includes(`settings.${key}`)) st.description = `${(st.description ?? "").trim().slice(0, 800 - note.length)}${note}`;
   }
   return own ? null : { key, label: "Your Typeform form's link", type: "url", help: "The form people fill in: its link, from Share in Typeform.", choices: [], given: link ?? "" };
+}
+
+// The same action taken in two places that go on the same way (a message
+// for when the code passed and another for when it failed, each sent by a
+// step of its own) is one step that takes it: each way's code makes what
+// it sends under one name, and both lead to that one step. A job sends or
+// writes a thing once, whichever way it went.
+export function mergeSameActions(steps: RawStep[]): void {
+  for (let merged = true; merged; ) {
+    merged = false;
+    const actions = steps.filter((s) => s.kind === "action");
+    for (const [i, a] of actions.entries()) {
+      const b = actions.slice(i + 1).find((x) => x.action === a.action && (x.next ?? null) === (a.next ?? null) && (x.otherwise ?? null) === (a.otherwise ?? null) && sameLevel(steps, a.id, x.id));
+      const [made, other] = [a.inputs[0], b?.inputs[0]];
+      if (!b || !made || !other) continue;
+      const [ma, mb] = [into(steps, a.id), into(steps, b.id)];
+      if (ma.length !== 1 || mb.length !== 1 || ma[0]!.kind !== "code" || mb[0]!.kind !== "code" || !ma[0]!.outputs.includes(made) || !mb[0]!.outputs.includes(other)) continue;
+      // What the second sends is its own, read by nothing else.
+      if (other !== made && steps.some((s) => s !== b && s.inputs.includes(other))) continue;
+      const m = mb[0]! as RawStep & { shapes?: Record<string, string> };
+      m.outputs = m.outputs.map((o) => (o === other ? made : o));
+      if (m.description) m.description = m.description.replace(new RegExp(`\\b${other}\\b`, "g"), made);
+      if (m.shapes && m.shapes[other] !== undefined) m.shapes = Object.fromEntries(Object.entries(m.shapes).map(([k, v]) => [k === other ? made : k, v]));
+      repoint(steps, b.id, a.id);
+      steps.splice(steps.indexOf(b), 1);
+      merged = true;
+      break;
+    }
+  }
+}
+
+// What the maker asked to be kept: a log, a record, a sheet, a table.
+const KEEPS = /\b(?:sheets?|spreadsheets?|logs?|logged|logging|records?|recording|track(?:s|ing)?|tables?|rows?|columns?|airtable|notion|history|ledger|tally|tallies)\b/i;
+// What the maker asked to be remembered between runs.
+const REMEMBERS = /\b(?:remember|remembers|keep track|where it (?:left off|got to)|only new|new ones|since (?:the )?last|already (?:checked|seen|sent)|not (?:again|twice)|each (?:one )?once)\b/i;
+
+// Steps the maker never asked for, taken out with what feeds them: a log
+// sheet (written to, never read) when they named no sheet, log or record,
+// and memory
+// nothing reads (a counter, a list of what it did) when they asked it to
+// remember nothing. A job does what it was asked, and that's all.
+export function dropUnasked(steps: RawStep[], setup: Setup & { memory?: { key: string }[] }, said: string): { actions: string[]; memory: boolean } {
+  const dropped: string[] = [];
+  const toolOfAction = (id: string | undefined) => String(setup.actions.find((a) => a.id === id)?.tool ?? "");
+  const take = (st: RawStep) => {
+    const feeds = into(steps, st.id).filter((x) => x.kind === "code" && x.outputs.length && x.outputs.every((o) => st.inputs.includes(o) && !steps.some((s) => s !== st && s.inputs.includes(o))) && !(x.tools ?? []).some((t) => t !== "memory.get" && t !== "serv.reason"));
+    cut(steps, [...feeds.map((f) => f.id), st.id], st.next ?? null);
+    dropped.push(String(st.action));
+  };
+  // A sheet it works on (reads) is its job; one it only writes to is a log.
+  const worksOnSheet = steps.some((s) => (s.tools ?? []).includes("sheets.read"));
+  if (!KEEPS.test(said) && !worksOnSheet) for (const st of steps.filter((s) => s.kind === "action" && ["sheets.write", "sheets.update"].includes(toolOfAction(s.action)))) take(st);
+  // Memory nothing reads is kept for nothing.
+  const reads = steps.some((s) => s.inputs.includes("memory") || (s.tools ?? []).includes("memory.get"));
+  const memory = !reads && !REMEMBERS.test(said) && Boolean(setup.memory?.length || steps.some((s) => (s.tools ?? []).includes("memory.set")));
+  if (memory) {
+    for (const st of steps.filter((s) => s.kind === "action" && toolOfAction(s.action) === "memory.set")) take(st);
+    for (const st of steps) if (st.tools) st.tools = st.tools.filter((t) => t !== "memory.set");
+  }
+  return { actions: dropped, memory };
 }

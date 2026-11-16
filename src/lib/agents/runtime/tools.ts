@@ -5,7 +5,7 @@ import { agentApprovals, agentFetchDays, agentInstallations, agentMessages, agen
 import { GoogleRevoked, GoogleUnavailable, REVOKED_REASON } from "../../google/oauth";
 import { readTab, SheetRefused, updateRows, writeTab, type SheetRow } from "../../google/sheets";
 import { braveSearch, SearchRefused, SearchUnavailable } from "../../search/brave";
-import type { AgentDefinition, AgentStep, ToolName } from "../definition";
+import { servicesOf, type AgentDefinition, type AgentStep, type ToolName } from "../definition";
 import { Blocked, Declined, Halted, InfraError, Paused, type CallContext, type OpinionFacts, type ToolHost } from "../runner";
 import { askGuard, GUARD_DOWN, guardArgs, guardKey, type GuardInput, type GuardResult } from "../guard";
 import { budgetGate, costMicros, meter } from "../metering";
@@ -17,7 +17,7 @@ import { outboundRoom, pauseFor, takeAction } from "./rates";
 import { knownTo } from "./held";
 import { MAX_MEMORY_BYTES, memoryProblem, MockTools, TOOL_ARGS, ToolError } from "../toolbox";
 import { emptyBench } from "../types";
-import type { Runtime } from "./context";
+import { transportOf, type Runtime } from "./context";
 import { overLimit, recordSpend, spendOf } from "./spend";
 import { policyAsks, readPolicy, riskOf, TO_OWNER_ONLY } from "../risk";
 import { describeCall } from "../calls";
@@ -29,7 +29,11 @@ import { addressFacts, highRisk, warningOf, type AddressFacts } from "../../spen
 import { paymentsNetworkProblem } from "../../spending/treasury";
 import { formatAmount, parseAmount } from "../../money";
 import { fetchPage, WebUnreachable } from "./webFetch";
-import { secretOf, touch as touchConnection } from "../../connections/vault";
+import { canWrite, secretOf, touch as touchConnection, type ServiceSecret } from "../../connections/vault";
+import { entryOf, needsConnecting, serviceName } from "../../connections/catalog";
+import { callService, ServiceRefused, ServiceUnreachable, type ServiceCall } from "../../connections/request";
+import { typedRead } from "../../connections/reads";
+import { parseFeed } from "../../connections/feed";
 import { formIdOf, formResponses, TypeformError } from "../../typeform/api";
 import { sourceProblem, sourceRefusal } from "../sources";
 import { errorText } from "../../db/errors";
@@ -51,6 +55,24 @@ import { errorText } from "../../db/errors";
 // Most Typeform responses one job takes: the rest wait for the next run.
 export const TYPEFORM_PER_RUN = 20;
 export const TYPEFORM_MISSING = "Typeform isn't connected, so the form's answers can't be read: connect it on Connections, then run it again.";
+
+// A service's calls an installation may make a day, each service apart.
+export const DEFAULT_SERVICE_CALLS = 200;
+
+// Why a read that is a POST (a GraphQL query, a JSON-RPC call) would
+// really write, or null when it only reads.
+export function writesIn(kind: "graphql" | "jsonrpc", body: unknown): string | null {
+  if (kind === "graphql") {
+    const q = String((body as { query?: unknown } | null)?.query ?? "");
+    return /\bmutation\b/i.test(q) || !q.trim() ? "service.request only reads: a GraphQL mutation is a write, made with service.send." : null;
+  }
+  const calls = Array.isArray(body) ? body : [body];
+  const methods = calls.map((c) => String((c as { method?: unknown } | null)?.method ?? ""));
+  return methods.every((m) => /^(?:eth_|alchemy_|net_|web3_)/.test(m) && !/send|sign|submit|install|uninstall|personal_/i.test(m)) ? null : "service.request only reads the chain: a call that sends or signs is never made.";
+}
+
+// A write through a connection whose owner switched writing off.
+export const WRITES_OFF = (name: string) => `Writing to ${name} is switched off on Connections, so nothing was written. Turn it on there to let your agents write.`;
 
 export const GUARD_OVER_BUDGET = "This agent's model budget for the week is used up, so the safety check asks you instead.";
 
@@ -414,6 +436,7 @@ export class JobTools implements ToolHost {
     if (tool === "web.fetch") return this.fetch(args);
     if (tool === "web.search") return this.search(args);
     if (tool === "typeform.read") return this.typeform(args);
+    if (tool === "service.request" || tool === "service.send" || typedRead(tool)) return this.service(tool, args);
     if (tool === "telegram.send") {
       const parsed = TOOL_ARGS["telegram.send"].safeParse(args);
       if (!parsed.success) throw new ToolError(tool, "telegram.send was called wrongly: it takes { text }.");
@@ -466,6 +489,8 @@ export class JobTools implements ToolHost {
       throw new ToolError(tool, `${tool} was called wrongly: it takes ${takes}.`);
     }
     const g = this.grant(parsed.data.sheet);
+    // Writing is the owner's switch on Connections, on unless they turn it off.
+    if (tool !== "sheets.read" && !(await canWrite(this.rt, this.installation.ownerUserId, "google"))) throw new ToolError(tool, WRITES_OFF("Google Sheets"));
     const limit = this.rt.services.caps.sheetCalls;
     if (!(await this.take("sheets", limit))) throw new ToolError(tool, `It reached its limit of ${limit} sheet calls today.`);
     try {
@@ -560,6 +585,57 @@ export class JobTools implements ToolHost {
         .onConflictDoNothing();
     }
     return { responses: got.responses };
+  }
+
+  // A call to a service of the catalog through the owner's connection
+  // (connections/request.ts): only a service the agent says it uses, with
+  // the owner's key added on the server, within its calls a day. Reading
+  // needs the connection (none for a public service, nor for a public
+  // GitHub repository); writing (service.send, an action) also needs the
+  // owner's switch on. What comes back is the service's data, untrusted.
+  private async service(tool: ToolName, args: unknown): Promise<unknown> {
+    const parsed = TOOL_ARGS[tool].safeParse(args);
+    if (!parsed.success) throw new ToolError(tool, `${tool} was called wrongly: ${parsed.error.issues.map((i) => `${i.path.join(".") || "arguments"} ${i.message.toLowerCase()}`).join("; ")}.`);
+    const typed = typedRead(tool);
+    const a = parsed.data as { connection?: string; path?: string; query?: Record<string, string | number | boolean>; body?: unknown; url?: string; method?: "POST" | "PUT" | "PATCH" | "DELETE" };
+    const entry = entryOf(typed ? typed.service : (a.connection ?? ""));
+    if (!entry || entry.id === "webhook" || entry.id === "telegram" || entry.id === "google") throw new ToolError(tool, `"${a.connection}" isn't a service it can reach this way.`);
+    if (!servicesOf(this.definition).includes(entry.id)) throw new ToolError(tool, `This agent doesn't say it uses ${entry.name}, so it can't reach it.`);
+    const owner = this.installation.ownerUserId;
+    const secret = entry.auth === "none" ? null : await secretOf(this.rt, owner, entry.id);
+    if (!secret && needsConnecting(entry)) throw new ToolError(tool, `${serviceName(entry.id)} isn't connected, so it can't be reached: connect it on Connections, then run it again.`);
+    if (tool === "service.send") {
+      if (!entry.writes) throw new ToolError(tool, `${entry.name} only reads: nothing can be written to it.`);
+      if (!(await canWrite(this.rt, owner, entry.id))) throw new ToolError(tool, WRITES_OFF(entry.name));
+    }
+    const limit = this.rt.services.caps.serviceCalls ?? DEFAULT_SERVICE_CALLS;
+    if (!(await this.take(`service:${entry.id}`, limit))) throw new ToolError(tool, `It reached its limit of ${limit} ${entry.name} calls today.`);
+    let call: ServiceCall;
+    if (typed) call = typed.request(parsed.data as never);
+    else if (tool === "service.request") {
+      const post = a.body !== undefined && a.body !== null && entry.postReads;
+      if (a.body !== undefined && a.body !== null && !entry.postReads) throw new ToolError(tool, "service.request only reads (a GET): sending a body is a write, made with service.send.");
+      if (post) {
+        const why = writesIn(entry.postReads!, a.body);
+        if (why) throw new ToolError(tool, why);
+      }
+      call = { method: post ? "POST" : "GET", path: a.path ?? "", query: a.query, body: post ? a.body : undefined, url: a.url };
+    } else call = { method: a.method ?? "POST", path: a.path ?? "", query: a.query, body: a.body, form: entry.form };
+    let got: { status: number; data: unknown };
+    try {
+      got = await callService(entry, (secret ?? {}) as ServiceSecret, call, transportOf(this.rt));
+    } catch (err) {
+      if (err instanceof ServiceUnreachable) throw new InfraError(err.message);
+      if (err instanceof ServiceRefused) throw new ToolError(tool, err.message);
+      throw err;
+    }
+    if (secret) await touchConnection(this.rt, owner, entry.id);
+    // Busy or down at the service: worth another try later.
+    if (got.status === 429 || got.status >= 500) throw new InfraError(`${entry.name} ${got.status === 429 ? "is busy (too many calls just now)" : `answered ${got.status}`}; it tries again later.`);
+    if (entry.id === "rss" && typeof got.data === "string") return { status: got.status, data: parseFeed(got.data) ?? got.data };
+    if (!typed) return got;
+    if (got.status >= 200 && got.status < 300) return typed.shape(got.data, parsed.data as never);
+    throw new ToolError(tool, got.status === 401 || got.status === 403 ? `${entry.name} turned the connection down (${got.status}): check its key on Connections, or that it may read this.` : got.status === 404 ? `${entry.name} has no such item (${got.status}): check what the agent was given.` : `${entry.name} answered ${got.status}.`);
   }
 
   // What the agent remembers for this owner: on this installation's row

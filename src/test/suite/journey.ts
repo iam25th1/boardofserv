@@ -11,6 +11,8 @@ import type { AgentSummaryDTO, SketchDTO } from "@/lib/types";
 import type { HealLog } from "@/lib/agents/types";
 import type { Ledger } from "./live";
 import { answerTo, pickChoice, setupAnswer, type SuiteRequest } from "./requests";
+import { loadNeeds } from "@/lib/sketchStore";
+import { settled as needsSettled } from "@/lib/agents/needs";
 
 // One request taken through the journey a maker takes in the chat, through
 // the real routes, the way a maker would: the first message, then only
@@ -32,7 +34,7 @@ export interface JourneyResult {
   turns: { said: string; reply: string }[];
   // Every question it asked the maker: the chat's, and the fixer's with
   // what was tapped.
-  questions: { from: "chat" | "fixer"; question: string; answer: string }[];
+  questions: { from: "chat" | "needs" | "fixer"; question: string; answer: string }[];
   plan: string[];
   test: { status: string; story: string; problems: { text: string }[] } | null;
   // Each repair round: where it failed, what the fixer made of it, what it
@@ -90,6 +92,7 @@ export async function runJourney(r: SuiteRequest, o: { db: PgliteDatabase<typeof
     let conversationId: string | undefined = o.conversationId;
     let sketch: SketchDTO | null = null;
     let said = r.says;
+    let lastChoices: string[] = [];
     for (let turn = 0; turn < 6; turn++) {
       const events = await chatTurn({ conversationId, content: said });
       const failed = events.find((e) => e.type === "error");
@@ -97,11 +100,24 @@ export async function runJourney(r: SuiteRequest, o: { db: PgliteDatabase<typeof
       const s = events.filter((e) => e.type === "sketch").at(-1);
       if (s) sketch = s.data.sketch as SketchDTO;
       const reply = events.filter((e) => e.type === "delta").map((e) => String(e.data.text ?? "")).join("");
+      lastChoices = (events.find((e) => e.type === "reply_end")?.data.choices as string[] | undefined) ?? [];
       out.turns.push({ said, reply: reply || (failed ? `(error: ${String(failed.data.message)})` : "") });
       if (describedEnough(sketch)) break;
       // A question, answered with what the maker knows.
       said = answerTo(r, reply);
       out.questions.push({ from: "chat", question: reply, answer: said });
+    }
+    // What the job can't run without (needs.ts), asked one at a time: an
+    // answer the maker knows, else the default they are offered.
+    for (let turn = 0; turn < 5 && conversationId && describedEnough(sketch); turn++) {
+      if (needsSettled(await loadNeeds(conversationId))) break;
+      const last = out.turns.at(-1)?.reply ?? "";
+      const known = r.knows.find(([q]) => q.test(last))?.[1];
+      const answer = known ?? lastChoices[0] ?? r.otherwise;
+      out.questions.push({ from: "needs", question: last, answer });
+      const events = await chatTurn({ conversationId, content: answer });
+      lastChoices = (events.find((e) => e.type === "reply_end")?.data.choices as string[] | undefined) ?? [];
+      out.turns.push({ said: answer, reply: events.filter((e) => e.type === "delta").map((e) => String(e.data.text ?? "")).join("") });
     }
     if (!conversationId) return { ...(await done()), failure: "The chat never answered." };
     if (!describedEnough(sketch)) return { ...(await done()), failure: sketch?.kind === "answer" ? "The chat took it for a one-off answer helper, not an agent." : `The chat still wanted more after ${out.turns.length} turns.` };

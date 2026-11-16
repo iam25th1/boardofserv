@@ -3,6 +3,8 @@ import { pgTable, text, timestamp, uuid, index, uniqueIndex, integer, boolean, n
 import type { AgentDefinition } from "../agents/definition";
 import type { BenchData, HealLog, RunState, StepCode, TestResult } from "../agents/types";
 import type { JourneyCard } from "../journey";
+import type { JobNeeds } from "../agents/needs";
+import { CONNECTABLE_IDS } from "../connections/catalog";
 import { CURRENCIES } from "../money";
 import { DISPUTE_REASONS } from "../spending/disputeWords";
 
@@ -179,6 +181,10 @@ export const agentSketches = pgTable("agent_sketches", {
   live: boolean("live").notNull().default(false),
   // The maker picked the kind on the dock; the plan leaves it alone from then on.
   kindChosen: boolean("kind_chosen").notNull().default(false),
+  // What the job can't run without, asked before it is planned
+  // (agents/needs.ts): each question with its answer, the services it
+  // needs, and which one the chat is asking now.
+  needs: jsonb("needs").$type<JobNeeds>(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
@@ -611,12 +617,18 @@ export const agentInstallations = pgTable(
     // The renter's weekly model budget (USDC minor units), within the
     // platform's ceiling; none takes the maker's default.
     modelBudget: numeric("model_budget", { precision: 78, scale: 0 }),
+    // An agent that starts on a post (a webhook trigger): its private
+    // address's key, encrypted (shown to its owner alone), and a keyed hash
+    // of it to find the installation by (crypto.ts lookupHash).
+    hookSecret: text("hook_secret"),
+    hookLookup: text("hook_lookup"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     stoppedAt: timestamp("stopped_at", { withTimezone: true }),
   },
   (t) => ({
     byOwner: index("agent_installations_owner_idx").on(t.ownerUserId, t.createdAt),
+    byHook: uniqueIndex("agent_installations_hook_idx").on(t.hookLookup),
     byAgent: index("agent_installations_agent_idx").on(t.agentId),
     knownStatus: check("agent_installations_status", sql`${t.status} in ('active', 'paused', 'stopped')`),
     gap: check("agent_installations_gap", sql`${t.minGapMinutes} between 0 and 1440`),
@@ -910,14 +922,15 @@ export const agentSeenItems = pgTable(
 );
 
 // The connection vault: each owner's links to outside services, one per
-// service. The secret (a Telegram chat, Google tokens) is AES-256-GCM
+// service, each a service of the catalog (connections/catalog.ts). The
+// secret (a Telegram chat, Google tokens, a pasted key) is AES-256-GCM
 // ciphertext only (crypto.ts), decrypted on the server for the one call
 // that needs it: never readable by agent code, makers, logs or responses.
 // label is what the owner sees ("@name", an email address). lookup is a
 // keyed hash for finding a Telegram chat's owner without decrypting every
 // row; a chat links to one owner at a time.
-export const CONNECTION_PROVIDERS = ["telegram", "google", "typeform"] as const;
-export type ConnectionProvider = (typeof CONNECTION_PROVIDERS)[number];
+export const CONNECTION_PROVIDERS = CONNECTABLE_IDS;
+export type ConnectionProvider = string;
 export const connections = pgTable(
   "connections",
   {
@@ -925,10 +938,15 @@ export const connections = pgTable(
     ownerUserId: uuid("owner_user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    provider: text("provider", { enum: CONNECTION_PROVIDERS }).notNull(),
+    provider: text("provider").notNull(),
     label: text("label").notNull(),
     secretEncrypted: text("secret_encrypted").notNull(),
     lookup: text("lookup"),
+    // Whether agents may write through it (post, send, change things), the
+    // owner's switch. Null is the service's own default (catalog.ts): on
+    // for their Telegram chat and Google tabs, as before the switch; off
+    // for every key they paste until they turn it on.
+    writes: boolean("writes"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
@@ -936,7 +954,7 @@ export const connections = pgTable(
   (t) => ({
     onePerService: uniqueIndex("connections_owner_provider_idx").on(t.ownerUserId, t.provider),
     byLookup: uniqueIndex("connections_lookup_idx").on(t.provider, t.lookup),
-    knownProvider: check("connections_provider", sql`${t.provider} in ('telegram', 'google', 'typeform')`),
+    knownProvider: check("connections_provider", sql`${t.provider} in (${sql.raw(CONNECTION_PROVIDERS.map((p) => `'${p}'`).join(", "))})`),
   }),
 );
 

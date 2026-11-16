@@ -2,7 +2,10 @@ import "server-only";
 import { completeJson, type ChatMessage, type JsonResult, type ModelConfig } from "../model";
 import { ANSWER_LIMITS } from "../modelLimits";
 import { payeeSetting, type AgentDefinition } from "./definition";
-import { emptyBench, type BenchData, type TestResult } from "./types";
+import { emptyBench, type BenchData, type StepCode, type TestResult } from "./types";
+import { runAgent } from "./runner";
+import { isToolName, TOOLS } from "./toolbox";
+import { callKey, typedRead } from "../connections/reads";
 
 // Sample data for "Test it", made from the plan: what a renter would answer
 // at setup, and the items for the agent to work through, so a maker never
@@ -34,6 +37,7 @@ export const SAMPLE_SCHEMA = {
     ),
     pages: list(obj({ url: str("an address it fetches"), text: str("the page's readable text") }), "pages it fetches, else []"),
     searches: list(obj({ query: str('what it searches for, or "*" for anything'), title: str("result title"), url: str("result address"), snippet: str("result text") }), "search results, else []"),
+    calls: list(obj({ tool: str("the tool it reads a service with (github.read, service.request)"), args: str("the arguments it calls it with, as JSON, from the settings above"), data: str("what the call answers, as JSON, in the tool's own shape") }), "what each read of a service answers, else []"),
     answers: strings("what the owner answers its questions, in order, else []"),
     steps: list(obj({ id: str("a step's id"), plain: str("the step in one sentence for someone who never saw code, with no names of values or tools") }), "every step, in plain words"),
   }),
@@ -60,6 +64,7 @@ export function samplePrompt(count: 1 | 3): string {
     `Answer every setting, with values that fit together (a target the item meets, a page address the pages below use). A sheet setting's answer is a tab name: give that tab with the columns the steps name${count === 3 ? " and the three items as rows" : ""}. Leave empty the columns the agent itself fills in (a status or result it writes).`,
     'Give pages or search results only if a step fetches or searches. Answers only if it asks its owner something: then answer as the owner who says yes ("Yes"), one answer for every question it asks.',
     "If it reads a Typeform form (typeform.read), give the form's responses as a tab named exactly as the form's link setting is answered: one column per question, named by its field name exactly as the steps name it (the question's title in lower case with underscores: project_name), one row per response.",
+    "If it reads a service (github.read, coingecko.read, service.request and the like), give in calls what each read answers: the tool, its arguments as JSON made from the settings you answered (the repository in the setting, exactly), and the data as JSON in the tool's own shape, with the items for it to work on. Never a key or token anywhere.",
     "Where it pays someone, the payee's name is exactly the one the plan pays.",
     "Also say what every step does in one plain sentence a first-time maker understands, with no names of values or tools.",
     "Never use em dashes.",
@@ -94,10 +99,12 @@ export function sampleRequest(d: AgentDefinition): string {
     ...d.steps.map((s) => `- ${s.id} (${s.title}): ${s.kind === "code" ? s.description : s.kind === "decision" ? s.prompt : s.kind === "loop" ? `for each item of ${s.over}` : (d.actions.find((a) => a.id === s.action)?.description ?? "")}`),
     ...(columns.length ? ["", `The steps name these columns: ${columns.join(", ")}. A tab it reads has every one of them.`] : []),
     ...(payee ? ["", `It pays the payee named in ${payee.key}${payee.given ? `: "${payee.given}", exactly` : ""}.`] : []),
+    ...readsOf(d),
   ].join("\n");
 }
 
 type Wire = {
+  calls?: { tool?: unknown; args?: unknown; data?: unknown }[];
   noun?: unknown;
   plural?: unknown;
   labels?: unknown;
@@ -149,6 +156,18 @@ export function readSample(d: AgentDefinition, content: string | null): Sample |
     (bench.search[q] ??= []).push({ title: text(r.title, 300), url: text(r.url), snippet: text(r.snippet) });
   }
   bench.telegram.answers = texts(w.answers).slice(0, 20);
+  // What its reads of services answer, by the exact call.
+  for (const c of w.calls ?? []) {
+    const tool = text(c.tool, 40);
+    if (!isToolName(tool) || !(tool === "service.request" || typedRead(tool))) continue;
+    try {
+      const args = JSON.parse(text(c.args, 3000)) as unknown;
+      const data = JSON.parse(text(c.data, 50_000)) as unknown;
+      (bench.calls ??= {})[callKey(tool, args)] = data;
+    } catch {
+      // A call it couldn't write as JSON: the dry pass keys what's missing.
+    }
+  }
   for (const rule of d.rules) bench.rules[rule.key] = rule.value;
   const count = sampleCount(d);
   let labels = texts(w.labels).slice(0, count);
@@ -267,4 +286,80 @@ export async function makeSample(d: AgentDefinition, serv: ModelConfig | null, o
   const config = { ...serv, firstTokenTimeoutMs: Math.max(serv.firstTokenTimeoutMs, 60_000) };
   const call = await completeJson(messages, { config, purpose: "agent_sample", schema: SAMPLE_SCHEMA, maxTokens: ANSWER_LIMITS.agent_sample, signal: opts.signal ?? new AbortController().signal, fetchImpl: opts.fetchImpl });
   return { sample: fitSample(d, readSample(d, call.content) ?? plainSample(d)), call };
+}
+
+// The services it reads and the shape each read answers in, for the
+// sample's calls.
+function readsOf(d: AgentDefinition): string[] {
+  const tools = [...new Set(d.steps.flatMap((s) => (s.kind === "code" ? s.tools : [])).filter((t) => t === "service.request" || typedRead(t)))];
+  if (!tools.length) return [];
+  return ["", "It reads services with:", ...tools.map((t) => `- ${TOOLS[t].signature}`), ...(d.services?.length ? [`Through: ${d.services.join(", ")}.`] : [])];
+}
+
+// The sample keyed by the calls its agent really makes: a dry pass runs the
+// code on the sample's own settings and notes every page and service call
+// the sample had nothing for, by its exact key (the address with its
+// query, a typed read's arguments). Each takes what the sample gave for
+// the call most like it (the same tool, the same kind of call, the most
+// of its address or arguments in common), so the stand-ins answer the
+// code's calls, not the ones the sample guessed. Passes repeat while that
+// reaches calls further on; nothing is invented that the sample didn't
+// give.
+export async function keyedToCalls(d: AgentDefinition, code: Record<string, StepCode>, bench: BenchData, timeZone?: string | null): Promise<{ bench: BenchData; rekeyed: string[] }> {
+  const reads = d.steps.some((s) => s.kind === "code" && s.tools.some((t) => t === "web.fetch" || t === "service.request" || typedRead(t)));
+  if (!reads) return { bench, rekeyed: [] };
+  const b = structuredClone(bench);
+  const rekeyed: string[] = [];
+  for (let pass = 0; pass < 3; pass++) {
+    const missed: string[] = [];
+    await runAgent({ definition: d, code, bench: b, dryRun: true, onEvent: () => {}, missed, timeZone });
+    let moved = false;
+    for (const key of [...new Set(missed)].filter((k) => !rekeyed.includes(k))) {
+      const given = donorFor(key, b);
+      if (given === undefined) continue;
+      if (key.startsWith("web.fetch ")) b.pages[urlOf(key)] = given as string;
+      else (b.calls ??= {})[key] = structuredClone(given);
+      rekeyed.push(key);
+      moved = true;
+    }
+    if (!moved) break;
+  }
+  return { bench: b, rekeyed };
+}
+
+const urlOf = (key: string) => String((JSON.parse(key.slice(key.indexOf(" ") + 1)) as { url?: unknown }).url ?? "");
+const words = (t: string) => new Set(t.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1));
+
+// What the sample gave for the call most like this one, or undefined: the
+// same tool, and for a page the same host, for a service the same
+// connection or kind of read (op).
+function donorFor(key: string, b: BenchData): unknown {
+  const tool = key.slice(0, key.indexOf(" "));
+  const args = JSON.parse(key.slice(key.indexOf(" ") + 1)) as Record<string, unknown>;
+  const candidates: [string, unknown, Record<string, unknown>][] =
+    tool === "web.fetch"
+      ? Object.entries(b.pages).map(([url, text]) => [url, text, { url }])
+      : Object.entries(b.calls ?? {})
+          .filter(([k]) => k.startsWith(`${tool} `))
+          .map(([k, v]) => [k, v, JSON.parse(k.slice(tool.length + 1)) as Record<string, unknown>]);
+  const same = candidates.filter(([, , a]) => {
+    if (tool === "web.fetch") return hostOf(String(a.url)) === hostOf(String(args.url));
+    return ["connection", "op"].every((f) => a[f] === undefined || a[f] === args[f]);
+  });
+  const mine = words(JSON.stringify(args));
+  let best: { score: number; value: unknown } | null = null;
+  for (const [, value, a] of same) {
+    const theirs = words(JSON.stringify(a));
+    const score = [...mine].filter((w) => theirs.has(w)).length / Math.max(1, new Set([...mine, ...theirs]).size);
+    if (!best || score > best.score) best = { score, value };
+  }
+  return best && best.score > 0 ? best.value : undefined;
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "";
+  }
 }

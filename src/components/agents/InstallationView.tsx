@@ -100,6 +100,15 @@ export function InstallationView({ initial, api, children }: { initial: Installa
       {api.setBudget && data.budget && <BudgetPanel budget={data.budget} disabled={data.status === "stopped"} save={async (b) => setData(await api.setBudget!(b))} />}
       {api.audit && <AuditLog load={api.audit} view="renter" />}
       {data.takesMessages && <MessageBox messages={messages} send={api.send} onSent={() => void refresh()} disabled={data.status === "stopped"} />}
+      {data.hookUrl && (
+        <section className={styles.section} aria-label="Its address">
+          <h2>Its address</h2>
+          <p>Each post to this address starts a job, with what was posted. Keep it to yourself: anyone with it can start one.</p>
+          <p>
+            <code className={styles.code}>{data.hookUrl}</code>
+          </p>
+        </section>
+      )}
       {data.memory.length > 0 && (
         <section className={styles.section} aria-label="What it remembers">
           <h2>What it remembers for you</h2>

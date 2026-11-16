@@ -6,7 +6,7 @@ import { askReason, readReason, readReasonArgs, type ReasonArgs, type Reasoned }
 import { needsReasoning } from "./planRules";
 import { runInSandbox, DEFAULT_TIME_MS } from "./sandbox";
 import { DATA_RULE, wrapData } from "./untrusted";
-import { MockTools, ToolError, TOOL_ARGS, TOOLS } from "./toolbox";
+import { MockTools, OUTSIDE_TOOLS, ToolError, TOOL_ARGS, TOOLS } from "./toolbox";
 import { BUDGET, SCREEN, type BenchData, type RunEvent, type RunState, type StepCode } from "./types";
 import { errorText } from "../db/errors";
 
@@ -224,6 +224,7 @@ export function startState(d: AgentDefinition, bag: Record<string, unknown>): Ru
   const trigger = bag.trigger as { kind?: string } | null | undefined;
   const sources: Record<string, string[]> = { memory: ["its memory"] };
   if (trigger?.kind === "message") sources.trigger = ["a message"];
+  if (trigger?.kind === "webhook") sources.trigger = ["a post to its address"];
   return { at: d.steps[0]?.id ?? null, bag, steps: 0, ms: 0, costUsd: 0, journal: [], resumed: false, untrusted: Object.keys(sources), sources };
 }
 
@@ -231,13 +232,7 @@ export function startState(d: AgentDefinition, bag: Record<string, unknown>): Ru
 export const isYesAnswer = (answer: string | null) => answer !== null && /^\s*(yes|y|ok|okay|approve|approved|go ahead)\b/i.test(answer);
 
 // Where a tool's answers come from, for the ones that bring in outside data.
-const OUTSIDE: Partial<Record<ToolName, string>> = {
-  "web.fetch": "a web page",
-  "web.search": "a web search",
-  "sheets.read": "a sheet",
-  "memory.get": "its memory",
-  "typeform.read": "a form's responses",
-};
+const OUTSIDE: Partial<Record<ToolName, string>> = Object.fromEntries(OUTSIDE_TOOLS.map((t) => [t, TOOLS[t].outside!]));
 
 function pick(bag: Record<string, unknown>, names: readonly string[]): Record<string, unknown> {
   return Object.fromEntries(names.map((n) => [n, bag[n] ?? null]));
@@ -1106,6 +1101,9 @@ export interface RunOptions {
   record?: (call: JsonResult) => Promise<void>;
   // Whose time it is: the maker's time zone on the bench.
   timeZone?: string | null;
+  // The calls to a page or a service the bench had nothing for, by their
+  // exact key, added to as it runs (sample.ts keys the sample by them).
+  missed?: string[];
 }
 
 export async function runAgent(o: RunOptions): Promise<Extract<RunEvent, { type: "end" }>> {
@@ -1164,6 +1162,7 @@ export async function runAgent(o: RunOptions): Promise<Extract<RunEvent, { type:
   const ended = r.kind === "end" ? r : { status: "failed" as const, cause: "logic" as const, reason: r.kind === "retry" ? r.reason : "It stopped to wait, which the bench can't do." };
   const outcome = ended.cause === "skipped" || ended.cause === "noted" ? { outcome: ended.cause } : {};
   const e = { type: "end" as const, status: ended.status, reason: ended.reason, steps: state.steps, ms: state.ms, costUsd: state.costUsd, memory: mock.memory, sheets: mock.sheets, ...outcome };
+  o.missed?.push(...mock.missed);
   o.onEvent(e);
   return e;
 }

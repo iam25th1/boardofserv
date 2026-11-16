@@ -8,9 +8,12 @@ import { AGENT_FORMAT, checkDefinition, loopChain, loopsOf, madeInside, TOOL_NAM
 import { TOOLS } from "./toolbox";
 import { typeformLinkIn } from "../typeform/api";
 import { planProblems } from "./planRules";
-import { askedFirst, askForForm, askForMissing, askForSheet, askServToReason, columnsByName, fixSetup, keepRowNumbers, repairPlan, type RawStep } from "./planRepairs";
+import { askedFirst, askForForm, askForMissing, askForSheet, askServToReason, columnsByName, dropUnasked, fixSetup, keepRowNumbers, mergeSameActions, repairPlan, type RawStep } from "./planRepairs";
 import { actingSteps, askPurpose, leaveOut, readPurpose } from "./purpose";
 import { rulesText } from "./lessonRules";
+import { servicesPrompt } from "./servicesPrompt";
+import { servicesIn } from "../connections/catalog";
+import { typedRead } from "../connections/reads";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
 
 // Planning: SERV turns the maker's interview (and the conversation behind
@@ -243,6 +246,7 @@ export function wireToDefinition(w: Wire): unknown {
     }
     if (t.kind === "check") return { kind: "check", everyMinutes: Math.round(n(t.everyMinutes)), watch: s(t.watch), when: s(t.when), ...(s(t.step) ? { step: s(t.step) } : {}) };
     if (t.kind === "message") return { kind: "message", from: "telegram", description: s(t.description) };
+    if (t.kind === "webhook") return { kind: "webhook", description: s(t.description) || "When something is posted to its address" };
     const every = t.every === "minutes" || t.every === "hours" || t.every === "week" ? t.every : t.every === "hour" ? "hours" : "day";
     // Every so many minutes comes as everyMinutes (interval reads the same).
     const interval = Math.round(n(t.interval) || n(t.everyMinutes));
@@ -290,6 +294,7 @@ export function wireToDefinition(w: Wire): unknown {
       };
     }),
     steps,
+    ...(arr(w.services).length ? { services: [...new Set(arr(w.services).map(s).filter(Boolean))] } : {}),
     limits: { maxSteps: Math.round(n(limits.maxSteps)), maxRunSeconds: Math.round(n(limits.maxRunSeconds)), maxSpendUsd: n(limits.maxSpendUsd) },
     ...(n(w.approvalHours) > 0 ? { approvalHours: Math.round(n(w.approvalHours)) } : {}),
   };
@@ -297,9 +302,18 @@ export function wireToDefinition(w: Wire): unknown {
 
 const PLAN_HISTORY_MESSAGES = 30;
 
+// The services of the catalog the maker named, in what they said, the
+// interview and their answers, or that Describe found the job needs.
+export function namedServices(input: Pick<PlanInput, "interview" | "history" | "services" | "feedback">): string[] {
+  const said = [...input.history.filter((m) => m.role === "user").map((m) => m.content), ...Object.values(input.interview).filter((v): v is string => typeof v === "string"), input.feedback ?? ""].join("\n");
+  return [...new Set([...(input.services ?? []), ...servicesIn(said)])];
+}
+
 export interface PlanInput {
   interview: SketchDTO;
   history: ChatMessage[];
+  // The services of the catalog Describe found the job needs, by id.
+  services?: string[];
   // Changing a plan: the plan as it is, and what the maker says is wrong.
   current?: AgentDefinition | null;
   feedback?: string | null;
@@ -350,6 +364,9 @@ export async function planAgent(
   const asked = askedFirst([...input.history.filter((m) => m.role === "user").map((m) => m.content), ...(input.feedback ? [input.feedback] : [])], input.interview.asks);
   // The Typeform form the maker named, if they named one.
   const formLink = typeformLinkIn([...input.history.filter((m) => m.role === "user").map((m) => m.content), JSON.stringify(input.interview)].join("\n"));
+  // Everything the maker said, for what they asked for (planRepairs.ts
+  // dropUnasked).
+  const saidAll = [...input.history.filter((m) => m.role === "user").map((m) => m.content), ...Object.values(input.interview).filter((v): v is string => typeof v === "string"), input.feedback ?? "", ...(input.notes ?? [])].join("\n");
   const calls: JsonResult[] = [];
   const answers: string[] = [];
   const planText = planRequest(input);
@@ -396,9 +413,12 @@ export async function planAgent(
     return out.definition;
   };
 
-  // Stage one: the outline.
+  // Stage one: the outline. The services the maker named (or answered
+  // about) bring their typed reads into the tools it is told of.
+  const named = namedServices(input);
+  const offered = TOOL_NAMES.filter((tool) => !typedRead(tool) || named.includes(typedRead(tool)!.service));
   const outlineMessages: ChatMessage[] = [
-    { role: "system", content: `${outlinePrompt(minIntervalMinutes(), TOOL_NAMES.map((tool) => `${tool} (${TOOLS[tool].summary})`).join("; "))}${rulesText(opts.lessons)}` },
+    { role: "system", content: `${outlinePrompt(minIntervalMinutes(), offered.map((tool) => `${tool} (${TOOLS[tool].summary})`).join("; "), servicesPrompt(named))}${rulesText(opts.lessons)}` },
     { role: "user", content: planText },
   ];
   let outline = await ask("outline", outlineMessages);
@@ -433,7 +453,7 @@ export async function planAgent(
       if (!chunk || !(await detail(chunk))) break;
       continue;
     }
-    const joined = repaired(wireToDefinition(joinPlan(outline, details)), { askedFirst: asked, formLink });
+    const joined = repaired(wireToDefinition(joinPlan(outline, details)), { askedFirst: asked, formLink, said: saidAll });
     const checked = checkDefinition(joined);
     // A plan in the format still has to keep the planner's rules
     // (planRules.ts): judgement in decisions, counting in code, no loops.
@@ -479,7 +499,9 @@ export async function planAgent(
 // a loop over one value goes once, a plain comparison or the owner's yes
 // goes by a value, every send, write or pay is handed what it sends, and a
 // judgement or words only a model can give are asked of SERV at run time.
-export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: string | null } = {}): unknown {
+// said: what the maker said, the interview and their answers, for what
+// they asked for and what they didn't.
+export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: string | null; said?: string } = {}): unknown {
   const d = plan as { steps?: unknown; settings?: unknown; rules?: unknown; actions?: unknown };
   if (!Array.isArray(d?.steps)) return plan;
   const list = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
@@ -506,10 +528,29 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: st
     },
     o,
   );
+  // One step for one action, whichever way the run went; and nothing the
+  // maker never asked for (a log sheet, memory nothing reads), on every
+  // plan, a change or a fix included.
+  mergeSameActions(d.steps as RawStep[]);
+  if (o.said !== undefined) {
+    const out = dropUnasked(d.steps as RawStep[], { settings: list(d.settings).map((x) => ({ key: s(x.key), type: x.type })), rules: [], actions: list(d.actions).map((x) => ({ id: s(x.id), tool: x.tool })), memory: list((d as { memory?: unknown }).memory).map((x) => ({ key: s(x.key) })) }, o.said);
+    if (out.memory) (d as { memory?: unknown }).memory = [];
+    const sheets = list(d.steps).some((x) => Array.isArray(x.tools) && (x.tools as string[]).some((t) => t.startsWith("sheets."))) || list(d.actions).some((a) => String(a.tool).startsWith("sheets.") && !out.actions.includes(s(a.id)));
+    if (out.actions.length && !sheets && Array.isArray(d.settings)) (d as { settings: unknown }).settings = list(d.settings).filter((x) => x.type !== "sheet" || list(d.steps).some((st) => JSON.stringify(st).includes(s(x.key))));
+  }
   // Judgement or words only a model can give: SERV, at run time.
   askServToReason(d.steps as RawStep[], d as { limits?: unknown });
   // Rows written back keep their numbers from the read on.
   keepRowNumbers(d.steps as RawStep[], { actions: list(d.actions).map((x) => ({ id: s(x.id), tool: x.tool, description: s(x.description) })) });
+  // A step that reaches a service generically with none named: the
+  // services its words name.
+  const generic = list(d.steps).some((x) => s(x.kind) === "code" && Array.isArray(x.tools) && (x.tools as string[]).some((t) => t === "service.request" || t === "service.send")) || list(d.actions).some((a) => a.tool === "service.send");
+  const services = d as { services?: unknown };
+  if (generic && !(Array.isArray(services.services) && services.services.length)) {
+    const words = [...list(d.steps).map((x) => `${s(x.description)} ${s(x.title)}`), ...list(d.actions).map((a) => s(a.description))].join("\n");
+    const found = servicesIn(words).filter((id) => !["telegram", "google", "typeform", "webhook"].includes(id));
+    if (found.length) services.services = found;
+  }
   // An action no step takes any more (a question taken out) goes too.
   const taken = new Set(list(d.steps).flatMap((x) => (s(x.kind) === "action" ? [s(x.action)] : [])));
   const used = new Set(list(d.steps).flatMap((x) => (Array.isArray(x.tools) ? (x.tools as string[]) : [])));

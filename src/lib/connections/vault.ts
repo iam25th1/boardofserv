@@ -3,12 +3,13 @@ import { and, eq, inArray } from "drizzle-orm";
 import { decryptSecret, encryptSecret, lookupHash } from "../crypto";
 import { agentInstallations, agentVersions, connections, type ConnectionProvider } from "../db/schema";
 import type { ConnectionDTO } from "../types";
-import { connectionsNeeded, type AgentDefinition } from "../agents/definition";
+import { connectionsNeeded, neededIds, type AgentDefinition } from "../agents/definition";
+import { entryOf, serviceName } from "./catalog";
 import type { Runtime } from "../agents/runtime/context";
 
 // The connection vault: what each owner has linked (their Telegram chat,
-// their Google account, their Typeform personal token), one connection per
-// service. The secret is kept
+// their Google account, their Typeform personal token, a key for any other
+// service of the catalog), one connection per service. The secret is kept
 // encrypted (crypto.ts) and decrypted here only, on the server, for the one
 // call that needs it. Nothing in here ever hands a secret to agent code, a
 // maker, a log line or a response: a connection is described to its owner
@@ -35,9 +36,11 @@ export interface TypeformSecret {
   token: string;
 }
 
-export type SecretOf<P extends ConnectionProvider> = P extends "telegram" ? TelegramSecret : P extends "google" ? GoogleSecret : TypeformSecret;
+// Any other service's secret: the fields the owner pasted when connecting
+// it (a key, an account id, a shop's name), by the catalog's field keys.
+export type ServiceSecret = Record<string, string>;
 
-export const SERVICE_NAME: Record<ConnectionProvider, string> = { telegram: "Telegram", google: "Google", typeform: "Typeform" };
+export type SecretOf<P extends ConnectionProvider> = P extends "telegram" ? TelegramSecret : P extends "google" ? GoogleSecret : P extends "typeform" ? TypeformSecret : ServiceSecret;
 
 // A Telegram chat's lookup key: its owner can be found without decrypting
 // every connection, and the chat id isn't readable from the database.
@@ -95,6 +98,30 @@ export async function ownerOfChat(rt: Runtime, chatId: number): Promise<string |
   return row?.owner ?? null;
 }
 
+// Whether agents may write through the owner's connection to a service:
+// their switch, or the service's own default while they haven't touched it.
+export async function canWrite(rt: Runtime, ownerUserId: string, provider: ConnectionProvider): Promise<boolean> {
+  const [row] = await rt.db
+    .select({ writes: connections.writes })
+    .from(connections)
+    .where(and(eq(connections.ownerUserId, ownerUserId), eq(connections.provider, provider)));
+  if (!row) return false;
+  return row.writes ?? Boolean(entryOf(provider)?.writesOn);
+}
+
+// The owner's switch for writing through a connection. False when there is
+// no such connection, or the service only reads.
+export async function setWrites(rt: Runtime, ownerUserId: string, provider: ConnectionProvider, on: boolean): Promise<boolean> {
+  if (!entryOf(provider)?.writes) return false;
+  const rows = await rt.db
+    .update(connections)
+    .set({ writes: on, updatedAt: rt.now() })
+    .where(and(eq(connections.ownerUserId, ownerUserId), eq(connections.provider, provider)))
+    .returning({ id: connections.id });
+  if (rows.length) rt.log(`vault: an owner turned writing through ${serviceName(provider)} ${on ? "on" : "off"}`);
+  return rows.length > 0;
+}
+
 export async function hasConnection(rt: Runtime, ownerUserId: string, provider: ConnectionProvider): Promise<boolean> {
   const [row] = await rt.db
     .select({ id: connections.id })
@@ -111,14 +138,19 @@ async function installationsNeeding(rt: Runtime, ownerUserId: string, provider: 
     .from(agentInstallations)
     .innerJoin(agentVersions, eq(agentVersions.id, agentInstallations.versionId))
     .where(and(eq(agentInstallations.ownerUserId, ownerUserId), inArray(agentInstallations.status, ["active", "paused"])));
-  return rows.filter((r) => r.definition && connectionsNeeded(r.definition as AgentDefinition)[provider]);
+  return rows.filter((r) => r.definition && neededIds(connectionsNeeded(r.definition as AgentDefinition)).includes(provider));
 }
 
-export const DISCONNECTED: Record<ConnectionProvider, string> = {
+const DISCONNECTED_WORDS: Record<string, string> = {
   telegram: "Telegram was disconnected, and this agent messages you there. Link Telegram again on Connections, then resume it.",
   google: "Google was disconnected, and this agent works on your sheets. Connect Google again on Connections, then resume it.",
   typeform: "Typeform was disconnected, and this agent reads your form's answers. Connect Typeform again on Connections, then resume it.",
 };
+
+// Why an agent paused when its owner disconnected a service it needs.
+export function disconnectedReason(provider: ConnectionProvider): string {
+  return DISCONNECTED_WORDS[provider] ?? `${serviceName(provider)} was disconnected, and this agent uses it. Connect ${serviceName(provider)} again on Connections, then resume it.`;
+}
 
 // Pauses every running installation of the owner's that needs this
 // service, with the reason. Returns how many.
@@ -136,7 +168,7 @@ export async function pauseNeeding(rt: Runtime, ownerUserId: string, provider: C
 // false when it refused or couldn't be reached, null when it has no way to.
 async function revoke(rt: Runtime, provider: ConnectionProvider, secret: SecretOf<ConnectionProvider> | null): Promise<boolean | null> {
   if (provider !== "google" || !secret) return null;
-  const token = (secret as GoogleSecret).refreshToken;
+  const token = (secret as unknown as GoogleSecret).refreshToken;
   try {
     const res = await rt.services.fetch("https://oauth2.googleapis.com/revoke", {
       method: "POST",
@@ -157,28 +189,29 @@ export interface Disconnected {
 
 // The owner disconnects a service: revoked where it can be, forgotten, and
 // what needs it paused. Null when it wasn't connected.
-export async function disconnect(rt: Runtime, ownerUserId: string, provider: ConnectionProvider, farewell?: (secret: SecretOf<ConnectionProvider>) => Promise<void>): Promise<Disconnected | null> {
+export async function disconnect(rt: Runtime, ownerUserId: string, provider: ConnectionProvider, farewell?: (secret: TelegramSecret) => Promise<void>): Promise<Disconnected | null> {
   if (!(await hasConnection(rt, ownerUserId, provider))) return null;
   const secret = await secretOf(rt, ownerUserId, provider);
   const revoked = await revoke(rt, provider, secret);
-  if (secret && farewell) await farewell(secret).catch(() => undefined);
+  if (secret && farewell && provider === "telegram") await farewell(secret as unknown as TelegramSecret).catch(() => undefined);
   await rt.db.delete(connections).where(and(eq(connections.ownerUserId, ownerUserId), eq(connections.provider, provider)));
-  const paused = await pauseNeeding(rt, ownerUserId, provider, DISCONNECTED[provider]);
-  rt.log(`vault: an owner disconnected ${SERVICE_NAME[provider]}${revoked === false ? " (revoking it at the service failed)" : ""}; ${paused} paused`);
+  const paused = await pauseNeeding(rt, ownerUserId, provider, disconnectedReason(provider));
+  rt.log(`vault: an owner disconnected ${serviceName(provider)}${revoked === false ? " (revoking it at the service failed)" : ""}; ${paused} paused`);
   return { revoked, paused };
 }
 
 // What the owner sees of their connections: never the secret.
 export async function connectionsOf(rt: Runtime, ownerUserId: string): Promise<ConnectionDTO[]> {
   const rows = await rt.db
-    .select({ provider: connections.provider, label: connections.label, createdAt: connections.createdAt, lastUsedAt: connections.lastUsedAt })
+    .select({ provider: connections.provider, label: connections.label, writes: connections.writes, createdAt: connections.createdAt, lastUsedAt: connections.lastUsedAt })
     .from(connections)
     .where(eq(connections.ownerUserId, ownerUserId));
   return Promise.all(
     rows.map(async (r) => ({
       provider: r.provider,
-      name: SERVICE_NAME[r.provider],
+      name: serviceName(r.provider),
       label: r.label,
+      writes: Boolean(entryOf(r.provider)?.writes) && (r.writes ?? Boolean(entryOf(r.provider)?.writesOn)),
       connectedAt: r.createdAt.toISOString(),
       lastUsedAt: r.lastUsedAt?.toISOString() ?? null,
       usedBy: (await installationsNeeding(rt, ownerUserId, r.provider)).map((i) => ({ id: i.id, name: (i.definition as AgentDefinition).name, status: i.status })),

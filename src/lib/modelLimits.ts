@@ -24,8 +24,12 @@ export const ANSWER_LIMITS = {
   // name, kind and place), then the details of a few steps at a time.
   agent_outline: 2500,
   agent_steps: 2500,
-  // Sample data for an agent's test: settings, three items and their tabs.
-  agent_sample: 1800,
+  // Sample data for an agent's test: settings, three items and their tabs,
+  // and what each read of a service answers.
+  agent_sample: 2400,
+  // What a job can't run without, asked before it is planned: at most
+  // three short questions with their answers to tap, and its services.
+  agent_needs: 600,
   // The fixer reading a failed build's diagnosis: a verdict, a step's brief
   // written again or a change to the steps, a question, and a lesson.
   agent_fix: 1200,

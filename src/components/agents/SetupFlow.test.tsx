@@ -12,7 +12,7 @@ import { SetupFlow, type SetupApi } from "./SetupFlow";
 const definition = restock.definition as AgentDefinition;
 const LINK = "https://docs.google.com/spreadsheets/d/FabricShopSheet0123456789abc/edit#gid=";
 
-const conn = (provider: "telegram" | "google", label: string): ConnectionDTO => ({ provider, name: provider, label, connectedAt: "2026-11-09T08:00:00Z", lastUsedAt: null, usedBy: [] });
+const conn = (provider: "telegram" | "google", label: string): ConnectionDTO => ({ provider, name: provider, label, writes: true, connectedAt: "2026-11-09T08:00:00Z", lastUsedAt: null, usedBy: [] });
 
 const installation = (o: Partial<InstallationDTO> = {}): InstallationDTO =>
   ({

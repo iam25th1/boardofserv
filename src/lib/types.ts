@@ -179,7 +179,8 @@ export interface InstallationDTO {
   pausedReason: string | null;
   // The connections it needs, and which of those the owner hasn't made.
   needs: { telegram: boolean; google: boolean };
-  missing: ("telegram" | "google" | "typeform")[];
+  // The services it needs that its owner hasn't connected, by id.
+  missing: string[];
   // For an agent that pays, when its allowance is empty: why it can't pay
   // until its owner tops it up, in one sentence. Null otherwise.
   allowanceWarning: string | null;
@@ -195,6 +196,9 @@ export interface InstallationDTO {
   runs: string[];
   nextRunAt: string | null;
   takesMessages: boolean;
+  // Its private address, for an agent that starts on a post (its owner's
+  // alone: anyone with it can start a job).
+  hookUrl?: string | null;
   // Why its last value check failed, if it did.
   checkNote: string | null;
   // What the agent remembers for this owner (theirs alone).
@@ -380,9 +384,12 @@ export interface RentalDetailDTO extends RentalDTO {
 // One of the owner's connections, as only they see it: the service, the
 // account or chat it is linked to, when, and what uses it. Never a secret.
 export interface ConnectionDTO {
-  provider: "telegram" | "google" | "typeform";
+  // A service of the catalog (connections/catalog.ts), by id.
+  provider: string;
   name: string;
   label: string;
+  // Agents may write through it (the owner's switch).
+  writes: boolean;
   connectedAt: string;
   lastUsedAt: string | null;
   usedBy: { id: string; name: string; status: string }[];

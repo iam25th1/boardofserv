@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { minIntervalMinutes } from "./interval";
 import { keepRequired } from "../zodErrors";
+import { entryOf, needsConnecting, serviceName, serviceOfTool } from "../connections/catalog";
 
 // The agent format: one versioned definition of an agent a maker builds and
 // renters run. It is plain data, checked here with zod, stored in
@@ -45,6 +46,20 @@ export const TOOL_NAMES = [
   "wallet.pay",
   "serv.reason",
   "typeform.read",
+  // Any service of the catalog, through the owner's connection: a read
+  // (service.request) or a write (service.send, an action).
+  "service.request",
+  "service.send",
+  // The typed reads (connections/reads.ts).
+  "github.read",
+  "tally.read",
+  "airtable.read",
+  "notion.read",
+  "linear.read",
+  "shopify.read",
+  "stripe.read",
+  "etherscan.read",
+  "coingecko.read",
 ] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 
@@ -56,7 +71,7 @@ export const REASON_TOOL = "serv.reason" as const;
 
 // Tools that change something outside the run: a step may use one only when
 // the agent declares an action with it.
-export const SIDE_EFFECT_TOOLS: readonly ToolName[] = ["sheets.write", "sheets.update", "telegram.send", "telegram.ask", "wallet.pay"];
+export const SIDE_EFFECT_TOOLS: readonly ToolName[] = ["sheets.write", "sheets.update", "telegram.send", "telegram.ask", "wallet.pay", "service.send"];
 
 // What a declared action may use: tools that change something. Reading and
 // working things out happen in code steps.
@@ -65,7 +80,7 @@ export const ACTION_TOOLS: readonly ToolName[] = [...SIDE_EFFECT_TOOLS, "memory.
 // Actions whose tool needs exact arguments: the step's first input must be
 // those arguments, made by a code step. A message to the owner can be made
 // from anything.
-export const ARGS_TOOLS: readonly ToolName[] = ["sheets.write", "sheets.update", "wallet.pay", "memory.set"];
+export const ARGS_TOOLS: readonly ToolName[] = ["sheets.write", "sheets.update", "wallet.pay", "memory.set", "service.send"];
 
 // Always in the bag when a run starts.
 export const RUN_VALUES = ["settings", "rules", "memory", "trigger"] as const;
@@ -96,6 +111,10 @@ export const Trigger = z.discriminatedUnion("kind", [
   // run starts when holds turns true, not on every check while it stays true.
   z.object({ kind: z.literal("check"), everyMinutes: z.number().int().min(5).max(1440), watch: text(200), when: text(200), step: key.optional() }),
   z.object({ kind: z.literal("message"), from: z.enum(["telegram"]), description: text(200) }),
+  // A post to the installation's own private address (the catalog's
+  // Incoming webhook): each starts a job, with what was posted as its
+  // trigger.
+  z.object({ kind: z.literal("webhook"), description: text(200) }),
 ]);
 
 export const SETTING_TYPES = ["text", "number", "boolean", "choice", "list", "sheet", "url"] as const;
@@ -242,6 +261,9 @@ const Shape = z.object({
   memory: z.array(Memory).max(12),
   steps: z.array(Step).min(1).max(30),
   actions: z.array(Action).max(12),
+  // The services of the catalog it reaches through service.request and
+  // service.send, by id (its typed reads name their own).
+  services: z.array(key).max(12).optional(),
   limits: Limits,
   // How long the owner has to answer before it counts as no answer.
   approvalHours: z.number().int().min(1).max(168).optional(),
@@ -264,14 +286,38 @@ export function spends(a: { tool: ToolName; amountColumn?: string }): boolean {
 
 // The connections an agent needs its owner to have: Telegram for an agent
 // that messages or asks its owner or takes their messages, Google for one
-// that reads or writes sheets, Typeform for one that reads a form's answers.
-export function connectionsNeeded(d: AgentDefinition): { telegram: boolean; google: boolean; typeform: boolean } {
+// that reads or writes sheets, Typeform for one that reads a form's
+// answers, and every other service of the catalog it reaches that has
+// something to connect (services, by id).
+export interface Needs {
+  telegram: boolean;
+  google: boolean;
+  typeform: boolean;
+  services: string[];
+}
+
+export function connectionsNeeded(d: AgentDefinition): Needs {
   const tools = new Set<ToolName>([...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))]);
   return {
     telegram: tools.has("telegram.send") || tools.has("telegram.ask") || d.triggers.some((t) => t.kind === "message"),
     google: tools.has("sheets.read") || tools.has("sheets.write") || tools.has("sheets.update") || d.settings.some((s) => s.type === "sheet"),
     typeform: tools.has("typeform.read"),
+    services: servicesOf(d).filter((id) => !["telegram", "google", "typeform"].includes(id) && needsConnecting(entryOf(id)!)),
   };
+}
+
+// Every service of the catalog an agent reaches: the ones it names, and
+// the ones its typed reads read.
+export function servicesOf(d: Pick<AgentDefinition, "steps" | "actions"> & { services?: string[] }): string[] {
+  const tools = [...d.actions.map((a) => a.tool), ...d.steps.flatMap((s) => (s.kind === "code" ? s.tools : []))];
+  const typed = tools.flatMap((t) => (t === "service.request" || t === "service.send" ? [] : [serviceOfTool(t)?.id ?? null])).filter((x): x is string => x !== null && !["telegram", "google"].includes(x));
+  return [...new Set([...(d.services ?? []).filter((id) => entryOf(id)), ...typed])];
+}
+
+// Every service an agent needs connected, by id: Telegram, Google and
+// Typeform first, in that order, then the rest.
+export function neededIds(n: Pick<Needs, "telegram" | "google" | "typeform"> & { services?: string[] }): string[] {
+  return [...(n.telegram ? ["telegram"] : []), ...(n.google ? ["google"] : []), ...(n.typeform ? ["typeform"] : []), ...(n.services ?? [])];
 }
 
 // The setting that names who it pays, for an agent that pays a saved payee
@@ -288,7 +334,7 @@ export function payeeSetting(d: Pick<AgentDefinition, "settings" | "actions">): 
 // code steps' descriptions and the decisions' prompts).
 // payee: the setting whose answer is the name of the payee it pays, when
 // it pays one by name (asked with who it pays, not on its own).
-export type SetupShape = Pick<AgentDefinition, "name" | "settings" | "rules" | "triggers"> & { needs: { telegram: boolean; google: boolean; typeform?: boolean }; spends?: boolean; payee?: string | null };
+export type SetupShape = Pick<AgentDefinition, "name" | "settings" | "rules" | "triggers"> & { needs: { telegram: boolean; google: boolean; typeform?: boolean; services?: string[] }; spends?: boolean; payee?: string | null };
 
 export function setupShapeOf(d: AgentDefinition): SetupShape {
   const settings = d.settings.map(({ given: _given, ...rest }) => rest);
@@ -318,6 +364,8 @@ export function breakingChange(from: AgentDefinition, to: AgentDefinition): stri
   if (now.telegram && !was.telegram) return "It needs your Telegram now.";
   if (now.google && !was.google) return "It needs your Google Sheets now.";
   if (now.typeform && !was.typeform) return "It needs your Typeform now.";
+  const service = now.services.find((x) => !was.services.includes(x));
+  if (service) return `It needs your ${serviceName(service)} now.`;
   return null;
 }
 
@@ -502,6 +550,21 @@ function checkGraph(d: AgentDefinition, ctx: z.RefinementCtx) {
         if (SIDE_EFFECT_TOOLS.includes(tool) && !declaredTools.has(tool)) say(`step "${s.id}" uses ${tool}, but no declared action uses it`, ["steps", i, "tools"]);
       }
     }
+  });
+
+  // The services it names are the catalog's, and a step that reaches one
+  // generically names one.
+  (d.services ?? []).forEach((id, i) => {
+    const e = entryOf(id);
+    if (!e) say(`it reaches "${id}", which isn't a service boardofserv reaches: plan without it, or reach it through "custom" (Custom API)`, ["services", i]);
+    else if (e.id === "webhook" || e.id === "telegram" || e.id === "google") say(`"${id}" isn't reached with service.request or service.send: ${e.id === "webhook" ? "a post to its address is a trigger (kind webhook)" : "it has its own tools"}`, ["services", i]);
+  });
+  const generic = d.steps.some((s) => s.kind === "code" && s.tools.some((t) => t === "service.request" || t === "service.send")) || d.actions.some((a) => a.tool === "service.send");
+  if (generic && !(d.services ?? []).length) say("a step reaches a service with service.request or service.send, so services must name it (github, discord, custom)", ["services"]);
+  d.actions.forEach((a, i) => {
+    if (a.tool !== "service.send") return;
+    const writable = (d.services ?? []).map((id) => entryOf(id)).filter((e) => e?.writes);
+    if ((d.services ?? []).length && !writable.length) say(`action "${a.id}" writes with service.send, but none of the services it names takes writes`, ["actions", i]);
   });
 
   // Schedules and checks keep to the platform's minimum interval.

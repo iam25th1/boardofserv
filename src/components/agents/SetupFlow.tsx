@@ -14,6 +14,8 @@ import type { ConnectionDTO, InstallationDTO, JobDTO } from "@/lib/types";
 import { JobTimeline } from "./JobTimeline";
 import { SheetField, type SheetInfo } from "./SheetField";
 import styles from "./SetupFlow.module.css";
+import { entryOf } from "@/lib/connections/catalog";
+import Link from "next/link";
 
 // Setting an agent up to run for real, as a short guided flow:
 //
@@ -31,7 +33,7 @@ import styles from "./SetupFlow.module.css";
 // is simply there.
 
 export interface SetupApi {
-  connections: () => Promise<{ connections: ConnectionDTO[]; available: Record<"telegram" | "google", boolean> & { typeform?: boolean } }>;
+  connections: () => Promise<{ connections: ConnectionDTO[]; available: Record<string, boolean> }>;
   telegramCode: () => Promise<LinkCode>;
   googleStart: (returnTo: string) => Promise<{ url: string }>;
   // Connect Typeform with a pasted personal token (absent: not offered here).
@@ -45,8 +47,8 @@ export interface SetupApi {
   answer: (approvalId: string, answer: string) => Promise<void>;
 }
 
-type StepKey = "settings" | "telegram" | "google" | "typeform" | "rules" | "test";
-const STEP_TITLE: Record<StepKey, string> = { settings: "Its questions", telegram: "Link Telegram", google: "Your sheets", typeform: "Your Typeform", rules: "Rules and limits", test: "Test run" };
+type StepKey = "settings" | "telegram" | "google" | "typeform" | "services" | "rules" | "test";
+const STEP_TITLE: Record<StepKey, string> = { settings: "Its questions", telegram: "Link Telegram", google: "Your sheets", typeform: "Your Typeform", services: "Its services", rules: "Rules and limits", test: "Test run" };
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const POLL_MS = 2_000;
 
@@ -109,8 +111,16 @@ export function SetupFlow({
   const sheetSettings = d.settings.filter((s) => s.type === "sheet");
   const schedule = d.triggers.find((t) => t.kind === "schedule");
   const steps = useMemo<StepKey[]>(
-    () => [...(plainSettings.length ? (["settings"] as const) : []), ...(needs.telegram ? (["telegram"] as const) : []), ...(needs.google ? (["google"] as const) : []), ...(needs.typeform ? (["typeform"] as const) : []), "rules", "test"],
-    [plainSettings.length, needs.telegram, needs.google, needs.typeform],
+    () => [
+      ...(plainSettings.length ? (["settings"] as const) : []),
+      ...(needs.telegram ? (["telegram"] as const) : []),
+      ...(needs.google ? (["google"] as const) : []),
+      ...(needs.typeform ? (["typeform"] as const) : []),
+      ...(needs.services?.length ? (["services"] as const) : []),
+      "rules",
+      "test",
+    ],
+    [plainSettings.length, needs.telegram, needs.google, needs.typeform, needs.services?.length],
   );
   const fresh = (): InstallAnswers => ({
     settings: Object.fromEntries(d.settings.map((s) => [s.key, s.type === "boolean" ? Boolean(defaults[s.key]) : s.type === "sheet" ? null : asText(defaults[s.key])])),
@@ -165,7 +175,7 @@ export function SetupFlow({
 
   const set = (patch: Partial<InstallAnswers>) => setState((s) => ({ ...s, answers: { ...s.answers, ...patch } }));
   const setSetting = (k: string, v: unknown) => setState((s) => ({ ...s, answers: { ...s.answers, settings: { ...s.answers.settings, [k]: v } } }));
-  const linked = (p: "telegram" | "google" | "typeform", c = conn) => Boolean(c?.connections.some((x) => x.provider === p));
+  const linked = (p: string, c = conn) => Boolean(c?.connections.some((x) => x.provider === p));
 
   // The answers' problems that belong to this step.
   const problems = (step: StepKey): Record<string, string> => {
@@ -186,6 +196,8 @@ export function SetupFlow({
     if (state.at === "telegram" && !linked("telegram", now)) return setSaid("Link Telegram first: this agent messages you there.");
     if (state.at === "google" && !linked("google", now)) return setSaid("Connect Google first: this agent works on your sheets.");
     if (state.at === "typeform" && !linked("typeform", now)) return setSaid("Connect Typeform first: this agent reads your form's answers.");
+    const unlinked = state.at === "services" ? (needs.services ?? []).find((id) => !linked(id, now)) : undefined;
+    if (unlinked) return setSaid(`Connect ${entryOf(unlinked)?.short ?? entryOf(unlinked)?.name ?? unlinked} first: this agent uses it.`);
     const found = problems(state.at);
     setErrors(found);
     if (Object.keys(found).length) return setSaid("Some answers need another look.");
@@ -281,6 +293,24 @@ export function SetupFlow({
             ) : (
               <p className={styles.quiet}>Connect Typeform on Connections, then come back.</p>
             )}
+          </div>
+        )}
+
+        {state.at === "services" && (
+          <div className={styles.fields}>
+            {(needs.services ?? []).map((id) => (
+              <p key={id} className={linked(id) ? styles.done : undefined}>
+                {linked(id) ? (
+                  <>
+                    {entryOf(id)?.name}: {conn!.connections.find((c) => c.provider === id)!.label}.
+                  </>
+                ) : (
+                  <>
+                    {d.name} uses {entryOf(id)?.name ?? id}. <Link href={`/app/connections?connect=${id}&back=${encodeURIComponent(returnTo)}`}>Connect it</Link>, then come back.
+                  </>
+                )}
+              </p>
+            ))}
           </div>
         )}
 

@@ -1,4 +1,6 @@
-import type { AgentDefinition } from "./definition";
+import type { AgentDefinition, CodeStepDef } from "./definition";
+import type { FixVerdict } from "./fixer";
+import { OUTSIDE_TOOLS } from "./toolbox";
 import { stepLine, stepsInOrder } from "./plainView";
 import { emptyHeal, type Diagnosis, type HealLog, type HealRound } from "./types";
 
@@ -95,4 +97,38 @@ export function gaveUpLine(dx: Diagnosis, d: AgentDefinition | null): string {
     default:
       return `I couldn't get ${which} to work on its sample.`;
   }
+}
+
+// What a sample and the code's real calls not matching sounds like, in the
+// fixer's words: the calls (addresses, repositories, API calls) and that
+// they differ (don't match, keyed by others, written into the code, not
+// mocked). A sample that is wrong in itself (a price above the target, an
+// address that isn't one) is no mismatch.
+const CALLS = /\b(?:urls?|address(?:es)?|endpoints?|repositor(?:y|ies)|api calls?|requests?)\b/i;
+const DIFFER = /\b(?:match(?:es|ing)?|mismatch(?:es|ed)?|keyed|hard-?coded|(?:aren't|isn't|not) mocked|actual (?:urls?|address|repositor(?:y|ies)|endpoints?)|other (?:urls?|address(?:es)?)|different)\b|\bdo(?:es)?n't match\b/i;
+const mismatch = (text: string) => CALLS.test(text) && DIFFER.test(text);
+
+// The step that reads from outside: the one named, when it does, else the
+// first code step that does.
+export function readingStep(d: AgentDefinition, id: string | null): CodeStepDef | null {
+  const reads = (s: AgentDefinition["steps"][number]): s is CodeStepDef => s.kind === "code" && s.tools.some((t) => t !== "memory.get" && (OUTSIDE_TOOLS as readonly string[]).includes(t));
+  const named = d.steps.find((s) => s.id === id);
+  return (named && reads(named) ? named : d.steps.find(reads)) ?? null;
+}
+
+// A new sample for a mismatch between the sample and the code's real calls
+// (its addresses, its repositories), named by the fixer a second time on
+// this build, is no answer: the sample is keyed by the code's own calls
+// already (sample.ts), so the code or its settings are at fault. The
+// reading step is written again to make its calls from the settings; when
+// the fixer says what it reads must be a setting, the steps get one.
+export function escalated(verdict: FixVerdict, rounds: HealRound[], d: AgentDefinition, failedAt: string | null): FixVerdict {
+  if (verdict.verdict !== "test_wrong" || !mismatch(`${verdict.why} ${verdict.sample}`)) return verdict;
+  if (!rounds.some((r) => r.verdict === "test" && mismatch(`${r.why} ${r.repair}`))) return verdict;
+  const reading = readingStep(d, verdict.step ?? failedAt);
+  const said = (verdict.sample || verdict.why).trim();
+  if (/\bsettings?\b/i.test(`${verdict.why} ${verdict.sample}`) || !reading) {
+    return { ...verdict, verdict: "plan_wrong", change: `${said} What it reads (which repositories, pages, forms) is a setting the reading step reads${reading ? ` ("${reading.id}" lists "settings" in its inputs)` : ""}, so its calls come from what the owner answers, never from values in the code.`.slice(0, 1200) };
+  }
+  return { ...verdict, verdict: "code_wrong", step: reading.id, spec: `${reading.description} Make every address and call from input.settings, exactly as given, never from a value written into the code.`.slice(0, 800) };
 }

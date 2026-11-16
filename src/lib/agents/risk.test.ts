@@ -55,6 +55,19 @@ describe("the registry", () => {
       "serv.reason": "read",
       // Reading the owner's own form's answers changes nothing.
       "typeform.read": "read",
+      // Reading a service through a connection changes nothing; writing
+      // to one changes the owner's own things there.
+      "service.request": "read",
+      "service.send": "write",
+      "github.read": "read",
+      "tally.read": "read",
+      "airtable.read": "read",
+      "notion.read": "read",
+      "linear.read": "read",
+      "shopify.read": "read",
+      "stripe.read": "read",
+      "etherscan.read": "read",
+      "coingecko.read": "read",
     });
   });
 

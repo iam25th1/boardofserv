@@ -113,3 +113,119 @@
   outline: var(--focus);
   outline-offset: 2px;
 }
+
+/* The page: the search, then each category's cards. */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+}
+.search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.searchLabel {
+  font-family: var(--font-hand);
+  font-size: var(--t-hand);
+  color: var(--chalk-2);
+}
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.groupName {
+  font-size: var(--t-md);
+  font-weight: var(--w-semibold);
+  color: var(--chalk-2);
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+}
+.select {
+  align-self: flex-start;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--slate);
+  color: var(--chalk);
+  font: inherit;
+}
+.inline {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--chalk);
+  font: inherit;
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.inline:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+
+/* The write switch. */
+.switchRow {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+}
+.toggle {
+  position: relative;
+  width: 46px;
+  height: 26px;
+  flex: none;
+  padding: 0;
+  border-radius: var(--r-full);
+  border: 1.5px solid var(--chalk-3);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-slow) var(--ease),
+    background-color var(--dur-slow) var(--ease);
+}
+.toggle::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--chalk-3);
+  transition:
+    transform var(--dur-slow) var(--ease),
+    background-color var(--dur-slow) var(--ease);
+}
+.toggle[aria-checked="true"] {
+  background: var(--chalk);
+  border-color: var(--chalk);
+}
+.toggle[aria-checked="true"]::after {
+  transform: translateX(20px);
+  background: var(--slate);
+}
+.toggle:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.toggle:focus-visible {
+  outline: var(--focus);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .toggle,
+  .toggle::after {
+    transition: none;
+  }
+}

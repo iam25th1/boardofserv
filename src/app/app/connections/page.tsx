@@ -13,7 +13,7 @@ import { privyAppId } from "@/lib/privy-config";
 import { useApi } from "@/lib/useApi";
 import styles from "../agents/agents.module.css";
 
-// The signed-in owner's connections to Telegram, Google and Typeform.
+// The signed-in owner's connections: every service of the catalog.
 export default function ConnectionsPage() {
   return (
     <Page title="Connections" note="what your agents may reach, and only for you" width="narrow" above={<YourAgentsNav />}>
@@ -49,24 +49,25 @@ function useGoogleReturn(): string | null {
 }
 
 // Sent here to connect one service (?connect=typeform&back=/app/chat?c=...):
-// that card is brought into view, and once it is connected the page goes
-// back to where it was asked from.
-function useConnectHere(): { back: string | null } {
-  const [back, setBack] = useState<string | null>(null);
+// that card opens and is brought into view, and once it is connected the
+// page goes back to where it was asked from.
+function useConnectHere(): { which: string | null; back: string | null } {
+  const [here, setHere] = useState<{ which: string | null; back: string | null }>({ which: null, back: null });
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
-    const which = q.get("connect");
-    setBack(backTo(q.get("back")));
-    if (which) setTimeout(() => document.getElementById(`connect-${which}`)?.scrollIntoView({ block: "center" }), 400);
+    setHere({ which: q.get("connect"), back: backTo(q.get("back")) });
   }, []);
-  return { back };
+  return here;
 }
 
 function Connections() {
   const api = useApi();
   const back = useGoogleReturn();
   const here = useConnectHere();
-  const view: ConnectionsApi = useMemo(() => ({ load: api.listConnections, disconnect: api.disconnect }), [api]);
+  const view: ConnectionsApi = useMemo(() => ({ load: api.listConnections, disconnect: api.disconnect, connect: api.connectService, setWrites: api.setWrites }), [api]);
+  const goBack = async (provider: string) => {
+    if (here.back && provider === here.which) window.location.assign(here.back);
+  };
   return (
     <>
       {back && (
@@ -76,6 +77,8 @@ function Connections() {
       )}
       <ConnectionsView
         api={view}
+        focus={here.which}
+        onConnected={goBack}
         connect={{
           telegram: (refresh) => <TelegramLink getCode={api.telegramCode} refresh={refresh} />,
           google: () => <GoogleConnect start={api.googleStart} />,

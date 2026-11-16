@@ -7,7 +7,7 @@ import { approvalDTO } from "../agents/runtime/approvals";
 import { HELD_ALL } from "../agents/heldIds";
 import { opinionsFor, ROUTE_WORDS } from "../reppo/opinion";
 import type { Runtime } from "../agents/runtime/context";
-import { secretOf, touch } from "../connections/vault";
+import { canWrite, secretOf, touch } from "../connections/vault";
 import { clip, numberedParts, sendText, TelegramError, type InlineKeyboard } from "./api";
 
 // What goes out to owners' Telegram chats, from the worker's cycle: the
@@ -94,7 +94,10 @@ export function settledText(a: Pick<AgentApproval, "question" | "options" | "noA
 
 export const keyboard = (a: Pick<AgentApproval, "id" | "options">): InlineKeyboard => a.options.map((o, i) => [{ text: o.label.slice(0, 60), callback_data: answerData(a.id, i) }]);
 
+// The owner's chat, when messages may go there: linked, and not switched
+// off on Connections (then they stay in the app's message box).
 async function chatOf(rt: Runtime, ownerUserId: string): Promise<number | null> {
+  if (!(await canWrite(rt, ownerUserId, "telegram"))) return null;
   return (await secretOf(rt, ownerUserId, "telegram"))?.chatId ?? null;
 }
 

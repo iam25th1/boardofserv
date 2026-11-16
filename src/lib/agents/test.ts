@@ -5,8 +5,9 @@ import { storyOf, toldAs } from "./plainWords";
 import { plain } from "./plainView";
 import { hollow, runAgent } from "./runner";
 import { runMisfits } from "./shapes";
-import { goesThroughList, makeSample, sampleRequest, type Sample } from "./sample";
+import { goesThroughList, keyedToCalls, makeSample, sampleRequest, type Sample } from "./sample";
 import type { BenchData, CheckId, RunEvent, StepCode, TestResult } from "./types";
+import { OUTSIDE_TOOLS, TOOLS } from "./toolbox";
 
 // "Test it": the agent runs on sample data made from its own plan (one
 // item, or three for an agent that goes through a list: sample.ts), every
@@ -64,6 +65,9 @@ export async function testVersion(v: { definition: AgentDefinition; code: Record
     if (made.call) await o.record?.(made.call, "sample");
     sample = made.sample;
   }
+  // Its stand-ins keyed by the calls the code really makes on the sample's
+  // own settings.
+  sample = { ...sample, bench: (await keyedToCalls(d, v.code, sample.bench, o.timeZone)).bench };
   const events: RunEvent[] = [];
   const end = await runAgent({
     definition: d,
@@ -108,20 +112,18 @@ export async function testVersion(v: { definition: AgentDefinition; code: Record
 
 type ToolEvent = Extract<RunEvent, { type: "tool" }>;
 
-// What each tool does, in words that follow "couldn't".
+// What each tool does, in words that follow "couldn't": a reading tool's
+// own (toolbox.ts), and the rest.
 const TOOL_VERBS: Record<string, string> = {
-  "sheets.read": "read your sheet",
+  ...Object.fromEntries(OUTSIDE_TOOLS.map((t) => [t, TOOLS[t].verb!])),
   "sheets.write": "add to your sheet",
   "sheets.update": "write into your sheet",
-  "web.fetch": "read the page",
-  "web.search": "search the web",
   "telegram.send": "message you",
   "telegram.ask": "ask you",
-  "memory.get": "look up where it got to",
-  "typeform.read": "read your form's responses",
   "memory.set": "note where it got to",
   "wallet.pay": "pay",
   "serv.reason": "ask SERV",
+  "service.send": "write to the service",
 };
 const toolEvents = (events: RunEvent[], tool: string) => events.filter((e): e is ToolEvent => e.type === "tool" && e.tool === tool && !e.error);
 
@@ -332,14 +334,16 @@ export async function selfTest(v: { definition: AgentDefinition; code: Record<st
   return told({ ...first, noRun, result: { ...first.result, status: problems.length ? "failed" : "passed", problems } });
 }
 
-// The tools that read from outside, and a read that brought nothing back.
-const READS: readonly ToolName[] = ["web.fetch", "sheets.read", "web.search", "typeform.read"];
+// The tools that read from outside (its memory is its own), and a read
+// that brought nothing back: a page that didn't answer, a service's error,
+// or nothing in any list it gave.
+const READS: readonly ToolName[] = OUTSIDE_TOOLS.filter((t) => t !== "memory.get");
 function emptyRead(e: ToolEvent): boolean {
-  const r = (e.result ?? {}) as { status?: unknown; text?: unknown; rows?: unknown; results?: unknown };
+  const r = (e.result ?? {}) as { status?: unknown; text?: unknown; data?: unknown };
   if (e.tool === "web.fetch") return r.status !== 200 || !String(r.text ?? "").trim();
-  if (e.tool === "sheets.read") return !Array.isArray(r.rows) || r.rows.length === 0;
-  if (e.tool === "typeform.read") return !Array.isArray((r as { responses?: unknown }).responses) || ((r as { responses: unknown[] }).responses).length === 0;
-  return !Array.isArray(r.results) || r.results.length === 0;
+  if (e.tool === "service.request") return typeof r.status !== "number" || r.status < 200 || r.status >= 300 || hollow(r.data);
+  const lists = Object.values(r).filter(Array.isArray);
+  return lists.length ? lists.every((l) => l.length === 0) : hollow(r);
 }
 
 // What a tool did, in words that follow "it still".

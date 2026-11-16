@@ -3,7 +3,8 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "../db";
 import { meterPlatform, platformRoom } from "./metering";
 import { messages, replyUsage, type Agent, type AgentVersion } from "../db/schema";
-import { loadSketch } from "../sketchStore";
+import { loadNeeds, loadSketch } from "../sketchStore";
+import { needNotes } from "./needs";
 import { describeFailures, modelPrices, type JsonResult, type ModelConfig } from "../model";
 import type { AgentSummaryDTO } from "../types";
 import { dolphinProvider, writeStep } from "./code";
@@ -18,7 +19,7 @@ import { errorText } from "../db/errors";
 import { recordAttempts } from "../modelAttempts";
 import { codeDiagnosis, planDiagnosis, testDiagnosis, withDiagnosis } from "./diagnosis";
 import { askFixer, type FixVerdict } from "./fixer";
-import { foundLine, freshBuild, gaveUpLine, healLimits, repairLine, roundsUsed, withLine, withRound } from "./heal";
+import { escalated, foundLine, freshBuild, gaveUpLine, healLimits, repairLine, roundsUsed, withLine, withRound } from "./heal";
 import { weakens } from "./guarded";
 import { learn, recurringRules } from "./lessons";
 
@@ -224,13 +225,14 @@ function writeHooks(version: AgentVersion, step: CodeStepDef, spec: string, ctx:
   };
 }
 
-// A step whose code calls other tools than the plan listed: the plan is
-// changed to match (code.ts fitTools), and the code's spec with it, so the
-// list never disagrees with the code.
+// A step whose code calls other tools than the plan listed, or reads a
+// value a step before it makes that it didn't list: the plan is changed to
+// match (code.ts fitTools, fitInputs), and the code's spec with it, so the
+// lists never disagree with the code.
 async function fitPlan(versionId: string, definition: AgentDefinition, step: CodeStepDef, entry: StepCode): Promise<{ definition: AgentDefinition; entry: StepCode }> {
-  if (!entry.tools) return { definition, entry };
-  const { tools, ...rest } = entry;
-  const fitted: CodeStepDef = { ...step, tools };
+  if (!entry.tools && !entry.inputs) return { definition, entry };
+  const { tools, inputs, ...rest } = entry;
+  const fitted: CodeStepDef = { ...step, ...(tools ? { tools } : {}), ...(inputs ? { inputs } : {}) };
   const next = { ...definition, steps: definition.steps.map((s) => (s.id === step.id ? fitted : s)) };
   await updateDraft(versionId, { definition: next });
   return { definition: next, entry: { ...rest, spec: codeSpec(fitted) } };
@@ -245,7 +247,9 @@ export async function planInputFor(conversationId: string | null, current: Agent
     ? await db.select({ role: messages.role, content: messages.content }).from(messages).where(eq(messages.conversationId, conversationId)).orderBy(asc(messages.createdAt))
     : [];
   const interview = sketch ?? { name: current?.name ?? null, kind: "agent" as const, watches: null, when: null, how: null, tells: null, takes: null, does: null, gives: null, asking: null, live: false };
-  return { interview, history, current, feedback: feedback || null };
+  // What the maker answered before it was planned holds for every change.
+  const needs = conversationId ? await loadNeeds(conversationId) : null;
+  return { interview, history, current, feedback: feedback || null, notes: needNotes(needs), services: needs?.services };
 }
 
 // How a build goes on once its code is written. heal: false leaves a
@@ -430,6 +434,9 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
       await healOf(versionId, (l) => withRound(l, { verdict: null, why: "The fixer couldn't say what was wrong.", outcome: "failed" }));
       return giveUp(versionId, dx, v.definition, planning);
     }
+    // The sample and the code's real calls not matching, named a second
+    // time on this build, is a code or settings fix (heal.ts).
+    if (v.definition) verdict = escalated(verdict, log.rounds.slice(log.since ?? 0), v.definition, dx.step?.id ?? null);
     // A verdict that doesn't fit where it failed is a change to the steps:
     // before there are steps, or for a step that isn't code.
     let kind = verdict.verdict;

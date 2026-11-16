@@ -37,7 +37,7 @@ export const OUTLINE_SCHEMA = {
     job: obj({ does: str("what the agent does, one or two sentences"), done: str("what counts as done for one job") }),
     triggers: list(
       obj({
-        kind: { type: "string", enum: ["schedule", "check", "message"] },
+        kind: { type: "string", enum: ["schedule", "check", "message", "webhook"] },
         every: { type: "string", enum: ["minutes", "day", "week", "none"], description: "schedule only" },
         at: str('schedule: a time like "08:00", or ""'),
         everyMinutes: { type: "number", description: "check, or schedule every minutes: minutes between, else 0" },
@@ -79,6 +79,7 @@ export const OUTLINE_SCHEMA = {
       }),
       "the steps in order; a run starts at the first; a loop's steps come right after it",
     ),
+    services: strings("the ids of the services it reaches with service.request or service.send (github, discord, custom), else []"),
     limits: obj({ maxSteps: { type: "number" }, maxRunSeconds: { type: "number" }, maxSpendUsd: { type: "number" } }),
     approvalHours: { type: "number", description: "hours the owner has to answer a question before it counts as no answer: 24 unless the maker said otherwise" },
   }),
@@ -112,7 +113,7 @@ export const DETAIL_SCHEMA = {
 const SCHEDULES = (least: number) =>
   `A schedule runs every N minutes (every "minutes", everyMinutes N, at least ${least}; every 2 hours is 120), every day at a time (every "day", at "HH:MM") or every week on some days at a time (every "week", the days in when, at "HH:MM"), in the renter's time zone. Anything that runs on a clock is a schedule: "every 15 minutes, check for new rows" is every minutes with everyMinutes 15, never a check trigger.`;
 
-export function outlinePrompt(least: number, tools: string): string {
+export function outlinePrompt(least: number, tools: string, services = ""): string {
   return [
     "You plan an agent for boardofserv from the maker's interview. This is its outline: the agent's setup, and its steps in order with what each is for. What each step reads, makes and does exactly is asked for afterwards, step by step. Answer with JSON in the given schema.",
     "Kinds of step. code: reading and working things out in a sandbox (read sheets, fetch pages, search, count, compare, combine, and prepare what an action writes or sends). decision: one judgement by a model about one thing, with 2 to 6 outcomes. action: takes one declared action, which only changes things (sheets.write, sheets.update, telegram.send, telegram.ask, wallet.pay, memory.set); never use an action to read. loop: goes through a list one item at a time, running the steps inside it once for each item.",
@@ -134,6 +135,7 @@ export function outlinePrompt(least: number, tools: string): string {
     SCHEDULES(least),
     'Use a check trigger only to run when a watched value changes. A check trigger names its own code step (step), listed with the steps but outside the run: it reads the watched value with tools that only read and returns { holds }. Its next is "" and no step leads to it.',
     `Tools a code step can call: ${tools}.`,
+    ...(services ? [services] : []),
     "Every side effect (sheets.write, sheets.update, telegram.send, telegram.ask, wallet.pay) must be a declared action. A message or a write that the maker said it must never do without asking goes through telegram.ask first; nothing else asks first.",
     "A question to the owner (telegram.ask) waits for their answer for approvalHours. Spending is a payment (wallet.pay), or rows written to a sheet whose amountColumn holds each row's amount in USDC (orders). A spending action can name askOver, a usdc rule: the runtime asks the owner before any spending that takes the job's running total over it, and askOverDay, the same for the day's total; never add a decision or question of your own for those limits.",
     "Settings are what each renter answers at setup; rules are limits a renter may adjust, with the maker's default as text; memory is what it keeps between jobs (a position, so the next run only takes new rows).",

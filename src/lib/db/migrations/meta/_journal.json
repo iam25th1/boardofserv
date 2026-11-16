@@ -442,6 +442,27 @@
       "when": 1794606166681,
       "tag": "0062_approval_items",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1794848288741,
+      "tag": "0063_connection_writes",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1794849092890,
+      "tag": "0064_installation_hook",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1794849888443,
+      "tag": "0065_sketch_needs",
+      "breakpoints": true
     }
   ]
 }
