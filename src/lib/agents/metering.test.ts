@@ -119,7 +119,7 @@ describe("free agents", () => {
     const job = await runOnce(inst);
     expect(job).toMatchObject({ status: "failed", reason: allowancePause(1n) });
     expect(await instOf(inst.id)).toMatchObject({ status: "paused", pausedReason: allowancePause(1n) });
-    expect(allowancePause(1n)).toBe("Its free model allowance of 0.000001 USDC for this week is used up, so it is paused. It starts again on Monday, or sooner on your own SERV key.");
+    expect(allowancePause(1n)).toBe("Its free model allowance of 0.000001 USDC for this week is used up, so it is paused. It starts again on Monday, or sooner on your own SERV key: add it on Connections.");
     // Still this week: it stays paused.
     expect(await resumeAllowances(rt)).toBe(0);
     vi.stubEnv("AGENT_FREE_MODEL_ALLOWANCE_USDC", "1");
