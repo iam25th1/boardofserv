@@ -283,6 +283,17 @@ describe("planning from a tested recipe", () => {
     expect(s.sent.filter((x) => x.name.startsWith("agent_")).every((x) => x.temperature === 0)).toBe(true);
   });
 
+  it("gives SERV what fixed earlier builds of each recipe when it picks", async () => {
+    const s = answering(pick());
+    const seen: string[] = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      seen.push(String((JSON.parse(String(init.body)) as { messages: { content: string }[] }).messages[0]!.content));
+      return s.fetchImpl(url, init);
+    }) as typeof fetch;
+    await planAgent({ interview: checker, history }, { config, signal: new AbortController().signal, fetchImpl, lessons: ["For the watch recipe: A repository's sample has commits from the last day."] });
+    expect(seen[0]).toContain("Rules learned from earlier builds, keep to them:\n- For the watch recipe: A repository's sample has commits from the last day.");
+  });
+
   it("never starts from a repository the maker didn't name", async () => {
     const s = answering(pick({ given: [{ key: "github_repo", value: "octocat/Hello-World" }] }));
     const plan = await planAgent({ interview: checker, history }, { config, signal: new AbortController().signal, fetchImpl: s.fetchImpl });

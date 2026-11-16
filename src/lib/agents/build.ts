@@ -22,7 +22,7 @@ import { codeDiagnosis, planDiagnosis, testDiagnosis, withDiagnosis } from "./di
 import { askFixer, type FixVerdict } from "./fixer";
 import { argsVerdict, escalated, toCatalogVerdict, foundLine, freshBuild, gaveUpLine, healLimits, repairLine, roundsUsed, TRIES_MARK, triesLine, withLine, withRound } from "./heal";
 import { weakens } from "./guarded";
-import { learn, recurringRules } from "./lessons";
+import { learn, recipeRules, recurringRules } from "./lessons";
 
 // The build: planning, then the code, then its self test, runs in the
 // background, because it can take longer than a request may. One job per
@@ -126,9 +126,14 @@ export interface BuildContext {
 }
 
 // The context a job runs in: its draft, the rules learned so far, and its
-// stop.
+// stop. The rules: the mistakes that keep coming back, and the lessons of
+// the draft's recipe (every recipe's, for a plan not yet made).
 async function jobContext(ctx: BuildContext, versionId: string): Promise<BuildContext> {
-  return { ...ctx, versionId, lessons: ctx.lessons ?? (await recurringRules().catch(() => [])), signal: ctx.signal ?? aborts.get(versionId)?.signal };
+  if (ctx.lessons) return { ...ctx, versionId, signal: ctx.signal ?? aborts.get(versionId)?.signal };
+  const v = await versionById(versionId);
+  const recipe = !v?.definition ? "all" : (v.definition.recipe?.id ?? null);
+  const lessons = [...(await recurringRules().catch(() => [])), ...(await recipeRules(recipe).catch(() => []))];
+  return { ...ctx, versionId, lessons, signal: ctx.signal ?? aborts.get(versionId)?.signal };
 }
 
 // Only SERV, whatever else is set up.

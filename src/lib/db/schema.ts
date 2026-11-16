@@ -1352,6 +1352,10 @@ export const agentLessons = pgTable(
     fix: text("fix").notNull(),
     count: integer("count").notNull().default(1),
     makers: jsonb("makers").$type<string[]>().notNull().default([]),
+    // A tested recipe's own lesson (agents/recipes): a fix a build from it
+    // needed before it went live, and how many builds went live with it.
+    recipe: text("recipe"),
+    live: integer("live").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
   },
