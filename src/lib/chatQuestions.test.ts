@@ -14,11 +14,11 @@ import { planFailure } from "./agents/plainWords";
 describe("the chat's questions", () => {
   it("are only about the job: what the owner sets up and what it remembers are never asked", () => {
     expect(fieldsOf("agent")).toEqual(ASKED_FIELDS);
-    expect(ASKED_FIELDS).toEqual(["wakes", "looks", "handles"]);
+    expect(ASKED_FIELDS).toEqual(["looks", "handles"]);
     // What counts as done and what it asks first are kept when said, never
     // asked: a first-time maker can't answer them, and asking invites
     // made-up questions to the owner.
-    expect(SKETCH_SCHEMA.schema.properties.asking.description).toContain("never finish, asks, setup or remembers");
+    expect(SKETCH_SCHEMA.schema.properties.asking.description).toContain("never wakes, finish, asks, setup or remembers");
     expect(SKETCH_SCHEMA.schema.properties.asks.description).toContain("Never asked, never guessed");
     // Asked anyway, setup is dropped: nothing is asked and no chips show.
     const asked = parseSketchBlock(JSON.stringify({ name: "Checker", kind: "agent", asking: "setup", choices: ["Google Sheet ID"] }))!;

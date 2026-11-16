@@ -109,6 +109,9 @@ export interface ServiceEntry {
   postReads?: "graphql" | "jsonrpc";
   // Writes go form-encoded, not as JSON (Twilio).
   form?: boolean;
+  // Where in the service to paste an agent's own address, for it to post
+  // there (an Incoming webhook): the place, in plain words.
+  webhookHow?: string;
   // How a write is made, for the planner: what to send where.
   sendHow?: string;
 }
@@ -165,6 +168,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Typeform, open your account's Personal tokens and generate one that can read forms and responses.",
     reads: "The answers to the forms you give your agents, each new answer once.",
     writes: null,
+    webhookHow: "In Typeform, open the form's Connect tab, then Webhooks, and press Add a webhook: paste it as the Endpoint, save it, and switch the webhook on.",
     tools: ["typeform.read"],
   },
   {
@@ -261,6 +265,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Tally, open Settings, then API keys, and make one.",
     reads: "The answers to your forms.",
     writes: null,
+    webhookHow: "In Tally, open the form's Integrations, choose Webhooks and press Connect: paste it as the Endpoint URL and save.",
     tools: ["tally.read"],
   },
   {
@@ -297,6 +302,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Notion, make an internal integration, copy its secret, then share each database with it (Connections on the database's menu).",
     reads: "The databases you share with the integration.",
     writes: "Adds pages to those databases.",
+    webhookHow: "In Notion, open your integration's settings (Profile, Integrations), then Webhooks, and create a subscription: paste it as the Webhook URL and pick the events.",
     tools: ["notion.read"],
     sendHow: 'service.send({ connection: "notion", path: "/pages", body: { parent: { database_id }, properties } }): database_id is a setting.',
   },
@@ -316,6 +322,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "Public repositories need no key. For private ones, make a fine-grained token with read access to those repositories.",
     reads: "Commits, pull requests, issues and their changes. Public repositories need no key.",
     writes: "Opens issues and adds comments.",
+    webhookHow: "In GitHub, open the repository's Settings, then Webhooks, and press Add webhook: paste it as the Payload URL, set Content type to application/json, pick the events to send, and press Add webhook.",
     tools: ["github.read"],
     sendHow: 'service.send({ connection: "github", path: "/repos/<owner>/<repo>/issues", body: { title, body } }): the repository is a setting.',
   },
@@ -334,6 +341,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In GitLab, open Access tokens and make one with read_api (and api to write).",
     reads: "Projects, commits, merge requests and issues (GET /projects/:id/...).",
     writes: "Opens issues and adds notes.",
+    webhookHow: "In GitLab, open the project's Settings, then Webhooks, and press Add new webhook: paste it as the URL, tick the events to send, and press Add webhook.",
     tools: [],
     sendHow: 'service.send({ connection: "gitlab", path: "/projects/<id>/issues", body: { title, description } }).',
   },
@@ -352,6 +360,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Linear, open Settings, Security and access, and make a personal API key.",
     reads: "Issues, by team and state.",
     writes: "Creates and updates issues.",
+    webhookHow: "In Linear, open Settings, then API, and under Webhooks press New webhook: paste it as the URL, pick the teams and events, and save.",
     tools: ["linear.read"],
     postReads: "graphql",
     sendHow: 'service.send({ connection: "linear", path: "/graphql", body: { query: "mutation ...", variables } }).',
@@ -375,6 +384,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In your Atlassian account's Security, make an API token.",
     reads: "Issues, by JQL search (GET /search/jql?jql=...).",
     writes: "Creates issues and adds comments.",
+    webhookHow: "In Jira, open Settings (System), then WebHooks, and press Create a WebHook: paste it as the URL, pick the events, and save.",
     tools: [],
     sendHow: 'service.send({ connection: "jira", path: "/issue", body: { fields } }).',
   },
@@ -396,6 +406,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In your Shopify admin, open Settings, Apps, Develop apps, make an app with read_orders and read_products, install it and copy the Admin API access token.",
     reads: "Orders, products and customers.",
     writes: "Changes orders and products.",
+    webhookHow: "In your Shopify admin, open Settings, then Notifications, Webhooks, and press Create webhook: pick the event, choose JSON, paste it as the URL and save.",
     tools: ["shopify.read"],
   },
   {
@@ -413,6 +424,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Stripe's dashboard, in test mode, open Developers, API keys, and copy the secret key (or make a restricted one that reads).",
     reads: "Charges, customers, invoices, payouts and subscriptions, in test mode only.",
     writes: null,
+    webhookHow: "In Stripe's dashboard, in test mode, open Developers, then Webhooks, and add an endpoint (a destination): paste it as the Endpoint URL and pick the events to send.",
     tools: ["stripe.read"],
   },
   {
@@ -430,6 +442,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Gumroad, open Settings, Advanced, make an application and generate its access token.",
     reads: "Your products and sales (GET /sales, /products).",
     writes: null,
+    webhookHow: "In Gumroad, open Settings, then Advanced, and paste it as the Ping endpoint: Gumroad posts each sale there.",
     tools: [],
   },
   {
@@ -448,6 +461,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Lemon Squeezy, open Settings, API, and make a key.",
     reads: "Orders, subscriptions and products (GET /orders, /subscriptions).",
     writes: null,
+    webhookHow: "In Lemon Squeezy, open Settings, then Webhooks, and press the plus: paste it as the Callback URL, pick the events, and save.",
     tools: [],
   },
   {
@@ -518,6 +532,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Alchemy's dashboard, make an app on the network it reads and copy its API key.",
     reads: "The chain itself, by JSON-RPC (eth_getBalance, eth_call, eth_getLogs, alchemy_getTokenBalances).",
     writes: null,
+    webhookHow: "In Alchemy's dashboard, open Webhooks (Notify) and create one: pick what it watches and paste it as the Webhook URL.",
     tools: [],
     postReads: "jsonrpc",
   },
@@ -537,6 +552,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Cal.com, open Settings, Developer, API keys, and make one.",
     reads: "Your bookings (GET /bookings).",
     writes: "Cancels or reschedules bookings.",
+    webhookHow: "In Cal.com, open Settings, then Developer, Webhooks, and press New: paste it as the Subscriber URL, pick the events, and save.",
     tools: [],
   },
   {

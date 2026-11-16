@@ -367,6 +367,9 @@ export async function planAgent(
   // Everything the maker said, for what they asked for (planRepairs.ts
   // dropUnasked).
   const saidAll = [...input.history.filter((m) => m.role === "user").map((m) => m.content), ...Object.values(input.interview).filter((v): v is string => typeof v === "string"), input.feedback ?? "", ...(input.notes ?? [])].join("\n");
+  // The maker's own words and answers alone: what the chat made of them
+  // (the interview) can carry a guess.
+  const ownerWords = [...input.history.filter((m) => m.role === "user").map((m) => m.content), input.feedback ?? "", ...(input.notes ?? [])].join("\n");
   const calls: JsonResult[] = [];
   const answers: string[] = [];
   const planText = planRequest(input);
@@ -453,7 +456,7 @@ export async function planAgent(
       if (!chunk || !(await detail(chunk))) break;
       continue;
     }
-    const joined = repaired(wireToDefinition(joinPlan(outline, details)), { askedFirst: asked, formLink, said: saidAll });
+    const joined = repaired(wireToDefinition(joinPlan(outline, details)), { askedFirst: asked, formLink, said: saidAll, owner: ownerWords });
     const checked = checkDefinition(joined);
     // A plan in the format still has to keep the planner's rules
     // (planRules.ts): judgement in decisions, counting in code, no loops.
@@ -501,9 +504,16 @@ export async function planAgent(
 // judgement or words only a model can give are asked of SERV at run time.
 // said: what the maker said, the interview and their answers, for what
 // they asked for and what they didn't.
-export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: string | null; said?: string } = {}): unknown {
-  const d = plan as { steps?: unknown; settings?: unknown; rules?: unknown; actions?: unknown };
+// owner: the maker's own words and answers (never what the chat made of
+// them), for what they asked to start it.
+export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: string | null; said?: string; owner?: string } = {}): unknown {
+  const d = plan as { steps?: unknown; settings?: unknown; rules?: unknown; actions?: unknown; triggers?: unknown };
   if (!Array.isArray(d?.steps)) return plan;
+  // A post to its address starts it only when the maker asked for that;
+  // otherwise it runs every day, the default they were offered.
+  if (o.owner !== undefined && Array.isArray(d.triggers) && !WEBHOOK_ASKED.test(o.owner)) {
+    d.triggers = (d.triggers as { kind?: unknown }[]).map((t) => (t?.kind === "webhook" ? { kind: "schedule", every: "day", at: "09:00", description: "Every day at 9:00" } : t));
+  }
   const list = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
   if (Array.isArray(d.settings)) (d as { settings: unknown }).settings = fixSetup(d.settings as { key: string; label?: string; type: unknown }[]);
   // Columns by their names, never by a setting or rule that names them.
@@ -557,6 +567,9 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: st
   if (Array.isArray(d.actions)) (d as { actions: unknown }).actions = list(d.actions).filter((a) => taken.has(s(a.id)) || used.has(String(a.tool)));
   return plan;
 }
+
+// The maker asking for it to start when something posts to it.
+const WEBHOOK_ASKED = /\bwebhooks?\b|\bposts? to (?:it|its address|the agent)\b|\bwhen another app posts\b|\bzapier\b|\bmake\.com\b|\bn8n\b|\bincoming (?:posts?|requests?)\b/i;
 
 // The planner's rules, on a plan that may not check out yet: what can be
 // read off it, or nothing.

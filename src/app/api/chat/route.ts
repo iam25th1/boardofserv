@@ -17,10 +17,10 @@ import { recordAttempts } from "@/lib/modelAttempts";
 import { agentForConversation, currentVersion } from "@/lib/agents/store";
 import { answer, changeSteps, offerMakeIt } from "@/lib/agents/journey";
 import { honestReply, MAKE_IT_NEXT, wholeSentences } from "@/lib/replyClaims";
-import { describedEnough } from "@/lib/sketchFields";
+import { describedEnough, saysWhen } from "@/lib/sketchFields";
 import { sourceAsk, unreadableIn } from "@/lib/agents/sources";
 import { connectionsOf, hasConnection } from "@/lib/connections/vault";
-import { answerItem, askText, listNeeds, openItem } from "@/lib/agents/needs";
+import { answerItem, askText, listNeeds, openItem, WHEN_KEY, whenItem } from "@/lib/agents/needs";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 
 export const runtime = "nodejs";
@@ -123,6 +123,8 @@ export async function POST(req: Request) {
   // Waiting on the maker's answer to the fixer's question: what they say
   // is the answer, and the build goes on with it. No model writes the reply.
   const question = built && content && !regenerate && !editMessageId ? (current?.heal?.question ?? null) : null;
+  // Everything the maker typed in this conversation.
+  const ownWords = history.filter((m) => m.role === "user").map((m) => m.content).join("\n");
   const at = context.map((m) => m.role).lastIndexOf("user");
   const said = context[at]?.content ?? "";
   const previous = context.slice(0, Math.max(at, 0)).reverse().find((m) => m.role === "assistant")?.content ?? null;
@@ -172,6 +174,9 @@ export async function POST(req: Request) {
       if (needs?.asked && openItem(needs)) {
         const connected = await connectedTo(user.id);
         const next = answerItem(needs, said, connected);
+        // When it runs, answered: what the job says it wakes on.
+        const when = next.items.find((i) => i.key === WHEN_KEY && i.answer && needs.asked === WHEN_KEY);
+        if (when && stored) await saveSketch(cid, { ...stored, wakes: when.answer });
         const nextItem = openItem(next);
         const asking = nextItem ? { ...next, asked: nextItem.key } : next;
         await saveNeeds(cid, asking);
@@ -198,6 +203,9 @@ export async function POST(req: Request) {
       let turnPlan: TurnPlan | null = null;
       if (plan.sketch) {
         sketch = mergeSketch(stored, plan.sketch);
+        // When it runs is the maker's to say, never guessed: one they
+        // didn't say is asked before Make it (needs.ts).
+        if (sketch.kind === "agent" && !planned && sketch.wakes && !saysWhen(ownWords)) sketch = { ...sketch, wakes: null };
         await saveSketch(cid, sketch);
         turnPlan = { asking: sketch.asking, choices: sketch.asking ? plan.sketch.choices : [] };
         // The dock fills in now, while the reply is still being written.
@@ -296,10 +304,12 @@ export async function POST(req: Request) {
         if (!listed) {
           const connected = await connectedTo(user.id);
           const job = (["wakes", "looks", "handles", "finish", "asks"] as const).flatMap((k) => (sketch?.[k] ? [`${k}: ${sketch[k]}`] : [])).join("\n");
-          const made = await listNeeds(job, history.filter((m) => m.role === "user").map((m) => m.content), connected, { config, signal: controller.signal });
+          // When it runs, if the maker didn't say: asked first, every day by default.
+          const askWhen = !sketch?.wakes && !saysWhen(ownWords);
+          const made = await listNeeds(job, history.filter((m) => m.role === "user").map((m) => m.content), connected, { config, signal: controller.signal, askWhen });
           await recordAttempts(db as never, made.call.attempts, { ownKey });
-          // No answer: nothing more is asked, as before.
-          listed = made.needs ?? { items: [], services: [], asked: null, at: new Date().toISOString() };
+          // No answer: only when it runs, if that is still to ask.
+          listed = made.needs ?? { items: askWhen ? [whenItem()] : [], services: [], asked: null, at: new Date().toISOString() };
         }
         const first = openItem(listed);
         await saveNeeds(cid, first ? { ...listed, asked: first.key } : listed);

@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { notLetIn } from "@/lib/access";
 import { NotLive, putOnBoard, runForMaker } from "@/lib/agents/goLive";
-import { cardsIn, updateCard } from "@/lib/agents/journey";
+import { cardsIn, say, updateCard } from "@/lib/agents/journey";
+import { hookAdvice } from "@/lib/agents/runtime/hooks";
+import { and, eq } from "drizzle-orm";
+import { messages } from "@/lib/db/schema";
 import { ownedAgent } from "@/lib/agents/owned";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { startHeal, summaryOf } from "@/lib/agents/build";
@@ -60,6 +63,11 @@ async function goLive(user: User, agent: Agent, how: z.infer<typeof Body>, answe
     const installation = await runForMaker(rt, user, agent, answers!);
     // An agent that pays with nothing in its allowance says so in the chat.
     await updateCard(card.id, { ...card.card!, live: { ...card.card!.live, installationId: installation.id } }, `It's running for you. ${installation.runs.join(" ")}${installation.allowanceWarning ? ` ${installation.allowanceWarning}` : ""}`.trim());
+    // One that starts on a post: its address, and where to paste it.
+    if (installation.hookUrl) {
+      const said = await rt.db.select({ content: messages.content }).from(messages).where(and(eq(messages.conversationId, agent.sourceConversationId!), eq(messages.role, "user")));
+      await say(agent.sourceConversationId!, hookAdvice(installation.hookUrl, said.map((m) => m.content).join("\n")));
+    }
     return { installation };
   }
   const listing = await putOnBoard(rt, user, agent, { weeklyPrice: how.weeklyPrice, description: how.description });

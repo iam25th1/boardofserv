@@ -342,7 +342,8 @@ describe("what a clear job needs", () => {
   });
 
   it("is asked one question at a time, each with a default to tap, before Make it, with no model writing the asks", async () => {
-    nextSketch = extraction({ name: "GitHub Code Verifier", kind: "agent", wakes: "every day", handles: "checks code quality", asking: "none" });
+    // The plan call guesses a run time the maker never gave.
+    nextSketch = extraction({ name: "GitHub Code Verifier", kind: "agent", wakes: "GitHub webhook or scheduled check", handles: "checks code quality", asking: "none" });
     nextReply = ["It checks code on GitHub and verifies its quality."];
     nextNeeds = JSON.stringify({
       needs: [
@@ -353,10 +354,17 @@ describe("what a clear job needs", () => {
       unlisted: [],
     });
     const first = await turn("i would like a mini agent that checks githubs and verifies code, work, quality.");
-    expect(first.shown).toBe("It checks code on GitHub and verifies its quality.\n\nBefore I make it, I need two things from you. Which repositories should it check?");
-    expect(first.choices).toEqual(["I'll give it at setup", "My public repos"]);
+    // It never said when it runs: that is asked first, every day by
+    // default, and no run time is guessed for it.
+    expect(first.shown).toBe("It checks code on GitHub and verifies its quality.\n\nBefore I make it, I need three things from you. When should it run?");
+    expect(first.choices).toEqual(["Every day at 9:00", "Every hour", "Every Monday at 9:00", "When another app posts to it"]);
+    expect((await sketchRow(first.conversationId))!.wakes).toBeNull();
     expect(first.events.some((e) => e.event === "card")).toBe(false);
     const before = calls.length;
+    const when = await turn("Every day at 9:00", first.conversationId);
+    expect(when.shown).toBe("Which repositories should it check?");
+    expect(when.choices).toEqual(["I'll give it at setup", "My public repos"]);
+    expect((await sketchRow(first.conversationId))!.wakes).toBe("Every day at 9:00");
     const second = await turn("vercel/next.js", first.conversationId);
     expect(second.shown).toBe("Where should it send what it finds?");
     expect(second.choices).toEqual(["Telegram", "Discord"]);
@@ -372,6 +380,7 @@ describe("what a clear job needs", () => {
     expect(calls.length).toBe(before);
     const row = await sketchRow(first.conversationId);
     expect(row!.needs!.items.map((i) => [i.key, i.answer])).toEqual([
+      ["when", "Every day at 9:00"],
       ["repos", "vercel/next.js"],
       ["results_to", "Discord"],
       ["connect_discord", "Later, when I set it up"],
