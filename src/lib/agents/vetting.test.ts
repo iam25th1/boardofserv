@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { PgliteDatabase } from "drizzle-orm/pglite";
 import * as schema from "@/lib/db/schema";
@@ -170,6 +170,25 @@ describe("the review's request", () => {
   });
 });
 
+describe("the build's code review", () => {
+  it("knows the platform's rules, and a rejection that goes against one is dropped and logged", async () => {
+    const { reviewCode, REVIEW_PROMPT: CODE_REVIEW } = await import("./code");
+    const { PLATFORM_RULES } = await import("./vetting");
+    for (const r of PLATFORM_RULES.filter((x) => x.id !== "reads")) expect(CODE_REVIEW).toContain(r.rule);
+    const step = restockDefinition().steps.find((s): s is CodeStepDef => s.kind === "code")!;
+    const serv = servOnly(modelConfig({ SERV_API_KEY: "test-serv" }));
+    const rejecting = (reason: string) => (async () => Response.json({ choices: [{ message: { content: JSON.stringify({ verdict: "reject", reason }) } }], usage: { prompt_tokens: 500, completion_tokens: 30 } })) as unknown as typeof fetch;
+    const warned: string[] = [];
+    const warn = vi.spyOn(console, "warn").mockImplementation((line: unknown) => void warned.push(String(line)));
+    const wrong = "The code should not store commit dates to memory on every iteration; it should only save the date of the last commit after processing all commits.";
+    expect(await reviewCode("async function run() { return {}; }", step, serv, { fetchImpl: rejecting(wrong) })).toMatchObject({ approved: true, reason: "", dropped: { rule: "place", reason: wrong } });
+    expect(warned.join("\n")).toContain("went against the platform's place rule and was dropped");
+    // A real problem stays a rejection.
+    expect(await reviewCode("async function run() { return {}; }", step, serv, { fetchImpl: rejecting("It never returns low, which the step must return.") })).toMatchObject({ approved: false, reason: "It never returns low, which the step must return." });
+    warn.mockRestore();
+  });
+});
+
 describe("a finding that goes against the platform's rules", () => {
   const d = restockDefinition();
   const code = RESTOCK_CODE as unknown as Record<string, import("./types").StepCode>;
@@ -193,6 +212,12 @@ describe("a finding that goes against the platform's rules", () => {
       ["Using SERV to judge code is the wrong tool for static analysis.", "serv.reason"],
       ["It reads the repository with github.read without a declared action.", "reads"],
       ["It calls GitHub without an API key, so private repositories would fail.", "keys"],
+      // Live, the build's code review sent back code that saved its place
+      // after each commit, as the platform asks.
+      ["The code should not store commit dates to memory on every iteration; it should only save the date of the last (most recent) commit after processing all commits.", "place"],
+      // Live, the review before going live held the checker for not passing
+      // since, which github.read sees to itself.
+      ["The code does not pass the since parameter to github.read when fetching commits, so it fetches the latest 5 commits every run instead of only new commits since the last checked date.", "feeds"],
     ] as const) {
       expect(brokenRule(said), said).toBe(rule);
     }
@@ -204,6 +229,8 @@ describe("a finding that goes against the platform's rules", () => {
       "The step calls serv.reason in a loop over every file without a limit, which can spend the whole budget.",
       "It passes a commit's sha where GitHub's since takes a date, so every later read fails.",
       "It sends the stock list to an address the purpose doesn't need.",
+      // A summary made from the run's own results is code, not SERV's.
+      "The code composes a draft summary locally but then asks serv.reason to compose the final summary message instead, violating the requirement that the step's output must come from the code's logic, not delegated to the tool.",
     ]) {
       expect(brokenRule(said), said).toBeNull();
       const review = await reviewVersion(d, code, serv, { now, fetchImpl: answering([{ step: title, severity: "blocking", finding: said }]) });

@@ -45,9 +45,11 @@ export interface VersionReview {
 export const PLATFORM_RULES: { id: string; rule: string; contradicts: RegExp }[] = [
   {
     id: "serv.reason",
-    rule: "Judging and writing at run time is done by asking SERV with serv.reason: a code review, a quality score, a verdict, a summary or a reply. That is the platform's rule for every step that judges or writes, whatever it judges, code included.",
+    rule: "Judging and writing at run time is done by asking SERV with serv.reason: a code review, a quality score, a verdict, a reply, words the data does not hold yet. That is the platform's rule for every step that judges or writes, whatever it judges, code included.",
+    // What it says SERV is (the wrong kind of tool for judging code), never
+    // what a step should do with its own results.
     contradicts:
-      /^(?=[\s\S]*(?:serv\.?\s?reason|\bSERV\b|reasoning (?:tool|model|call)))(?=[\s\S]*(?:\b(?:not|isn't|is not|never|no)\s+(?:an?\s+)?(?:[\w-]+\s+){0,3}(?:tool|meant|designed|intended|built|suited)\b|\bwrong tool\b|\bmisus\w*|\binappropriate(?:ly)?\b|\bunsuitable\b|\binstead of (?:an? |the )?(?:static|real|proper|dedicated|actual|code[- ]analysis)\b|\bcannot (?:analy[sz]e|judge|review|read) code\b|\bcan't (?:analy[sz]e|judge|review|read) code\b))/i,
+      /^(?=[\s\S]*(?:serv\.?\s?reason|\bSERV\b|reasoning (?:tool|model|call)))(?=[\s\S]*(?:\b(?:is|as|being)\s+(?:only\s+)?an?\s+[\w-]+(?:\s+[\w-]+)?\s+(?:tool|model)\s*,?\s*(?:and\s+)?not\s+an?\s+|\bnot\s+(?:designed|meant|intended|built|suited)\s+(?:for|to)\b|\bwrong tool\b|\bunsuitable for\b|\bcan(?:not|'t) (?:analy[sz]e|judge|review|read) code\b|\binstead of (?:an? |the )?(?:static|real|proper|dedicated|actual|code[- ]analysis)\b))/i,
   },
   {
     id: "reads",
@@ -55,6 +57,16 @@ export const PLATFORM_RULES: { id: string; rule: string; contradicts: RegExp }[]
     // About a read, never about something that sends, writes or pays.
     contradicts:
       /^(?![\s\S]*\b(?:send|sends|sending|sent|write|writes|writing|pay|pays|paying|update|updates|post|posts|telegram\.send|telegram\.ask|sheets\.write|sheets\.update|wallet\.pay|service\.send|memory\.set)\b)(?=[\s\S]*\b(?:read|reads|reading|fetch(?:es|ing)?|search(?:es|ing)?|serv\.?\s?reason|service\.request|github\.read|memory\.get)\b)[\s\S]*\b(?:without|no|not (?:through|via|as)|undeclared|isn't declared|is not declared)\b[^.]*\b(?:declared |an? )?actions?\b/i,
+  },
+  {
+    id: "place",
+    rule: "An agent that keeps its place (an item's date) has it kept as each item is judged, oldest first, by the platform or by its code inside the loop, so a run that stops part way never judges an item again. That is right, never a problem.",
+    contradicts: /\b(?:should(?:n't| not)?|only|must|instead)\b[^.]*\b(?:save|saves|saving|store|stores|storing|memory|its place|the date)\b[^.]*\b(?:every iteration|each iteration|on every pass|after (?:processing )?all|at the end|once at the end|after the loop|outside the loop)\b/i,
+  },
+  {
+    id: "feeds",
+    rule: "github.read gives an agent that keeps its place only what came after it (on its first run, the latest 5 from the last 24 hours) and keeps that place itself: its code need not pass since, filter by date or save the place, and that is right.",
+    contradicts: /^(?=[\s\S]*\b(?:since|new (?:commits|items|pull requests|issues)|only new|already (?:seen|checked|judged)|last (?:checked|analy[sz]ed) (?:commit|date)|the same commits)\b)[\s\S]*\b(?:does not|doesn't|do not|don't|never|not|without|fails? to|no)\b[^.]*\b(?:pass(?:es|ing)?|use|uses|using|send|sends|filter(?:s|ing)?|track(?:s|ing)?|save|saves|saving|store|stores|remember|check(?:s|ing)?|dedupe|deduplicate)\b/i,
   },
   {
     id: "keys",

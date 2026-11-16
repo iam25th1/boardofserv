@@ -7,6 +7,7 @@ import { targetProblem, writtenTarget } from "./targets";
 import { argMismatches, mismatchProblem } from "./argKinds";
 import { callsOf, loopsAround, loopSpans } from "./codeShape";
 import { DIFFS_MARK, EACH_ITEM_MARK } from "./planRepairs";
+import { brokenRule, PLATFORM_RULES } from "./vetting";
 import { CATALOG } from "../connections/catalog";
 import { OUTSIDE_TOOLS, TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
@@ -63,6 +64,7 @@ export const REVIEW_PROMPT = [
   "Approve only if all of these hold: it does what the step says, reading only its inputs and returning an object whose keys are exactly its outputs (never a bare value); a message the step makes for the owner may be the text itself or telegram.send's arguments { text }, either is right; an output an action takes as its tool's arguments has exactly that shape; it calls only the tools listed (the list is exactly what the code calls, so a tool the step's words mention but the code doesn't need is not listed); it does nothing risky (no reaching for the network, files, timers or globals, no endless loops or huge allocations, nothing sent anywhere except through the listed tools).",
   "When serv.reason is listed, the step's judgement or writing must come from tools.serv.reason, not from rules of thumb, word counts, keyword lists or canned text in the code: reject code that works it out itself.",
   "Approving, leave the reason empty. Rejecting, say in one or two plain sentences, in your own words, what to change in this code. Never use em dashes.",
+  `The platform's rules, which code is never rejected for keeping: ${PLATFORM_RULES.filter((r) => r.id !== "reads").map((r) => r.rule).join(" ")}`,
 ].join(" ");
 
 export const REVIEW_SCHEMA = {
@@ -391,6 +393,8 @@ export interface Review {
   approved: boolean;
   reason: string;
   result: JsonResult;
+  // A rejection dropped for going against a rule of the platform.
+  dropped?: { rule: string; reason: string };
 }
 
 // SERV's review of one function. A review that couldn't be made is not an
@@ -425,7 +429,15 @@ export async function reviewCode(source: string, step: CodeStepDef, serv: ModelC
   try {
     const parsed = JSON.parse(result.content) as { verdict?: string; reason?: string };
     if (parsed.verdict !== "approve" && parsed.verdict !== "reject") return null;
-    return { approved: parsed.verdict === "approve", reason: (parsed.reason ?? "").trim().slice(0, 500), result };
+    const reason = (parsed.reason ?? "").trim().slice(0, 500);
+    // A rejection that goes against a rule of the platform is wrong about
+    // the platform, not the code: dropped, and logged.
+    const rule = parsed.verdict === "reject" ? brokenRule(reason) : null;
+    if (rule) {
+      console.warn(`agents: a code review's rejection of "${step.title}" went against the platform's ${rule} rule and was dropped: ${reason}`);
+      return { approved: true, reason: "", result, dropped: { rule, reason } };
+    }
+    return { approved: parsed.verdict === "approve", reason, result };
   } catch {
     return null;
   }
