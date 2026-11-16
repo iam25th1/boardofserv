@@ -10,7 +10,7 @@ import { TypeformConnect } from "./TypeformConnect";
 // it, Disconnect after a yes; and the ways to link Telegram and connect
 // Google.
 
-const telegram: ConnectionDTO = { provider: "telegram", name: "Telegram", label: "@shop", connectedAt: "2026-11-09T08:00:00Z", lastUsedAt: null, usedBy: [{ id: "i1", name: "Fabric restock", status: "active" }] };
+const telegram: ConnectionDTO = { provider: "telegram", name: "Telegram", label: "@shop", writes: true, connectedAt: "2026-11-09T08:00:00Z", lastUsedAt: null, usedBy: [{ id: "i1", name: "Fabric restock", status: "active" }] };
 
 beforeEach(() => {
   vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce"), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} }));

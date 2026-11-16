@@ -37,8 +37,9 @@ export interface Field {
   label: string;
   secret: boolean;
   placeholder?: string;
-  // What a valid answer looks like.
+  // What a valid answer looks like, and why one that isn't is refused.
   pattern?: string;
+  patternWhy?: string;
   // Not needed (a public repository needs no key).
   optional?: boolean;
   // The answers to pick from.
@@ -58,9 +59,16 @@ export type Placement = { in: "header"; name: string; prefix?: string } | { in: 
 export interface Check {
   method: "GET" | "POST";
   path: string;
+  query?: Record<string, string>;
   body?: unknown;
   label?: string;
   text?: string;
+  // Answers that mean the key works though the call was refused (a key
+  // that may only send, asked to list): a status and words in its body.
+  accept?: { status: number; match: string; text: string }[];
+  // A 2xx answer that still means the key doesn't work (an API that says
+  // so in its body): words in its body.
+  failsWhen?: string;
 }
 
 export interface ServiceEntry {
@@ -83,6 +91,8 @@ export interface ServiceEntry {
   // Headers every call carries (a version the API wants).
   headers?: Record<string, string>;
   check: Check | null;
+  // What to check when a key is turned down, after "check".
+  turnedDown?: string;
   // Where to get a key, and how, in plain words.
   keyUrl: string | null;
   keyHow: string;
@@ -143,6 +153,7 @@ export const CATALOG: ServiceEntry[] = [
     hosts: ["api.typeform.com"],
     place: { in: "header", name: "authorization", prefix: "Bearer " },
     check: { method: "GET", path: "/me", label: "alias", text: "your account" },
+    turnedDown: "it can read forms and responses, or make a new one",
     keyUrl: "https://admin.typeform.com/user/tokens",
     keyHow: "In Typeform, open your account's Personal tokens and generate one that can read forms and responses.",
     reads: "The answers to the forms you give your agents, each new answer once.",

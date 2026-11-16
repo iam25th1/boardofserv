@@ -21,6 +21,7 @@ import { getAddress } from "viem";
 import { eq, sql } from "drizzle-orm";
 import { holdFunds, post } from "@/lib/payments/ledger";
 import { bandOf } from "@/lib/trust/score";
+import { fetchTransport } from "@/lib/connections/request";
 
 // Connection secrets are encrypted like every other stored secret.
 process.env.OPENSERV_KEY_ENC_KEY ||= randomBytes(32).toString("base64");
@@ -80,6 +81,7 @@ export function testRuntime(db: PgliteDatabase<typeof schema>, start = new Date(
       braveKey: "test-brave-key",
       reppo: TEST_REPPO,
       caps: { sheetCalls: 500, searches: 50, siteSearches: 1000 },
+      transport: fetchTransport(net.fetch),
     },
     now: () => clock.at,
     clock,

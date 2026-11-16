@@ -13,6 +13,7 @@ import type { AgentStep, DecisionStepDef } from "../definition";
 import type { ReasonArgs, Reasoned } from "../reason";
 import type { Decided } from "../runner";
 import type { WebPolicy } from "./webFetch";
+import { guardedTransport, type Transport } from "../../connections/request";
 import type { GuardInput, GuardVerdict } from "../guard";
 
 export const DEFAULT_FETCHES_PER_DAY = 100;
@@ -44,6 +45,15 @@ export interface Services {
   // Each installation's calls a day to Google Sheets and to web search,
   // and the whole site's searches a day.
   caps: { sheetCalls: number; searches: number; siteSearches: number };
+  // How calls through an owner's connection go out (connections/
+  // request.ts): the guarded transport unless a test answers them.
+  transport?: Transport;
+}
+
+// The transport for calls through connections: the services' own, else
+// the guarded one under the runtime's web policy.
+export function transportOf(rt: Pick<Runtime, "services" | "web">): Transport {
+  return rt.services.transport ?? guardedTransport(rt.web);
 }
 
 export const DEFAULT_CAPS = { sheetCalls: 500, searches: 50, siteSearches: 1000 };

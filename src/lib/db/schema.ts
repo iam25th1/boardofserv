@@ -931,6 +931,11 @@ export const connections = pgTable(
     label: text("label").notNull(),
     secretEncrypted: text("secret_encrypted").notNull(),
     lookup: text("lookup"),
+    // Whether agents may write through it (post, send, change things), the
+    // owner's switch. Null is the service's own default (catalog.ts): on
+    // for their Telegram chat and Google tabs, as before the switch; off
+    // for every key they paste until they turn it on.
+    writes: boolean("writes"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),

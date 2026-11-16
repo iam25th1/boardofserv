@@ -29,7 +29,7 @@ import { addressFacts, highRisk, warningOf, type AddressFacts } from "../../spen
 import { paymentsNetworkProblem } from "../../spending/treasury";
 import { formatAmount, parseAmount } from "../../money";
 import { fetchPage, WebUnreachable } from "./webFetch";
-import { secretOf, touch as touchConnection } from "../../connections/vault";
+import { canWrite, secretOf, touch as touchConnection } from "../../connections/vault";
 import { formIdOf, formResponses, TypeformError } from "../../typeform/api";
 import { sourceProblem, sourceRefusal } from "../sources";
 import { errorText } from "../../db/errors";
@@ -51,6 +51,9 @@ import { errorText } from "../../db/errors";
 // Most Typeform responses one job takes: the rest wait for the next run.
 export const TYPEFORM_PER_RUN = 20;
 export const TYPEFORM_MISSING = "Typeform isn't connected, so the form's answers can't be read: connect it on Connections, then run it again.";
+
+// A write through a connection whose owner switched writing off.
+export const WRITES_OFF = (name: string) => `Writing to ${name} is switched off on Connections, so nothing was written. Turn it on there to let your agents write.`;
 
 export const GUARD_OVER_BUDGET = "This agent's model budget for the week is used up, so the safety check asks you instead.";
 
@@ -466,6 +469,8 @@ export class JobTools implements ToolHost {
       throw new ToolError(tool, `${tool} was called wrongly: it takes ${takes}.`);
     }
     const g = this.grant(parsed.data.sheet);
+    // Writing is the owner's switch on Connections, on unless they turn it off.
+    if (tool !== "sheets.read" && !(await canWrite(this.rt, this.installation.ownerUserId, "google"))) throw new ToolError(tool, WRITES_OFF("Google Sheets"));
     const limit = this.rt.services.caps.sheetCalls;
     if (!(await this.take("sheets", limit))) throw new ToolError(tool, `It reached its limit of ${limit} sheet calls today.`);
     try {

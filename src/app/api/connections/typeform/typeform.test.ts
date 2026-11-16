@@ -8,6 +8,7 @@ import * as schema from "@/lib/db/schema";
 import { addUser, testDb } from "@/test/helperDb";
 import { fakeNet } from "@/test/fakeNet";
 import { FAKE_TYPEFORM_TOKEN, fakeTypeform } from "@/test/fakeTypeform";
+import { fetchTransport } from "@/lib/connections/request";
 
 // Connect Typeform: the owner pastes a personal token; it is tried once,
 // kept encrypted like every connection secret, never shown again, and can
@@ -21,7 +22,7 @@ vi.mock("@/lib/db", () => ({ db: new Proxy({}, { get: (_, key) => Reflect.get(st
 vi.mock("@/lib/auth-route", () => ({ getUserFromRequest: async () => state.user }));
 vi.mock("@/lib/agents/runtime/context", async (load) => {
   const real = await load<typeof import("@/lib/agents/runtime/context")>();
-  return { ...real, serverRuntime: () => ({ ...real.serverRuntime(), services: { ...real.serverRuntime().services, fetch: net.fetch } }) };
+  return { ...real, serverRuntime: () => ({ ...real.serverRuntime(), services: { ...real.serverRuntime().services, fetch: net.fetch, transport: fetchTransport(net.fetch) } }) };
 });
 
 let client: PGlite;

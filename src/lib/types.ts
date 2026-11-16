@@ -385,6 +385,8 @@ export interface ConnectionDTO {
   provider: string;
   name: string;
   label: string;
+  // Agents may write through it (the owner's switch).
+  writes: boolean;
   connectedAt: string;
   lastUsedAt: string | null;
   usedBy: { id: string; name: string; status: string }[];

@@ -4,7 +4,7 @@ import { decryptSecret, encryptSecret, lookupHash } from "../crypto";
 import { agentInstallations, agentVersions, connections, type ConnectionProvider } from "../db/schema";
 import type { ConnectionDTO } from "../types";
 import { connectionsNeeded, neededIds, type AgentDefinition } from "../agents/definition";
-import { serviceName } from "./catalog";
+import { entryOf, serviceName } from "./catalog";
 import type { Runtime } from "../agents/runtime/context";
 
 // The connection vault: what each owner has linked (their Telegram chat,
@@ -98,6 +98,30 @@ export async function ownerOfChat(rt: Runtime, chatId: number): Promise<string |
   return row?.owner ?? null;
 }
 
+// Whether agents may write through the owner's connection to a service:
+// their switch, or the service's own default while they haven't touched it.
+export async function canWrite(rt: Runtime, ownerUserId: string, provider: ConnectionProvider): Promise<boolean> {
+  const [row] = await rt.db
+    .select({ writes: connections.writes })
+    .from(connections)
+    .where(and(eq(connections.ownerUserId, ownerUserId), eq(connections.provider, provider)));
+  if (!row) return false;
+  return row.writes ?? Boolean(entryOf(provider)?.writesOn);
+}
+
+// The owner's switch for writing through a connection. False when there is
+// no such connection, or the service only reads.
+export async function setWrites(rt: Runtime, ownerUserId: string, provider: ConnectionProvider, on: boolean): Promise<boolean> {
+  if (!entryOf(provider)?.writes) return false;
+  const rows = await rt.db
+    .update(connections)
+    .set({ writes: on, updatedAt: rt.now() })
+    .where(and(eq(connections.ownerUserId, ownerUserId), eq(connections.provider, provider)))
+    .returning({ id: connections.id });
+  if (rows.length) rt.log(`vault: an owner turned writing through ${serviceName(provider)} ${on ? "on" : "off"}`);
+  return rows.length > 0;
+}
+
 export async function hasConnection(rt: Runtime, ownerUserId: string, provider: ConnectionProvider): Promise<boolean> {
   const [row] = await rt.db
     .select({ id: connections.id })
@@ -179,7 +203,7 @@ export async function disconnect(rt: Runtime, ownerUserId: string, provider: Con
 // What the owner sees of their connections: never the secret.
 export async function connectionsOf(rt: Runtime, ownerUserId: string): Promise<ConnectionDTO[]> {
   const rows = await rt.db
-    .select({ provider: connections.provider, label: connections.label, createdAt: connections.createdAt, lastUsedAt: connections.lastUsedAt })
+    .select({ provider: connections.provider, label: connections.label, writes: connections.writes, createdAt: connections.createdAt, lastUsedAt: connections.lastUsedAt })
     .from(connections)
     .where(eq(connections.ownerUserId, ownerUserId));
   return Promise.all(
@@ -187,6 +211,7 @@ export async function connectionsOf(rt: Runtime, ownerUserId: string): Promise<C
       provider: r.provider,
       name: serviceName(r.provider),
       label: r.label,
+      writes: Boolean(entryOf(r.provider)?.writes) && (r.writes ?? Boolean(entryOf(r.provider)?.writesOn)),
       connectedAt: r.createdAt.toISOString(),
       lastUsedAt: r.lastUsedAt?.toISOString() ?? null,
       usedBy: (await installationsNeeding(rt, ownerUserId, r.provider)).map((i) => ({ id: i.id, name: (i.definition as AgentDefinition).name, status: i.status })),

@@ -10,7 +10,7 @@ import { installed, ownSheet, publishedAgent, sheetRows, testRuntime, type TestR
 import { claimJob, enqueue, runJob } from "../agents/runtime/jobs";
 import { grantSheets, InstallRefused, loadInstallation } from "../agents/runtime/installations";
 import { JobTools } from "../agents/runtime/tools";
-import { keep, secretOf } from "../connections/vault";
+import { keep, secretOf, setWrites } from "../connections/vault";
 import { accessToken, CallbackRefused, finishGoogle, REVOKED_REASON, startGoogle } from "./oauth";
 import { parseSheetLink } from "./sheetLink";
 
@@ -188,6 +188,21 @@ describe("sheets, as the owner gave them", () => {
     expect(rt.net.calls.filter((c) => c.method === "POST" || c.method === "PUT").every((c) => c.url.search.includes("valueInputOption=RAW") || c.url.pathname.endsWith(":clear"))).toBe(true);
     await tools.call(step, "sheets.write", { sheet: "Orders", rows: [{ fabric: "Wool", metres: 9 }], mode: "replace" });
     expect(sheetRows(rt, inst, "orders_sheet")).toEqual([{ fabric: "Wool", metres: 9 }]);
+  });
+
+  it("writes nothing when the owner switched writing to Google Sheets off, and reads as before", async () => {
+    const someone = await addUser(db, "google.switch");
+    const inst = await installed(rt, someone, await publishedAgent(db, someone));
+    const d = (await loadInstallation(rt, inst.id))!.definition;
+    const tools = new JobTools(rt, inst, d, null);
+    const step = d.steps[0]!;
+    await setWrites(rt, someone.id, "google", false);
+    await expect(tools.call(step, "sheets.write", { sheet: "Orders", rows: [{ fabric: "Silk", metres: 3 }] })).rejects.toThrow("Writing to Google Sheets is switched off on Connections, so nothing was written. Turn it on there to let your agents write.");
+    expect(sheetRows(rt, inst, "orders_sheet")).toEqual([]);
+    expect(((await tools.call(step, "sheets.read", { sheet: "Stock" })) as { rows: unknown[] }).rows).toHaveLength(3);
+    await setWrites(rt, someone.id, "google", true);
+    await tools.call(step, "sheets.write", { sheet: "Orders", rows: [{ fabric: "Silk", metres: 3 }] });
+    expect(sheetRows(rt, inst, "orders_sheet")).toHaveLength(1);
   });
 
   it("keeps to the installation's sheet calls a day", async () => {

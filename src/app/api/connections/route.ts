@@ -1,7 +1,8 @@
 import { getUserFromRequest } from "@/lib/auth-route";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { CONNECTION_PROVIDERS, type ConnectionProvider } from "@/lib/db/schema";
-import { connectionsOf, disconnect } from "@/lib/connections/vault";
+import { z } from "zod";
+import { connectionsOf, disconnect, setWrites } from "@/lib/connections/vault";
 import { CATALOG, type ServiceEntry } from "@/lib/connections/catalog";
 import type { Services } from "@/lib/agents/runtime/context";
 import { farewell } from "@/lib/telegram/farewell";
@@ -42,4 +43,19 @@ export async function DELETE(req: Request) {
   const done = await disconnect(rt, user.id, provider as ConnectionProvider, provider === "telegram" ? farewell(rt) : undefined);
   if (!done) return Response.json({ error: "It isn't connected." }, { status: 404 });
   return Response.json(done);
+}
+
+const Switch = z.object({ provider: z.string().max(40), writes: z.boolean() });
+
+// The owner's switch for writing through a connection: off, agents only
+// read through it; on, they may also write, still under every ask-first
+// rule the agent and the owner's settings have.
+export async function PATCH(req: Request) {
+  const user = await getUserFromRequest(req);
+  if (!user) return Response.json({ error: "Not signed in" }, { status: 401 });
+  const parsed = Switch.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) return Response.json({ error: "Say which service, and whether agents may write through it." }, { status: 400 });
+  const done = await setWrites(serverRuntime(), user.id, parsed.data.provider, parsed.data.writes);
+  if (!done) return Response.json({ error: "It isn't connected, or it only reads." }, { status: 404 });
+  return Response.json({ writes: parsed.data.writes });
 }
