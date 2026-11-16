@@ -37,7 +37,10 @@ import { allowance, cachedRead, keepRead, limited, LOW_PUBLIC_READS, noteAllowan
 import { parseFeed } from "../../connections/feed";
 import { formIdOf, formResponses, TypeformError } from "../../typeform/api";
 import { sourceProblem, sourceRefusal } from "../sources";
-import { NEW_PER_RUN } from "../planRepairs";
+import { DATE_CURSOR, NEW_PER_RUN } from "../planRepairs";
+
+// Where a reading step says it keeps its place (planRepairs.ts firstRunNote).
+const FIRST_RUN = /First run \(memory\.([a-z][a-z0-9_]*) empty\)/;
 import { errorText } from "../../db/errors";
 
 // A job's tools (and a value check's, with no job). Sheets are real: the
@@ -104,6 +107,9 @@ export const isYes = (answer: string | null) => answer !== null && /^\s*(yes|y|o
 
 export class JobTools implements ToolHost {
   private mock: MockTools | null = null;
+  // Where this job's feed read got to: the items it gave, the ones judged,
+  // and the one being judged now (its changes read last).
+  private feedRun: { key: string | null; items: { id: string; date: string }[]; done: Set<string>; current: string | null } | null = null;
   // The guard's answers in this run, by call: the same call is checked once.
   private checked = new Map<string, GuardResult>();
   // The checks whose model cost is in the audit log already.
@@ -650,6 +656,12 @@ export class JobTools implements ToolHost {
     // New items from a feed, a few a run, for a job that keeps its place.
     const capped = this.definition.memory.length > 0 || this.definition.steps.some((st) => st.kind === "decision" || (st.kind === "code" && st.tools.includes("serv.reason")));
     const feed = this.job ? feedArgs(tool, parsed.data as Record<string, unknown>, capped) : null;
+    // After its first run: what came after the date it remembers, whether
+    // or not the code asked for it.
+    const place = feed && !feed.since ? await this.place() : null;
+    if (feed && place) Object.assign(feed, { since: place, limit: 100 });
+    // An item's changes read: the one before it is judged.
+    if (typed && !feed && tool === "github.read") await this.itemTaken(String((parsed.data as { sha?: unknown; number?: unknown }).sha ?? (parsed.data as { number?: unknown }).number ?? ""));
     const asked = feed ?? parsed.data;
     const readKey = callKey(tool, asked);
     const kept = shared ? cachedRead(readKey, now) : null;
@@ -702,9 +714,62 @@ export class JobTools implements ToolHost {
     if (!typed) return got;
     if (got.status >= 200 && got.status < 300) {
       const shaped = typed.shape(got.data, asked as never) as { items?: Record<string, unknown>[] };
-      return feed && Array.isArray(shaped.items) ? { ...shaped, items: feedItems(shaped.items, { since: typeof feed.since === "string" ? feed.since : null, now }) } : shaped;
+      if (!feed || !Array.isArray(shaped.items)) return shaped;
+      const items = feedItems(shaped.items, { since: typeof feed.since === "string" ? feed.since : null, now });
+      this.feedRun = { key: this.placeKey(), items: items.map((x) => ({ id: String(x.sha ?? x.number ?? ""), date: String(x.date ?? x.created_at ?? "") })), done: new Set(), current: null };
+      return { ...shaped, items };
     }
     throw new ToolError(tool, got.status === 401 || got.status === 403 ? `${entry.name} turned the connection down (${got.status}): check its key on Connections, or that it may read this.` : got.status === 404 ? `${entry.name} has no such item (${got.status}): check what the agent was given.` : `${entry.name} answered ${got.status}.`);
+  }
+
+  // The memory field an agent keeps its place in: the date of the newest
+  // item it has judged, as its reading step says (planRepairs.ts
+  // keepPlaceByDate).
+  private placeKey(): string | null {
+    const said = this.definition.steps.map((st) => (st.kind === "code" ? FIRST_RUN.exec(st.description)?.[1] : undefined)).find(Boolean);
+    const key = said ?? this.definition.memory.find((m) => m.description === DATE_CURSOR)?.key;
+    return key && this.definition.memory.some((m) => m.key === key && m.type === "text") ? key : null;
+  }
+
+  private async place(): Promise<string | null> {
+    const key = this.placeKey();
+    if (!key) return null;
+    const { value } = (await this.memory("memory.get", { key })) as { value: unknown };
+    return typeof value === "string" && isDateText(value) ? value : null;
+  }
+
+  private async itemTaken(id: string): Promise<void> {
+    const f = this.feedRun;
+    const item = f && id ? f.items.find((x) => x.id === id || (id.length >= 7 && x.id.startsWith(id))) : undefined;
+    if (!f || !item) return;
+    if (f.current && f.current !== item.id) f.done.add(f.current);
+    f.current = item.id;
+    await this.keepPlace();
+  }
+
+  // The job did all it was for: every item its feed read gave is judged.
+  async settleFeed(): Promise<void> {
+    const f = this.feedRun;
+    if (!f) return;
+    for (const x of f.items) f.done.add(x.id);
+    f.current = null;
+    await this.keepPlace();
+  }
+
+  // Its place: the date of the newest item judged with every item before
+  // it judged too, whatever order the code went in, saved at once, so a
+  // run that stops part way never judges an item again.
+  private async keepPlace(): Promise<void> {
+    const f = this.feedRun;
+    if (!f?.key) return;
+    let at: string | null = null;
+    for (const x of [...f.items].filter((i) => isDateText(i.date)).sort((a, b) => Date.parse(a.date) - Date.parse(b.date))) {
+      if (!f.done.has(x.id)) break;
+      at = x.date;
+    }
+    const was = await this.place();
+    if (!at || (was && Date.parse(was) >= Date.parse(at))) return;
+    await this.memory("memory.set", { key: f.key, value: at });
   }
 
   // When GitHub's shared public reads come back, in the owner's time.

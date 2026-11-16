@@ -2,6 +2,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PGlite } from "@electric-sql/pglite";
 import type { PgliteDatabase } from "drizzle-orm/pglite";
+import { eq } from "drizzle-orm";
 import * as schema from "@/lib/db/schema";
 import { addUser, testDb } from "@/test/helperDb";
 import { checkerDefinition, V3_ANALYZE } from "@/test/githubChecker";
@@ -199,6 +200,8 @@ describe("a job's feed reads", () => {
     expect(feedArgs("coingecko.read", { coins: ["bitcoin"] }, true)).toBeNull();
   });
 
+  // The same, with ids GitHub takes.
+  const hex = commits.map((c, i) => ({ ...c, sha: `c0ffee${i}` }));
   let client: PGlite;
   let db: PgliteDatabase<typeof schema>;
   let rt: TestRuntime;
@@ -223,5 +226,50 @@ describe("a job's feed reads", () => {
     expect(asked.at(-1)!.url.searchParams.get("per_page")).toBe("5");
     const later = (await tools.call(d.steps[0]!, "github.read", { op: "commits", repo: "acme/widgets", since: at(30) })) as { items: { sha: string }[] };
     expect(later.items.map((c) => c.sha)).toEqual(["c2", "c3", "c4", "c5", "c6"]);
+  });
+
+  it("keep their place themselves, a date, item by item as each one's changes are read, whatever the plan did", async () => {
+    const d = repair(checkerDefinition());
+    const u = await addUser(db, "feed.place");
+    const p = await publishedAgent(db, u, { definition: d, code: {} });
+    const [inst] = await db.insert(schema.agentInstallations).values({ agentId: p.agent.id, versionId: p.version.id, ownerUserId: u.id, mocks: { sheets: {}, search: {}, wallet: { balanceUsdc: 0 } }, timezone: "UTC" }).returning();
+    const raw = hex.map((c) => ({ sha: c.sha, html_url: "", commit: { message: "Change", author: { name: "Ada", date: c.date } } }));
+    rt.net.on(/\/repos\/acme\/place\/commits(?:\?|$)/, (req) => {
+      const since = new URL(req.url).searchParams.get("since");
+      return Response.json(since ? raw.filter((c) => Date.parse(c.commit.author.date) > Date.parse(since)) : raw);
+    });
+    rt.net.on(/\/repos\/acme\/place\/commits\/c/, () => Response.json({ files: [] }));
+    const place = async () => ((await db.select().from(schema.agentInstallations).where(eq(schema.agentInstallations.id, inst!.id)))[0]!.memory as Record<string, unknown>).last_check_date ?? null;
+    const step = d.steps[0]!;
+    const job = (n: number) => new JobTools(rt, inst!, d, { id: `00000000-0000-0000-0000-00000000f0${n}0` } as schema.AgentJob);
+    const first = job(1);
+    expect(((await first.call(step, "github.read", { op: "commits", repo: "acme/place" })) as { items: { sha: string }[] }).items.map((c) => c.sha)).toEqual(["c0ffee0", "c0ffee1", "c0ffee2", "c0ffee3", "c0ffee4"]);
+    // Oldest first: c4 is being judged, so nothing is saved yet; c3 read
+    // means c4 is judged.
+    await first.call(step, "github.read", { op: "commit", repo: "acme/place", sha: "c0ffee4" });
+    expect(await place()).toBeNull();
+    await first.call(step, "github.read", { op: "commit", repo: "acme/place", sha: "c0ffee3" });
+    expect(await place()).toBe(at(5));
+    // Stopped here, the next run starts after c4.
+    const next = job(2);
+    expect(((await next.call(step, "github.read", { op: "commits", repo: "acme/place" })) as { items: { sha: string }[] }).items.map((c) => c.sha)).toEqual(["c0ffee0", "c0ffee1", "c0ffee2", "c0ffee3"]);
+    // Done, everything it read is judged: its place is the newest.
+    await next.settleFeed();
+    expect(await place()).toBe(at(0.5));
+    expect(((await job(3).call(step, "github.read", { op: "commits", repo: "acme/place" })) as { items: unknown[] }).items).toEqual([]);
+  });
+
+  it("never moves past an item not judged yet, when the code goes newest first", async () => {
+    const d = repair(checkerDefinition());
+    const u = await addUser(db, "feed.newest");
+    const p = await publishedAgent(db, u, { definition: d, code: {} });
+    const [inst] = await db.insert(schema.agentInstallations).values({ agentId: p.agent.id, versionId: p.version.id, ownerUserId: u.id, mocks: { sheets: {}, search: {}, wallet: { balanceUsdc: 0 } }, timezone: "UTC" }).returning();
+    rt.net.on(/\/repos\/acme\/newest\/commits(?:\?|$)/, () => Response.json(commits.map((c) => ({ sha: c.sha, html_url: "", commit: { message: "Change", author: { name: "Ada", date: c.date } } }))));
+    rt.net.on(/\/repos\/acme\/newest\/commits\/c/, () => Response.json({ files: [] }));
+    const tools = new JobTools(rt, inst!, d, { id: "00000000-0000-0000-0000-00000000f0a0" } as schema.AgentJob);
+    await tools.call(d.steps[0]!, "github.read", { op: "commits", repo: "acme/newest" });
+    for (const sha of ["c0ffee0", "c0ffee1", "c0ffee2"]) await tools.call(d.steps[0]!, "github.read", { op: "commit", repo: "acme/newest", sha });
+    const [row] = await db.select().from(schema.agentInstallations).where(eq(schema.agentInstallations.id, inst!.id));
+    expect((row!.memory as Record<string, unknown>).last_check_date ?? null).toBeNull();
   });
 });

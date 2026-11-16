@@ -248,13 +248,14 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
     return readReason(args, call);
   };
 
+  const tools = new JobTools(rt, installation, definition, job, owner);
   let result: EngineResult;
   try {
     result = await runSteps({
       definition,
       code: version.code,
       state,
-      tools: new JobTools(rt, installation, definition, job, owner),
+      tools,
       decide,
       reason,
       onEvent: log.on,
@@ -325,6 +326,8 @@ export async function runJob(rt: Runtime, job: AgentJob, worker: string): Promis
   // Cancelled mid-call: whatever the call said on the way out, it ends as
   // its owner asked.
   if (halt.signal.aborted) result = { kind: "end", status: "stopped", cause: "stop", reason: "Cancelled by its owner." };
+  // A run that did all it was for has judged every item its feed read gave.
+  if (result.kind === "end" && result.status === "done") await tools.settleFeed().catch((err: unknown) => rt.log(`jobs: a feed's place wasn't saved: ${err instanceof Error ? err.name : "unknown error"}`));
   if (result.kind === "wait") return pauseForOwner(rt, job, worker, definition, state, result);
   const how = result.kind === "end" ? endOf(result) : { retry: result.reason };
   // Messages it held for the owner's yes: one question about them all, and
