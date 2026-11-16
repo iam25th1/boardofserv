@@ -114,10 +114,10 @@ const json = (url: string, method = "GET", body?: unknown) => new Request(`http:
 const at = (id: string) => ({ params: Promise.resolve({ id }) });
 
 // A conversation where the maker described the price watcher.
-async function described(): Promise<string> {
+async function described(says = "Every day, check a product page I give you and read its price. If the price is below a target I set, ask me on Telegram whether I want a reminder to buy it, and only send the reminder if I say yes."): Promise<string> {
   const [convo] = await db.insert(schema.conversations).values({ userId: maker.id, title: "Price watcher" }).returning();
   await db.insert(schema.messages).values([
-    { conversationId: convo!.id, role: "user", content: "Every day, check a product page I give you and read its price. If the price is below a target I set, ask me on Telegram whether I want a reminder to buy it, and only send the reminder if I say yes." },
+    { conversationId: convo!.id, role: "user", content: says },
     { conversationId: convo!.id, role: "assistant", content: "Every day it reads the price on your page and, when it is below your target, asks you on Telegram before sending a reminder." },
   ]);
   await db.insert(schema.agentSketches).values({ conversationId: convo!.id, name: "Price watcher", kind: "agent", wakes: "every day", looks: "a product page I give it", handles: "below my target, asks me on Telegram whether to send a reminder" });
@@ -279,6 +279,29 @@ describe("the journey in the chat", () => {
     expect(inst!.versionId).toBe(v2!.id);
     const [listing] = await db.select().from(schema.agentListings).where(eq(schema.agentListings.agentId, id));
     expect(listing!.versionId).toBe(v1!.id);
+  });
+
+  it("shows an agent asked to start on a post its address, and where to paste it in that service, once it runs", async () => {
+    const cid = await described("When Shopify posts to it, check the product page I give you and read its price. If the price is below a target I set, ask me on Telegram whether I want a reminder to buy it, and only send the reminder if I say yes.");
+    plans = [{ ...PRICE_WIRE, triggers: [{ kind: "webhook", every: "none", at: "", everyMinutes: 0, watch: "", when: "", step: "", description: "When Shopify posts to it" }] }];
+    const id = await madeIt(cid);
+    expect((await draftOf(id))!.definition!.triggers).toEqual([{ kind: "webhook", description: "When Shopify posts to it" }]);
+    await build.POST(json(`/api/agents/${id}/build`, "POST"), at(id));
+    await jobFor((await draftOf(id))!.id);
+    await keep(serverRuntime(), maker.id, "telegram", "@maker", { chatId: 42, userId: 42 }).catch(() => undefined);
+    const ok = await journeyRoute.POST(json(`/api/conversations/${cid}/journey`, "POST", { action: "connect", answers: { settings: { product_url: "https://shop.example/kettle", target_price: "50" }, rules: {}, timezone: "Europe/London" } }), at(cid));
+    expect(ok.status, await ok.clone().text()).toBe(200);
+    const ran = await golive.POST(json(`/api/agents/${id}/golive`, "POST", { how: "run" }), at(id));
+    expect(ran.status, await ran.clone().text()).toBe(200);
+    const said = (await conversation(cid)).messages.at(-1)!.content;
+    expect(said).toMatch(/^It starts each time something is posted to its own address:\n\nhttps:\/\/boardofserv\.25th\.dev\/api\/hooks\/[A-Za-z0-9_-]{32}\n\nIn your Shopify admin, open Settings, then Notifications, Webhooks, and press Create webhook: pick the event, choose JSON, paste it as the URL and save\. Keep the address to yourself: anyone with it can start a job\.$/);
+  });
+
+  it("never starts on a post the maker didn't ask for: it runs every day instead", async () => {
+    const cid = await described();
+    plans = [{ ...PRICE_WIRE, triggers: [{ kind: "webhook", every: "none", at: "", everyMinutes: 0, watch: "", when: "", step: "", description: "A webhook" }] }];
+    const id = await madeIt(cid);
+    expect((await draftOf(id))!.definition!.triggers).toEqual([{ kind: "schedule", every: "day", at: "09:00", description: "Every day at 9:00" }]);
   });
 
   it("never makes it before the job is clear, or for anyone else", async () => {

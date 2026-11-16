@@ -19,7 +19,7 @@ import { errorText } from "../db/errors";
 import { recordAttempts } from "../modelAttempts";
 import { codeDiagnosis, planDiagnosis, testDiagnosis, withDiagnosis } from "./diagnosis";
 import { askFixer, type FixVerdict } from "./fixer";
-import { escalated, foundLine, freshBuild, gaveUpLine, healLimits, repairLine, roundsUsed, withLine, withRound } from "./heal";
+import { escalated, toCatalogVerdict, foundLine, freshBuild, gaveUpLine, healLimits, repairLine, roundsUsed, withLine, withRound } from "./heal";
 import { weakens } from "./guarded";
 import { learn, recurringRules } from "./lessons";
 
@@ -437,6 +437,8 @@ async function heal(versionId: string, ctx: BuildContext, settle: Settle, start:
     // The sample and the code's real calls not matching, named a second
     // time on this build, is a code or settings fix (heal.ts).
     if (v.definition) verdict = escalated(verdict, log.rounds.slice(log.since ?? 0), v.definition, dx.step?.id ?? null);
+    // A service of the catalog fetched with web.fetch: its own tool.
+    if (v.definition) verdict = toCatalogVerdict(verdict, v.definition, dx.step?.id ?? null);
     // A verdict that doesn't fit where it failed is a change to the steps:
     // before there are steps, or for a step that isn't code.
     let kind = verdict.verdict;

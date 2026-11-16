@@ -37,7 +37,8 @@ const ABOUT: Record<SketchFieldKey, string> = {
 // What the sketch holds, as one short plain line: the fields of its kind.
 export function knownLine(sketch: SketchDTO | null): string {
   const fields = fieldsOf(sketch?.kind ?? null);
-  const known = (["name", "kind", ...fields] as const).flatMap((k) => (sketch?.[k] ? [`${k} ${sketch[k]}`] : []));
+  // When an agent runs is known when the maker said it, never asked here.
+  const known = (["name", "kind", ...(sketch?.kind === "agent" ? (["wakes"] as const) : []), ...fields] as const).flatMap((k) => (sketch?.[k] ? [`${k} ${sketch[k]}`] : []));
   const missing = fields.filter((k) => !sketch?.[k]);
   return `Known so far: ${known.length ? known.join(", ") : "nothing yet"}; missing: ${missing.length ? missing.join(", ") : "nothing"}.`;
 }

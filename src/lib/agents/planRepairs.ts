@@ -2,6 +2,7 @@ import { loopChain, loopsOf, REASON_TOOL, type CodeStepDef } from "./definition"
 import { needsReasoning } from "./planRules";
 import { parseShape, showShape } from "./shapes";
 import { OUTSIDE_TOOLS } from "./toolbox";
+import { CATALOG, type ServiceEntry } from "../connections/catalog";
 
 // Repairs to a plan as SERV answers it, each with only one meaning, made
 // before the plan is checked (plan.ts, wireToDefinition), so a slip SERV
@@ -632,3 +633,40 @@ export function dropUnasked(steps: RawStep[], setup: Setup & { memory?: { key: s
   }
   return { actions: dropped, memory };
 }
+
+// A step that fetches a service of the catalog with web.fetch (its API's
+// address, or "from CoinGecko" in its words) reads it with the service's own
+// tool instead: its typed read when it has one (coingecko.read), else
+// service.request through it. Returns the services it now reaches
+// generically, for the plan's services.
+export function toCatalogTools(steps: RawStep[]): string[] {
+  const reached: string[] = [];
+  for (const st of steps) {
+    if (st.kind !== "code" || !(st.tools ?? []).includes("web.fetch")) continue;
+    const e = catalogFetched(`${st.title} ${st.description ?? ""}`);
+    if (!e) continue;
+    const tool = e.tools[0] ?? "service.request";
+    st.tools = [...new Set((st.tools ?? []).map((t) => (t === "web.fetch" ? tool : t)))];
+    st.description = `${st.description ?? ""} Read ${e.name} with ${tool}${tool === "service.request" ? ` (connection "${e.id}")` : ""}, its tool here, never by fetching its address with web.fetch.`.trim();
+    if (tool === "service.request") reached.push(e.id);
+  }
+  return [...new Set(reached)];
+}
+
+// The service of the catalog some words fetch, by its API's address, or
+// as "<name> API" or "from <name>".
+export function catalogFetched(words: string): ServiceEntry | null {
+  const w = words.toLowerCase();
+  return (
+    CATALOG.find(
+      (x) =>
+        x.auth !== "chat" &&
+        x.auth !== "oauth" &&
+        !x.hosts.includes("*") &&
+        x.id !== "webhook" &&
+        (x.hosts.some((h) => !h.includes("{") && w.includes(h)) || new RegExp(`\\b(?:from|via|using|on) ${escapeRe(x.name)}\\b|\\b${escapeRe(x.name)}(?:'s)? api\\b`, "i").test(words)),
+    ) ?? null
+  );
+}
+
+const escapeRe = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

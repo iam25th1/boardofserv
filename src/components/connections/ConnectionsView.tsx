@@ -331,7 +331,9 @@ function KeyConnect({ entry: e, connect, onConnected }: { entry: ServiceEntry; c
   const [busy, setBusy] = useState(false);
   const [said, setSaid] = useState<string | null>(null);
   const name = e.short ?? e.name;
-  const ready = e.fields.every((f) => f.optional || fields[f.key]?.trim());
+  // Every field it needs, and one whole way to connect where it has more
+  // than one (an app's client ID and secret, or an older token).
+  const ready = e.fields.every((f) => f.optional || fields[f.key]?.trim()) && (!e.oneOf || e.oneOf.some((set) => set.every((k) => fields[k]?.trim())));
   const go = async () => {
     if (!ready || busy) return;
     setBusy(true);
@@ -367,7 +369,7 @@ function KeyConnect({ entry: e, connect, onConnected }: { entry: ServiceEntry; c
         <div key={f.key} className={styles.field}>
           <label htmlFor={`${id}-${f.key}`} className={styles.quiet}>
             {f.label}
-            {f.optional ? " (if it has one)" : ""}
+            {f.optional && !e.oneOf ? " (if it has one)" : ""}
           </label>
           {f.choices ? (
             <select id={`${id}-${f.key}`} className={styles.select} value={fields[f.key] ?? ""} onChange={(ev) => setFields((x) => ({ ...x, [f.key]: ev.target.value }))}>

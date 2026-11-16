@@ -6,6 +6,7 @@ import { agentInstallations, agentToolDays, agentVersions, type AgentInstallatio
 import type { AgentDefinition } from "../definition";
 import { APP_URL, type Runtime } from "./context";
 import { enqueue, type JobTrigger } from "./jobs";
+import { entryOf, servicesIn } from "../../connections/catalog";
 
 // The catalog's Incoming webhook: an agent whose trigger is a post gets a
 // private address of its own on its installation, shown to its owner
@@ -63,4 +64,13 @@ export async function takePost(rt: Runtime, key: string, body: unknown): Promise
   if (!taken.length) return { refused: { status: 429, error: `This agent took its ${HOOK_POSTS_PER_DAY} posts for today.` } };
   const job = await enqueue(rt, i, { kind: "webhook", body, at: rt.now().toISOString() } as JobTrigger);
   return { started: true, jobId: job.id };
+}
+
+// What the chat says once an agent that starts on a post is running: its
+// address, and exactly where to paste it in the service the maker named
+// (its catalog entry's webhookHow), or in whatever sends it.
+export function hookAdvice(url: string, said: string): string {
+  const service = servicesIn(said).map((id) => entryOf(id)).find((e) => e?.webhookHow);
+  const where = service?.webhookHow ?? "In the app that sends it, open its webhook settings and paste it as the address it posts to.";
+  return `It starts each time something is posted to its own address:\n\n${url}\n\n${where} Keep the address to yourself: anyone with it can start a job.`;
 }

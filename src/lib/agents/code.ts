@@ -4,6 +4,7 @@ import { completeJson, DOLPHIN_LABEL, modelConfig, type ChatMessage, type JsonRe
 import { ANSWER_LIMITS } from "../modelLimits";
 import { ARGS_TOOLS, checkDefinition, loopsOf, REASON_TOOL, RUN_VALUES, type AgentDefinition, type CodeStepDef, type ToolName } from "./definition";
 import { targetProblem, writtenTarget } from "./targets";
+import { CATALOG } from "../connections/catalog";
 import { OUTSIDE_TOOLS, TOOLS } from "./toolbox";
 import { toolTypes } from "./toolbox";
 import type { StepCode } from "./types";
@@ -214,6 +215,12 @@ export function checkCode(source: string, step: CodeStepDef, d?: AgentDefinition
   const stray = [...new Set(used.filter((u) => !(step.tools as readonly string[]).includes(u)))];
   if (stray.length) return `It calls ${stray.join(", ")}, which this step may not use (allowed: ${step.tools.join(", ") || "none"}).`;
   if (step.tools.includes(REASON_TOOL) && !used.includes(REASON_TOOL)) return "It never asks SERV (tools.serv.reason), so its judgement or writing would be a guess: ask SERV for it and use the answer.";
+  // A service of the catalog fetched by its address: its own tool reads it.
+  const fetched = /\btools\s*\.\s*web\s*\.\s*fetch\b/.test(source) ? CATALOG.find((e) => e.tools.length && e.hosts.some((h) => !h.includes("{") && h !== "*" && source.includes(h))) : undefined;
+  if (fetched) {
+    const tool = fetched.tools[0] as ToolName;
+    return `It fetches ${fetched.name}'s API with web.fetch: read it with ${tool} instead, its tool here, which needs no address: ${TOOLS[tool].signature}`;
+  }
   if (d) {
     const target = writtenTarget(source, step, d);
     if (target) return targetProblem(target, step.inputs.includes("settings"));

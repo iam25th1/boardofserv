@@ -43,6 +43,15 @@ export interface JobNeeds {
 }
 
 export const MAX_QUESTIONS = 3;
+// When it runs, asked when the maker didn't say: every day by default, a
+// post to it only when they pick that.
+export const WHEN_KEY = "when";
+export const DAILY = "Every day at 9:00";
+export const ON_POST = "When another app posts to it";
+export const WHEN_CHOICES = [DAILY, "Every hour", "Every Monday at 9:00", ON_POST];
+export function whenItem(): NeedItem {
+  return { key: WHEN_KEY, kind: "input", question: "When should it run?", choices: WHEN_CHOICES, answer: null };
+}
 // Tapped on a service's ask: connect it later, at setup.
 export const LATER = "Later, when I set it up";
 export const CONNECTED_NOW = "I've connected it";
@@ -106,7 +115,9 @@ const keyOf = (v: string) => v.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace
 // SERV's answer as the job's needs, with the services it needs that the
 // owner hasn't connected asked about too, and any service named that isn't
 // in the catalog. Null when it isn't an answer.
-export function readNeeds(content: string | null, said: string, connected: ReadonlySet<string>, now = new Date()): JobNeeds | null {
+// askWhen: the maker didn't say when it runs, so that is asked first, as
+// one of the three.
+export function readNeeds(content: string | null, said: string, connected: ReadonlySet<string>, now = new Date(), o: { askWhen?: boolean } = {}): JobNeeds | null {
   let w: { needs?: { key?: unknown; question?: unknown; choices?: unknown; given?: unknown }[]; services?: unknown; unlisted?: unknown };
   try {
     w = JSON.parse(content ?? "") as typeof w;
@@ -114,10 +125,11 @@ export function readNeeds(content: string | null, said: string, connected: Reado
     return null;
   }
   if (!Array.isArray(w.needs)) return null;
-  const items: NeedItem[] = [];
-  for (const n of w.needs.slice(0, MAX_QUESTIONS)) {
+  const items: NeedItem[] = o.askWhen ? [whenItem()] : [];
+  for (const n of w.needs) {
+    if (items.length >= MAX_QUESTIONS) break;
     const question = text(n.question, 200);
-    if (!question) continue;
+    if (!question || (o.askWhen && /\b(?:when|how often|schedule|what time)\b/i.test(question))) continue;
     const choices = [...new Set((Array.isArray(n.choices) ? n.choices : []).map((c) => text(c, 60)).filter(Boolean))].slice(0, 4);
     const given = text(n.given, 300);
     let key = keyOf(text(n.key, 40) || question);
@@ -145,13 +157,13 @@ function withServiceAsks(needs: JobNeeds, connected: ReadonlySet<string>): JobNe
   return { ...needs, items };
 }
 
-export async function listNeeds(job: string, said: string[], connected: ReadonlySet<string>, opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch }): Promise<{ needs: JobNeeds | null; call: JsonResult }> {
+export async function listNeeds(job: string, said: string[], connected: ReadonlySet<string>, opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch; askWhen?: boolean }): Promise<{ needs: JobNeeds | null; call: JsonResult }> {
   const messages: ChatMessage[] = [
     { role: "system", content: NEEDS_SYSTEM },
     { role: "user", content: needsRequest(job, said) },
   ];
   const call = await completeJson(messages, { config: opts.config, purpose: "agent_needs", schema: NEEDS_SCHEMA, maxTokens: ANSWER_LIMITS.agent_needs, signal: opts.signal, fetchImpl: opts.fetchImpl });
-  return { needs: readNeeds(call.content, said.join("\n"), connected), call };
+  return { needs: readNeeds(call.content, said.join("\n"), connected, new Date(), { askWhen: opts.askWhen }), call };
 }
 
 export const openItem = (n: JobNeeds | null): NeedItem | null => n?.items.find((i) => i.answer === null) ?? null;
@@ -199,6 +211,10 @@ export function needNotes(n: JobNeeds | null): string[] {
   if (!n) return [];
   const out: string[] = [];
   for (const i of n.items) {
+    if (i.key === WHEN_KEY && i.answer) {
+      out.push(i.answer === ON_POST ? "The maker was asked when it runs and chose to start it when another app posts to it: its one trigger is of kind webhook." : `The maker was asked when it runs and answered "${i.answer}": that is its one trigger, exactly (a schedule), never a webhook or a check they didn't ask for.`);
+      continue;
+    }
     if (i.kind === "input" && i.answer) {
       const later = /at setup|when i set it up/i.test(i.answer);
       out.push(later ? `The maker was asked "${i.question}" and will answer it at setup: it is a setting with no given answer, read by the steps, never written into a step.` : `The maker was asked "${i.question}" and answered "${i.answer}": that is a setting with given "${i.answer}", exactly, read by the steps, never written into a step.`);

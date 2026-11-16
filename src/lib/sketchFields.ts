@@ -17,19 +17,31 @@ export const AGENT_FIELDS = ["watches", "when", "how", "tells"] as const;
 export const ANSWER_FIELDS = ["takes", "does", "gives"] as const;
 export const INTERVIEW_FIELDS = ["wakes", "looks", "handles", "finish", "asks", "setup", "remembers"] as const;
 // What the chat asks about an agent: only what it needs to understand the
-// job, which is when it runs, where it looks and what it does with what it
-// finds. What counts as done and what it must ask first are kept when the
-// maker says them, never asked: a first-time maker can't answer them, and
-// asking invites made-up questions to the owner. What the owner sets up
-// (accounts, sheets, Telegram) is collected at Connect, never in the chat,
-// and what it remembers is the planner's to work out.
-export const ASKED_FIELDS = ["wakes", "looks", "handles"] as const;
+// job, which is where it looks and what it does with what it finds. When
+// it runs is kept when the maker says it and never guessed: when they
+// don't, it is one of the questions asked before Make it (agents/needs.ts),
+// every day by default. What counts as done and what it must ask first are
+// kept when the maker says them, never asked: a first-time maker can't
+// answer them, and asking invites made-up questions to the owner. What the
+// owner sets up (accounts, sheets, Telegram) is collected at Connect,
+// never in the chat, and what it remembers is the planner's to work out.
+export const ASKED_FIELDS = ["looks", "handles"] as const;
 
-// The chat has what it needs to make the agent, and Make it is offered:
-// when it runs and what it does. Where it looks is asked, but an agent that
-// reads nothing (a morning line sent on Telegram) has no answer to give.
+// The chat has what it needs to understand the job: what it does. Where it
+// looks is asked, but an agent that reads nothing (a morning line sent on
+// Telegram) has no answer to give; when it runs, if the maker didn't say,
+// is asked with what the job needs before Make it is offered.
 export function describedEnough(sketch: Pick<SketchDTO, "kind" | "wakes" | "looks" | "handles"> | null): boolean {
-  return Boolean(sketch && sketch.kind === "agent" && sketch.wakes && sketch.handles);
+  return Boolean(sketch && sketch.kind === "agent" && sketch.handles);
+}
+
+// Whether the maker said when it runs, in their own words: a time, a
+// schedule, a day, a value it watches for, a message or a post. "Checks
+// GitHub" says what it does, never when.
+const WHEN =
+  /\b(?:every|each|daily|hourly|weekly|monthly|nightly|morning|mornings|evening|evenings|night|noon|midnight|tonight|weekday|weekdays|weekend|weekends|monday|tuesday|wednesday|thursday|friday|saturday|sunday|o'clock|whenever|when|once a|twice a|schedule|scheduled|webhook|as soon as|right away|minutes?|hours?)\b|\bat \d|\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b|\bposts? to\b/i;
+export function saysWhen(said: string): boolean {
+  return WHEN.test(said);
 }
 export const SKETCH_FIELDS = [...AGENT_FIELDS, ...ANSWER_FIELDS, ...INTERVIEW_FIELDS] as const;
 

@@ -109,6 +109,20 @@ export interface ServiceEntry {
   postReads?: "graphql" | "jsonrpc";
   // Writes go form-encoded, not as JSON (Twilio).
   form?: boolean;
+  // The field that goes on each call, when it isn't the first secret one.
+  keyField?: string;
+  // Ways to connect it, each a set of fields that must all be given: one
+  // set is enough (an app's client ID and secret, or an older token).
+  oneOf?: string[][];
+  // A key exchanged for a short-lived token before calls, when the owner
+  // gave what it takes (when): a POST to path on the service's own host,
+  // form-encoded, its fields filled from the connection's; the answer's
+  // token field, good for its expires field's seconds. The token goes
+  // where keyField says.
+  exchange?: { when: string; path: string; body: Record<string, string>; token: string; expires: string };
+  // Where in the service to paste an agent's own address, for it to post
+  // there (an Incoming webhook): the place, in plain words.
+  webhookHow?: string;
   // How a write is made, for the planner: what to send where.
   sendHow?: string;
 }
@@ -165,6 +179,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Typeform, open your account's Personal tokens and generate one that can read forms and responses.",
     reads: "The answers to the forms you give your agents, each new answer once.",
     writes: null,
+    webhookHow: "In Typeform, open the form's Connect tab, then Webhooks, and press Add a webhook: paste it as the Endpoint, save it, and switch the webhook on.",
     tools: ["typeform.read"],
   },
   {
@@ -261,6 +276,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Tally, open Settings, then API keys, and make one.",
     reads: "The answers to your forms.",
     writes: null,
+    webhookHow: "In Tally, open the form's Integrations, choose Webhooks and press Connect: paste it as the Endpoint URL and save.",
     tools: ["tally.read"],
   },
   {
@@ -297,6 +313,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Notion, make an internal integration, copy its secret, then share each database with it (Connections on the database's menu).",
     reads: "The databases you share with the integration.",
     writes: "Adds pages to those databases.",
+    webhookHow: "In Notion, open your integration's settings (Profile, Integrations), then Webhooks, and create a subscription: paste it as the Webhook URL and pick the events.",
     tools: ["notion.read"],
     sendHow: 'service.send({ connection: "notion", path: "/pages", body: { parent: { database_id }, properties } }): database_id is a setting.',
   },
@@ -316,6 +333,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "Public repositories need no key. For private ones, make a fine-grained token with read access to those repositories.",
     reads: "Commits, pull requests, issues and their changes. Public repositories need no key.",
     writes: "Opens issues and adds comments.",
+    webhookHow: "In GitHub, open the repository's Settings, then Webhooks, and press Add webhook: paste it as the Payload URL, set Content type to application/json, pick the events to send, and press Add webhook.",
     tools: ["github.read"],
     sendHow: 'service.send({ connection: "github", path: "/repos/<owner>/<repo>/issues", body: { title, body } }): the repository is a setting.',
   },
@@ -330,10 +348,13 @@ export const CATALOG: ServiceEntry[] = [
     hosts: ["gitlab.com"],
     place: { in: "header", name: "private-token" },
     check: { method: "GET", path: "/user", label: "username" },
-    keyUrl: "https://gitlab.com/-/user_settings/personal_access_tokens",
-    keyHow: "In GitLab, open Access tokens and make one with read_api (and api to write).",
+    // GitLab's docs give this address, with the token's name and scope
+    // filled in: a read-only token in one click.
+    keyUrl: "https://gitlab.com/-/user_settings/personal_access_tokens?name=boardofserv&scopes=read_api",
+    keyHow: "In GitLab, open your avatar, Edit profile, Access, Personal access tokens, and generate one with read_api (api to write). The link opens it with read_api picked.",
     reads: "Projects, commits, merge requests and issues (GET /projects/:id/...).",
     writes: "Opens issues and adds notes.",
+    webhookHow: "In GitLab, open the project's Settings, then Webhooks, and press Add new webhook: paste it as the URL, tick the events to send, and press Add webhook.",
     tools: [],
     sendHow: 'service.send({ connection: "gitlab", path: "/projects/<id>/issues", body: { title, description } }).',
   },
@@ -352,6 +373,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Linear, open Settings, Security and access, and make a personal API key.",
     reads: "Issues, by team and state.",
     writes: "Creates and updates issues.",
+    webhookHow: "In Linear, open Settings, then API, and under Webhooks press New webhook: paste it as the URL, pick the teams and events, and save.",
     tools: ["linear.read"],
     postReads: "graphql",
     sendHow: 'service.send({ connection: "linear", path: "/graphql", body: { query: "mutation ...", variables } }).',
@@ -375,6 +397,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In your Atlassian account's Security, make an API token.",
     reads: "Issues, by JQL search (GET /search/jql?jql=...).",
     writes: "Creates issues and adds comments.",
+    webhookHow: "In Jira, open Settings (System), then WebHooks, and press Create a WebHook: paste it as the URL, pick the events, and save.",
     tools: [],
     sendHow: 'service.send({ connection: "jira", path: "/issue", body: { fields } }).',
   },
@@ -386,16 +409,24 @@ export const CATALOG: ServiceEntry[] = [
     aliases: ["shopify", "my shop", "store orders"],
     fields: [
       { key: "shop", label: "Shop name", secret: false, placeholder: "yourshop (from yourshop.myshopify.com)", pattern: "^[a-z0-9][a-z0-9-]{0,62}$", patternWhy: "The shop is the first part of its myshopify.com address: yourshop for yourshop.myshopify.com." },
-      { key: "token", label: "Admin API access token", secret: true, placeholder: "shpat_...", pattern: "^shpat_", patternWhy: "A Shopify Admin API access token starts with shpat_." },
+      { key: "client_id", label: "Client ID", secret: false, optional: true, pattern: "^[A-Za-z0-9_-]{8,100}$", patternWhy: "A Shopify app's Client ID is letters and digits, from the app's Settings in the Dev Dashboard." },
+      { key: "client_secret", label: "Client secret", secret: true, optional: true },
+      { key: "token", label: "Admin API access token (an app made before 2026)", secret: true, optional: true, placeholder: "shpat_...", pattern: "^shpat_", patternWhy: "A Shopify Admin API access token starts with shpat_." },
     ],
     base: "https://{shop}.myshopify.com/admin/api/2026-01",
     hosts: ["{shop}.myshopify.com"],
     place: { in: "header", name: "x-shopify-access-token" },
+    keyField: "token",
+    oneOf: [["client_id", "client_secret"], ["token"]],
+    // Apps made in the Dev Dashboard (every new one since January 2026)
+    // get a token for about a day with their client ID and secret.
+    exchange: { when: "client_secret", path: "/admin/oauth/access_token", body: { grant_type: "client_credentials", client_id: "{client_id}", client_secret: "{client_secret}" }, token: "access_token", expires: "expires_in" },
     check: { method: "GET", path: "/shop.json", label: "shop.name" },
     keyUrl: "https://help.shopify.com/en/manual/apps/app-types/custom-apps",
-    keyHow: "In your Shopify admin, open Settings, Apps, Develop apps, make an app with read_orders and read_products, install it and copy the Admin API access token.",
+    keyHow: "In your Shopify admin, open Settings, Apps, Develop apps, then Build apps in Dev Dashboard: create an app with read_orders, read_products and read_customers, install it on your store, and copy the Client ID and Client secret from its Settings. A custom app made in your admin before 2026 can give its Admin API access token instead.",
     reads: "Orders, products and customers.",
     writes: "Changes orders and products.",
+    webhookHow: "In your Shopify admin, open Settings, then Notifications, Webhooks, and press Create webhook: pick the event, choose JSON, paste it as the URL and save.",
     tools: ["shopify.read"],
   },
   {
@@ -413,6 +444,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Stripe's dashboard, in test mode, open Developers, API keys, and copy the secret key (or make a restricted one that reads).",
     reads: "Charges, customers, invoices, payouts and subscriptions, in test mode only.",
     writes: null,
+    webhookHow: "In Stripe's dashboard, in test mode, open Developers, then Webhooks, and add an endpoint (a destination): paste it as the Endpoint URL and pick the events to send.",
     tools: ["stripe.read"],
   },
   {
@@ -430,6 +462,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Gumroad, open Settings, Advanced, make an application and generate its access token.",
     reads: "Your products and sales (GET /sales, /products).",
     writes: null,
+    webhookHow: "In Gumroad, open Settings, then Advanced, and paste it as the Ping endpoint: Gumroad posts each sale there.",
     tools: [],
   },
   {
@@ -448,6 +481,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Lemon Squeezy, open Settings, API, and make a key.",
     reads: "Orders, subscriptions and products (GET /orders, /subscriptions).",
     writes: null,
+    webhookHow: "In Lemon Squeezy, open Settings, then Webhooks, and press the plus: paste it as the Callback URL, pick the events, and save.",
     tools: [],
   },
   {
@@ -473,7 +507,7 @@ export const CATALOG: ServiceEntry[] = [
     name: "CoinGecko",
     category: "crypto",
     auth: "none",
-    aliases: ["coingecko", "coin gecko", "crypto price", "token price", "bitcoin price", "eth price"],
+    aliases: ["coingecko", "coin gecko", "crypto price", "crypto prices", "token price", "coin price", "bitcoin price", "btc price", "eth price", "ethereum price", "sol price", "solana price", "price of eth", "price of bitcoin", "price of ethereum", "market cap", "price feed"],
     fields: [],
     base: "https://api.coingecko.com/api/v3",
     hosts: ["api.coingecko.com"],
@@ -518,6 +552,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Alchemy's dashboard, make an app on the network it reads and copy its API key.",
     reads: "The chain itself, by JSON-RPC (eth_getBalance, eth_call, eth_getLogs, alchemy_getTokenBalances).",
     writes: null,
+    webhookHow: "In Alchemy's dashboard, open Webhooks (Notify) and create one: pick what it watches and paste it as the Webhook URL.",
     tools: [],
     postReads: "jsonrpc",
   },
@@ -537,6 +572,7 @@ export const CATALOG: ServiceEntry[] = [
     keyHow: "In Cal.com, open Settings, Developer, API keys, and make one.",
     reads: "Your bookings (GET /bookings).",
     writes: "Cancels or reschedules bookings.",
+    webhookHow: "In Cal.com, open Settings, then Developer, Webhooks, and press New: paste it as the Subscriber URL, pick the events, and save.",
     tools: [],
   },
   {
@@ -562,13 +598,15 @@ export const CATALOG: ServiceEntry[] = [
     category: "scheduling",
     auth: "bearer",
     aliases: ["hubspot", "crm"],
-    fields: [{ key: "token", label: "Private app token", secret: true, placeholder: "pat-..." }],
+    fields: [{ key: "token", label: "Service key", secret: true, placeholder: "pat-..." }],
     base: "https://api.hubapi.com",
     hosts: ["api.hubapi.com"],
     place: { in: "header", name: "authorization", prefix: "Bearer " },
-    check: { method: "GET", path: "/account-info/v3/details", label: "portalId" },
-    keyUrl: "https://developers.hubspot.com/docs/api/private-apps",
-    keyHow: "In HubSpot, open Settings, Integrations, Private apps, make one with the CRM scopes it needs and copy its token.",
+    // A key with only some CRM scopes may not read the account's details:
+    // it works, for what its scopes allow.
+    check: { method: "GET", path: "/account-info/v3/details", label: "portalId", accept: [{ status: 403, match: "MISSING_SCOPES", text: "a key for some of your CRM" }] },
+    keyUrl: "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/authentication/account-service-keys",
+    keyHow: "In HubSpot, open Development, then Keys, Service keys, and create one with the CRM scopes it needs (crm.objects.contacts.read to read contacts). A token from an older private app works too.",
     reads: "Contacts, companies and deals (GET /crm/v3/objects/contacts).",
     writes: "Creates and updates contacts and deals.",
     tools: [],

@@ -44,7 +44,7 @@ export const SKETCH_SCHEMA = {
       takes: text("answer: what the user gives it"),
       does: text("answer: what it does, one line"),
       gives: text("answer: what comes back"),
-      wakes: text("agent: what wakes it up (a schedule, a value it checks, a message)"),
+      wakes: text("agent: only if the person says it: when it runs (a time or schedule, a value it watches, a message, a post to it), in their words. Never guessed"),
       looks: text("agent: where it looks (sheets, sites, messages)"),
       handles: text("agent: what it does with what it finds"),
       finish: text("agent: only if the person says it: what counts as done. Never asked"),
@@ -55,7 +55,7 @@ export const SKETCH_SCHEMA = {
         type: "string",
         enum: [...SKETCH_FIELDS, "none"],
         description:
-          "most important empty field to ask next: takes, does, gives for answer; wakes, looks, handles for agent (never finish, asks, setup or remembers); none if all set",
+          "most important empty field to ask next: takes, does, gives for answer; looks, handles for agent (never wakes, finish, asks, setup or remembers); none if all set",
       },
       choices: { type: "array", items: { type: "string" }, description: "up to 4 short answers to that very question, a few words each; never accounts, IDs, tokens, keys or passwords" },
       change: text("only when the agent already has steps: the change to how it works the person asks for, in their own words; else empty"),
