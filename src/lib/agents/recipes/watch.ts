@@ -155,27 +155,36 @@ const judgeCode = (detail: string, task: string) => String.raw`async function ru
   return { results: results, skipped: skipped };
 }`;
 
+// The message: the counts (the verdicts', worst first), then each item on
+// one line, its verdict first, its findings set in under it, what was
+// skipped, and how many files it couldn't see whole.
 const messageCode = (one: string, many: string, pulls: boolean) => String.raw`async function run(input) {
   const results = Array.isArray(input.results) ? input.results : [];
   const skipped = Array.isArray(input.skipped) ? input.skipped : [];
   if (!results.length && !skipped.length) return { message: null };
   const where = String((input.settings || {}).github_repo || "").trim();
-  // The counts are the verdicts', worst first.
+  const order = ${JSON.stringify(VERDICTS)};
+  const word = { critical: "Critical", problem: "Problem", minor: "Minor", pass: "Passed" };
   const plural = { critical: "critical", problem: "problems", minor: "minor", pass: "passed" };
   const single = { critical: "critical", problem: "problem", minor: "minor", pass: "passed" };
-  const counts = ${JSON.stringify(VERDICTS)}.map(function (v) {
+  const counts = order.map(function (v) {
     const n = results.filter(function (r) { return r.verdict === v; }).length;
     return n ? n + " " + (n === 1 ? single[v] : plural[v]) : "";
   }).filter(function (c) { return c; });
   const merges = skipped.filter(function (x) { return x.why === "merge"; }).length;
   const head = where + ": " + results.length + " " + (results.length === 1 ? ${literal(one)} : ${literal(many)}) + " checked" + (counts.length ? ": " + counts.join(", ") : "") + "." + (merges ? " " + merges + (merges === 1 ? " merge" : " merges") + " skipped." : "");
+  const short = function (id) { return ${pulls ? '"#" + id' : "String(id).slice(0, 7)"}; };
   const lines = results.map(function (r) {
-    const name = ${pulls ? '"#" + r.id' : "String(r.id).slice(0, 7)"};
     const findings = (r.findings || []).map(function (p) { return "\n  - " + p; }).join("");
-    return name + " " + r.title + ": " + r.verdict + findings;
+    return (word[r.verdict] || "Passed") + " " + short(r.id) + " " + r.title + findings;
   });
-  const passed = skipped.map(function (x) { return "Skipped " + ${pulls ? '"#" + x.id' : "String(x.id).slice(0, 7)"} + " " + x.title + " (" + (x.why === "merge" ? "a merge" : x.why) + ")"; });
-  return { message: { text: [head].concat(lines, passed).join("\n").slice(0, 3500) } };
+  const passedBy = skipped.map(function (x) { return "Skipped " + short(x.id) + " " + x.title + " (" + (x.why === "merge" ? "a merge" : x.why) + ")"; });
+  const unchecked = [];
+  results.forEach(function (r) {
+    (r.unchecked || []).forEach(function (f) { if (unchecked.indexOf(r.id + ":" + f) === -1) unchecked.push(r.id + ":" + f); });
+  });
+  const tail = unchecked.length ? ["Not fully checked: " + unchecked.length + (unchecked.length === 1 ? " file" : " files") + " (too large)"] : [];
+  return { message: { text: [head].concat(lines, passedBy, tail).join("\n").slice(0, 3500) } };
 }`;
 
 export const watch: Recipe = {
@@ -234,7 +243,7 @@ export const watch: Recipe = {
             kind: "code",
             title: "Write the message",
             plain: `Put together one message naming each ${k.one} and what was found.`,
-            description: `Put the results together in one message: how many ${k.many} were checked and how many of each verdict, counted from the verdicts alone, then each one's short id, title, verdict and findings. Return message, telegram.send's arguments { text }.`,
+            description: `Put the results together in one message: how many ${k.many} were checked and how many of each verdict, counted from the verdicts alone, and how many merges were skipped; then one line for each, its verdict first, then its short id and title, its findings set in under it; then each one skipped and why; then, when any file was too large to see whole, one line saying how many. Return message, telegram.send's arguments { text }.`,
             inputs: ["results", "skipped", "settings"],
             outputs: ["message"],
             shapes: { message: "{ text: text }" },

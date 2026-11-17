@@ -199,3 +199,28 @@ describe("C: how the judge is told to judge", () => {
     expect(task).toMatch(/Answer verdict with exactly one word/);
   });
 });
+
+describe("D: the message", () => {
+  it("leads each commit with its verdict, sets its findings in under it, and says how many files it couldn't see whole", async () => {
+    const real = "src/lib/agents/runtime/installations.ts: runOwnCopy sets live to true on a paused copy, at `live: current.live || o.live !== false`";
+    const { sent, done } = await runWatch({ ...LIVE_ANSWERS, "65dcc3a": { verdict: "problem", findings: [real, "Cannot verify the rest of the file"] }, a40b9f6: { verdict: "minor", findings: ["src/lib/agents/lessons.ts: recipeRules reads up to 50 rows, at `.limit(recipe === \"all\" ? 50 : limit)`"] } });
+    const results = done("judge_items")!.results as { unchecked: string[] }[];
+    const unchecked = results.reduce((n, r) => n + r.unchecked.length, 0);
+    expect(unchecked).toBeGreaterThan(0);
+    const lines = sent[0]!.split("\n");
+    expect(lines).toEqual([
+      "iam25th1/boardofserv: 4 commits checked: 1 problem, 1 minor, 2 passed. 1 merge skipped.",
+      "Minor a40b9f6 feat(agents): keep a recipe's lessons from builds that went live",
+      expect.stringMatching(/^  - src\/lib\/agents\/lessons\.ts: recipeRules reads up to 50 rows/),
+      "Problem 65dcc3a feat(agents): one running copy of an owner's own agent",
+      `  - ${real}`,
+      "Passed 5d2e3f0 feat(agents): say the owner's own SERV key lifts the free cap",
+      "Passed 67a6193 test: live harness for building from one plain sentence",
+      "Skipped 99bd945 Merge pull request #10 from iam25th1/feat/reliable-builds (a merge)",
+      `Not fully checked: ${unchecked} files (too large)`,
+    ]);
+    // The counts are the verdict lines'.
+    const verdicts = lines.slice(1).filter((l) => /^(?:Critical|Problem|Minor|Passed) /.test(l));
+    expect(verdicts).toHaveLength(4);
+  });
+});
