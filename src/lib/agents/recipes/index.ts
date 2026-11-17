@@ -121,7 +121,7 @@ export function readPick(answer: Record<string, unknown> | null, o: { said: stri
   for (const g of Array.isArray(answer.given) ? answer.given : []) {
     const { key, value } = (g ?? {}) as { key?: unknown; value?: unknown };
     const v = text(value, 500);
-    if (typeof key === "string" && key in recipe.asks && v && (said.includes(bare(v)) || recipe.inferred?.includes(key))) given[key] = v;
+    if (typeof key === "string" && key in recipe.asks && v && (said.includes(bare(v)) || recipe.inferred?.includes(key)) && (recipe.looks?.[key]?.test(v) ?? true)) given[key] = v;
   }
   const task = text(answer.task, 600) || recipe.task.byDefault(variant);
   return { recipe, fill: { name, does, done, trigger, variant, task: recipe.task.byDefault(variant) ? task : "", given } };
@@ -226,7 +226,8 @@ export function recipeUpgrade(d: AgentDefinition, code: Record<string, StepCode>
   const recipe = recipeById(d.recipe?.id);
   if (!recipe || (d.recipe!.rev ?? 1) >= recipe.rev) return null;
   const variant = d.recipe!.variant;
-  const given = Object.fromEntries(d.settings.flatMap((s) => (s.given ? [[s.key, s.given]] : [])));
+  // What the owner gave, where it is what it answers.
+  const given = Object.fromEntries(d.settings.flatMap((s) => (s.given && (recipe.looks?.[s.key]?.test(s.given.trim()) ?? true) ? [[s.key, s.given]] : [])));
   const task = d.recipe!.task ?? taskInCode(code) ?? recipe.task.byDefault(variant);
   const built = fromRecipe(recipe, { name: d.name, does: d.job.does, done: d.job.done, trigger: d.triggers[0]!, variant, task: recipe.task.byDefault(variant) ? task : "", given });
   if (!built) return null;

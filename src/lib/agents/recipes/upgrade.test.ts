@@ -16,6 +16,7 @@ import { control, install, installationDTO, loadInstallation, newerVersion, swit
 import { JobTools } from "../runtime/tools";
 import { matchesRecipe, recipeById, recipeUpgrade } from "./index";
 import { upgradeRecipeAgents } from "./upgrade";
+import { selfTest } from "../test";
 import { NOT_SEEN } from "./watch";
 
 // Agents already built from the GitHub watch recipe get its new judge as a
@@ -47,6 +48,16 @@ async function verifier(rt: TestRuntime, name: string) {
 }
 
 describe("an older build from the recipe, built again", () => {
+  it("drops an answer given for the repository that isn't one, and still passes its test", async () => {
+    // Live: the verifier kept "Specific repositories only", an answer to
+    // another question, as its repository; its sample read GitHub with it.
+    const d: AgentDefinition = { ...V1.definition, settings: V1.definition.settings.map((s) => ({ ...s, given: "Specific repositories only" })) };
+    const up = recipeUpgrade(d, V1.code)!;
+    expect(up.definition.settings[0]!.given).toBeUndefined();
+    const t = await selfTest({ definition: up.definition, code: up.code }, { serv: null, sample: up.recipe.sample(up.definition) });
+    expect(t.result.problems).toEqual([]);
+  });
+
   it("keeps everything the owner's: name, job, schedule, repository and the bar they gave", () => {
     const up = recipeUpgrade(V1.definition, V1.code)!;
     expect(up.recipe.rev).toBe(2);

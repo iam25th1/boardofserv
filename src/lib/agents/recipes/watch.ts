@@ -28,6 +28,9 @@ const readCode = (op: string) => String.raw`async function run(input, tools) {
   return { items: items };
 }`;
 
+// A repository as an owner gives it: owner/name, or its link.
+export const GITHUB_REPO = /^(?:https?:\/\/(?:www\.)?github\.com\/)?[A-Za-z0-9][\w.-]{0,38}\/[\w.-]{1,100}?(?:\.git)?\/?$/;
+
 // What SERV says about not seeing more of a change (a patch cut short, a
 // file left out) is about the call, not the code: never a finding.
 export const NOT_SEEN = /\b(?:cut off|cut short|truncat\w*|incomplete (?:patch|diff|data|code|content|file|context|view)|partial(?:ly)? (?:shown|visible|patch|diff|content|code|view)|not (?:fully |all )?(?:shown|visible|included|provided)|cannot (?:be )?(?:verif\w*|see|validat\w*|confirm\w*|assess\w*|determin\w*|tell)|can.?t (?:verif\w*|see|validat\w*|confirm\w*|tell)|unable to (?:verif\w*|see|validat\w*|confirm\w*|assess\w*|determin\w*)|without (?:confirming|seeing|verifying|the full)|(?:missing|full|more|surrounding|enough) context|obscure\w*|omitted|lines not shown|missing clos\w*|elsewhere in the (?:code|file|repo\w*)|rest of the (?:file|code|patch))\b/i;
@@ -195,6 +198,7 @@ export const watch: Recipe = {
   },
   fits: "watch a GitHub repository and judge each new commit or pull request (its code quality, risks, what changed), then send the owner one message",
   asks: { github_repo: "the repository, owner/name" },
+  looks: { github_repo: GITHUB_REPO },
   uses: ["github"],
   variants: [
     { id: "commits", says: "new commits (the default)" },
@@ -264,7 +268,8 @@ export const watch: Recipe = {
   },
   sample(d: AgentDefinition) {
     const bench = emptyBench();
-    const repo = (d.settings.find((s) => s.key === "github_repo")?.given ?? "").replace(/^https?:\/\/(?:www\.)?github\.com\//i, "").replace(/\/+$/, "").split("/").slice(0, 2).join("/") || "acme/widgets";
+    const given = d.settings.find((s) => s.key === "github_repo")?.given ?? "";
+    const repo = GITHUB_REPO.test(given.trim()) ? given.trim().replace(/^https?:\/\/(?:www\.)?github\.com\//i, "").replace(/\.git$/i, "").replace(/\/+$/, "").split("/").slice(0, 2).join("/") : "acme/widgets";
     bench.settings.github_repo = repo;
     const pulls = /pull request/i.test(d.steps[0]?.title ?? "");
     const day = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();

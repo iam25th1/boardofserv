@@ -44,6 +44,10 @@ export interface Recipe {
   // above), not only from their words: the rest are kept only when the
   // maker said them.
   inferred?: string[];
+  // What a setup answer must look like to be taken as given (a repository
+  // is owner/name): an answer to some other question ("Specific
+  // repositories only") is not one.
+  looks?: Record<string, RegExp>;
   // The services it uses (catalog ids), Telegram aside: a job that needs
   // another is planned from scratch.
   uses: string[];

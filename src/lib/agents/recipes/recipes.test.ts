@@ -125,6 +125,9 @@ describe("picking a recipe", () => {
     // A repository the maker never named is no answer of theirs.
     const made = readPick({ recipe: "watch", variant: "commits", name: "Checker", does: "Checks.", done: "Done.", task: "", given: [{ key: "github_repo", value: "octocat/Hello-World" }], trigger: { kind: "schedule", every: "day", at: "09:00" } }, { said, trigger })!;
     expect(made.fill.given).toEqual({});
+    // Nor is an answer to another question that happens to be in their words.
+    const other = readPick({ recipe: "watch", variant: "commits", name: "Checker", does: "Checks.", done: "Done.", task: "", given: [{ key: "github_repo", value: "Specific repositories only" }], trigger: { kind: "schedule", every: "day", at: "09:00" } }, { said: `${said} Specific repositories only`, trigger })!;
+    expect(other.fill.given).toEqual({});
   });
 
   it("plans from scratch for none, a recipe it was told to avoid, another service, or paying nobody asked for", () => {
