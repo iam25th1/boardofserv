@@ -121,7 +121,7 @@ describe("picking a recipe", () => {
     const pick = readPick({ recipe: "watch", variant: "commits", name: "Code checker", does: "Checks each new commit's quality.", done: "Each new commit judged.", task: "", given: [{ key: "github_repo", value: "iam25th1/boardofserv" }, { key: "criteria", value: "tests" }], trigger: { kind: "schedule", every: "day", interval: 0, at: "09:00", days: "", description: "Every day at 9" } }, { said, trigger })!;
     expect(pick.recipe.id).toBe("watch");
     expect(pick.fill.given).toEqual({ github_repo: "iam25th1/boardofserv" });
-    expect(pick.fill.task).toMatch(/Judge the quality/);
+    expect(pick.fill.task).toMatch(/^Good work in this commit is correct, clear and safe/);
     // A repository the maker never named is no answer of theirs.
     const made = readPick({ recipe: "watch", variant: "commits", name: "Checker", does: "Checks.", done: "Done.", task: "", given: [{ key: "github_repo", value: "octocat/Hello-World" }], trigger: { kind: "schedule", every: "day", at: "09:00" } }, { said, trigger })!;
     expect(made.fill.given).toEqual({});

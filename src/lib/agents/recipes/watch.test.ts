@@ -6,7 +6,7 @@ import { callKey, typedRead } from "@/lib/connections/reads";
 import { emptyBench, type RunEvent } from "../types";
 import { runAgent } from "../runner";
 import { fromRecipe, recipeById } from "./index";
-import { CUT_NOTE, JUDGE_ROOM, NOT_SEEN, SKIP_FILES, TEST_FILES } from "./watch";
+import { CUT_NOTE, judgeTask, JUDGE_ROOM, NOT_SEEN, SKIP_FILES, TEST_FILES } from "./watch";
 
 // The GitHub watch-and-judge recipe on the live repository's last five
 // commits (a merge among them), with SERV answering as it did live: "5
@@ -177,5 +177,25 @@ describe("B: what the judge is shown", () => {
     expect(results.find((r) => r.id === sha("67a6193"))!.unchecked).toEqual(["src/test/builds-live.test.ts"]);
     // Told what is left out is not a defect.
     expect(harness.task).toContain(CUT_NOTE);
+  });
+});
+
+describe("C: how the judge is told to judge", () => {
+  it("judges only what it is shown, against the owner's bar, and names a risk only with its line", async () => {
+    const { events } = await runWatch();
+    const task = reasoned(events)[0]!.task;
+    expect(task.startsWith("What the owner asked for: Good work in this commit is correct, clear and safe")).toBe(true);
+    expect(task).toContain("Judge only the changes shown, against that.");
+    expect(task).toContain("Never raise a finding about not seeing more: not about cut, partial or missing content, not about code in files you were not shown, and not about anything you cannot verify from what is here.");
+    expect(task).toContain("Raise a real risk only with the file and the line it comes from");
+    expect(task.length).toBeLessThanOrEqual(2000);
+  });
+
+  it("keeps an owner's own bar from an older build, whatever it asked for", () => {
+    // The live verifier's: "give a one-line verdict" gives way to the form.
+    const old = "Judge the quality of this commit's changes: name each real problem (a bug, a risky or unclear change, a missing test where it matters) in a few words, or none, and give a one-line verdict.";
+    const task = judgeTask(old);
+    expect(task.startsWith(`What the owner asked for: ${old}`)).toBe(true);
+    expect(task).toMatch(/Answer verdict with exactly one word/);
   });
 });

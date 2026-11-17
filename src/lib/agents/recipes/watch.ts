@@ -35,13 +35,17 @@ export const NOT_SEEN = /\b(?:cut off|cut short|truncat\w*|incomplete (?:patch|d
 // A verdict, worst first, as SERV is asked for it.
 export const VERDICTS = ["critical", "problem", "minor", "pass"] as const;
 
-// What SERV is asked about each item: the owner's bar, and how to answer.
+// What SERV is asked about each item: the owner's bar for good work (in
+// their words, from when the agent was made), and how to judge against it.
 export const judgeTask = (bar: string) =>
   [
-    bar.trim(),
+    `What the owner asked for: ${bar.trim()}`,
+    "Judge only the changes shown, against that.",
     CUT_NOTE,
+    "Never raise a finding about not seeing more: not about cut, partial or missing content, not about code in files you were not shown, and not about anything you cannot verify from what is here.",
+    "Raise a real risk only with the file and the line it comes from, as 'path: the risk, at the line it comes from (quoted briefly)'; if you can't point at the line, don't raise it.",
     "Answer verdict with exactly one word: pass (nothing worth raising), minor (small things only), problem (a real bug or risk to fix) or critical (it would break or endanger something when it runs).",
-    "findings: at most 3, the most important first, each starting with the file it is in, as 'path: what is wrong'. None for a pass.",
+    "findings: at most 3, the most important first, each starting with the file it is in. None for a pass.",
   ].join(" ");
 
 // Files that say nothing of the work: lockfiles, generated and binary files.
@@ -184,8 +188,8 @@ export const watch: Recipe = {
     { id: "pulls", says: "new pull requests" },
   ],
   task: {
-    says: "how SERV judges each item, in the maker's terms (what counts as good work to them)",
-    byDefault: (variant) => `Judge the quality of this ${variant === "pulls" ? "pull request" : "commit"}'s changes: name each real problem (a bug, a risky or unclear change, a missing test where it matters) in a few words, or none, and give a one-line verdict.`,
+    says: "the owner's bar for good work, in their terms (what counts as good work to them), one or two sentences",
+    byDefault: (variant) => `Good work in this ${variant === "pulls" ? "pull request" : "commit"} is correct, clear and safe: a real bug, a risky or unclear change, or a missing test where it matters counts against it.`,
   },
   build(f: RecipeFill) {
     const k = KINDS[f.variant] ?? KINDS.commits!;
