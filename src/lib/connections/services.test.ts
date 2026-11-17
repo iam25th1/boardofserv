@@ -14,7 +14,8 @@ import { emptyBench } from "../agents/types";
 import { InfraError } from "../agents/runner";
 import { hookUrl, takePost } from "../agents/runtime/hooks";
 import { CATALOG, servicesIn } from "./catalog";
-import { callKey, TYPED_READS, typedRead } from "./reads";
+import { callKey, headTail, TYPED_READS, typedRead } from "./reads";
+import judgeCommits from "@/test/fixtures/judgeCommits.json";
 import { keep, setWrites } from "./vault";
 
 // Agents reach the catalog's services: a typed read where there is one,
@@ -96,10 +97,34 @@ describe("a typed read", () => {
     );
     const tools = new JobTools(rt, inst, d, null);
     const got = await tools.call(step("read"), "github.read", { op: "commits", repo: "acme/widgets", limit: 5 });
-    expect(got).toEqual({ items: [{ sha: "abc1234", message: "Fix the parser", author: "Ada", date: "2026-11-15T10:00:00Z", url: "https://github.com/acme/widgets/commit/abc1234" }] });
+    expect(got).toEqual({ items: [{ sha: "abc1234", message: "Fix the parser", author: "Ada", date: "2026-11-15T10:00:00Z", url: "https://github.com/acme/widgets/commit/abc1234", parents: 1 }] });
     const call = [...rt.net.calls].reverse().find((c) => c.url.host === "api.github.com")!;
     expect(call.headers.get("authorization")).toBeNull();
     expect(call.url.searchParams.get("per_page")).toBe("5");
+  });
+
+  it("says which commits are merges, and keeps a long patch's first and last lines with a note, never just its start", async () => {
+    // The live repository's last five commits: a merge, and a test file
+    // whose 13,000-character patch was judged "critical" for being cut off.
+    const gh = judgeCommits as { list: { sha: string }[]; commits: Record<string, { files: Record<string, unknown>[] }> };
+    rt.net.on(/api\.github\.com\/repos\/acme\/judged\/commits(?:\?|$)/, () => Response.json(gh.list));
+    rt.net.on(/api\.github\.com\/repos\/acme\/judged\/commits\/[0-9a-f]+$/, (req) => Response.json(gh.commits[new URL(req.url).pathname.split("/").pop()!]));
+    const tools = new JobTools(rt, inst, d, null);
+    const listed = (await tools.call(step("read"), "github.read", { op: "commits", repo: "acme/judged", limit: 5 })) as { items: { sha: string; parents: number }[] };
+    expect(listed.items.map((c) => [c.sha.slice(0, 7), c.parents])).toEqual([["99bd945", 2], ["67a6193", 1], ["5d2e3f0", 1], ["65dcc3a", 1], ["a40b9f6", 1]]);
+    const harness = (await tools.call(step("read"), "github.read", { op: "commit", repo: "acme/judged", sha: gh.list[1]!.sha })) as { items: { filename: string; patch: string; cut: boolean }[] };
+    const [file] = harness.items;
+    expect(file!.cut).toBe(true);
+    expect(file!.patch.length).toBeLessThanOrEqual(3000);
+    expect(file!.patch).toMatch(/^@@ -0,0 \+1,206 @@\n\+\/\/ @vitest-environment node/);
+    expect(file!.patch).toMatch(/\n\[\d+ lines not shown\]\n/);
+    // Its end is there too: the file's last line.
+    expect(file!.patch.endsWith("+});")).toBe(true);
+    // A file GitHub left out (a generated snapshot of 8,129 lines) says so.
+    const lessons = (await tools.call(step("read"), "github.read", { op: "commit", repo: "acme/judged", sha: gh.list[4]!.sha })) as { items: { filename: string; patch: string | null; cut: boolean }[] };
+    expect(lessons.items.find((f) => f.filename.endsWith("0067_snapshot.json"))).toMatchObject({ patch: null, cut: true });
+    expect(lessons.items.find((f) => f.filename.endsWith("lessons.ts"))).toMatchObject({ cut: true });
+    expect(lessons.items.find((f) => f.filename.endsWith("0067_lesson_recipe.sql"))).toMatchObject({ cut: false });
   });
 
   it("adds the owner's key when they connected one, and never hands it back", async () => {
@@ -221,5 +246,18 @@ describe("an incoming webhook", () => {
     expect(await takePost(rt, "x".repeat(32), {})).toEqual({ refused: { status: 404, error: "There's no such address." } });
     // An agent that doesn't start on a post has no address.
     expect(await hookUrl(rt, inst, d)).toBeNull();
+  });
+});
+
+describe("a long text's first and last lines", () => {
+  it("keeps the start and the end within the room, and says how many lines are left out", () => {
+    const text = Array.from({ length: 100 }, (_, i) => `line ${i + 1}`).join("\n");
+    const kept = headTail(text, 300);
+    expect(kept.length).toBeLessThanOrEqual(300);
+    expect(kept.startsWith("line 1\nline 2\n")).toBe(true);
+    expect(kept.endsWith("line 99\nline 100")).toBe(true);
+    const hidden = Number(/\[(\d+) lines not shown\]/.exec(kept)![1]);
+    expect(kept.split("\n").length - 1 + hidden).toBe(100);
+    expect(headTail("short", 300)).toBe("short");
   });
 });

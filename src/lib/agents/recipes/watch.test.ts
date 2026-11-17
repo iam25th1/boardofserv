@@ -6,7 +6,7 @@ import { callKey, typedRead } from "@/lib/connections/reads";
 import { emptyBench, type RunEvent } from "../types";
 import { runAgent } from "../runner";
 import { fromRecipe, recipeById } from "./index";
-import { NOT_SEEN } from "./watch";
+import { CUT_NOTE, JUDGE_ROOM, NOT_SEEN, SKIP_FILES, TEST_FILES } from "./watch";
 
 // The GitHub watch-and-judge recipe on the live repository's last five
 // commits (a merge among them), with SERV answering as it did live: "5
@@ -114,7 +114,7 @@ describe("A: the judge's verdicts", () => {
     expect(by("a40b9f6")).toMatchObject({ verdict: "minor", findings: ["src/lib/agents/lessons.ts: recipeRules reads up to 50 rows for every build"] });
     // The head line counts the verdicts, and only them.
     const counts = { problem: results.filter((r) => r.verdict === "problem").length, minor: results.filter((r) => r.verdict === "minor").length, pass: results.filter((r) => r.verdict === "pass").length };
-    expect(sent[0]!.split("\n")[0]).toBe(`${REPO}: ${results.length} commits checked: ${counts.problem} problem, ${counts.minor} minor, ${counts.pass} passed.`);
+    expect(sent[0]!.split("\n")[0]).toMatch(new RegExp(`^${REPO}: ${results.length} commits checked: ${counts.problem} problem, ${counts.minor} minor, ${counts.pass} passed\\.`));
   });
 
   it("is told to answer with one of the four verdicts and findings tied to files", async () => {
@@ -124,4 +124,58 @@ describe("A: the judge's verdicts", () => {
   });
 });
 
-export { sha };
+
+type Sent = { task: string; data: { item: { title: string }; files: { name: string; patch: string }[]; not_shown: string[] } };
+const reasoned = (events: RunEvent[]) => events.filter((e): e is Extract<RunEvent, { type: "tool" }> => e.type === "tool" && e.tool === "serv.reason").map((e) => e.args as Sent);
+
+describe("B: what the judge is shown", () => {
+  it("skips the merge, reading nothing of it, and says so", async () => {
+    const { events, done, sent } = await runWatch();
+    const reads = events.filter((e): e is Extract<RunEvent, { type: "tool" }> => e.type === "tool" && e.tool === "github.read").map((e) => (e.args as { sha?: string }).sha ?? null);
+    expect(reads).not.toContain(sha("99bd945"));
+    expect(reasoned(events).map((r) => r.data.item.title)).not.toContain(gh.list[0]!.commit.message);
+    expect(done("judge_items")!.skipped).toEqual([{ id: sha("99bd945"), title: gh.list[0]!.commit.message, why: "merge" }]);
+    expect(sent[0]!.split("\n")[0]).toMatch(/^iam25th1\/boardofserv: 4 commits checked: 4 passed\. 1 merge skipped\.$/);
+  });
+
+  it("still judges every item in a run with no merge", async () => {
+    const { built } = await runWatch();
+    const bench = fixtureBench();
+    const key = callKey("github.read", { op: "commits", repo: REPO });
+    bench.calls![key] = { items: (bench.calls![key] as { items: { parents: number }[] }).items.filter((c) => c.parents === 1) };
+    const s = servAnswering(LIVE_ANSWERS);
+    const events: RunEvent[] = [];
+    const end = await runAgent({ definition: built.definition, code: built.code, bench, dryRun: false, serv: s.serv, fetchImpl: s.fetchImpl, onEvent: (e) => events.push(e) });
+    expect(end.status).toBe("done");
+    expect(reasoned(events)).toHaveLength(4);
+  });
+
+  it("leaves out lockfiles, generated and binary files, and sends the source before its tests", async () => {
+    const { events } = await runWatch();
+    const all = reasoned(events).flatMap((r) => [...r.data.files.map((f) => f.name), ...r.data.not_shown]);
+    // a40b9f6's drizzle snapshot (8,129 lines GitHub doesn't show) and journal.
+    expect(all.filter((n) => n.includes("migrations/meta/"))).toEqual([]);
+    for (const r of reasoned(events)) {
+      const names = r.data.files.map((f) => f.name);
+      const firstTest = names.findIndex((n) => TEST_FILES.test(n));
+      if (firstTest >= 0) expect(names.slice(firstTest).every((n) => TEST_FILES.test(n)), r.data.item.title).toBe(true);
+    }
+    expect(SKIP_FILES.test("package-lock.json") && SKIP_FILES.test("web/yarn.lock") && SKIP_FILES.test("dist/app.min.js") && SKIP_FILES.test("public/logo.png")).toBe(true);
+    expect(SKIP_FILES.test("src/lib/agents/lessons.ts") || SKIP_FILES.test("src/lib/db/migrations/0067_lesson_recipe.sql")).toBe(false);
+  });
+
+  it("fits each call under the room, a long patch as its first and last lines with a note, and lists what it didn't see whole", async () => {
+    const { events, done, asked } = await runWatch();
+    for (const r of reasoned(events)) expect(JSON.stringify(r.data).length, r.data.item.title).toBeLessThanOrEqual(JUDGE_ROOM);
+    // Nothing was cut by the platform on the way: no "[cut]" anywhere.
+    for (const a of asked) expect(a.text).not.toContain("[cut]");
+    const harness = reasoned(events).find((r) => r.data.item.title.startsWith("test: live harness"))!;
+    const file = harness.data.files.find((f) => f.name === "src/test/builds-live.test.ts")!;
+    expect(file.patch).toMatch(/\n\[\d+ lines not shown\]\n/);
+    expect(file.patch.endsWith("+});")).toBe(true);
+    const results = done("judge_items")!.results as { id: string; unchecked: string[] }[];
+    expect(results.find((r) => r.id === sha("67a6193"))!.unchecked).toEqual(["src/test/builds-live.test.ts"]);
+    // Told what is left out is not a defect.
+    expect(harness.task).toContain(CUT_NOTE);
+  });
+});
