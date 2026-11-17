@@ -470,6 +470,13 @@
       "when": 1794864827780,
       "tag": "0066_user_timezone_chosen",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1794872080016,
+      "tag": "0067_lesson_recipe",
+      "breakpoints": true
     }
   ]
 }

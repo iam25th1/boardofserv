@@ -136,7 +136,7 @@ describe("a run near its budget", () => {
     const { inst } = await installedChecker("cost.stop");
     const job = await run(inst);
     expect(job).toMatchObject({ status: "cancelled", reason: allowanceStopped(6000n) });
-    expect(allowanceStopped(6000n)).toBe("It stopped before its next call to SERV would run out its free model allowance of 0.006 USDC for this week. What it had done is saved, so its next run picks up from there: on Monday, or sooner on your own SERV key.");
+    expect(allowanceStopped(6000n)).toBe("It stopped before its next call to SERV would run out its free model allowance of 0.006 USDC for this week. What it had done is saved, so its next run picks up from there: on Monday, or sooner on your own SERV key: add it on Connections.");
     const judged = rt.reasoned.length;
     expect(judged).toBeGreaterThan(0);
     expect(judged).toBeLessThan(5);

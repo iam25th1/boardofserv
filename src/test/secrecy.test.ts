@@ -69,6 +69,7 @@ import * as installationJobs from "@/app/api/installations/[id]/jobs/route";
 import * as agentJobs from "@/app/api/agents/[id]/jobs/route";
 import * as installationControl from "@/app/api/installations/[id]/control/route";
 import * as installationVersion from "@/app/api/installations/[id]/version/route";
+import * as installationOthers from "@/app/api/installations/[id]/others/route";
 import * as demoAgent from "@/app/api/demo/agent/route";
 import { serverRuntime } from "@/lib/agents/runtime/context";
 import { install } from "@/lib/agents/runtime/installations";
@@ -199,6 +200,7 @@ const ROUTES: Record<string, object> = {
   "agents/[id]/jobs": agentJobs,
   "installations/[id]/control": installationControl,
   "installations/[id]/version": installationVersion,
+  "installations/[id]/others": installationOthers,
   "demo/agent": demoAgent,
   "demo/agent/live": demoLive,
   "connections": connectionsRoute,

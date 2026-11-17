@@ -601,12 +601,16 @@ export function jsonRequestBody(
   schema: { name: string; schema: Record<string, unknown> },
   maxTokens: number,
   servTools: unknown[] = [],
+  temperature?: number,
 ): Record<string, unknown> {
   return {
     model: p.model,
     messages: ensureSystemMessage(messages),
     max_tokens: maxTokens,
     stream: false,
+    // Planning asks for the steadiest answer (0): the same request planned
+    // the same way each time.
+    ...(temperature === undefined ? {} : { temperature }),
     response_format: { type: "json_schema", json_schema: { name: schema.name, strict: true, schema: sanitizeJsonSchema(schema.schema) } },
     // SERV's own tools (its Prompt Guard) go to SERV only.
     ...(p.id === "serv" && servTools.length ? { tools: servTools } : {}),
@@ -646,6 +650,7 @@ export async function completeJson(
     signal: AbortSignal;
     fetchImpl?: typeof fetch;
     servTools?: unknown[];
+    temperature?: number;
   },
 ): Promise<JsonResult> {
   const started = Date.now();
@@ -687,7 +692,7 @@ export async function completeJson(
         const res = await fetchImpl(`${p.baseUrl}/chat/completions`, {
           method: "POST",
           headers: { "content-type": "application/json", accept: "application/json", authorization: `Bearer ${p.apiKey}` },
-          body: JSON.stringify(jsonRequestBody(p, messages, opts.schema, maxTokens, opts.servTools)),
+          body: JSON.stringify(jsonRequestBody(p, messages, opts.schema, maxTokens, opts.servTools, opts.temperature)),
           signal: ctl.signal,
         });
         status = res.status;

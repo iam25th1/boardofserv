@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { randomBytes } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
 import type { PgliteDatabase } from "drizzle-orm/pglite";
@@ -144,7 +144,8 @@ describe("the journey in the chat", () => {
     // Make it planned and stopped: nothing written, nothing tried.
     let c = await conversation(cid);
     expect(stages(c)).toEqual(["steps"]);
-    expect(seen).toEqual(["agent_outline", "agent_steps", "agent_steps", "purpose_check"]);
+    // No tested recipe fits it (recipes/): planned from scratch.
+    expect(seen).toEqual(["agent_recipe", "agent_outline", "agent_steps", "agent_steps", "purpose_check"]);
     expect(c.agent).toMatchObject({ buildState: "idle", test: null });
     expect(c.agent!.plain!.map((l) => l.text)).toEqual(["Read the price", "At or below your target? If above the target, it stops there.", "Write the question", "Ask you whether to send a reminder to buy it", "Did you say yes? If no, it stops there.", "Write the reminder", "Send you the reminder to buy it"]);
     expect(c.messages.at(-1)!.content).toMatch(/^The steps:\n1\. Read the price\n/);
@@ -376,18 +377,22 @@ describe("a build that heals itself, in the chat", () => {
     expect((await journeyRoute.POST(json(`/api/conversations/${cid}/journey`, "POST", { action: "answer", answer: "Yes" }), at(cid))).status).toBe(409);
   });
 
-  it("gives up in one plain sentence after its rounds, and a simpler version is a choice, never a fix box", async () => {
+  it("gives up in one plain sentence after its rounds and its tries, and a simpler version is a choice, never a fix box", async () => {
     const cid = await described();
     sources = { "Write the reminder": BROKEN };
     const sample = { verdict: "test_wrong", step: "", why: "The sample has no price.", spec: "", change: "", sample: "A page with a price on it.", question: "", choices: [], lesson: "", kind: "sample_items" };
+    // Three new samples on the first try; on each fresh try after it the
+    // fixer has nothing to say.
     fixes = [sample, sample, sample];
     const id = await madeIt(cid);
+    seen.length = 0;
     await build.POST(json(`/api/agents/${id}/build`, "POST"), at(id));
     await jobFor((await draftOf(id))!.id);
     let c = await conversation(cid);
-    expect(seen.filter((x) => x === "agent_fix")).toHaveLength(3);
-    expect(seen.filter((x) => x === "agent_sample")).toHaveLength(4);
-    expect(c.agent!.heal!.gaveUp).toBe('I couldn\'t get step 6, "Write the reminder", to work on its sample.');
+    expect(seen.filter((x) => x === "agent_fix")).toHaveLength(5);
+    // Two fresh tries, each from a new plan.
+    expect(seen.filter((x) => x === "agent_recipe")).toHaveLength(2);
+    expect(c.agent!.heal!.gaveUp).toBe('I couldn\'t get step 6, "Write the reminder", to work on its sample. I tried 3 different ways.');
     expect(c.agent!.buildState).toBe("idle");
 
     plans = [PRICE_WIRE];
@@ -404,6 +409,9 @@ describe("a build that heals itself, in the chat", () => {
 
 describe("what a repair can never trade away", () => {
   const BROKEN = "async function run() { throw new Error('no price'); }";
+  // One try: what a repair is turned down for, not the fresh tries after.
+  beforeEach(() => vi.stubEnv("AGENT_BUILD_TRIES", "1"));
+  afterEach(() => vi.stubEnv("AGENT_BUILD_TRIES", ""));
 
   it("turns down a change to the steps that would send without the maker's yes, keeping the steps as they were", async () => {
     const cid = await described();

@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { agentApprovals, agentInstallations, agentJobs, agents, agentTriggers, agentVersions, rentals, type Agent, type AgentInstallation, type AgentVersion, type SheetGrant } from "../../db/schema";
 import { GoogleRevoked, GoogleUnavailable } from "../../google/oauth";
 import { isSheetAnswer, parseSheetLink, sheetLink } from "../../google/sheetLink";
@@ -53,7 +53,22 @@ export function notRunnable(version: AgentVersion): string | null {
 // it but its owner's test runs, until they make it live.
 // policy: what the renter lets it do on its own (agents/risk.ts); none
 // means the platform's floor alone.
-export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agent; version: AgentVersion; answers: InstallAnswers; live?: boolean; policy?: Partial<SafetyPolicy> }): Promise<AgentInstallation> {
+type InstallOptions = { ownerUserId: string; agent: Agent; version: AgentVersion; answers: InstallAnswers; live?: boolean; policy?: Partial<SafetyPolicy> };
+
+export async function install(rt: Runtime, o: InstallOptions): Promise<AgentInstallation> {
+  const { values } = await prepared(rt, o);
+  const now = rt.now();
+  const [row] = await rt.db
+    .insert(agentInstallations)
+    .values({ ...values, agentId: o.agent.id, ownerUserId: o.ownerUserId, live: o.live !== false, policy: readPolicy({ ...o.policy, autoSpendUsdc: o.policy?.autoSpendUsdc ?? o.answers.autoSpendUsdc }), createdAt: now, updatedAt: now })
+    .returning();
+  if (row!.live) await setUpTriggers(rt, row!, o.version.definition!);
+  return row!;
+}
+
+// What an installation is set up with, checked: the version runs, its
+// connections are there, and the answers hold (their sheets granted).
+async function prepared(rt: Runtime, o: InstallOptions) {
   const why = notRunnable(o.version);
   if (why) throw new InstallRefused(why);
   const d = o.version.definition!;
@@ -63,14 +78,10 @@ export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agen
   if (!checked.ok) throw new InstallRefused("Some answers need another look.", checked.errors);
   const { settings, sheets } = await grantSheets(rt, o.ownerUserId, d, checked.settings);
   const bench = o.version.bench ?? emptyBench();
-  const now = rt.now();
-  const [row] = await rt.db
-    .insert(agentInstallations)
-    .values({
-      agentId: o.agent.id,
+  return {
+    checked,
+    values: {
       versionId: o.version.id,
-      ownerUserId: o.ownerUserId,
-      live: o.live !== false,
       settings,
       sheets,
       rules: checked.rules,
@@ -79,13 +90,60 @@ export async function install(rt: Runtime, o: { ownerUserId: string; agent: Agen
       schedule: checked.schedule,
       minGapMinutes: checked.minGapMinutes,
       dailySpendUsd: String(checked.dailySpendUsd),
-      policy: readPolicy({ ...o.policy, autoSpendUsdc: o.policy?.autoSpendUsdc ?? o.answers.autoSpendUsdc }),
-      createdAt: now,
+    },
+  };
+}
+
+// The owner's own copies of their own agent that aren't stopped, newest
+// first (a renter's copy, rented through the board, is never one).
+export async function ownCopies(rt: Runtime, ownerUserId: string, agentId: string): Promise<AgentInstallation[]> {
+  const rows = await rt.db
+    .select({ i: agentInstallations })
+    .from(agentInstallations)
+    .innerJoin(agents, eq(agents.id, agentInstallations.agentId))
+    .leftJoin(rentals, eq(rentals.installationId, agentInstallations.id))
+    .where(and(eq(agentInstallations.agentId, agentId), eq(agentInstallations.ownerUserId, ownerUserId), eq(agents.ownerUserId, ownerUserId), ne(agentInstallations.status, "stopped"), isNull(rentals.id)))
+    .orderBy(desc(agentInstallations.createdAt));
+  return rows.map((r) => r.i);
+}
+
+// Run it for real, and Run it for me: the owner's own agent runs as one
+// copy. The copy running now takes the version and the answers in place
+// (its memory, and so its place in what it reads, its payees, policy, job
+// history and limits it was given kept), its triggers set up afresh; only
+// with no copy running is one added. A copy running live stays live.
+export async function runOwnCopy(rt: Runtime, o: InstallOptions): Promise<{ installation: AgentInstallation; replaced: boolean }> {
+  const [current] = await ownCopies(rt, o.ownerUserId, o.agent.id);
+  if (!current) return { installation: await install(rt, o), replaced: false };
+  const { checked, values } = await prepared(rt, o);
+  const now = rt.now();
+  const [row] = await rt.db
+    .update(agentInstallations)
+    .set({
+      ...values,
+      // What the owner set on its page stays unless given again here.
+      ...(o.answers.minGapMinutes === undefined ? { minGapMinutes: current.minGapMinutes } : {}),
+      ...(o.answers.dailySpendUsd === undefined ? { dailySpendUsd: current.dailySpendUsd } : { dailySpendUsd: String(checked.dailySpendUsd) }),
+      ...(o.policy || o.answers.autoSpendUsdc !== undefined ? { policy: readPolicy({ ...readPolicy(current.policy), ...o.policy, ...(o.answers.autoSpendUsdc !== undefined ? { autoSpendUsdc: o.answers.autoSpendUsdc } : {}) }) } : {}),
+      live: current.live || o.live !== false,
       updatedAt: now,
     })
+    .where(eq(agentInstallations.id, current.id))
     .returning();
-  if (row!.live) await setUpTriggers(rt, row!, d);
-  return row!;
+  await rt.db.delete(agentTriggers).where(eq(agentTriggers.installationId, current.id));
+  if (row!.live && row!.status === "active") await setUpTriggers(rt, row!, o.version.definition!);
+  return { installation: row!, replaced: true };
+}
+
+// Stop the owner's other copies of the agent this one runs, keeping this
+// one: what they did is kept, and nothing of them runs again.
+export async function stopOtherCopies(rt: Runtime, l: Loaded): Promise<number> {
+  const others = (await ownCopies(rt, l.installation.ownerUserId, l.agent.id)).filter((i) => i.id !== l.installation.id);
+  for (const i of others) {
+    const other = await loadInstallation(rt, i.id);
+    if (other) await control(rt, other, "stop");
+  }
+  return others.length;
 }
 
 // The sheets an owner gives an installation: each sheet setting's link
@@ -270,6 +328,9 @@ export async function installationDTO(rt: Runtime, l: Loaded): Promise<Installat
     safety: safetyOf(d, readPolicy(i.policy)),
     budget: await budgetDTO(rt, i),
     newer: await newerVersion(rt, l).then((n) => (n ? { version: n.version, line: n.line, breaking: n.breaking } : null)),
+    // The owner's other copies of their own agent running beside this one,
+    // each doing the same job: offered to stop.
+    others: i.status === "stopped" ? 0 : (await ownCopies(rt, i.ownerUserId, l.agent.id)).filter((x) => x.id !== i.id).length,
   };
 }
 

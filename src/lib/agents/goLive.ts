@@ -11,9 +11,10 @@ import { PayeeRefused, savePayee } from "../spending/payees";
 import type { InstallationDTO, MakerListingDTO } from "../types";
 import { REVIEW_BLOCKED, REVIEW_DOWN, vetVersion } from "./publish";
 import type { Runtime } from "./runtime/context";
-import { install, installationDTO, InstallRefused, loadInstallation } from "./runtime/installations";
+import { installationDTO, InstallRefused, loadInstallation, runOwnCopy } from "./runtime/installations";
 import { draftOf, publishDraft, updateDraft, versionsOf } from "./store";
 import { liveDiagnosis } from "./diagnosis";
+import { learnFromLive } from "./lessons";
 import type { Diagnosis } from "./types";
 
 // Go live, from the chat: the steps the maker built and tried become a
@@ -54,6 +55,9 @@ export async function publishedFor(rt: Runtime, user: User, agent: Agent, o: { o
   if (review.status === "blocked") throw new NotLive(`${REVIEW_BLOCKED} ${review.findings.find((f) => f.severity === "blocking")?.finding ?? ""}`.trim(), 409, liveDiagnosis(draft.definition, review.findings, draft.code));
   const published = await publishDraft(agent.id);
   if (!published) throw new NotLive("It couldn't go live just now. Try again.");
+  // The fixes that got a recipe's build here, kept for its next builds. A
+  // lesson that can't be kept never stops it going live.
+  await learnFromLive(draft.heal, user.id).catch((err) => console.error(`agents: a recipe's lesson wasn't kept: ${err instanceof Error ? err.message : "unknown error"}`));
   if (o.offer) await offerVersion(rt, agent.id, published);
   return published;
 }
@@ -64,7 +68,8 @@ export async function publishedFor(rt: Runtime, user: User, agent: Agent, o: { o
 export async function runForMaker(rt: Runtime, user: User, agent: Agent, answers: ConnectAnswers): Promise<InstallationDTO> {
   const version = await publishedFor(rt, user, agent, { offer: false });
   try {
-    const row = await install(rt, { ownerUserId: user.id, agent, version, answers: { settings: answers.settings, rules: answers.rules, timezone: answers.timezone, schedule: answers.schedule ?? null }, live: true });
+    // Their copy running now takes it over, never a second one beside it.
+    const { installation: row } = await runOwnCopy(rt, { ownerUserId: user.id, agent, version, answers: { settings: answers.settings, rules: answers.rules, timezone: answers.timezone, schedule: answers.schedule ?? null }, live: true });
     if (answers.payee) await savePayee(rt, user, row.id, answers.payee);
     const loaded = await loadInstallation(rt, row.id);
     return installationDTO(rt, loaded!);

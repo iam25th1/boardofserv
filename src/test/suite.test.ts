@@ -45,6 +45,9 @@ beforeAll(async () => {
   vi.stubEnv("SERV_API_KEY", "replayed");
   vi.stubEnv("DOLPHIN_API_KEY", "replayed");
   vi.stubEnv("FALLBACK_API_KEY", "");
+  // The recorded runs had one try each: a fresh try's plan has no
+  // recorded answer.
+  vi.stubEnv("AGENT_BUILD_TRIES", "1");
   vi.stubGlobal("fetch", ledger.fetch);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });

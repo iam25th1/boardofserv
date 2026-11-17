@@ -4,7 +4,7 @@ import { Button, Textarea } from "@/components/ui";
 import { animateEnter } from "@/lib/motion";
 import type { AgentMessageDTO, AuditPageDTO, InstallationDTO } from "@/lib/types";
 import { ApprovalCard } from "./ApprovalCard";
-import { Controls, Glance, NewerVersion, type ControlAction } from "./InstallationControls";
+import { Controls, Glance, NewerVersion, OtherCopies, type ControlAction } from "./InstallationControls";
 import { SafetyPanel, type PolicyBody } from "./SafetyPanel";
 import { BudgetPanel } from "./BudgetPanel";
 import { SpendingPanel, type SpendingApi } from "./SpendingPanel";
@@ -35,6 +35,8 @@ export interface InstallationApi {
   spending?: SpendingApi;
   // Switch the owner's own copy to the newest version of its agent.
   switchVersion?: () => Promise<InstallationDTO>;
+  // Stop the owner's other copies of the agent, keeping this one.
+  stopOthers?: () => Promise<InstallationDTO>;
 }
 
 const POLL_MS = 5_000;
@@ -82,6 +84,7 @@ export function InstallationView({ initial, api, children }: { initial: Installa
           </p>
         )}
         {api.switchVersion && <NewerVersion data={data} onSwitch={async () => setData(await api.switchVersion!())} />}
+        {api.stopOthers && <OtherCopies data={data} onStop={async () => setData(await api.stopOthers!())} />}
         <Glance data={data} jobHref={api.jobHref} />
         <Controls data={data} onControl={async (action) => setData(await api.control(action))} />
         {data.checkNote && <p className={styles.note}>{data.checkNote}</p>}

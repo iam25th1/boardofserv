@@ -8,6 +8,8 @@ import { ConnectionsView, type ConnectionsApi } from "@/components/connections/C
 import { GoogleConnect } from "@/components/connections/GoogleConnect";
 import { TelegramLink } from "@/components/connections/TelegramLink";
 import { TypeformConnect } from "@/components/connections/TypeformConnect";
+import { ServKeyCard } from "@/components/connections/ServKeyCard";
+import { useShellAccount } from "@/components/shell/AccountContext";
 import { backTo } from "@/lib/backTo";
 import { privyAppId } from "@/lib/privy-config";
 import { useApi } from "@/lib/useApi";
@@ -62,6 +64,7 @@ function useConnectHere(): { which: string | null; back: string | null } {
 
 function Connections() {
   const api = useApi();
+  const { account, refresh } = useShellAccount();
   const back = useGoogleReturn();
   const here = useConnectHere();
   const view: ConnectionsApi = useMemo(() => ({ load: api.listConnections, disconnect: api.disconnect, connect: api.connectService, setWrites: api.setWrites }), [api]);
@@ -74,6 +77,19 @@ function Connections() {
         <p className={styles.note} role="status">
           {back}
         </p>
+      )}
+      {account && (
+        <ServKeyCard
+          servKey={account.servKey ?? null}
+          onSave={async (key) => {
+            await api.setServKey(key);
+            await refresh();
+          }}
+          onRemove={async () => {
+            await api.removeServKey();
+            await refresh();
+          }}
+        />
       )}
       <ConnectionsView
         api={view}

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { animate } from "animejs";
 import { Button, TextInput } from "@/components/ui";
 import { formatAmount, parseAmount } from "@/lib/money";
@@ -14,6 +15,9 @@ import styles from "./BudgetPanel.module.css";
 // passes on model cost charges each job's cost on top of the fee.
 
 const usdc = (minor: string | bigint, d = 6) => `${formatAmount(BigInt(minor), d)} USDC`;
+
+// Where the owner adds their own SERV key (ServKeyCard).
+const OWN_KEY = "/app/connections#serv-key";
 
 export function BudgetPanel({ budget, save, disabled }: { budget: BudgetDTO; save: (modelBudget: string | null) => Promise<unknown>; disabled?: boolean }) {
   const [text, setText] = useState(() => formatAmount(BigInt(budget.budget), budget.decimals));
@@ -69,7 +73,7 @@ export function BudgetPanel({ budget, save, disabled }: { budget: BudgetDTO; sav
       </div>
       {allowed && (
         <p className={styles.cap} role="note">
-          This week&apos;s cap is {usdc(cap, budget.decimals)}, not the {usdc(budget.budget, budget.decimals)} you set: it runs free, so boardofserv pays for its model calls, up to {usdc(budget.allowance, budget.decimals)} a week. Your {usdc(budget.budget, budget.decimals)} applies when it runs on your own SERV key.
+          This week&apos;s cap is {usdc(cap, budget.decimals)}, not the {usdc(budget.budget, budget.decimals)} you set: it runs free, so boardofserv pays for its model calls, up to {usdc(budget.allowance, budget.decimals)} a week. Your own SERV key lifts that cap, and your {usdc(budget.budget, budget.decimals)} applies: <Link href={OWN_KEY}>add it on Connections</Link>.
         </p>
       )}
       <dl className={styles.facts}>
@@ -91,6 +95,12 @@ export function BudgetPanel({ budget, save, disabled }: { budget: BudgetDTO; sav
       <p className={styles.quiet}>
         Its decisions and safety checks are model calls. Before one would take it over this week&apos;s budget, it asks you.
         {budget.free && !budget.ownKey ? ` It is free, so boardofserv pays up to ${usdc(budget.allowance, budget.decimals)} a week of it; before a call would go past that, it stops with its work saved and pauses until Monday.` : ""}
+        {budget.free && !budget.ownKey && !allowed ? (
+          <>
+            {" "}
+            Your own SERV key lifts that: <Link href={OWN_KEY}>add it on Connections</Link>.
+          </>
+        ) : null}
         {budget.modelShare ? " Each job's model cost is added to what you pay for it." : ""}
       </p>
       <div className={styles.set}>

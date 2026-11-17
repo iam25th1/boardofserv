@@ -132,11 +132,11 @@ export async function budgetOf(rt: Runtime, i: Pick<AgentInstallation, "id" | "a
 }
 
 export const allowancePause = (allowance: bigint) =>
-  `Its free model allowance of ${usdcWords(allowance)} for this week is used up, so it is paused. It starts again on Monday, or sooner on your own SERV key.`;
+  `Its free model allowance of ${usdcWords(allowance)} for this week is used up, so it is paused. It starts again on Monday, or sooner on your own SERV key: add it on Connections.`;
 export const ALLOWANCE_PREFIX = "Its free model allowance of ";
 // A job stopped before its next call would run the allowance out.
 export const allowanceStopped = (allowance: bigint) =>
-  `It stopped before its next call to SERV would run out its free model allowance of ${usdcWords(allowance)} for this week. What it had done is saved, so its next run picks up from there: on Monday, or sooner on your own SERV key.`;
+  `It stopped before its next call to SERV would run out its free model allowance of ${usdcWords(allowance)} for this week. What it had done is saved, so its next run picks up from there: on Monday, or sooner on your own SERV key: add it on Connections.`;
 
 export type BudgetGate = { kind: "ok" } | { kind: "ask"; question: string; reason: string } | { kind: "pause"; reason: string };
 

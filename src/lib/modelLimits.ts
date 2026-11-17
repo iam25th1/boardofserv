@@ -24,6 +24,9 @@ export const ANSWER_LIMITS = {
   // name, kind and place), then the details of a few steps at a time.
   agent_outline: 2500,
   agent_steps: 2500,
+  // Picking a tested recipe for the job, or none, with its words filled in
+  // (recipes/): a name, the job, a schedule and a few answers.
+  agent_recipe: 700,
   // Sample data for an agent's test: settings, three items and their tabs,
   // and what each read of a service answers.
   agent_sample: 2400,

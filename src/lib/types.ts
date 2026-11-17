@@ -118,7 +118,7 @@ export interface AgentSummaryDTO {
   // How this build is healing itself, in plain lines; a question for the
   // maker (and the chat message that asks it); and the one sentence it
   // ends with when it gives up.
-  heal?: { lines: { text: string; tone: "working" | "fixed" | "asked" | "stopped"; at: string }[]; question: { text: string; choices: string[]; messageId: string | null } | null; gaveUp: string | null } | null;
+  heal?: { lines: { text: string; tone: "working" | "fixed" | "asked" | "stopped"; at: string }[]; question: { text: string; choices: string[]; messageId: string | null } | null; gaveUp: string | null; tries?: number } | null;
 }
 
 // Everything the agent's own builder shows its maker: the definition, each
@@ -130,7 +130,7 @@ export interface AgentBuilderDTO {
   conversationId: string | null;
   definition: AgentDefinition | null;
   // writer: who wrote it (SERV when Dolphin failed twice on the step).
-  code: Record<string, { status: CodeStatus; source: string | null; rounds: number; note: string | null; writer?: "dolphin" | "serv" }>;
+  code: Record<string, { status: CodeStatus; source: string | null; rounds: number; note: string | null; writer?: "dolphin" | "serv" | "recipe" }>;
   bench: BenchData;
   versions: { number: number; state: "draft" | "published"; createdAt: string; publishedAt: string | null }[];
   // The newest published version, which "Run it for real" installs: its
@@ -150,7 +150,7 @@ export interface AgentBuilderDTO {
 export interface VersionReviewDTO {
   status: "passed" | "blocked" | "unreviewed";
   findings: { step: string; severity: "blocking" | "warning"; finding: string }[];
-  by: "local" | "serv";
+  by: "local" | "serv" | "recipe";
   reviewedAt: string;
 }
 
@@ -217,6 +217,8 @@ export interface InstallationDTO {
   // changed, and why switching needs setting it up again (null when its
   // answers carry over). Null when it runs the newest.
   newer?: { version: number; line: string; breaking: string | null } | null;
+  // How many other copies of the owner's own agent run beside this one.
+  others?: number;
 }
 
 export interface BudgetDTO {

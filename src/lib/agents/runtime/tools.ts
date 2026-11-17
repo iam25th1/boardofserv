@@ -38,9 +38,8 @@ import { parseFeed } from "../../connections/feed";
 import { formIdOf, formResponses, TypeformError } from "../../typeform/api";
 import { sourceProblem, sourceRefusal } from "../sources";
 import { DATE_CURSOR, NEW_PER_RUN } from "../planRepairs";
-
 // Where a reading step says it keeps its place (planRepairs.ts firstRunNote).
-const FIRST_RUN = /and keeps memory\.([a-z][a-z0-9_]*) itself/;
+import { KEEPS_PLACE } from "../planRules";
 import { errorText } from "../../db/errors";
 
 // A job's tools (and a value check's, with no job). Sheets are real: the
@@ -739,7 +738,7 @@ export class JobTools implements ToolHost {
   // item it has judged, as its reading step says (planRepairs.ts
   // keepPlaceByDate).
   private placeKey(): string | null {
-    const said = this.definition.steps.map((st) => (st.kind === "code" ? FIRST_RUN.exec(st.description)?.[1] : undefined)).find(Boolean);
+    const said = this.definition.steps.map((st) => (st.kind === "code" ? KEEPS_PLACE.exec(st.description)?.[1] : undefined)).find(Boolean);
     const key = said ?? this.definition.memory.find((m) => m.description === DATE_CURSOR)?.key;
     return key && this.definition.memory.some((m) => m.key === key && m.type === "text") ? key : null;
   }

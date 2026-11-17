@@ -19,8 +19,8 @@ export interface StepCode {
   rounds: number;
   note: string | null;
   // Who wrote it: Dolphin unless it failed twice on this step and SERV
-  // wrote it instead.
-  writer?: "dolphin" | "serv";
+  // wrote it instead; recipe for a tested recipe's own code (recipes/).
+  writer?: "dolphin" | "serv" | "recipe";
   // The step's tools as its code really calls them, when that differs from
   // the plan's list (code.ts fitTools): the plan is changed to match.
   tools?: ToolName[];
@@ -133,6 +133,9 @@ export interface HealLog {
   gaveUp?: string | null;
   // What this build's model calls have cost so far, in US dollars.
   costUsd?: number;
+  // Which try this is, each from a fresh plan (build.ts BUILD_TRIES): 1
+  // unless a try before it failed.
+  tries?: number;
 }
 
 export function emptyHeal(): HealLog {

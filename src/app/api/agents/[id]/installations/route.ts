@@ -2,7 +2,7 @@ import { z } from "zod";
 import { notLetIn } from "@/lib/access";
 import { ownedAgent } from "@/lib/agents/owned";
 import { serverRuntime } from "@/lib/agents/runtime/context";
-import { install, installationDTO, InstallRefused, loadInstallation } from "@/lib/agents/runtime/installations";
+import { installationDTO, InstallRefused, loadInstallation, runOwnCopy } from "@/lib/agents/runtime/installations";
 import { versionsOf } from "@/lib/agents/store";
 
 export const runtime = "nodejs";
@@ -20,9 +20,10 @@ const Body = z.object({
   live: z.boolean().optional(),
 });
 
-// Run it for real: the maker installs the newest published version of their
-// own agent for themselves, with their answers to its settings questions.
-// (Installing someone else's agent comes with renting.)
+// Run it for real: the maker runs the newest published version of their
+// own agent for themselves, with their answers to its settings questions:
+// the copy they run now takes it over (201 only when none ran). (Installing
+// someone else's agent comes with renting.)
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const params = await ctx.params;
   const who = await ownedAgent(req, params.id);
@@ -36,9 +37,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const rt = serverRuntime();
   try {
     const { live, ...answers } = parsed.data;
-    const row = await install(rt, { ownerUserId: who.user.id, agent: who.agent, version, answers, live });
+    const { installation: row, replaced } = await runOwnCopy(rt, { ownerUserId: who.user.id, agent: who.agent, version, answers, live });
     const loaded = await loadInstallation(rt, row.id);
-    return Response.json({ installation: await installationDTO(rt, loaded!) }, { status: 201 });
+    return Response.json({ installation: await installationDTO(rt, loaded!), replaced }, { status: replaced ? 200 : 201 });
   } catch (err) {
     if (err instanceof InstallRefused) return Response.json({ error: err.message, errors: err.errors }, { status: 400 });
     throw err;

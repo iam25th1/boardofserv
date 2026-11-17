@@ -15,6 +15,8 @@ import { servicesPrompt } from "./servicesPrompt";
 import { servicesIn } from "../connections/catalog";
 import { typedRead } from "../connections/reads";
 import { blame, DETAIL_PROMPT, DETAIL_SCHEMA, detailChunks, detailRequest, joinPlan, OUTLINE_SCHEMA, outlinePrompt } from "./planStages";
+import { askRecipe, fromRecipe, keptRecipe, matchesRecipe, readPick } from "./recipes";
+import type { StepCode } from "./types";
 
 // Planning: SERV turns the maker's interview (and the conversation behind
 // it) into a whole agent definition, which is checked against the format
@@ -46,6 +48,10 @@ export const STEPS_PER_CALL = 6;
 // Each answer is a few thousand tokens at most, not streamed, so it gets
 // far longer than a reply's wait for its first token.
 const DEFAULT_PLAN_TIMEOUT_MS = 120_000;
+// Planning asks for SERV's steadiest answer: left to its default, the same
+// sentence was planned a different way almost every time (PR #9's twelve
+// builds of one request).
+export const PLAN_TEMPERATURE = 0;
 
 type Wire = Record<string, unknown>;
 const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -188,6 +194,29 @@ function nextIds(step: unknown): string[] {
 
 // SERV's flat answer, back in the format's shape. Whatever doesn't fit is
 // left for checkDefinition to name.
+// A schedule as SERV gave it: every minutes, hours, day or week, its
+// interval, its time and its days (as words).
+export function wireSchedule(t: Wire) {
+  const every: "minutes" | "hours" | "week" | "day" = t.every === "minutes" || t.every === "hours" || t.every === "week" ? t.every : t.every === "hour" ? "hours" : "day";
+  // Every so many minutes comes as everyMinutes (interval reads the same).
+  const interval = Math.round(n(t.interval) || n(t.everyMinutes));
+  const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  // Days as words, comma separated, in when (days, or an array of words,
+  // read the same).
+  const days = (Array.isArray(t.days) ? arr(t.days).map(s) : (s(t.days) || s(t.when)).split(","))
+    .map((d) => DAY_NAMES.indexOf(d.trim().toLowerCase()))
+    .filter((d) => d >= 0);
+  const minutesPast = /^:\d{2}$/.test(s(t.at)) ? `00${s(t.at)}` : s(t.at);
+  return {
+    kind: "schedule" as const,
+    every,
+    ...(every === "minutes" || every === "hours" ? { interval: Math.max(1, interval || 1) } : {}),
+    at: /^([01]\d|2[0-3]):[0-5]\d$/.test(minutesPast) ? minutesPast : null,
+    ...(every === "week" ? { days: [...new Set(days.length ? days : [1])] } : {}),
+    description: s(t.description),
+  };
+}
+
 export function wireToDefinition(w: Wire): unknown {
   const steps = arr(w.steps).map((x) => {
     const st = x as Wire;
@@ -247,24 +276,7 @@ export function wireToDefinition(w: Wire): unknown {
     if (t.kind === "check") return { kind: "check", everyMinutes: Math.round(n(t.everyMinutes)), watch: s(t.watch), when: s(t.when), ...(s(t.step) ? { step: s(t.step) } : {}) };
     if (t.kind === "message") return { kind: "message", from: "telegram", description: s(t.description) };
     if (t.kind === "webhook") return { kind: "webhook", description: s(t.description) || "When something is posted to its address" };
-    const every = t.every === "minutes" || t.every === "hours" || t.every === "week" ? t.every : t.every === "hour" ? "hours" : "day";
-    // Every so many minutes comes as everyMinutes (interval reads the same).
-    const interval = Math.round(n(t.interval) || n(t.everyMinutes));
-    const DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-    // Days as words, comma separated, in when (days, or an array of words,
-    // read the same).
-    const days = (Array.isArray(t.days) ? arr(t.days).map(s) : (s(t.days) || s(t.when)).split(","))
-      .map((d) => DAY_NAMES.indexOf(d.trim().toLowerCase()))
-      .filter((d) => d >= 0);
-    const minutesPast = /^:\d{2}$/.test(s(t.at)) ? `00${s(t.at)}` : s(t.at);
-    return {
-      kind: "schedule",
-      every,
-      ...(every === "minutes" || every === "hours" ? { interval: Math.max(1, interval || 1) } : {}),
-      at: /^([01]\d|2[0-3]):[0-5]\d$/.test(minutesPast) ? minutesPast : null,
-      ...(every === "week" ? { days: [...new Set(days.length ? days : [1])] } : {}),
-      description: s(t.description),
-    };
+    return wireSchedule(t);
   });
   const job = (w.job ?? {}) as Wire;
   const limits = (w.limits ?? {}) as Wire;
@@ -348,6 +360,9 @@ export interface PlanResult {
   // Steps left out because the safety guard would block them (purpose.ts),
   // with its reason, for the maker to see.
   dropped: { title: string; reason: string }[];
+  // A plan from a tested recipe (recipes/): its code, approved as the
+  // recipe's own, by step id.
+  code?: Record<string, StepCode>;
 }
 
 type Stage = "outline" | "details";
@@ -355,7 +370,9 @@ type Stage = "outline" | "details";
 export async function planAgent(
   input: PlanInput,
   // lessons: rules learned from earlier builds (lessons.ts).
-  opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch; maxCalls?: number; lessons?: string[] },
+  // recipes: false plans from scratch; avoid, a recipe not to pick again
+  // (a fresh try after a build from it failed).
+  opts: { config: ModelConfig; signal: AbortSignal; fetchImpl?: typeof fetch; maxCalls?: number; lessons?: string[]; recipes?: boolean; avoid?: string | null },
 ): Promise<PlanResult> {
   const t = Number(process.env.AGENT_PLAN_TIMEOUT_MS);
   const config = { ...opts.config, firstTokenTimeoutMs: Number.isInteger(t) && t > 0 ? t : DEFAULT_PLAN_TIMEOUT_MS };
@@ -388,6 +405,7 @@ export async function planAgent(
       maxTokens: ANSWER_LIMITS[outline ? "agent_outline" : "agent_steps"],
       signal: opts.signal,
       fetchImpl: opts.fetchImpl,
+      temperature: PLAN_TEMPERATURE,
     });
     calls.push(result);
     if (!result.content) {
@@ -403,7 +421,8 @@ export async function planAgent(
     }
   };
   let dropped: PlanResult["dropped"] = [];
-  const done = (definition: AgentDefinition | null): PlanResult => ({ definition, answers, errors: definition ? [] : silent ? ["No model answered."] : errors, calls, dropped });
+  // A changed plan stays its recipe only while its steps still are.
+  const done = (definition: AgentDefinition | null, code?: Record<string, StepCode>): PlanResult => ({ definition: definition && !code ? keptRecipe(input.current, definition) : definition, answers, errors: definition ? [] : silent ? ["No model answered."] : errors, calls, dropped, ...(code ? { code } : {}) });
   // The plan as the guard will see it running: a step it would block, left
   // out (purpose.ts). Without an answer, the plan stays as it is.
   const said = input.history.filter((m) => m.role === "user").map((m) => m.content);
@@ -415,6 +434,33 @@ export async function planAgent(
     dropped = out.dropped;
     return out.definition;
   };
+
+  // A new agent from a tested recipe, when one does the whole job: its
+  // steps and code are fixed, so it is built the same way every time. Its
+  // own call, beside the plan's; none fits (or SERV doesn't answer), and it
+  // is planned from scratch.
+  if (!input.current && opts.recipes !== false) {
+    const pick = await askRecipe(planText, config, { signal: opts.signal, fetchImpl: opts.fetchImpl, temperature: PLAN_TEMPERATURE, lessons: opts.lessons });
+    calls.push(pick.call);
+    // Stopped while picking: nothing more is asked.
+    if (opts.signal.aborted) return done(null);
+    maxCalls += 1;
+    if (pick.answer) answers.push(pick.call.content ?? "");
+    const picked = readPick(pick.answer, {
+      said: ownerWords,
+      services: input.services,
+      avoid: opts.avoid,
+      trigger: (w) => {
+        const t = wireSchedule(w);
+        return { ...t, description: t.description || "On its schedule" };
+      },
+    });
+    // Asking first, or a post to its address the maker never asked for, is
+    // no recipe's: planned from scratch.
+    const fits = picked && !(asked && picked.recipe.id !== "payment") && (picked.recipe.id !== "webhook" || WEBHOOK_ASKED.test(ownerWords));
+    const built = fits ? fromRecipe(picked.recipe, picked.fill) : null;
+    if (built && !rulesOf(built.definition).length) return done(built.definition, built.code);
+  }
 
   // Stage one: the outline. The services the maker named (or answered
   // about) bring their typed reads into the tools it is told of.
@@ -583,6 +629,16 @@ export function repaired(plan: unknown, o: { askedFirst?: boolean; formLink?: st
 
 // The maker asking for it to start when something posts to it.
 const WEBHOOK_ASKED = /\bwebhooks?\b|\bposts? to (?:it|its address|the agent)\b|\bwhen another app posts\b|\bzapier\b|\bmake\.com\b|\bn8n\b|\bincoming (?:posts?|requests?)\b/i;
+
+// What keeps a plan from being built, checked before any code is written:
+// none for one that is still its tested recipe; for any other, the format
+// and the planner's rules (a plan changed since it was checked, or saved
+// before a rule was).
+export function planChecks(d: AgentDefinition, code: Record<string, StepCode>): string[] {
+  if (matchesRecipe(d, code)) return [];
+  const checked = checkDefinition(d);
+  return [...new Set([...(checked.ok ? [] : checked.errors), ...rulesOf(checked.ok ? checked.definition : d)])];
+}
 
 // The planner's rules, on a plan that may not check out yet: what can be
 // read off it, or nothing.

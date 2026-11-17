@@ -1,8 +1,9 @@
 import "server-only";
-import { desc, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import { agentLessons } from "../db/schema";
 import { fixDashes } from "../dashes";
+import type { HealLog } from "./types";
 
 // Lessons: every repair that fixed a build (fixer.ts) is kept as a short
 // rule with what went wrong and what fixed it, counted each time the same
@@ -27,20 +28,24 @@ export function lessonKey(kind: string, rule: string): string {
 
 const MAX_MAKERS = 20;
 
-// A repair that fixed a build: learned, or counted once more.
-export async function learn(o: { kind: string; rule: string; wrong: string; fix: string; makerId: string }): Promise<void> {
+// A repair that fixed a build: learned, or counted once more. recipe: a
+// tested recipe's own lesson, learned when a build from it went live with
+// the fix (live), kept apart from the rest.
+export async function learn(o: { kind: string; rule: string; wrong: string; fix: string; makerId: string; recipe?: string | null; live?: boolean }): Promise<void> {
   const rule = fixDashes(o.rule).replace(/\s+/g, " ").trim().slice(0, 300);
   if (!rule) return;
-  const key = lessonKey(o.kind, rule);
+  const key = `${o.recipe ? `${o.recipe}/` : ""}${lessonKey(o.kind, rule)}`;
   const wrong = fixDashes(o.wrong).slice(0, 500);
   const fix = fixDashes(o.fix).slice(0, 500);
+  const live = o.live ? 1 : 0;
   await db
     .insert(agentLessons)
-    .values({ key, kind: o.kind, rule, wrong, fix, makers: [o.makerId] })
+    .values({ key, kind: o.kind, rule, wrong, fix, makers: [o.makerId], recipe: o.recipe ?? null, live })
     .onConflictDoUpdate({
       target: agentLessons.key,
       set: {
         count: sql`${agentLessons.count} + 1`,
+        live: sql`${agentLessons.live} + ${live}`,
         wrong,
         fix,
         lastSeenAt: new Date(),
@@ -70,7 +75,7 @@ export async function lessonsByCount(limit = 200): Promise<Lesson[]> {
 // (a mistake of no named kind only when its own rule recurs). The most
 // common first, a few at most.
 export async function recurringRules(limit = 6): Promise<string[]> {
-  const rows = await db.select().from(agentLessons).orderBy(desc(agentLessons.count), desc(agentLessons.lastSeenAt)).limit(200);
+  const rows = await db.select().from(agentLessons).where(isNull(agentLessons.recipe)).orderBy(desc(agentLessons.count), desc(agentLessons.lastSeenAt)).limit(200);
   const byKind = new Map<string, { rule: string; count: number; makers: Set<string> }>();
   for (const r of rows) {
     const k = r.kind === "other" ? r.key : r.kind;
@@ -84,4 +89,38 @@ export async function recurringRules(limit = 6): Promise<string[]> {
     .sort((a, b) => b.count - a.count)
     .slice(0, limit)
     .map((g) => g.rule);
+}
+
+// A recipe's own lessons (learn with recipe): the fixes builds from it
+// needed before they went live, the most proven first, for the planner and
+// the fixer of its next builds. Every recipe's ("all", for a plan not yet
+// made), each said with its recipe; none for null (a plan from scratch).
+export async function recipeRules(recipe: string | "all" | null, limit = 4): Promise<string[]> {
+  if (!recipe) return [];
+  const rows = await db
+    .select()
+    .from(agentLessons)
+    .where(and(recipe === "all" ? isNotNull(agentLessons.recipe) : eq(agentLessons.recipe, recipe), sql`${agentLessons.live} > 0`))
+    .orderBy(desc(agentLessons.live), desc(agentLessons.count), desc(agentLessons.lastSeenAt))
+    .limit(recipe === "all" ? 50 : limit);
+  if (recipe !== "all") return rows.map((r) => r.rule);
+  const per = new Map<string, number>();
+  return rows
+    .filter((r) => {
+      const n = per.get(r.recipe!) ?? 0;
+      per.set(r.recipe!, n + 1);
+      return n < 2;
+    })
+    .map((r) => `For the ${r.recipe} recipe: ${r.rule}`);
+}
+
+// A version gone live: each fix that got it there, from a build that
+// started from a tested recipe, is kept as that recipe's lesson (the plan
+// each failure was found on says which recipe it was).
+export async function learnFromLive(log: HealLog | null | undefined, makerId: string): Promise<void> {
+  for (const r of log?.rounds ?? []) {
+    const recipe = (r.diagnosis.evidence.plan as { recipe?: { id?: unknown } } | null)?.recipe?.id;
+    if (r.outcome !== "fixed" || !r.lesson?.text || typeof recipe !== "string") continue;
+    await learn({ kind: r.lesson.kind, rule: r.lesson.text, wrong: r.diagnosis.failure, fix: r.repair || r.why, makerId, recipe, live: true });
+  }
 }
