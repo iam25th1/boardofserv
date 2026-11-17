@@ -30,48 +30,73 @@ const readCode = (op: string) =>
     "}",
   ].join("\n");
 
-const judgeCode = (detail: string, task: string) =>
-  [
-    "async function run(input, tools) {",
-    `  const repo = ${REPO_FROM_SETTING};`,
-    "  const items = (Array.isArray(input.items) ? input.items : []).slice().reverse();",
-    "  const results = [];",
-    "  for (const item of items) {",
-    "    let changed = [];",
-    "    try {",
-    `      const got = await tools.github.read(${detail});`,
-    "      changed = got && Array.isArray(got.items) ? got.items : [];",
-    "    } catch (e) {",
-    "      changed = [];",
-    "    }",
-    "    const judged = await tools.serv.reason({",
-    `      task: ${literal(task)},`,
-    "      data: { item: { title: item.title, author: item.author, date: item.date }, changes: changed.map(function (f) { return { name: f.filename, status: f.status, added: f.additions, removed: f.deletions, patch: f.patch }; }) },",
-    '      answer: { verdict: "text", problems: "list" },',
-    "    });",
-    "    const problems = Array.isArray(judged.problems) ? judged.problems.map(String).filter(function (p) { return p.trim(); }) : [];",
-    '    results.push({ id: item.id, title: item.title, url: item.url, verdict: String(judged.verdict || ""), problems: problems });',
-    "  }",
-    "  return { results: results };",
-    "}",
-  ].join("\n");
+// What SERV says about not seeing more of a change (a patch cut short, a
+// file left out) is about the call, not the code: never a finding.
+export const NOT_SEEN = /\b(?:cut off|cut short|truncat\w*|incomplete (?:patch|diff|data|code|content|file|context|view)|partial(?:ly)? (?:shown|visible|patch|diff|content|code|view)|not (?:fully |all )?(?:shown|visible|included|provided)|cannot (?:be )?(?:verif\w*|see|validat\w*|confirm\w*|assess\w*|determin\w*|tell)|can.?t (?:verif\w*|see|validat\w*|confirm\w*|tell)|unable to (?:verif\w*|see|validat\w*|confirm\w*|assess\w*|determin\w*)|without (?:confirming|seeing|verifying|the full)|(?:missing|full|more|surrounding|enough) context|obscure\w*|omitted|lines not shown|missing clos\w*|elsewhere in the (?:code|file|repo\w*)|rest of the (?:file|code|patch))\b/i;
 
-const messageCode = (one: string, many: string, pulls: boolean) =>
+// A verdict, worst first, as SERV is asked for it.
+export const VERDICTS = ["critical", "problem", "minor", "pass"] as const;
+
+// What SERV is asked about each item: the owner's bar, and how to answer.
+export const judgeTask = (bar: string) =>
   [
-    "async function run(input) {",
-    "  const results = Array.isArray(input.results) ? input.results : [];",
-    "  if (!results.length) return { message: null };",
-    '  const where = String((input.settings || {}).github_repo || "").trim();',
-    "  const flagged = results.filter(function (r) { return (r.problems || []).length; }).length;",
-    `  const head = where + ": " + results.length + " " + (results.length === 1 ? ${literal(one)} : ${literal(many)}) + " checked, " + (flagged ? flagged + " with problems." : "nothing wrong found.");`,
-    "  const lines = results.map(function (r) {",
-    `    const name = ${pulls ? '"#" + r.id' : "String(r.id).slice(0, 7)"};`,
-    '    const problems = (r.problems || []).slice(0, 5).map(function (p) { return "\\n  - " + p; }).join("");',
-    '    return name + " " + r.title + ": " + r.verdict + problems;',
-    "  });",
-    '  return { message: { text: [head].concat(lines).join("\\n").slice(0, 3500) } };',
-    "}",
-  ].join("\n");
+    bar.trim(),
+    "Answer verdict with exactly one word: pass (nothing worth raising), minor (small things only), problem (a real bug or risk to fix) or critical (it would break or endanger something when it runs).",
+    "findings: at most 3, the most important first, each starting with the file it is in, as 'path: what is wrong'. None for a pass.",
+  ].join(" ");
+
+const judgeCode = (detail: string, task: string) => String.raw`async function run(input, tools) {
+  const repo = ${REPO_FROM_SETTING};
+  const items = (Array.isArray(input.items) ? input.items : []).slice().reverse();
+  const notSeen = ${NOT_SEEN.toString()};
+  const verdicts = ${JSON.stringify(VERDICTS)};
+  const results = [];
+  for (const item of items) {
+    let changed = [];
+    try {
+      const got = await tools.github.read(${detail});
+      changed = got && Array.isArray(got.items) ? got.items : [];
+    } catch (e) {
+      changed = [];
+    }
+    const files = changed.map(function (f) { return { name: String(f.filename || ""), status: f.status, added: f.additions, removed: f.deletions, patch: f.patch }; });
+    const judged = await tools.serv.reason({
+      task: ${literal(judgeTask(task))},
+      data: { item: { title: item.title, author: item.author, date: item.date }, files: files },
+      answer: { verdict: "text", findings: "list" },
+    });
+    // A finding names a file it was shown, and is about the code.
+    const names = files.map(function (f) { return f.name; }).filter(function (n) { return n; });
+    const tied = function (s) { return names.some(function (n) { return s.indexOf(n) !== -1 || s.indexOf(n.split("/").pop()) !== -1; }); };
+    const findings = (Array.isArray(judged.findings) ? judged.findings : []).map(function (s) { return String(s).trim(); }).filter(function (s) { return s && !notSeen.test(s) && tied(s); }).slice(0, 3);
+    const said = String(judged.verdict || "").trim().toLowerCase().split(/[^a-z]+/)[0];
+    let verdict = verdicts.indexOf(said) !== -1 ? said : findings.length ? "minor" : "pass";
+    // Worse than a pass stands on a finding; a pass raises none.
+    if (verdict !== "pass" && !findings.length) verdict = "pass";
+    results.push({ id: item.id, title: item.title, url: item.url, verdict: verdict, findings: verdict === "pass" ? [] : findings });
+  }
+  return { results: results };
+}`;
+
+const messageCode = (one: string, many: string, pulls: boolean) => String.raw`async function run(input) {
+  const results = Array.isArray(input.results) ? input.results : [];
+  if (!results.length) return { message: null };
+  const where = String((input.settings || {}).github_repo || "").trim();
+  // The counts are the verdicts', worst first.
+  const plural = { critical: "critical", problem: "problems", minor: "minor", pass: "passed" };
+  const single = { critical: "critical", problem: "problem", minor: "minor", pass: "passed" };
+  const counts = ${JSON.stringify(VERDICTS)}.map(function (v) {
+    const n = results.filter(function (r) { return r.verdict === v; }).length;
+    return n ? n + " " + (n === 1 ? single[v] : plural[v]) : "";
+  }).filter(function (c) { return c; });
+  const head = where + ": " + results.length + " " + (results.length === 1 ? ${literal(one)} : ${literal(many)}) + " checked: " + counts.join(", ") + ".";
+  const lines = results.map(function (r) {
+    const name = ${pulls ? '"#" + r.id' : "String(r.id).slice(0, 7)"};
+    const findings = (r.findings || []).map(function (p) { return "\n  - " + p; }).join("");
+    return name + " " + r.title + ": " + r.verdict + findings;
+  });
+  return { message: { text: [head].concat(lines).join("\n").slice(0, 3500) } };
+}`;
 
 export const watch: Recipe = {
   id: "watch",
@@ -117,10 +142,10 @@ export const watch: Recipe = {
             kind: "code",
             title: `Judge each ${k.one}`,
             plain: `Ask SERV to judge each ${k.one} on its changes.`,
-            description: `${eachItemNote()} ${diffsNote()} SERV gives a one-line verdict and a list of problems (none when nothing is wrong). Return results, one per item, with id, title, url, verdict and problems.`,
+            description: `${eachItemNote()} ${diffsNote()} SERV gives a verdict (pass, minor, problem or critical) and at most 3 findings, each tied to a file it was shown; a verdict worse than pass stands on a finding. Return results, one per item, with id, title, url, verdict and findings.`,
             inputs: ["items", "settings"],
             outputs: ["results"],
-            shapes: { results: "{ id: text, title: text, url: text, verdict: text, problems: text[] }[]" },
+            shapes: { results: "{ id: text, title: text, url: text, verdict: text, findings: text[] }[]" },
             tools: ["github.read", "serv.reason"],
             next: "write_message",
           },
@@ -129,7 +154,7 @@ export const watch: Recipe = {
             kind: "code",
             title: "Write the message",
             plain: `Put together one message naming each ${k.one} and what was found.`,
-            description: `Put the results together in one message: how many ${k.many} were checked and how many have problems, then each one's short id, title, verdict and problems. Return message, telegram.send's arguments { text }.`,
+            description: `Put the results together in one message: how many ${k.many} were checked and how many of each verdict, counted from the verdicts alone, then each one's short id, title, verdict and findings. Return message, telegram.send's arguments { text }.`,
             inputs: ["results", "settings"],
             outputs: ["message"],
             shapes: { message: "{ text: text }" },
