@@ -31,6 +31,11 @@ export interface RecipeSample {
 
 export interface Recipe {
   id: string;
+  // Its revision: agents built from an older one get this one as a new
+  // version, which their owners switch to (upgrade.ts).
+  rev: number;
+  // What a revision changed, in one line for "Version N is ready".
+  changes?: Record<number, string>;
   // Which jobs it does, for SERV to pick by.
   fits: string;
   // Its setup questions, by key, in a few words each.
@@ -39,6 +44,10 @@ export interface Recipe {
   // above), not only from their words: the rest are kept only when the
   // maker said them.
   inferred?: string[];
+  // What a setup answer must look like to be taken as given (a repository
+  // is owner/name): an answer to some other question ("Specific
+  // repositories only") is not one.
+  looks?: Record<string, RegExp>;
   // The services it uses (catalog ids), Telegram aside: a job that needs
   // another is planned from scratch.
   uses: string[];

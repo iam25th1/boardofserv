@@ -2,6 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { hostname } from "node:os";
 import type { Runtime } from "./context";
+import { upgradeRecipeAgents } from "../recipes/upgrade";
 import { beat, claimJob, HEARTBEAT_MS, requeueStale, runJob } from "./jobs";
 import { reppoCycle } from "../../reppo/cycle";
 import { settlePayments } from "../../spending/pay";
@@ -48,6 +49,7 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
   const id = `${hostname()}:${process.pid}:${randomBytes(4).toString("hex")}`;
   const running = new Map<string, Promise<void>>();
   let cycles = 0;
+  let upgraded = false;
   let reppo: Promise<void> | null = null;
   let paying: Promise<void> | null = null;
   let trusting: Promise<void> | null = null;
@@ -60,6 +62,12 @@ export function jobWorker(rt: Runtime, capacity = CAPACITY): JobWorker {
   return {
     id,
     async cycle() {
+      // Agents built from a recipe with a newer revision get it as a new
+      // version, once a process (recipes/upgrade.ts).
+      if (!upgraded) {
+        upgraded = true;
+        await upgradeRecipeAgents(rt).catch((err: unknown) => rt.log(`recipes: upgrading broke off: ${err instanceof Error ? err.name : "unknown error"}`));
+      }
       const picked = await requeueStale(rt);
       if (picked) rt.log(`jobs: ${picked} ${picked === 1 ? "job" : "jobs"} left running by a stopped server went back in the queue.`);
       await fireDue(rt);

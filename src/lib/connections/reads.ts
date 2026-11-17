@@ -28,6 +28,33 @@ export interface TypedRead {
 
 const LIMIT = z.number().int().min(1).max(50).optional();
 const cut = (v: unknown, n: number) => (typeof v === "string" ? (v.length > n ? `${v.slice(0, n)}...` : v) : (v ?? null));
+
+// A long text kept to about n characters as its first and last lines, with
+// a note where the middle was (a patch's start and end say most of what it
+// does; a reader told what is left out doesn't mistake it for the end).
+export const NOT_SHOWN = (lines: number) => `[${lines} ${lines === 1 ? "line" : "lines"} not shown]`;
+export function headTail(text: string, n: number): string {
+  if (text.length <= n) return text;
+  const lines = text.split("\n");
+  const head: string[] = [];
+  const tail: string[] = [];
+  let used = 40;
+  // Two thirds of the room for the start, the rest for the end.
+  for (const l of lines) {
+    if (used + l.length + 1 > (n * 2) / 3) break;
+    head.push(l);
+    used += l.length + 1;
+  }
+  for (let i = lines.length - 1; i >= head.length; i--) {
+    if (used + lines[i]!.length + 1 > n) break;
+    tail.unshift(lines[i]!);
+    used += lines[i]!.length + 1;
+  }
+  // A first line longer than the room is cut itself.
+  if (!head.length) head.push(`${lines[0]!.slice(0, Math.floor((n * 2) / 3))}`);
+  const hidden = lines.length - head.length - tail.length;
+  return [...head, NOT_SHOWN(hidden), ...tail].join("\n");
+}
 const list = (v: unknown): Record<string, unknown>[] => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 const at = (v: unknown, path: string): unknown => path.split(".").reduce<unknown>((o, k) => obj(o)[k], v);
@@ -66,7 +93,7 @@ const github: TypedRead = {
   }),
   summary: "Read a GitHub repository (owner/name; public ones need no key): its commits, pull requests or issues, or one pull request's or commit's changed files with their patches. An agent that remembers where it got to, or judges what it reads, reads new commits, pull requests or issues at most 5 a run: the latest 5 from the last 24 hours on its first run, then the oldest 5 after the date it remembers (since).",
   signature:
-    'tools.github.read({ op: "commits" | "pulls" | "issues" | "pull" | "commit", repo: string, number?: number, sha?: string, state?: "open" | "closed" | "all", since?: string, limit?: number }): Promise<{ items: Array<Record<string, string | number | boolean | null>> }> // commits: { sha, message, author, date, url }; pulls: { number, title, author, state, draft, created_at, merged_at, url, body }; issues: { number, title, author, state, labels, created_at, url, body }; pull (number) and commit (sha): its changed files { filename, status, additions, deletions, patch }; since is a date (ISO 8601, like 2026-11-16T09:00:00Z), only what came after it, never a sha or an id; for an agent that remembers where it got to or judges what it reads, commits, pulls and issues come at most 5 a run, newest first: with no since the latest 5 from the last 24 hours, with since the 5 oldest after it',
+    'tools.github.read({ op: "commits" | "pulls" | "issues" | "pull" | "commit", repo: string, number?: number, sha?: string, state?: "open" | "closed" | "all", since?: string, limit?: number }): Promise<{ items: Array<Record<string, string | number | boolean | null>> }> // commits: { sha, message, author, date, url, parents } (parents 2 or more: a merge); pulls: { number, title, author, state, draft, created_at, merged_at, url, body }; issues: { number, title, author, state, labels, created_at, url, body }; pull (number) and commit (sha): its changed files { filename, status, additions, deletions, patch, cut } (a patch past 3000 characters keeps its first and last lines around a "[N lines not shown]" note, cut true; patch null for a file GitHub leaves out); since is a date (ISO 8601, like 2026-11-16T09:00:00Z), only what came after it, never a sha or an id; for an agent that remembers where it got to or judges what it reads, commits, pulls and issues come at most 5 a run, newest first: with no since the latest 5 from the last 24 hours, with since the 5 oldest after it',
   outside: "a GitHub repository",
   verb: "read GitHub",
   request: (a: { op: string; repo: string; number?: number; sha?: string; state?: string; since?: string; limit?: number }) => {
@@ -78,10 +105,19 @@ const github: TypedRead = {
     return { method: "GET", path: `${base}/${a.op}`, query: { per_page, state: a.state ?? "open", ...(a.since && a.op === "issues" ? { since: a.since } : {}) } };
   },
   shape: (data: unknown, a: { op: string }) => {
-    const files = (v: unknown) => list(v).map((f) => ({ filename: f.filename ?? null, status: f.status ?? null, additions: f.additions ?? 0, deletions: f.deletions ?? 0, patch: cut(f.patch, 3000) }));
+    // A patch kept to its first and last lines past 3000 characters
+    // (cut: true), or left out by GitHub itself (a file too large to show,
+    // or a binary one).
+    const files = (v: unknown) =>
+      list(v).map((f) => {
+        const patch = typeof f.patch === "string" ? f.patch : null;
+        const changes = Number(f.additions ?? 0) + Number(f.deletions ?? 0);
+        return { filename: f.filename ?? null, status: f.status ?? null, additions: f.additions ?? 0, deletions: f.deletions ?? 0, patch: patch === null ? null : headTail(patch, 3000), cut: patch === null ? changes > 0 : patch.length > 3000 };
+      });
     if (a.op === "pull") return { items: files(data) };
     if (a.op === "commit") return { items: files(obj(data).files) };
-    if (a.op === "commits") return { items: list(data).map((c) => ({ sha: c.sha ?? null, message: String(at(c, "commit.message") ?? "").split("\n")[0], author: (at(c, "commit.author.name") ?? at(c, "author.login") ?? null) as string | null, date: (at(c, "commit.author.date") ?? null) as string | null, url: c.html_url ?? null })) };
+    // parents: 2 or more for a merge, which brings in work judged before.
+    if (a.op === "commits") return { items: list(data).map((c) => ({ sha: c.sha ?? null, message: String(at(c, "commit.message") ?? "").split("\n")[0], author: (at(c, "commit.author.name") ?? at(c, "author.login") ?? null) as string | null, date: (at(c, "commit.author.date") ?? null) as string | null, url: c.html_url ?? null, parents: Array.isArray(c.parents) ? c.parents.length : 1 })) };
     const people = (x: Record<string, unknown>) => (at(x, "user.login") ?? null) as string | null;
     if (a.op === "pulls") return { items: list(data).map((p) => ({ number: p.number ?? null, title: p.title ?? null, author: people(p), state: p.state ?? null, draft: Boolean(p.draft), created_at: p.created_at ?? null, merged_at: p.merged_at ?? null, url: p.html_url ?? null, body: cut(p.body, 1000) })) };
     return { items: list(data).filter((i) => !i.pull_request).map((i) => ({ number: i.number ?? null, title: i.title ?? null, author: people(i), state: i.state ?? null, labels: list(i.labels).map((l) => String(l.name ?? "")).join(", "), created_at: i.created_at ?? null, url: i.html_url ?? null, body: cut(i.body, 1000) })) };

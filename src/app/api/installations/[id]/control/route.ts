@@ -6,10 +6,11 @@ import { control, ControlRefused, installationDTO, loadInstallation, ownedInstal
 
 export const runtime = "nodejs";
 
-const Body = z.object({ action: z.enum(["pause", "resume", "stop", "run", "test", "golive"]) });
+const Body = z.object({ action: z.enum(["pause", "resume", "stop", "run", "test", "golive", "recheck"]) });
 
-// The owner pauses, resumes or stops their installation, or runs it now;
-// while it is being set up, runs a test or makes it live.
+// The owner pauses, resumes or stops their installation, or runs it now
+// (or, for one that judges a feed, over the latest 5 again); while it is
+// being set up, runs a test or makes it live.
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const params = await ctx.params;
   const user = await getUserFromRequest(req);
@@ -18,7 +19,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const loaded = await ownedInstallation(rt, user.id, params.id);
   if (!loaded) return Response.json({ error: "Not found" }, { status: 404 });
   const parsed = Body.safeParse(await req.json().catch(() => null));
-  if (!parsed.success) return Response.json({ error: "Say pause, resume, stop, run, test or golive." }, { status: 400 });
+  if (!parsed.success) return Response.json({ error: "Say pause, resume, stop, run, recheck, test or golive." }, { status: 400 });
   // Running costs model spend: only for accounts let in.
   if (parsed.data.action !== "pause" && parsed.data.action !== "stop") {
     const shut = notLetIn(user);

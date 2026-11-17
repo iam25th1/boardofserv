@@ -29,6 +29,7 @@ const receiptCode = [
 
 export const payment: Recipe = {
   id: "payment",
+  rev: 1,
   fits: "pay a saved payee a set amount of USDC on a schedule (every Friday, every month), asking the owner before each payment, then send a receipt",
   asks: { payee: "the saved payee's name", amount: "how much USDC each time" },
   uses: [],

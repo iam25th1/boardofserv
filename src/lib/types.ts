@@ -219,6 +219,8 @@ export interface InstallationDTO {
   newer?: { version: number; line: string; breaking: string | null } | null;
   // How many other copies of the owner's own agent run beside this one.
   others?: number;
+  // It judges what it reads from a feed: Check the latest 5 again.
+  judges?: boolean;
 }
 
 export interface BudgetDTO {

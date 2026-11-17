@@ -9,6 +9,7 @@ import { hasConnection } from "../../connections/vault";
 import { serviceName } from "../../connections/catalog";
 import { breakingChange, connectionsNeeded, neededIds, type AgentDefinition } from "../definition";
 import { whatChanged } from "../plainView";
+import { recipeById } from "../recipes";
 import { describeTriggers } from "../schedule";
 import { checkAnswers, type InstallAnswers } from "../settingsForm";
 import { emptyBench } from "../types";
@@ -18,6 +19,7 @@ import type { Runtime } from "./context";
 import { approvalsOf } from "./approvals";
 import { enqueue } from "./jobs";
 import { setUpTriggers } from "./triggers";
+import { readsFeed } from "./tools";
 import { jobRoom, rateLimits } from "./rates";
 import { holdOn } from "../../safety/freeze";
 import { allowanceOf } from "../../spending/allowance";
@@ -257,7 +259,11 @@ export async function newerVersion(rt: Runtime, l: Loaded): Promise<{ id: string
     .orderBy(desc(agentVersions.number))
     .limit(1);
   if (!v?.definition || v.number <= l.version.number || notRunnable(v)) return null;
-  return { id: v.id, version: v.number, definition: v.definition, line: whatChanged(l.definition, v.definition), breaking: breakingChange(l.definition, v.definition) };
+  // A newer revision of the recipe it was built from says what it changed.
+  const from = l.definition.recipe;
+  const to = v.definition.recipe;
+  const revised = from && to && from.id === to.id && (to.rev ?? 1) > (from.rev ?? 1) ? recipeById(to.id)?.changes?.[to.rev ?? 1] : undefined;
+  return { id: v.id, version: v.number, definition: v.definition, line: revised ?? whatChanged(l.definition, v.definition), breaking: breakingChange(l.definition, v.definition) };
 }
 
 // Switch the owner's copy to the newest version: in place, with the same
@@ -328,6 +334,8 @@ export async function installationDTO(rt: Runtime, l: Loaded): Promise<Installat
     safety: safetyOf(d, readPolicy(i.policy)),
     budget: await budgetDTO(rt, i),
     newer: await newerVersion(rt, l).then((n) => (n ? { version: n.version, line: n.line, breaking: n.breaking } : null)),
+    // It can be asked to check the latest items again.
+    judges: judgesFeed(d),
     // The owner's other copies of their own agent running beside this one,
     // each doing the same job: offered to stop.
     others: i.status === "stopped" ? 0 : (await ownCopies(rt, i.ownerUserId, l.agent.id)).filter((x) => x.id !== i.id).length,
@@ -360,7 +368,14 @@ export async function missingConnections(rt: Runtime, ownerUserId: string, d: Ag
   return missing;
 }
 
-export type Control = "pause" | "resume" | "stop" | "run" | "test" | "golive";
+export type Control = "pause" | "resume" | "stop" | "run" | "test" | "golive" | "recheck";
+
+// An agent that judges what it reads from a feed (a repository's commits,
+// pull requests or issues) with SERV: it can be asked to check the latest
+// again, whatever its place.
+export function judgesFeed(d: AgentDefinition): boolean {
+  return readsFeed(d) && d.steps.some((s) => s.kind === "code" && s.tools.includes("serv.reason"));
+}
 
 export class ControlRefused extends Error {
   constructor(message: string) {
@@ -421,11 +436,14 @@ export async function control(rt: Runtime, l: Loaded, action: Control): Promise<
     if (row!.live) await setUpTriggers(rt, row!, d);
     return;
   }
-  if (action === "run") {
+  if (action === "run" || action === "recheck") {
     if (i.status !== "active") throw new ControlRefused("Resume it first.");
+    if (action === "recheck" && !judgesFeed(d)) throw new ControlRefused("It doesn't judge what it reads, so there is nothing to check again.");
     const room = await jobRoom(rt, i.id);
     if (!room.ok) throw new ControlRefused(`It has started its limit of ${rateLimits().jobsPerHour} jobs this hour. Try again later.`);
-    await enqueue(rt, i, { kind: "manual" });
+    // Check the latest 5 again: one run over the latest items, whatever its
+    // place, which it never moves back (runtime/tools.ts).
+    await enqueue(rt, i, action === "recheck" ? { kind: "manual", latest: true } : { kind: "manual" });
     return;
   }
   await rt.db.transaction(async (tx) => {

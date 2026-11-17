@@ -33,7 +33,7 @@ describe.each(cases)("the %s recipe (%s)", (recipe, variant) => {
     expect(built).not.toBeNull();
     expect(checkDefinition(d)).toMatchObject({ ok: true });
     expect(planProblems(d)).toEqual([]);
-    expect(d.recipe).toEqual({ id: recipe.id, variant });
+    expect(d.recipe).toMatchObject({ id: recipe.id, variant, rev: recipe.rev });
   });
 
   it("has code for each code step that passes the plain checks, approved as the recipe's", () => {
@@ -121,10 +121,13 @@ describe("picking a recipe", () => {
     const pick = readPick({ recipe: "watch", variant: "commits", name: "Code checker", does: "Checks each new commit's quality.", done: "Each new commit judged.", task: "", given: [{ key: "github_repo", value: "iam25th1/boardofserv" }, { key: "criteria", value: "tests" }], trigger: { kind: "schedule", every: "day", interval: 0, at: "09:00", days: "", description: "Every day at 9" } }, { said, trigger })!;
     expect(pick.recipe.id).toBe("watch");
     expect(pick.fill.given).toEqual({ github_repo: "iam25th1/boardofserv" });
-    expect(pick.fill.task).toMatch(/Judge the quality/);
+    expect(pick.fill.task).toMatch(/^Good work in this commit is correct, clear and safe/);
     // A repository the maker never named is no answer of theirs.
     const made = readPick({ recipe: "watch", variant: "commits", name: "Checker", does: "Checks.", done: "Done.", task: "", given: [{ key: "github_repo", value: "octocat/Hello-World" }], trigger: { kind: "schedule", every: "day", at: "09:00" } }, { said, trigger })!;
     expect(made.fill.given).toEqual({});
+    // Nor is an answer to another question that happens to be in their words.
+    const other = readPick({ recipe: "watch", variant: "commits", name: "Checker", does: "Checks.", done: "Done.", task: "", given: [{ key: "github_repo", value: "Specific repositories only" }], trigger: { kind: "schedule", every: "day", at: "09:00" } }, { said: `${said} Specific repositories only`, trigger })!;
+    expect(other.fill.given).toEqual({});
   });
 
   it("plans from scratch for none, a recipe it was told to avoid, another service, or paying nobody asked for", () => {
@@ -145,7 +148,7 @@ describe("a recipe changed", () => {
     const hourly: AgentDefinition = { ...built.definition, triggers: [{ kind: "schedule", every: "hours", interval: 1, at: null, description: "Every hour" }] };
     expect(matchesRecipe(hourly, built.code)).toBe(true);
     const { recipe: _r, ...untagged } = hourly;
-    expect(keptRecipe(built.definition, untagged as AgentDefinition).recipe).toEqual({ id: "watch", variant: "commits" });
+    expect(keptRecipe(built.definition, untagged as AgentDefinition).recipe).toEqual(built.definition.recipe);
     const changed = { ...untagged, steps: untagged.steps.map((s) => (s.id === "write_message" && s.kind === "code" ? { ...s, description: `${s.description} Also list the authors.` } : s)) } as AgentDefinition;
     expect(keptRecipe(built.definition, changed).recipe).toBeUndefined();
     expect(matchesRecipe({ ...changed, recipe: built.definition.recipe }, built.code)).toBe(false);

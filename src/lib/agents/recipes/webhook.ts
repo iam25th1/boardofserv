@@ -31,6 +31,7 @@ const tellCode = (task: string) =>
 
 export const webhook: Recipe = {
   id: "webhook",
+  rev: 1,
   fits: "when another app posts to the agent's own address (a webhook: a payment, a form, a build, a sign-up), have SERV read what was posted and send the owner one short message about it",
   asks: {},
   uses: ["webhook"],

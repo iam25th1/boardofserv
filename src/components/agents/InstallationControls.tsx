@@ -12,7 +12,7 @@ import styles from "./InstallationControls.module.css";
 // a yes, since stopping can't be undone). While it is being set up: run a
 // test, then make it live.
 
-export type ControlAction = "pause" | "resume" | "stop" | "run" | "test" | "golive";
+export type ControlAction = "pause" | "resume" | "stop" | "run" | "test" | "golive" | "recheck";
 
 
 export function when(iso: string | null, timezone: string): string {
@@ -182,6 +182,7 @@ export function Controls({ data, onControl }: { data: InstallationDTO; onControl
       await onControl(action);
       if (action === "run" || action === "test") setSaid(action === "test" ? "A test run is queued: it does everything for real, once." : "A job is queued: it starts as soon as it may.");
       if (action === "golive") setSaid("It's live: it runs on its own from now on.");
+      if (action === "recheck") setSaid("A run over the latest 5 is queued. Where it got to never moves back.");
     } catch (err) {
       setSaid(err instanceof Error ? err.message : "That didn't work. Try again.");
     } finally {
@@ -210,6 +211,11 @@ export function Controls({ data, onControl }: { data: InstallationDTO; onControl
       {data.status === "active" && (
         <Button size="sm" onClick={() => void act("run")} disabled={busy !== null}>
           {busy === "run" ? "Starting..." : "Run now"}
+        </Button>
+      )}
+      {data.status === "active" && data.judges && (
+        <Button size="sm" variant="ghost" onClick={() => void act("recheck")} disabled={busy !== null}>
+          {busy === "recheck" ? "Starting..." : "Check the latest 5 again"}
         </Button>
       )}
       {data.status === "testing" ? null : data.status === "active" ? (

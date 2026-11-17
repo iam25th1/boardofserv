@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { InstallationDTO } from "@/lib/types";
-import { NewerVersion, OtherCopies } from "./InstallationControls";
+import { Controls, NewerVersion, OtherCopies } from "./InstallationControls";
 
 // The running card says when a newer version of the owner's own agent is
 // ready, with one line on what changed and Switch.
@@ -50,5 +50,24 @@ describe("other copies running beside it", () => {
     expect(screen.queryByRole("status")).toBeNull();
     rerender(<OtherCopies data={copies(1)} onStop={vi.fn()} />);
     expect(screen.getByRole("status")).toHaveTextContent("Another copy of this agent runs beside this one");
+  });
+});
+
+describe("Check the latest 5 again", () => {
+  const running = (judges: boolean, status = "active") => ({ id: "inst-1", agentId: "agent-1", version: 2, status, newer: null, judges, pausedReason: null }) as unknown as InstallationDTO;
+
+  it("is there for an agent that judges what it reads, and runs over the latest 5 without moving its place back", async () => {
+    const onControl = vi.fn().mockResolvedValue(undefined);
+    render(<Controls data={running(true)} onControl={onControl} />);
+    fireEvent.click(screen.getByRole("button", { name: "Check the latest 5 again" }));
+    await waitFor(() => expect(onControl).toHaveBeenCalledWith("recheck"));
+    expect(await screen.findByText("A run over the latest 5 is queued. Where it got to never moves back.")).toBeInTheDocument();
+  });
+
+  it("isn't there for an agent that judges no feed, or one that isn't running", () => {
+    const { rerender } = render(<Controls data={running(false)} onControl={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Check the latest 5 again" })).toBeNull();
+    rerender(<Controls data={running(true, "paused")} onControl={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: "Check the latest 5 again" })).toBeNull();
   });
 });

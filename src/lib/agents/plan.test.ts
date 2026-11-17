@@ -266,7 +266,7 @@ describe("planning from a tested recipe", () => {
     const plan = await planAgent({ interview: checker, history }, { config, signal: new AbortController().signal, fetchImpl: s.fetchImpl });
     expect(s.sent).toEqual([{ name: "agent_recipe", temperature: 0 }]);
     const d = plan.definition!;
-    expect(d.recipe).toEqual({ id: "watch", variant: "commits" });
+    expect(d.recipe).toEqual({ id: "watch", variant: "commits", rev: 2, task: "Judge the code, the work and the quality of this commit's changes." });
     expect(d.steps.map((x) => x.id)).toEqual(["read_items", "judge_items", "write_message", "send"]);
     expect(d.settings[0]).toMatchObject({ key: "github_repo", given: "iam25th1/boardofserv" });
     expect(d.triggers[0]).toMatchObject({ kind: "schedule", every: "hours", interval: 1 });

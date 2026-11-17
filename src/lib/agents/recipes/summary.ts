@@ -46,6 +46,7 @@ const messageCode = [
 
 export const summary: Recipe = {
   id: "summary",
+  rev: 1,
   fits: "a daily or weekly summary of a Google Sheet (sales, orders, sign-ups): how many rows in the period and each number column's total, in one message",
   asks: { sheet: "the Google Sheet tab it sums up" },
   uses: ["google"],

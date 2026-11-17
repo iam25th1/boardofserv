@@ -121,7 +121,7 @@ export function readPick(answer: Record<string, unknown> | null, o: { said: stri
   for (const g of Array.isArray(answer.given) ? answer.given : []) {
     const { key, value } = (g ?? {}) as { key?: unknown; value?: unknown };
     const v = text(value, 500);
-    if (typeof key === "string" && key in recipe.asks && v && (said.includes(bare(v)) || recipe.inferred?.includes(key))) given[key] = v;
+    if (typeof key === "string" && key in recipe.asks && v && (said.includes(bare(v)) || recipe.inferred?.includes(key)) && (recipe.looks?.[key]?.test(v) ?? true)) given[key] = v;
   }
   const task = text(answer.task, 600) || recipe.task.byDefault(variant);
   return { recipe, fill: { name, does, done, trigger, variant, task: recipe.task.byDefault(variant) ? task : "", given } };
@@ -132,7 +132,7 @@ export function readPick(answer: Record<string, unknown> | null, o: { said: stri
 // out (a recipe whose test should have caught it).
 export function fromRecipe(recipe: Recipe, fill: RecipeFill): { definition: AgentDefinition; code: Record<string, StepCode> } | null {
   const built = recipe.build(fill);
-  const parsed = AgentDefinitionSchema.safeParse({ ...built.definition, recipe: { id: recipe.id, variant: fill.variant } });
+  const parsed = AgentDefinitionSchema.safeParse({ ...built.definition, recipe: { id: recipe.id, variant: fill.variant, rev: recipe.rev, ...(fill.task.trim() ? { task: fill.task.trim().slice(0, 600) } : {}) } });
   if (!parsed.success) return null;
   const d = parsed.data;
   // A number the maker gave as "$2,000" is 2000.
@@ -179,7 +179,7 @@ const sameSpec = (a: string, b: string) => {
 // makes it a plan like any other (its code reviewed and tested as such).
 export function matchesRecipe(d: AgentDefinition | null | undefined, code: Record<string, StepCode>): boolean {
   const recipe = recipeById(d?.recipe?.id);
-  if (!d || !recipe) return false;
+  if (!d || !recipe || (d.recipe!.rev ?? 1) !== recipe.rev) return false;
   const built = fromRecipe(recipe, { name: d.name, does: d.job.does, done: d.job.done, trigger: d.triggers[0]!, variant: d.recipe!.variant, task: "", given: {} });
   if (!built || shapeOf(built.definition) !== shapeOf(d)) return false;
   return d.steps.every((s) => s.kind !== "code" || (code[s.id]?.writer === "recipe" && code[s.id]?.status === "approved" && sameSpec(code[s.id]!.spec, codeSpec(s))));
@@ -199,4 +199,37 @@ export function keptRecipe(before: AgentDefinition | null | undefined, after: Ag
 // recipe (no sample made up by SERV).
 export function recipeSample(d: AgentDefinition, code: Record<string, StepCode>) {
   return matchesRecipe(d, code) ? recipeById(d.recipe!.id)!.sample(d) : null;
+}
+
+// What SERV was asked at run time, from a step's code built from a recipe
+// before the task was kept on the plan: its task's text.
+function taskInCode(code: Record<string, StepCode>): string | null {
+  for (const c of Object.values(code)) {
+    const m = /\btask:\s*("(?:[^"\\\n]|\\.)*")/.exec(c.source ?? "");
+    if (!m) continue;
+    try {
+      const text = JSON.parse(m[1]!) as unknown;
+      // A task written whole into the code, not one made from parts.
+      if (typeof text === "string" && text.trim()) return text.replace(/^What the owner asked for: /, "").split(/ Judge only the changes shown/)[0]!.trim();
+    } catch {
+      // not a plain string
+    }
+  }
+  return null;
+}
+
+// A plan built from an older revision of its recipe, built again from the
+// recipe as it is now with everything that was the owner's kept: its name,
+// job, schedule, variant, run-time task and the setup answers they gave.
+// Null when it is the recipe's newest already (or from no recipe).
+export function recipeUpgrade(d: AgentDefinition, code: Record<string, StepCode>): { definition: AgentDefinition; code: Record<string, StepCode>; recipe: Recipe } | null {
+  const recipe = recipeById(d.recipe?.id);
+  if (!recipe || (d.recipe!.rev ?? 1) >= recipe.rev) return null;
+  const variant = d.recipe!.variant;
+  // What the owner gave, where it is what it answers.
+  const given = Object.fromEntries(d.settings.flatMap((s) => (s.given && (recipe.looks?.[s.key]?.test(s.given.trim()) ?? true) ? [[s.key, s.given]] : [])));
+  const task = d.recipe!.task ?? taskInCode(code) ?? recipe.task.byDefault(variant);
+  const built = fromRecipe(recipe, { name: d.name, does: d.job.does, done: d.job.done, trigger: d.triggers[0]!, variant, task: recipe.task.byDefault(variant) ? task : "", given });
+  if (!built) return null;
+  return { definition: { ...built.definition, triggers: d.triggers }, code: built.code, recipe };
 }
