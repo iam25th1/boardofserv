@@ -92,8 +92,10 @@ export function feedArgs(tool: ToolName, args: Record<string, unknown>, keepsPla
   if (!keepsPlace || tool !== "github.read" || !FEED_OPS.includes(String(args.op))) return null;
   return typeof args.since === "string" && args.since ? { ...args, limit: 100 } : { ...args, limit: Math.min(Number(args.limit ?? NEW_PER_RUN), NEW_PER_RUN) };
 }
-export function feedItems<T extends Record<string, unknown>>(items: T[], o: { since: string | null; now: number }): T[] {
+// latest: the newest NEW_PER_RUN, however old (Check the latest 5 again).
+export function feedItems<T extends Record<string, unknown>>(items: T[], o: { since: string | null; now: number; latest?: boolean }): T[] {
   const at = (x: T) => Date.parse(String(x.date ?? x.created_at ?? ""));
+  if (o.latest) return items.slice(0, NEW_PER_RUN);
   if (!o.since) return items.filter((x) => at(x) >= o.now - 24 * 3_600_000).slice(0, NEW_PER_RUN);
   const since = Date.parse(o.since);
   return items.filter((x) => at(x) > since).slice(-NEW_PER_RUN);
@@ -113,7 +115,9 @@ export class JobTools implements ToolHost {
   private mock: MockTools | null = null;
   // Where this job's feed read got to: the items it gave, the ones judged,
   // and the one being judged now (its changes read last).
-  private feedRun: { key: string | null; items: { id: string; date: string }[]; done: Set<string>; read: string[] } | null = null;
+  // latest: a run over the latest items whatever its place (Check the
+  // latest 5 again); from: the place it had then.
+  private feedRun: { key: string | null; items: { id: string; date: string }[]; done: Set<string>; read: string[]; latest?: boolean; from?: string | null } | null = null;
   // The guard's answers in this run, by call: the same call is checked once.
   private checked = new Map<string, GuardResult>();
   // The checks whose model cost is in the audit log already.
@@ -662,9 +666,11 @@ export class JobTools implements ToolHost {
     const capped = this.definition.memory.length > 0 || this.definition.steps.some((st) => st.kind === "decision" || (st.kind === "code" && st.tools.includes("serv.reason")));
     const feed = this.job ? feedArgs(tool, parsed.data as Record<string, unknown>, capped) : null;
     // After its first run: what came after the date it remembers, whether
-    // or not the code asked for it.
+    // or not the code asked for it. Asked to check the latest again: the
+    // latest, whatever it remembers.
+    const latest = this.job?.trigger?.latest === true;
     const place = feed && !feed.since ? await this.place() : null;
-    if (feed && place) Object.assign(feed, { since: place, limit: 100 });
+    if (feed && place && !latest) Object.assign(feed, { since: place, limit: 100 });
     // An item's changes read: the one before it is judged.
     if (typed && !feed && tool === "github.read") await this.itemTaken(String((parsed.data as { sha?: unknown; number?: unknown }).sha ?? (parsed.data as { number?: unknown }).number ?? ""));
     const asked = feed ?? parsed.data;
@@ -720,8 +726,8 @@ export class JobTools implements ToolHost {
     if (got.status >= 200 && got.status < 300) {
       const shaped = typed.shape(got.data, asked as never) as { items?: Record<string, unknown>[] };
       if (!feed || !Array.isArray(shaped.items)) return shaped;
-      const items = feedItems(shaped.items, { since: typeof feed.since === "string" ? feed.since : null, now });
-      this.feedRun = { key: this.placeKey(), items: items.map((x) => ({ id: String(x.sha ?? x.number ?? ""), date: String(x.date ?? x.created_at ?? "") })), done: new Set(), read: [] };
+      const items = feedItems(shaped.items, { since: typeof feed.since === "string" ? feed.since : null, now, latest });
+      this.feedRun = { key: this.placeKey(), items: items.map((x) => ({ id: String(x.sha ?? x.number ?? ""), date: String(x.date ?? x.created_at ?? "") })), done: new Set(), read: [], ...(latest ? { latest, from: place } : {}) };
       return { ...shaped, items };
     }
     throw new ToolError(tool, got.status === 401 || got.status === 403 ? `${entry.name} turned the connection down (${got.status}): check its key on Connections, or that it may read this.` : got.status === 404 ? `${entry.name} has no such item (${got.status}): check what the agent was given.` : `${entry.name} answered ${got.status}.`);
@@ -788,6 +794,13 @@ export class JobTools implements ToolHost {
     }
     const was = await this.place();
     if (!at || (was && Date.parse(was) >= Date.parse(at))) return;
+    // A run over the latest items moves the place on only when they reach
+    // back to it: an item between the place and the oldest of them was
+    // never judged, and stays to be.
+    if (f.latest && f.from) {
+      const oldest = Math.min(...f.items.map((x) => Date.parse(x.date)).filter((t) => Number.isFinite(t)));
+      if (!(oldest <= Date.parse(f.from))) return;
+    }
     await this.memory("memory.set", { key: f.key, value: at });
   }
 

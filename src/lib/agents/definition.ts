@@ -270,7 +270,10 @@ const Shape = z.object({
   approvalHours: z.number().int().min(1).max(168).optional(),
   // The tested recipe it was built from (recipes/), when it was: its steps,
   // tools and code are the recipe's.
-  recipe: z.object({ id: key, variant: z.string().max(40) }).optional(),
+  // rev: the recipe's revision it was built from (1 unless said); task:
+  // what SERV is asked at run time, in the owner's words, kept for a
+  // newer revision of the recipe.
+  recipe: z.object({ id: key, variant: z.string().max(40), rev: z.number().int().min(1).max(100).optional(), task: z.string().max(600).optional() }).optional(),
 });
 
 export const DEFAULT_APPROVAL_HOURS = 24;

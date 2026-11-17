@@ -48,6 +48,7 @@ const messageCode = [
 
 export const alert: Recipe = {
   id: "alert",
+  rev: 1,
   fits: "watch a coin's or token's price (bitcoin, ethereum, any coin) and tell the owner when it goes below or above their target, once each time it crosses",
   asks: { coin: "CoinGecko's id for the coin, like bitcoin or ethereum", target: "the target price in US dollars", direction: "below or above" },
   uses: ["coingecko"],

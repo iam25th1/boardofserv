@@ -189,6 +189,10 @@ const messageCode = (one: string, many: string, pulls: boolean) => String.raw`as
 
 export const watch: Recipe = {
   id: "watch",
+  rev: 2,
+  changes: {
+    2: "Its judge skips merge commits, lockfiles and generated files, sees a long file's start and end, never counts a cut-off patch as a problem, and leads each commit with its verdict (pass, minor, problem or critical).",
+  },
   fits: "watch a GitHub repository and judge each new commit or pull request (its code quality, risks, what changed), then send the owner one message",
   asks: { github_repo: "the repository, owner/name" },
   uses: ["github"],

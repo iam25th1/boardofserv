@@ -31,6 +31,11 @@ export interface RecipeSample {
 
 export interface Recipe {
   id: string;
+  // Its revision: agents built from an older one get this one as a new
+  // version, which their owners switch to (upgrade.ts).
+  rev: number;
+  // What a revision changed, in one line for "Version N is ready".
+  changes?: Record<number, string>;
   // Which jobs it does, for SERV to pick by.
   fits: string;
   // Its setup questions, by key, in a few words each.

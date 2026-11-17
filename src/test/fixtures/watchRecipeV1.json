@@ -1,0 +1,161 @@
+{
+  "definition": {
+    "format": 1,
+    "name": "GitHub Code Verifier",
+    "job": {
+      "does": "Checks each new commit in your GitHub repository and tells you about its code, work and quality.",
+      "done": "Each new commit judged and you told what was found."
+    },
+    "triggers": [
+      {
+        "kind": "schedule",
+        "every": "hours",
+        "interval": 1,
+        "at": null,
+        "description": "Every hour"
+      }
+    ],
+    "settings": [
+      {
+        "key": "github_repo",
+        "label": "Which GitHub repository",
+        "type": "text",
+        "help": "The repository it checks: owner/name, or its link.",
+        "choices": [],
+        "given": "iam25th1/boardofserv"
+      }
+    ],
+    "rules": [],
+    "memory": [
+      {
+        "key": "last_item_date",
+        "description": "The date (ISO 8601) of the newest item it has judged, so the next run reads only what came after it.",
+        "type": "text"
+      }
+    ],
+    "steps": [
+      {
+        "id": "read_items",
+        "title": "Read new commits",
+        "plain": "Read the repository's new commits, at most 5 at a time.",
+        "inputs": [
+          "settings",
+          "memory"
+        ],
+        "outputs": [
+          "items"
+        ],
+        "shapes": {
+          "items": "{ id: text, title: text, author: text, date: text, url: text }[]"
+        },
+        "kind": "code",
+        "description": "Read the new commits of the repository in settings.github_repo with github.read (op \"commits\") and return items, each with id, title, author, date and url. github.read gives only the new items, 5 at most (with memory.last_item_date empty, the latest from the last 24 hours; after that what came after it), and keeps memory.last_item_date itself: take what it gives, with no date filter, limit or memory.set of its own.",
+        "tools": [
+          "github.read"
+        ],
+        "next": "judge_items"
+      },
+      {
+        "id": "judge_items",
+        "title": "Judge each commit",
+        "plain": "Ask SERV to judge each commit on its changes.",
+        "inputs": [
+          "items",
+          "settings"
+        ],
+        "outputs": [
+          "results"
+        ],
+        "shapes": {
+          "results": "{ id: text, title: text, url: text, verdict: text, problems: text[] }[]"
+        },
+        "kind": "code",
+        "description": "It goes through the items one at a time, oldest first (GitHub lists the newest first), one serv.reason call for each item. For each item it reads its changed files with github.read (op \"commit\" with the sha, or op \"pull\" with the number; the repository from settings) and gives them to serv.reason. SERV gives a one-line verdict and a list of problems (none when nothing is wrong). Return results, one per item, with id, title, url, verdict and problems.",
+        "tools": [
+          "github.read",
+          "serv.reason"
+        ],
+        "next": "write_message"
+      },
+      {
+        "id": "write_message",
+        "title": "Write the message",
+        "plain": "Put together one message naming each commit and what was found.",
+        "inputs": [
+          "results",
+          "settings"
+        ],
+        "outputs": [
+          "message"
+        ],
+        "shapes": {
+          "message": "{ text: text }"
+        },
+        "kind": "code",
+        "description": "Put the results together in one message: how many commits were checked and how many have problems, then each one's short id, title, verdict and problems. Return message, telegram.send's arguments { text }.",
+        "tools": [],
+        "next": "send"
+      },
+      {
+        "id": "send",
+        "title": "Send it to you",
+        "plain": "Send it to you on Telegram.",
+        "inputs": [
+          "message"
+        ],
+        "outputs": [],
+        "kind": "action",
+        "action": "tell",
+        "next": null
+      }
+    ],
+    "actions": [
+      {
+        "id": "tell",
+        "tool": "telegram.send",
+        "description": "Send you what it found"
+      }
+    ],
+    "services": [
+      "github"
+    ],
+    "limits": {
+      "maxSteps": 40,
+      "maxRunSeconds": 300,
+      "maxSpendUsd": 0.1
+    },
+    "recipe": {
+      "id": "watch",
+      "variant": "commits"
+    }
+  },
+  "code": {
+    "read_items": {
+      "spec": "[\"Read the new commits of the repository in settings.github_repo with github.read (op \\\"commits\\\") and return items, each with id, title, author, date and url. github.read gives only the new items, 5 at most (with memory.last_item_date empty, the latest from the last 24 hours; after that what came after it), and keeps memory.last_item_date itself: take what it gives, with no date filter, limit or memory.set of its own.\",[\"settings\",\"memory\"],[\"items\"],[\"github.read\"],{\"items\":\"{ id: text, title: text, author: text, date: text, url: text }[]\"}]",
+      "status": "approved",
+      "source": "async function run(input, tools) {\n  const repo = String((input.settings || {}).github_repo || \"\").trim().replace(/^https?:\\/\\/(?:www\\.)?github\\.com\\//i, \"\").replace(/\\.git$/i, \"\").replace(/\\/+$/, \"\").split(\"/\").slice(0, 2).join(\"/\");\n  if (!repo) return { items: [] };\n  const got = await tools.github.read({ op: \"commits\", repo: repo });\n  const list = got && Array.isArray(got.items) ? got.items : [];\n  const items = list.map(function (x) {\n    return { id: String(x.sha || x.number || \"\"), title: String(x.message || x.title || \"\"), author: String(x.author || \"\"), date: String(x.date || x.created_at || \"\"), url: String(x.url || \"\") };\n  });\n  return { items: items };\n}",
+      "rounds": 0,
+      "note": null,
+      "writer": "recipe",
+      "updatedAt": "2026-11-16T23:00:00.000Z"
+    },
+    "judge_items": {
+      "spec": "[\"It goes through the items one at a time, oldest first (GitHub lists the newest first), one serv.reason call for each item. For each item it reads its changed files with github.read (op \\\"commit\\\" with the sha, or op \\\"pull\\\" with the number; the repository from settings) and gives them to serv.reason. SERV gives a one-line verdict and a list of problems (none when nothing is wrong). Return results, one per item, with id, title, url, verdict and problems.\",[\"items\",\"settings\"],[\"results\"],[\"github.read\",\"serv.reason\"],{\"results\":\"{ id: text, title: text, url: text, verdict: text, problems: text[] }[]\"}]",
+      "status": "approved",
+      "source": "async function run(input, tools) {\n  const repo = String((input.settings || {}).github_repo || \"\").trim().replace(/^https?:\\/\\/(?:www\\.)?github\\.com\\//i, \"\").replace(/\\.git$/i, \"\").replace(/\\/+$/, \"\").split(\"/\").slice(0, 2).join(\"/\");\n  const items = (Array.isArray(input.items) ? input.items : []).slice().reverse();\n  const results = [];\n  for (const item of items) {\n    let changed = [];\n    try {\n      const got = await tools.github.read({ op: \"commit\", repo: repo, sha: item.id });\n      changed = got && Array.isArray(got.items) ? got.items : [];\n    } catch (e) {\n      changed = [];\n    }\n    const judged = await tools.serv.reason({\n      task: \"Judge the quality of this commit's changes: name each real problem (a bug, a risky or unclear change, a missing test where it matters) in a few words, or none, and give a one-line verdict.\",\n      data: { item: { title: item.title, author: item.author, date: item.date }, changes: changed.map(function (f) { return { name: f.filename, status: f.status, added: f.additions, removed: f.deletions, patch: f.patch }; }) },\n      answer: { verdict: \"text\", problems: \"list\" },\n    });\n    const problems = Array.isArray(judged.problems) ? judged.problems.map(String).filter(function (p) { return p.trim(); }) : [];\n    results.push({ id: item.id, title: item.title, url: item.url, verdict: String(judged.verdict || \"\"), problems: problems });\n  }\n  return { results: results };\n}",
+      "rounds": 0,
+      "note": null,
+      "writer": "recipe",
+      "updatedAt": "2026-11-16T23:00:00.000Z"
+    },
+    "write_message": {
+      "spec": "[\"Put the results together in one message: how many commits were checked and how many have problems, then each one's short id, title, verdict and problems. Return message, telegram.send's arguments { text }.\",[\"results\",\"settings\"],[\"message\"],[],{\"message\":\"{ text: text }\"}]",
+      "status": "approved",
+      "source": "async function run(input) {\n  const results = Array.isArray(input.results) ? input.results : [];\n  if (!results.length) return { message: null };\n  const where = String((input.settings || {}).github_repo || \"\").trim();\n  const flagged = results.filter(function (r) { return (r.problems || []).length; }).length;\n  const head = where + \": \" + results.length + \" \" + (results.length === 1 ? \"commit\" : \"commits\") + \" checked, \" + (flagged ? flagged + \" with problems.\" : \"nothing wrong found.\");\n  const lines = results.map(function (r) {\n    const name = String(r.id).slice(0, 7);\n    const problems = (r.problems || []).slice(0, 5).map(function (p) { return \"\\n  - \" + p; }).join(\"\");\n    return name + \" \" + r.title + \": \" + r.verdict + problems;\n  });\n  return { message: { text: [head].concat(lines).join(\"\\n\").slice(0, 3500) } };\n}",
+      "rounds": 0,
+      "note": null,
+      "writer": "recipe",
+      "updatedAt": "2026-11-16T23:00:00.000Z"
+    }
+  }
+}

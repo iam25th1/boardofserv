@@ -33,7 +33,7 @@ describe.each(cases)("the %s recipe (%s)", (recipe, variant) => {
     expect(built).not.toBeNull();
     expect(checkDefinition(d)).toMatchObject({ ok: true });
     expect(planProblems(d)).toEqual([]);
-    expect(d.recipe).toEqual({ id: recipe.id, variant });
+    expect(d.recipe).toMatchObject({ id: recipe.id, variant, rev: recipe.rev });
   });
 
   it("has code for each code step that passes the plain checks, approved as the recipe's", () => {
@@ -145,7 +145,7 @@ describe("a recipe changed", () => {
     const hourly: AgentDefinition = { ...built.definition, triggers: [{ kind: "schedule", every: "hours", interval: 1, at: null, description: "Every hour" }] };
     expect(matchesRecipe(hourly, built.code)).toBe(true);
     const { recipe: _r, ...untagged } = hourly;
-    expect(keptRecipe(built.definition, untagged as AgentDefinition).recipe).toEqual({ id: "watch", variant: "commits" });
+    expect(keptRecipe(built.definition, untagged as AgentDefinition).recipe).toEqual(built.definition.recipe);
     const changed = { ...untagged, steps: untagged.steps.map((s) => (s.id === "write_message" && s.kind === "code" ? { ...s, description: `${s.description} Also list the authors.` } : s)) } as AgentDefinition;
     expect(keptRecipe(built.definition, changed).recipe).toBeUndefined();
     expect(matchesRecipe({ ...changed, recipe: built.definition.recipe }, built.code)).toBe(false);

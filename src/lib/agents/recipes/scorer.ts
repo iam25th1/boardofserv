@@ -81,6 +81,7 @@ const CRITERIA = { key: "criteria", label: "What it scores them on", type: "text
 
 export const scorer: Recipe = {
   id: "scorer",
+  rev: 1,
   fits: "score each new form response or sheet row (a submission, an application, an enquiry) from 1 to 10 against the owner's criteria with SERV, and send one summary",
   asks: { form: "the Typeform form's link (form variant)", sheet: "the Google Sheet tab (sheet variant)", criteria: "what it scores them on, in the owner's words" },
   uses: ["typeform", "google"],

@@ -182,7 +182,7 @@ export function useApi() {
         json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }).then((d) => d.installation),
       setModelBudget: (id: string, modelBudget: string | null) =>
         json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify({ modelBudget }) }).then((d) => d.installation),
-      controlInstallation: (id: string, action: "pause" | "resume" | "stop" | "run" | "test" | "golive") =>
+      controlInstallation: (id: string, action: "pause" | "resume" | "stop" | "run" | "test" | "golive" | "recheck") =>
         json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}/control`, { method: "POST", body: JSON.stringify({ action }) }).then((d) => d.installation),
       // Switch the owner's own copy to the newest version of its agent.
       switchVersion: (id: string) => json<{ installation: InstallationDTO }>(`/api/installations/${encodeURIComponent(id)}/version`, { method: "POST" }).then((d) => d.installation),
